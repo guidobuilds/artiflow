@@ -49,9 +49,11 @@ bun run dev
 Open <http://127.0.0.1:5173/>. Use that exact IPv4 address: on some machines `localhost` resolves to an
 unrelated IPv6 listener.
 
-The local sign-in form exists only in the development profile: `NODE_ENV=development`,
-`ARTIFLOW_DEMO_AUTH=1` and a loopback `ARTIFLOW_PUBLIC_ORIGIN` must all agree, and any other
-combination is refused at startup. Do not carry that profile to a server.
+The local demo profile — in-browser account creation and the demo sign-in — exists only in
+development: `NODE_ENV=development`, `ARTIFLOW_DEMO_AUTH=1` and a loopback `ARTIFLOW_PUBLIC_ORIGIN`
+must all agree, and any other combination is refused at startup. Do not carry that profile to a
+server. Production still signs in with email/password, but only for accounts created through
+invitations.
 
 ## Production instance
 
@@ -165,6 +167,10 @@ sent, and possession of the link is not treated as mailbox proof. See
 invocations and refusal rules. No social provider creates an account on its own: a configured provider
 only signs in to an existing linked account. Rotating `ARTIFLOW_AUTH_SECRET` invalidates existing
 sessions and tokens; see [operate and upgrade](/docs/self-hosting/operations/).
+
+Changing `ARTIFLOW_PUBLIC_ORIGIN` moves the OAuth issuer and every resource identifier. Clients
+registered and tokens issued under the previous origin stop matching, so re-register and
+re-authenticate each harness after the change.
 
 ## Scope of what is verified
 
