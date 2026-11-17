@@ -32,7 +32,7 @@ Add the endpoint to your client. For Claude Code:
 claude mcp add --transport http artiflow https://artifacts.example.com/mcp
 ```
 
-Then run `/mcp` inside Claude Code and approve the sign-in. Cursor, OpenCode, Codex and other clients
+Then run `/mcp` inside Claude Code and approve the sign-in. OpenCode, Codex, Cursor and other clients
 take the same URL; [Connect an agent](/docs/connect/mcp/) has each configuration, the consent flow and
 what a refused token means.
 

@@ -15,7 +15,7 @@ export function Logo({
           aria-hidden="true"
           className="shrink-0 fill-none stroke-current [stroke-linecap:round] [stroke-linejoin:round] [stroke-width:1.6]"
         >
-          <path d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20" />
+          <path d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17.5 A2.5 2.5 0 0 0 12.5 20" />
           <path transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10" />
           <path transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7" />
           <path transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7" />

@@ -1,6 +1,6 @@
 ---
 title: Connect an agent
-description: Add an Artiflow instance to an MCP client, understand the OAuth flow, and configure Claude Code, Cursor, OpenCode, OpenWork, Codex or any other Streamable HTTP host.
+description: Add an Artiflow instance to an MCP client, understand the OAuth flow, and configure OpenCode, OpenWork, Claude Code, Codex, Cursor or any other Streamable HTTP host.
 sidebar:
   order: 2
 ---
@@ -19,24 +19,6 @@ static API key to copy, and the endpoint never accepts a dashboard cookie.
 
 These are the configurations the dashboard offers on **Connect an agent**, with a placeholder origin.
 Replace `https://artifacts.example.com` with your own instance origin.
-
-### Claude Code
-
-```sh
-claude mcp add --transport http artiflow https://artifacts.example.com/mcp
-```
-
-Run `/mcp` inside Claude Code and follow the sign-in prompt the first time a tool needs access.
-
-### Cursor — `~/.cursor/mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "artiflow": { "url": "https://artifacts.example.com/mcp" }
-  }
-}
-```
 
 ### OpenCode — `opencode.json`
 
@@ -57,9 +39,9 @@ OpenWork Desktop is OpenCode-based and edits the same engine config. Open **Libr
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "servers": {
-      "artiflow": { "type": "remote", "url": "https://artifacts.example.com/mcp" }
-    }
-  }
+      "artiflow": { "type": "remote", "url": "https://artifacts.example.com/mcp" },
+    },
+  },
 }
 ```
 
@@ -76,6 +58,14 @@ the tools as ready.
 Version note: this format is confirmed working on OpenWork Desktop 0.18.58; upstream 0.18.67
 differences are unknown. When reporting issues, record the app version (Settings → About).
 
+### Claude Code
+
+```sh
+claude mcp add --transport http artiflow https://artifacts.example.com/mcp
+```
+
+Run `/mcp` inside Claude Code and follow the sign-in prompt the first time a tool needs access.
+
 ### Codex — `~/.codex/config.toml`
 
 ```toml
@@ -87,6 +77,16 @@ Then sign in once from the terminal:
 
 ```sh
 codex mcp login artiflow
+```
+
+### Cursor — `~/.cursor/mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "artiflow": { "url": "https://artifacts.example.com/mcp" }
+  }
+}
 ```
 
 ### Any other MCP client
