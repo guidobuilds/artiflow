@@ -48,7 +48,7 @@
     "@artiflow/domain": "*",
     "@artiflow/plugin-core": "*",
     "@artiflow/sdk": "*",
-    "@opencode/plugin": "2.2.7",
+    "@opencode/plugin": "2.3.0",
     "esbuild": "^0.28.0",
     "vite": "^7.3.7",
     "vite-plugin-solid": "^2.11.10",
