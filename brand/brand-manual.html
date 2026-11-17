@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manual de marca artiflow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column with a sticky index on wide screens; tokens mirror the product's Ink palette. */
+:root {
+  --bg: #ffffff;
+  --raised: #ffffff;
+  --surface: #f4f4f3;
+  --line: #ebebea;
+  --line-strong: #d9d9d6;
+  --ink: #0f1d16;
+  --muted: #545b57;
+  --subtle: #6b716d;
+  --ember: #fa5a1e;
+  --ember-text: #c2410c;
+  --font-display: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b0f0d; --raised: #111613; --surface: #161c18; --line: #212924; --line-strong: #2f3933;
+    --ink: #f4f4f2; --muted: #a9b0ab; --subtle: #858d88; --ember: #ff6a2b; --ember-text: #ff8a55;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b0f0d; --raised: #111613; --surface: #161c18; --line: #212924; --line-strong: #2f3933;
+  --ink: #f4f4f2; --muted: #a9b0ab; --subtle: #858d88; --ember: #ff6a2b; --ember-text: #ff8a55;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-display); font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+a { color: var(--ink); text-underline-offset: 3px; }
+a:hover { color: var(--ember-text); }
+:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; border-radius: 4px; }
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+h1, h2, h3 { text-wrap: balance; letter-spacing: -0.035em; line-height: 1.1; margin: 0; font-weight: 600; }
+h2 { font-size: clamp(30px, 4vw, 44px); }
+h3 { font-size: 20px; letter-spacing: -0.02em; }
+p { margin: 0; max-width: 65ch; }
+
+.wm { display: block; width: 100%; height: auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.wm .muted { stroke: var(--wm-muted, currentColor); }
+.wm circle { stroke: none; fill: currentColor; }
+.wm circle.dot { fill: var(--ember); }
+.wm .tail { stroke: var(--ember); }
+.sym { display: block; width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.sym circle { stroke: none; fill: var(--ember); }
+
+.shell { max-width: 1240px; margin: 0 auto; padding: 0 max(16px, 3vw); display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px; }
+.toc { position: sticky; top: 0; align-self: start; padding: 40px 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.toc a { text-decoration: none; color: var(--muted); padding: 5px 0; display: flex; gap: 10px; }
+.toc a span { font-family: var(--font-mono); font-size: 12px; color: var(--subtle); min-width: 18px; }
+.toc a:hover { color: var(--ink); }
+.toc .brand { width: 96px; margin-bottom: 20px; color: var(--ink); }
+main { min-width: 0; }
+section { padding: 72px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 32px; }
+.sec-head { display: flex; flex-direction: column; gap: 12px; }
+.sec-head .num { font-family: var(--font-mono); font-size: 13px; color: var(--subtle); }
+.lead { font-size: 18px; color: var(--muted); }
+
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 960px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .toc { display: none; }
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) { .grid-2, .grid-4 { grid-template-columns: minmax(0, 1fr); } }
+
+.tile { border-radius: 14px; border: 1px solid var(--line); background: var(--raised); padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+.stage { border-radius: 14px; display: flex; align-items: center; justify-content: center; padding: 48px 32px; min-height: 220px; }
+.stage.paper { background: #ffffff; color: #0f1d16; border: 1px solid #ebebea; --ember: #fa5a1e; }
+.stage.butter { background: #f4f4f3; color: #0f1d16; --ember: #fa5a1e; }
+.stage.forest { background: #0f1d16; color: #ffffff; --ember: #ff6a2b; }
+.stage.deep { background: #0a140f; color: #ffffff; --ember: #ff6a2b; }
+.stage.app { background: #ffffff; color: #0f1d16; border: 1px solid #ebebea; }
+.tag.done { border-color: var(--line-strong); color: var(--ink); }
+.caption { font-size: 13px; color: var(--muted); }
+.caption strong { color: var(--ink); font-weight: 500; }
+.tag { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-strong); font-size: 12px; font-weight: 500; color: var(--muted); }
+.tag.decide { border-color: var(--ember); color: var(--ember-text); }
+
+/* Cover */
+.cover { padding: 56px 0 72px; display: flex; flex-direction: column; gap: 40px; }
+.cover .meta { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.cover .big { color: var(--ink); max-width: 980px; }
+.cover h1 { font-size: clamp(32px, 4.4vw, 54px); letter-spacing: -0.045em; line-height: 1.04; }
+
+/* Principles */
+.principles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.principles div { padding: 22px 24px 22px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.principles div:nth-child(odd) { border-right: 1px solid var(--line); }
+.principles div:nth-child(even) { padding-left: 24px; }
+@media (max-width: 560px) { .principles { grid-template-columns: minmax(0, 1fr); } .principles div:nth-child(odd) { border-right: none; } .principles div:nth-child(even) { padding-left: 0; } }
+.principles b { font-weight: 600; font-size: 17px; letter-spacing: -0.01em; }
+.principles span { color: var(--muted); font-size: 15px; }
+
+/* Logo construction */
+.construct { position: relative; background: #ffffff; color: #0f1d16; border: 1px solid #ebebea; --ember: #fa5a1e; border-radius: 14px; padding: 72px 56px; overflow: hidden; }
+.construct .guides { position: absolute; inset: 0; pointer-events: none; }
+.construct .zone { position: relative; outline: 1px dashed #fa5a1e; outline-offset: 28px; }
+.sizes { display: flex; align-items: flex-end; gap: 40px; flex-wrap: wrap; }
+.sizes figure { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+
+/* Don'ts */
+.dont .stage { min-height: 150px; padding: 28px; position: relative; }
+.dont .stage::after { content: ""; position: absolute; top: 14px; right: 14px; width: 18px; height: 18px; background:
+  linear-gradient(45deg, transparent 44%, #b42318 44%, #b42318 56%, transparent 56%),
+  linear-gradient(-45deg, transparent 44%, #b42318 44%, #b42318 56%, transparent 56%); }
+
+/* Symbols */
+.icon { width: 112px; height: 112px; border-radius: 26px; background: #0f1d16; color: #ffffff; --ember: #ff6a2b; display: flex; align-items: center; justify-content: center; }
+.icon .sym { width: 66%; height: 66%; }
+.mini { display: flex; align-items: center; gap: 18px; color: var(--ink); }
+
+/* Color */
+.swatch { border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--raised); display: flex; flex-direction: column; }
+.swatch .chip { height: 96px; }
+.swatch .info { padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.swatch .info b { font-weight: 500; font-size: 14px; }
+.swatch .info .mono { color: var(--muted); }
+.ratio { display: flex; height: 40px; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 11px 12px 11px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { font-weight: 500; color: var(--muted); font-size: 13px; }
+td .dotc { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin-right: 8px; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); }
+.scroll-x { overflow-x: auto; }
+
+/* Type */
+.specimen { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.specimen .row { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 24px; align-items: baseline; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.specimen .row .spec { font-family: var(--font-mono); font-size: 12px; color: var(--subtle); line-height: 1.5; }
+@media (max-width: 560px) { .specimen .row { grid-template-columns: minmax(0, 1fr); gap: 6px; } }
+
+/* UI samples */
+.ui { background: #ffffff; color: #0f1d16; border: 1px solid #ebebea; border-radius: 14px; padding: 28px; display: flex; flex-direction: column; gap: 22px; --ember: #fa5a1e; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; border-radius: 8px; font: inherit; font-size: 14px; font-weight: 500; border: 1px solid transparent; cursor: pointer; }
+.btn.primary { background: #0f1d16; color: #ffffff; }
+.btn.secondary { background: #ffffff; border-color: #d9d9d6; color: #0f1d16; }
+.btn.quiet { background: transparent; color: #545b57; }
+.btn.pill { border-radius: 999px; height: 44px; padding: 0 22px; }
+.btn.pill.soft { background: #f4f4f3; color: #0f1d16; }
+.seclabel { font-family: var(--font-mono); font-size: 12px; letter-spacing: .04em; color: #6b716d; }
+.seclabel b { color: #fa5a1e; font-weight: 400; }
+.row-ui { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.cmd { display: flex; align-items: center; gap: 8px; border-radius: 8px; background: #ffffff; border: 1px solid #ebebea; padding: 6px 6px 6px 12px; min-width: 0; }
+.cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: 13px; }
+.cmd code b { color: #c2410c; font-weight: 400; }
+.viewer { border-radius: 10px; overflow: hidden; border: 1px solid #d9d9d6; background: #ffffff; }
+.viewer .bar { height: 48px; display: flex; align-items: stretch; border-bottom: 1px solid #ebebea; font-size: 13px; overflow-x: auto; }
+.viewer .bar > div { display: flex; align-items: center; gap: 10px; padding: 0 14px; border-right: 1px solid #ebebea; white-space: nowrap; }
+.viewer .bar .grow { flex: 1; border-right: none; }
+.viewer .bar .end { border-left: 1px solid #ebebea; border-right: none; }
+.viewer .content { height: 120px; background: linear-gradient(#eef3ff, #eef3ff); display: flex; align-items: flex-end; gap: 8px; padding: 20px; }
+.viewer .content span { flex: 1; background: #3b6fe0; border-radius: 3px 3px 0 0; }
+.card { border-radius: 12px; border: 1px solid #ebebea; background: #ffffff; overflow: hidden; max-width: 280px; }
+.card .thumb { height: 110px; background: #1d1b3a; display: flex; align-items: flex-end; gap: 5px; padding: 14px; }
+.card .thumb span { flex: 1; background: #7c6cf0; border-radius: 2px 2px 0 0; }
+.card .meta { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: #545b57; }
+.card .meta b { color: #0f1d16; font-weight: 500; font-size: 14px; }
+
+/* Usage do / don't */
+.usage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 560px) { .usage { grid-template-columns: minmax(0, 1fr); } }
+.usage .tile ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: 15px; }
+.usage .tile h3 { font-size: 16px; display: flex; gap: 8px; align-items: center; }
+.yes { color: #2f7a4b; } .no { color: #b42318; }
+:root[data-theme="dark"] .yes { color: #6fcf97; } :root[data-theme="dark"] .no { color: #f97066; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .yes { color: #6fcf97; } :root:not([data-theme="light"]) .no { color: #f97066; } }
+
+footer { border-top: 1px solid var(--line); padding: 40px 0 64px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc" aria-label="Índice">
+    <div class="brand"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div>
+    <a href="#concepto"><span>01</span>Concepto</a>
+    <a href="#logo"><span>02</span>Wordmark</a>
+    <a href="#simbolo"><span>03</span>Símbolo</a>
+    <a href="#color"><span>04</span>Color</a>
+    <a href="#tipografia"><span>05</span>Tipografía</a>
+    <a href="#interfaz"><span>06</span>Interfaz</a>
+    <a href="#usos"><span>07</span>Usos</a>
+  </nav>
+
+  <main>
+    <header class="cover">
+      <div class="meta"><span>Manual de marca</span><span class="mono">v0.2 · noviembre 2026</span></div>
+      <div class="big"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div>
+      <h1>Cómo usar la marca.<br>Blanco, tinta y un naranja.</h1>
+      <p class="lead">Este manual reúne cómo se usa la marca de artiflow: wordmark, símbolo, color, tipografía e interfaz. El posicionamiento, los mensajes y la voz viven en el documento «Brand and voice» del proyecto en Linear. La v0.2 reemplaza las paletas Studio y Quiet por una sola: blanco, tinta y un acento naranja.</p>
+    </header>
+
+    <section id="concepto">
+      <div class="sec-head">
+        <span class="num">01</span>
+        <h2>Concepto</h2>
+        <p class="lead">La página alrededor de un artefacto se queda quieta: espacio blanco, tinta casi negra con un toque de verde bosque, líneas de 1px y un solo acento Ember para lo que importa.</p>
+      </div>
+      <div class="principles">
+        <div><b>El artefacto manda</b><span>Blanco y tinta alrededor. El único color fuerte en pantalla es el del artefacto.</span></div>
+        <div><b>Un solo acento</b><span>Ember marca lo que importa: el punto del logo, la segunda línea del titular, la numeración de secciones, el foco. Nunca rellena superficies grandes.</span></div>
+        <div><b>La onda, solo en la marca</b><span>El trazo de onda vive en el wordmark y el símbolo. La interfaz usa líneas rectas y separadores de 1px.</span></div>
+      </div>
+    </section>
+
+    <section id="logo">
+      <div class="sec-head">
+        <span class="num">02</span>
+        <h2>Wordmark</h2>
+        <p class="lead">Cada letra sale del mismo trazo redondeado: arcos, copas y una «w» que es una ola. La «a» se engancha con la «r» y la «t» fluye hacia la «i». El punto de la «i» es el único color.</p>
+      </div>
+      <div class="grid-2">
+        <div><div class="stage paper"><div style="width: min(380px, 90%)"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div></div><p class="caption" style="margin-top: 10px"><strong>Principal, sobre claro.</strong> Tinta y punto Ember 500.</p></div>
+        <div><div class="stage forest"><div style="width: min(380px, 90%)"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div></div><p class="caption" style="margin-top: 10px"><strong>Principal, sobre oscuro.</strong> Blanco y punto Ember 400.</p></div>
+      </div>
+
+      <h3>Construcción y área de respeto</h3>
+      <div class="construct">
+        <div class="zone" style="width: min(520px, 100%); margin: 0 auto"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div>
+      </div>
+      <p class="caption">El área de respeto (línea discontinua) es igual a la altura de la «o». Nada entra en ese margen. La línea base y la altura de x son las del trazo: arcos de radio 5 sobre una x de 10 unidades y trazo de 1,6 unidades.</p>
+
+      <h3>Tamaños mínimos</h3>
+      <div class="sizes">
+        <figure><div style="width: 160px"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div><figcaption class="caption">160 px · uso general</figcaption></figure>
+        <figure><div style="width: 104px"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div><figcaption class="caption">104 px · cabecera</figcaption></figure>
+        <figure><div style="width: 72px"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div><figcaption class="caption">72 px · mínimo</figcaption></figure>
+      </div>
+      <p class="caption">Por debajo de 72 px de ancho, usa el símbolo.</p>
+
+      <h3>Usos incorrectos</h3>
+      <div class="grid-4 dont">
+        <div><div class="stage paper"><div style="width: 100%; transform: scaleX(1.35)"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div></div><p class="caption" style="margin-top: 8px">No lo estires ni lo comprimas.</p></div>
+        <div><div class="stage paper"><div style="width: 100%"><svg class="wm" viewBox="-1.3 -0.30000000000000004 112.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><path class="tail" d="M99.0 15 A3 3 0 0 1 105.0 15 A2.2 2.2 0 0 0 109.4 15"></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div></div><p class="caption" style="margin-top: 8px">No agregues la cola de onda en Ember al final.</p></div>
+        <div><div class="stage paper" style="color: #d4480f"><div style="width: 100%"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div></div><p class="caption" style="margin-top: 8px">No lo pintes entero en Ember.</p></div>
+        <div><div class="stage" style="background: linear-gradient(135deg, #3b6fe0, #f472b6); color: #ffffff"><div style="width: 100%"><svg class="wm" viewBox="-1.3 -0.30000000000000004 101.6 21.6" role="img" aria-label="artiflow"  style="stroke-width:1.6"><path class="" transform="translate(0 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 M10 10 V17 A3 3 0 0 0 13 20 "></path><path class="" transform="translate(14.5 0)" d="M-2 20 A2 2 0 0 0 0 18 V15 A5 5 0 0 1 5 10 "></path><path class="" transform="translate(23.5 0)" d="M3 3 V15 A5 5 0 0 0 8 20 H10.5 A3 3 0 0 0 13.5 17 V10 M0 10 H7 "></path><path class="" transform="translate(40.5 0)" d="M3 20 V7 A4 4 0 0 1 7 3 H8 M0 10 H7 "></path><path class="" transform="translate(53.0 0)" d="M0 2 V16 A4 4 0 0 0 4 20 "></path><path class="" transform="translate(60.5 0)" d="M0 15 A5 5 0 0 1 10 15 A5 5 0 0 1 0 15 "></path><path class="" transform="translate(75.0 0)" d="M0 10 V15 A4 4 0 0 0 8 15 A4 4 0 0 1 16 15 A4 4 0 0 0 24 15 V10 "></path><circle class="dot" cx="37.0" cy="5.2" r="1.2"></circle></svg></div></div><p class="caption" style="margin-top: 8px">No lo pongas sobre degradados ni fotos con ruido.</p></div>
+      </div>
+
+    </section>
+
+    <section id="simbolo">
+      <div class="sec-head">
+        <span class="num">03</span>
+        <h2>Símbolo</h2>
+        <p class="lead">El monograma A+F: la «a» es un arco con el artefacto adentro, y su pierna derecha es el palo de la «f». Las dos letras tienen la misma altura y el mismo trazo que el wordmark.</p>
+      </div>
+      <div class="grid-3">
+        <div class="tile" style="align-items: center; gap: 18px; padding: 28px; grid-column: 1 / -1">
+          <div class="icon"><svg class="sym" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width:2.4"><path d="M3.5 19.5V12a5.5 5.5 0 0 1 11 0v7.5M17 6.5h4M14.5 13h5"></path><circle class="dot" cx="9" cy="15.5" r="2"></circle></svg></div>
+          <div class="mini"><span style="width: 16px; height: 16px"><svg class="sym" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width:2.8"><path d="M3.5 19.5V12a5.5 5.5 0 0 1 11 0v7.5M17 6.5h4M14.5 13h5"></path><circle class="dot" cx="9" cy="15.5" r="2"></circle></svg></span><span style="width: 24px; height: 24px"><svg class="sym" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width:2.5"><path d="M3.5 19.5V12a5.5 5.5 0 0 1 11 0v7.5M17 6.5h4M14.5 13h5"></path><circle class="dot" cx="9" cy="15.5" r="2"></circle></svg></span><span style="width: 32px; height: 32px"><svg class="sym" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width:2.3"><path d="M3.5 19.5V12a5.5 5.5 0 0 1 11 0v7.5M17 6.5h4M14.5 13h5"></path><circle class="dot" cx="9" cy="15.5" r="2"></circle></svg></span></div>
+          <span class="caption"><strong>A+F arco</strong></span>
+        </div>
+      </div>
+      <p class="caption">Ícono de app: fondo tinta, radio del 23 % del lado, símbolo al 66 %. En favicon (16 px) el trazo sube a 2,8 unidades para que no se pierda.</p>
+    </section>
+
+    <section id="color">
+      <div class="sec-head">
+        <span class="num">04</span>
+        <h2>Color</h2>
+        <p class="lead">Blanco, tinta y un solo acento naranja. La misma paleta para la landing, la marca y la app. La tinta es un negro con un toque de verde bosque: se lee como negro y conserva el origen de la marca.</p>
+      </div>
+
+      <h3>Paleta · Tinta</h3>
+      <div class="grid-4">
+        <div class="swatch"><div class="chip" style="background: #ffffff; box-shadow: inset 0 -1px 0 #ebebea;"></div><div class="info"><b>Blanco</b><span class="mono">#FFFFFF</span><span>Fondo, papel</span></div></div>
+        <div class="swatch"><div class="chip" style="background: #f4f4f3;"></div><div class="info"><b>Piedra 100</b><span class="mono">#F4F4F3</span><span>Superficies, botón secundario</span></div></div>
+        <div class="swatch"><div class="chip" style="background: #ebebea;"></div><div class="info"><b>Piedra 200</b><span class="mono">#EBEBEA</span><span>Líneas de 1px</span></div></div>
+        <div class="swatch"><div class="chip" style="background: #0f1d16;"></div><div class="info"><b>Tinta</b><span class="mono">#0F1D16</span><span>Texto, botón principal, paneles oscuros</span></div></div>
+        <div class="swatch"><div class="chip" style="background: #545b57;"></div><div class="info"><b>Tinta 600</b><span class="mono">#545B57</span><span>Texto secundario</span></div></div>
+        <div class="swatch"><div class="chip" style="background: #fa5a1e;"></div><div class="info"><b>Ember 500</b><span class="mono">#FA5A1E</span><span>Acento sobre claro</span></div></div>
+        <div class="swatch"><div class="chip" style="background: #c2410c;"></div><div class="info"><b>Ember 700</b><span class="mono">#C2410C</span><span>Texto chico en naranja</span></div></div>
+        <div class="swatch"><div class="chip" style="background: #ff6a2b;"></div><div class="info"><b>Ember 400</b><span class="mono">#FF6A2B</span><span>Acento sobre oscuro</span></div></div>
+      </div>
+      <div class="ratio" aria-label="Proporción de uso aproximada">
+        <span style="flex: 70; background: #ffffff"></span><span style="flex: 20; background: #0f1d16"></span><span style="flex: 8; background: #f4f4f3"></span><span style="flex: 2; background: #fa5a1e"></span>
+      </div>
+      <p class="caption">Proporción de uso: casi todo blanco, tinta para texto y botones, piedra para superficies y Ember casi nada. Ember 500 no alcanza 4,5:1 sobre blanco: para texto chico va Ember 700.</p>
+
+      <h3>Tokens</h3>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>Token</th><th>Claro</th><th>Oscuro</th><th>Uso</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">--bg</td><td><span class="dotc" style="background: #ffffff"></span><span class="mono">#FFFFFF</span></td><td><span class="dotc" style="background: #0b0f0d"></span><span class="mono">#0B0F0D</span></td><td>Fondo de landing y app</td></tr><tr><td class="mono">--side</td><td><span class="dotc" style="background: #f7f7f6"></span><span class="mono">#F7F7F6</span></td><td><span class="dotc" style="background: #080b09"></span><span class="mono">#080B09</span></td><td>Barra lateral</td></tr><tr><td class="mono">--surface</td><td><span class="dotc" style="background: #f4f4f3"></span><span class="mono">#F4F4F3</span></td><td><span class="dotc" style="background: #161c18"></span><span class="mono">#161C18</span></td><td>Superficies, botón secundario, cajas de cierre</td></tr><tr><td class="mono">--line</td><td><span class="dotc" style="background: #ebebea"></span><span class="mono">#EBEBEA</span></td><td><span class="dotc" style="background: #212924"></span><span class="mono">#212924</span></td><td>Separadores de 1px, rieles de la landing</td></tr><tr><td class="mono">--line-strong</td><td><span class="dotc" style="background: #d9d9d6"></span><span class="mono">#D9D9D6</span></td><td><span class="dotc" style="background: #2f3933"></span><span class="mono">#2F3933</span></td><td>Bordes de campos y botones secundarios</td></tr><tr><td class="mono">--fg</td><td><span class="dotc" style="background: #0f1d16"></span><span class="mono">#0F1D16</span></td><td><span class="dotc" style="background: #f4f4f2"></span><span class="mono">#F4F4F2</span></td><td>Texto principal y botón principal</td></tr><tr><td class="mono">--muted</td><td><span class="dotc" style="background: #545b57"></span><span class="mono">#545B57</span></td><td><span class="dotc" style="background: #a9b0ab"></span><span class="mono">#A9B0AB</span></td><td>Texto secundario</td></tr><tr><td class="mono">--subtle</td><td><span class="dotc" style="background: #6b716d"></span><span class="mono">#6B716D</span></td><td><span class="dotc" style="background: #858d88"></span><span class="mono">#858D88</span></td><td>Metadatos, versiones (≥ 4,5:1)</td></tr><tr><td class="mono">--accent</td><td><span class="dotc" style="background: #fa5a1e"></span><span class="mono">#FA5A1E</span></td><td><span class="dotc" style="background: #ff6a2b"></span><span class="mono">#FF6A2B</span></td><td>Punto del logo, titular, numeración, foco</td></tr><tr><td class="mono">--accent-text</td><td><span class="dotc" style="background: #c2410c"></span><span class="mono">#C2410C</span></td><td><span class="dotc" style="background: #ff8a55"></span><span class="mono">#FF8A55</span></td><td>Texto chico en naranja (≥ 4,5:1)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="tipografia">
+      <div class="sec-head">
+        <span class="num">05</span>
+        <h2>Tipografía</h2>
+        <p class="lead">Geist para todo y Geist Mono para código, comandos, versiones y números. Títulos en peso 500, apretados y en sentence case; peso 300 para títulos de sección largos. La segunda línea del titular puede ir en Ember.</p>
+      </div>
+      <div class="specimen">
+        <div class="row"><span class="spec">Display<br>500 · 60/1.02 · −0.045em</span><span style="font-size: clamp(32px, 4.4vw, 60px); font-weight: 500; letter-spacing: -0.045em; line-height: 1.02">Your agents make it.<br><span style="color: var(--ember)">Your team reads it.</span></span></div>
+        <div class="row"><span class="spec">Título<br>500 · 44/1.08 · −0.04em</span><span style="font-size: clamp(26px, 3.4vw, 44px); font-weight: 500; letter-spacing: -0.04em; line-height: 1.08">One library for everything your agents write.</span></div>
+        <div class="row"><span class="spec">Título liviano<br>300 · 36–44 · −0.035em</span><span style="font-size: clamp(24px, 3vw, 40px); font-weight: 300; letter-spacing: -0.035em; line-height: 1.1">Frequently asked questions</span></div>
+        <div class="row"><span class="spec">Etiqueta de sección<br>Mono 400 · 12 · +0.04em</span><span class="seclabel">[ <b>01</b> / 05 ] · PRODUCT</span></div>
+        <div class="row"><span class="spec">Subtítulo<br>600 · 20/1.3 · −0.02em</span><span style="font-size: 20px; font-weight: 600; letter-spacing: -0.02em">Share “Q4 pricing tiers”</span></div>
+        <div class="row"><span class="spec">Cuerpo<br>400 · 15–18/1.55</span><span style="font-size: 16px">Every artifact opens as its own clean page, in any browser. Nothing is shared until you share it.</span></div>
+        <div class="row"><span class="spec">UI<br>500 · 13–14</span><span style="font-size: 14px; font-weight: 500">Copy link · Reset link · Invite</span></div>
+        <div class="row"><span class="spec">Mono<br>400 · 12–13</span><span class="mono" style="font-size: 13px">v3 · 2h · artifacts.acme.dev/a/7f3k2q</span></div>
+      </div>
+    </section>
+
+    <section id="interfaz">
+      <div class="sec-head">
+        <span class="num">06</span>
+        <h2>Interfaz</h2>
+        <p class="lead">Fondo blanco, separadores de 1px y sombras suaves solo para lo que flota (diálogos, tarjetas sobre ilustraciones). Un botón principal por vista y el artefacto a pantalla completa.</p>
+      </div>
+      <div class="ui">
+        <div class="row-ui">
+          <button class="btn primary" type="button">Self-host artiflow</button>
+          <button class="btn secondary" type="button">Copy link</button>
+          <button class="btn quiet" type="button">Cancel</button>
+        </div>
+        <div class="row-ui">
+          <button class="btn primary pill" type="button">Self-host artiflow →</button>
+          <button class="btn pill soft" type="button">Read the docs</button>
+        </div>
+        <p class="caption" style="color: #545b57">El principal va en tinta, nunca en Ember. En la app los botones tienen radio de 8 px; en la landing son píldoras.</p>
+        <span class="seclabel">[ <b>02</b> / 05 ] · HOW IT WORKS</span>
+        <p class="caption" style="color: #545b57">La landing usa rieles verticales de 1px a los lados del contenido, una línea por sección con un «+» en Ember en cada cruce, y secciones numeradas en mono.</p>
+        <div class="cmd"><code><b>$</b> claude mcp add --transport http artiflow https://artifacts.acme.dev/mcp</code><button class="btn secondary" type="button" style="height: 30px; padding: 0 10px; font-size: 12.5px">Copy</button></div>
+        <div class="viewer">
+          <div class="bar">
+            <div><span style="width: 18px; height: 18px; display: block"><svg class="sym" viewBox="0 0 24 24" aria-hidden="true" style="stroke-width:2.6"><path d="M3.5 19.5V12a5.5 5.5 0 0 1 11 0v7.5M17 6.5h4M14.5 13h5"></path><circle class="dot" cx="9" cy="15.5" r="2"></circle></svg></span></div>
+            <div><span style="font-weight: 500">Q4 pricing tiers</span><span class="mono" style="color: #6b716d">v3</span></div>
+            <div class="grow"></div>
+            <div class="end" style="color: #545b57">Page</div>
+            <div class="end" style="padding: 0 8px"><span class="btn primary" style="height: 30px; padding: 0 12px; font-size: 13px">Share</span></div>
+          </div>
+          <div class="content"><span style="height: 40%"></span><span style="height: 55%"></span><span style="height: 50%"></span><span style="height: 70%"></span><span style="height: 82%"></span><span style="height: 95%; background: #f2b631"></span></div>
+        </div>
+        <p class="caption" style="color: #545b57">Barra del visor: 48 px, celdas separadas por líneas de 1px. Todo lo de abajo es del artefacto.</p>
+        <p class="caption" style="color: #545b57"><strong style="color: #0f1d16">Ilustración.</strong> Línea isométrica de 1px en tinta (o blanco sobre tinta), un solo elemento en Ember y etiquetas en mono con líneas guía. Texturas de puntos solo como fondo, desvanecidas hacia los bordes.</p>
+        <div class="card">
+          <div class="thumb"><span style="height: 60%"></span><span style="height: 75%"></span><span style="height: 55%"></span><span style="height: 88%"></span><span style="height: 64%; background: #7ee0c3"></span></div>
+          <div class="meta"><b>API latency review</b><span class="mono">Page · v5 · 1d</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="usos">
+      <div class="sec-head">
+        <span class="num">07</span>
+        <h2>Usos</h2>
+        <p class="lead">Qué hacer y qué evitar al aplicar la marca en la landing, la app y las piezas sueltas.</p>
+      </div>
+      <div class="usage">
+        <div class="tile"><h3><span class="yes" aria-hidden="true">●</span> Así</h3>
+          <ul>
+            <li>Espacio blanco y líneas de 1px entre regiones.</li>
+            <li>Botón principal en tinta; títulos en sans apretada, con la segunda línea en Ember.</li>
+            <li>Mono para comandos, versiones, números y etiquetas de sección: «[ 01 / 05 ] · PRODUCT».</li>
+            <li>Mostrar el producto real en lugar de ilustraciones del producto.</li>
+          </ul>
+        </div>
+        <div class="tile"><h3><span class="no" aria-hidden="true">●</span> Así no</h3>
+          <ul>
+            <li>Fondos crema o teñidos, degradados, brillos o rellenos en Ember.</li>
+            <li>Botones principales en Ember o mayúsculas mono en botones.</li>
+            <li>Barras, marcas de agua o marcos encima del artefacto.</li>
+            <li>Eyebrows en píldora con puntito, cursores parpadeantes o íconos genéricos sin contenido.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <span>artiflow · manual de marca v0.2</span>
+      <span class="mono">Geist · Geist Mono · Blanco + Tinta + Ember</span>
+    </footer>
+  </main>
+</div>
+</body>
+</html>

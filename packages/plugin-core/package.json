@@ -1,0 +1,29 @@
+{
+  "name": "@artiflow/plugin-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Harness-agnostic plugin runtime for Artiflow: OAuth client, associations, artifact tools mapping, skills base, and the conformance kit.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    "./associations": "./src/associations.ts",
+    "./auth": "./src/auth.ts",
+    "./conformance": "./src/conformance.ts",
+    "./core": "./src/core.ts",
+    "./skills": "./src/skills.ts",
+    "./tools": "./src/tools.ts",
+    "./write-kind": "./src/write-kind.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@artiflow/contracts": "*",
+    "@artiflow/domain": "*"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

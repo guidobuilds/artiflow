@@ -1,0 +1,1212 @@
+---
+import "../styles/site.css";
+import AgentLogos from "../components/AgentLogos.astro";
+import FlowDiagram from "../components/FlowDiagram.astro";
+import Mark from "../components/Mark.astro";
+import ProductTabs from "../components/ProductTabs.astro";
+import Wordmark from "../components/Wordmark.astro";
+
+const REPO = "https://github.com/guidobuilds/artiflow";
+const title = "artiflow · The open, cross-agent artifact library";
+const description =
+  "Make decks, docs, dashboards and mockups with any agent and any model. Keep them in a library you own, and share them with anyone you choose.";
+
+const agentPrompt =
+  "Connect artiflow for me. Add the MCP server at https://artifacts.example.com/mcp (replace the host with my artiflow server), open the sign-in page when it asks, then publish a short page called “Hello from my agent”.";
+
+const ICON = {
+  link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
+  consent: "M12 3l7 3v6c0 4.2-3 7.4-7 9-4-1.6-7-4.8-7-9V6zM9 12l2 2 4-4",
+  history: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 8v4l3 2",
+  people: "M16 11a3 3 0 1 0-3-3M3 20a6 6 0 0 1 12 0M16 14a5 5 0 0 1 5 5M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+};
+
+const walls = [
+  { label: "THEIR HARNESS", title: "Made in their app, or not at all.", body: "The artifact only exists inside their chat. Work from another agent and the feature is gone." },
+  { label: "THEIR MODELS", title: "Only the models they sell.", body: "Want a different model for the job? Then you can't make the artifact." },
+  { label: "THEIR RULES", title: "Your workspace, or the whole internet.", body: "Share inside your organization, or make it public. A client or a partner has no way in between." },
+];
+
+const steps = [
+  { n: "01", title: "Connect", body: "Add artiflow to the agent and the model you already use." },
+  { n: "02", title: "Ideate", body: "Think it through with your agent, the way you already work." },
+  { n: "03", title: "Build", body: "Your agent turns it into a deck, a doc or a mockup in your library." },
+  { n: "04", title: "Share", body: "Send it to your team, a client, or anyone with a link." },
+];
+const featL = [
+  { icon: ICON.people, title: "Your team, and beyond", body: "Invite a teammate, a client or a partner to one artifact. They see that artifact and nothing else." },
+  { icon: ICON.link, title: "A link for anyone", body: "Send a link that opens without an account. Reset it or turn it off whenever you want." },
+];
+const featR = [
+  { icon: ICON.consent, title: "Every agent asks first", body: "An agent can publish only after you approve it in your browser." },
+  { icon: ICON.history, title: "Nothing gets lost", body: "Every change is a new version, and docs can go back to an earlier one." },
+];
+const compare = [
+  { cap: "Make them with any agent", theirs: "Only their app" },
+  { cap: "Use any model", theirs: "Only their models" },
+  { cap: "Share with people outside your organization", theirs: "Only as public" },
+  { cap: "Turn a link off at any time", theirs: "Varies" },
+  { cap: "Keep every version", theirs: "Varies" },
+  { cap: "Your artifacts stay with you", theirs: "—" },
+  { cap: "Open source", theirs: "—" },
+];
+const faq = [
+  { q: "Do I have to switch agents or models?", a: "No. Keep the agent and the model you already use. Any agent that connects over MCP can publish, and changing later doesn't touch your library." },
+  { q: "Can I share with people outside my company?", a: "Yes. Invite them to a single artifact, or send a link that opens without an account. You can turn it off at any time." },
+  { q: "Do readers need an agent?", a: "No. People you invite sign in to read, and a link you share opens in any browser until you turn it off." },
+  { q: "Is it safe to open what an agent made?", a: "Yes. Each artifact opens in isolation, so it can't reach your account, your session or other artifacts." },
+  { q: "Where do my artifacts live?", a: "In your own artiflow, wherever you run it. Not inside an AI vendor's product, and not tied to one subscription." },
+  { q: "Who can create an account?", a: "Only people you invite. Each invitation link works once and expires after 24 hours." },
+];
+const footer = [
+  {
+    label: "PRODUCT",
+    links: [
+      ["Quickstart", "/docs/start/quickstart/"],
+      ["Connect an agent", "/docs/connect/mcp/"],
+      ["Sharing", "/docs/guides/sharing/"],
+    ],
+  },
+  {
+    label: "DOCS",
+    links: [
+      ["Self-hosting", "/docs/self-hosting/installation/"],
+      ["MCP tools", "/docs/reference/mcp-tools/"],
+      ["HTTP API", "/docs/reference/http-api/"],
+    ],
+  },
+  {
+    label: "PROJECT",
+    links: [
+      ["GitHub", REPO],
+      ["License", `${REPO}/blob/main/LICENSE`],
+      ["Security", `${REPO}/blob/main/SECURITY.md`],
+    ],
+  },
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="canonical" href="https://artiflow.dev/" />
+    <script is:inline>
+      try {
+        const stored = localStorage.getItem("starlight-theme");
+        if (stored === "light" || stored === "dark") document.documentElement.dataset.theme = stored;
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <header class="head">
+      <a href="/" class="head-brand"><Mark label="artiflow home" /></a>
+      <nav class="head-nav hide-sm" aria-label="Site">
+        <a href="#why">Why artiflow</a>
+        <a href="#make">What you can make</a>
+        <a href="/docs/">Docs</a>
+      </nav>
+      <div class="head-actions">
+        <button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light theme">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="sun"
+            ><circle cx="12" cy="12" r="4"></circle><path
+              d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"
+            ></path></svg
+          >
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" class="moon"
+            ><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"></path></svg
+          >
+        </button>
+        <a href={REPO} class="btn pill outline hide-sm">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" class="gh"
+            ><path
+              d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.15-1.11-1.46-1.11-1.46-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.52 2.34 1.08 2.9.83.09-.65.35-1.08.63-1.33-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02a9.5 9.5 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.69-4.57 4.94.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2z"
+            ></path></svg
+          >GitHub</a
+        >
+        <a href="/docs/self-hosting/installation/" class="btn pill primary">Get started</a>
+      </div>
+    </header>
+
+    <main class="rail">
+      <section class="hero">
+        <div class="dots hide-sm" aria-hidden="true"></div>
+        <div class="dots-ember hide-sm" aria-hidden="true"></div>
+        <div class="hero-mark"><Wordmark label="artiflow" /></div>
+        <div class="hero-grid">
+          <div class="hero-copy">
+            <span class="eyebrow">Artifacts without the walls</span>
+            <h1>Make it with any agent.<br /><span class="ember">Share it with anyone.</span></h1>
+            <p class="lead">{description}</p>
+            <div class="row">
+              <a href="/docs/self-hosting/installation/" class="btn pill primary lg">Get started <span aria-hidden="true">→</span></a>
+              <a href="/docs/" class="btn pill soft lg">Read the docs</a>
+            </div>
+            <span class="small subtle">Open source · Any agent · Any model</span>
+          </div>
+          <div class="prompt-card">
+            <div class="stack-2">
+              <b>Already use an agent?</b>
+              <span class="small muted">Paste one prompt. It connects artiflow for you.</span>
+            </div>
+            <div class="prompt-row">
+              <AgentLogos />
+              <span class="prompt-note">Claude Code, Codex, OpenCode, Pi or any MCP client</span>
+              <button type="button" class="btn primary sm" data-copy={agentPrompt}>Copy prompt</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="sec" id="why">
+        <span class="seclabel">[ <b>01</b> / 06 ] · THE PROBLEM</span>
+        <h2 class="title light narrow">Today, your artifacts live inside someone else's product.</h2>
+        <ul class="walls">
+          {
+            walls.map((w) => (
+              <li>
+                <span class="wall-label">{w.label}</span>
+                <b>{w.title}</b>
+                <span class="muted">{w.body}</span>
+              </li>
+            ))
+          }
+        </ul>
+        <p class="answer">
+          artiflow takes them out. <span class="muted">Make them with any agent and any model, keep them in a library you own, and share them with whoever you need.</span>
+        </p>
+      </section>
+
+      <section class="sec" id="make">
+        <span class="seclabel">[ <b>02</b> / 06 ] · WHAT YOU CAN MAKE</span>
+        <h2 class="title narrow">Whatever it takes to get the idea across.</h2>
+        <ProductTabs />
+      </section>
+
+      <section class="sec center">
+        <span class="seclabel">[ <b>03</b> / 06 ] · HOW IT WORKS</span>
+        <h2 class="title narrow">Any agent in. Anyone you choose out.</h2>
+        <FlowDiagram />
+        <ol class="steps">
+          {
+            steps.map((s) => (
+              <li>
+                <span class="mono accent-text">{s.n}</span>
+                <b>{s.title}</b>
+                <span class="muted">{s.body}</span>
+              </li>
+            ))
+          }
+        </ol>
+      </section>
+
+      <section class="sec">
+        <div class="center stack-14">
+          <span class="seclabel">[ <b>04</b> / 06 ] · SHARE ON YOUR TERMS</span>
+          <h2 class="title narrow">Share it with anyone. Only with who you choose.</h2>
+        </div>
+        <div class="feat">
+          <div class="feat-col">
+            {
+              featL.map((f) => (
+                <div class="feature">
+                  <span class="feature-icon">
+                    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+                      <path d={f.icon} />
+                    </svg>
+                  </span>
+                  <b>{f.title}</b>
+                  <span class="muted">{f.body}</span>
+                </div>
+              ))
+            }
+          </div>
+          <div class="feat-stage">
+            <div class="dots" aria-hidden="true"></div>
+            <div class="consent" aria-label="Example consent screen" role="img">
+              <b>Codex wants to publish to your library</b>
+              <div class="consent-scope"><span>Create artifacts and versions</span><span class="mono subtle">artifacts:write</span></div>
+              <div class="consent-actions"><span class="c-deny">Deny</span><span class="c-allow">Allow <span class="mono">⏎</span></span></div>
+            </div>
+          </div>
+          <div class="feat-col">
+            {
+              featR.map((f) => (
+                <div class="feature">
+                  <span class="feature-icon">
+                    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+                      <path d={f.icon} />
+                    </svg>
+                  </span>
+                  <b>{f.title}</b>
+                  <span class="muted">{f.body}</span>
+                </div>
+              ))
+            }
+          </div>
+        </div>
+      </section>
+
+      <section class="sec">
+        <span class="seclabel">[ <b>05</b> / 06 ] · ARTIFLOW VS BUILT-IN ARTIFACTS</span>
+        <h2 class="title light">Same artifacts. None of the walls.</h2>
+        <table class="cmp">
+          <thead>
+            <tr><th scope="col">Capability</th><th scope="col">Artiflow</th><th scope="col">Built-in</th></tr>
+          </thead>
+          <tbody>
+            {
+              compare.map((r) => (
+                <tr>
+                  <th scope="row">{r.cap}</th>
+                  <td>
+                    <svg viewBox="0 0 24 24" width="18" height="18" role="img" aria-label="Yes">
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M8.5 12.2l2.4 2.4 4.6-4.8" />
+                    </svg>
+                  </td>
+                  <td class="subtle">{r.theirs === "—" ? <span aria-label="No">—</span> : r.theirs}</td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </section>
+
+      <section class="sec flush" id="own">
+        <div class="panel">
+          <div class="panel-copy">
+            <span class="seclabel on-panel">[ <b>06</b> / 06 ] · YOURS</span>
+            <h2 class="title">A library you own.</h2>
+            <p>Run artiflow wherever you want. Your artifacts stay with you, whichever agent or model made them, and no vendor can change the rules on you.</p>
+            <a href="/docs/self-hosting/installation/" class="btn pill on-panel-btn">Get started <span aria-hidden="true">→</span></a>
+          </div>
+          <svg viewBox="0 0 520 330" class="stack" role="img" aria-label="Your agents on top, artiflow in the middle, the people you share with below">
+            <g class="s-muted">
+              <polygon points="90,215 200,270 200,292 90,237"></polygon><polygon points="200,270 310,215 310,237 200,292"></polygon><polygon points="200,160 310,215 200,270 90,215"></polygon>
+              <path d="M120 236l20 10M120 228l20 10"></path>
+            </g>
+            <g class="s-accent">
+              <polygon points="90,150 200,205 200,227 90,172"></polygon><polygon points="200,205 310,150 310,172 200,227"></polygon><polygon points="200,95 310,150 200,205 90,150"></polygon>
+              <circle cx="200" cy="150" r="5"></circle>
+            </g>
+            <g class="s-muted">
+              <polygon points="90,85 200,140 200,162 90,107"></polygon><polygon points="200,140 310,85 310,107 200,162"></polygon><polygon points="200,30 310,85 200,140 90,85"></polygon>
+              <path d="M232 128l40-20M232 120l40-20M232 112l40-20"></path>
+            </g>
+            <g class="s-labels">
+              <path d="M310 85H400" class="s-lead"></path><text x="408" y="89">ANY AGENT</text>
+              <path d="M310 150H400" class="s-lead accent"></path><text x="408" y="154" class="accent">ARTIFLOW</text>
+              <path d="M310 215H400" class="s-lead"></path><text x="408" y="219">YOUR PEOPLE</text>
+            </g>
+          </svg>
+        </div>
+      </section>
+
+      <section class="sec faq-sec">
+        <h2 class="title light small-title">Frequently asked questions</h2>
+        <dl class="faq">
+          {
+            faq.map((q) => (
+              <div>
+                <dt>{q.q}</dt>
+                <dd>{q.a}</dd>
+              </div>
+            ))
+          }
+        </dl>
+      </section>
+
+      <section class="sec flush-top">
+        <div class="cta">
+          <div class="stack-8">
+            <h2>Take your artifacts out of the walled garden.</h2>
+            <span class="muted">Open source. Works with the agents and models you already use.</span>
+          </div>
+          <div class="row">
+            <a href="/docs/self-hosting/installation/" class="btn pill primary">Get started</a>
+            <a href={REPO} class="btn pill raised">View on GitHub</a>
+          </div>
+        </div>
+      </section>
+
+      <footer class="sec foot">
+        <div class="stack-12">
+          <span class="foot-mark"><Wordmark label="artiflow" /></span>
+          <span class="subtle">The open, cross-agent artifact library.</span>
+        </div>
+        {
+          footer.map((col) => (
+            <nav class="foot-col" aria-label={col.label.toLowerCase()}>
+              <span class="foot-label">{col.label}</span>
+              {col.links.map(([label, href]) => (
+                <a href={href}>{label}</a>
+              ))}
+            </nav>
+          ))
+        }
+      </footer>
+    </main>
+
+    <script>
+      const toggle = document.querySelector<HTMLButtonElement>("[data-theme-toggle]");
+      const current = () =>
+        document.documentElement.dataset.theme === "light" ||
+        (document.documentElement.dataset.theme !== "dark" && matchMedia("(prefers-color-scheme: light)").matches)
+          ? "light"
+          : "dark";
+      const label = () => toggle?.setAttribute("aria-label", `Switch to ${current() === "dark" ? "light" : "dark"} theme`);
+      label();
+      toggle?.addEventListener("click", () => {
+        const next = current() === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = next;
+        try {
+          localStorage.setItem("starlight-theme", next);
+        } catch {}
+        label();
+      });
+
+      for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-copy]")) {
+        const label = button.textContent;
+        button.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(button.dataset.copy ?? "");
+            button.textContent = "Copied";
+          } catch {
+            button.textContent = "Copy failed";
+          }
+          setTimeout(() => (button.textContent = label), 1600);
+        });
+      }
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-size: 16px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  a {
+    color: inherit;
+  }
+  :where(a, button):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+</style>
+
+<style>
+  .muted {
+    color: var(--fg-muted);
+  }
+  .subtle {
+    color: var(--fg-subtle);
+  }
+  .small {
+    font-size: 13.5px;
+  }
+  .ember {
+    color: var(--accent);
+  }
+  .accent-text {
+    color: var(--accent-text);
+    font-size: 12px;
+  }
+  .center {
+    text-align: center;
+    align-items: center;
+  }
+  .row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .stack-2 {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .stack-8 {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .stack-12 {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .stack-14 {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 16px;
+    border: none;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 120ms var(--ease);
+  }
+  .btn.pill {
+    border-radius: 999px;
+  }
+  .btn.lg {
+    height: 44px;
+    padding: 0 22px;
+    font-size: 16px;
+  }
+  .btn.sm {
+    flex: none;
+    height: 34px;
+    padding: 0 14px;
+    font-size: 13.5px;
+  }
+  .btn.primary {
+    background: var(--fg);
+    color: var(--bg);
+  }
+  .btn.primary:hover {
+    background: color-mix(in oklab, var(--fg) 86%, var(--bg));
+  }
+  .btn.soft {
+    background: var(--surface);
+  }
+  .btn.soft:hover {
+    background: var(--surface-2);
+  }
+  .btn.outline {
+    border: 1px solid var(--line);
+  }
+  .btn.outline:hover,
+  .btn.raised:hover {
+    background: var(--surface);
+  }
+  .btn.raised {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    height: 42px;
+    padding: 0 18px;
+  }
+  .gh {
+    fill: currentColor;
+  }
+
+  .head {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px;
+    box-sizing: border-box;
+  }
+  .head-brand {
+    width: 28px;
+    height: 28px;
+    display: block;
+  }
+  .head-nav {
+    display: flex;
+    gap: 28px;
+    font-size: 14px;
+    color: var(--fg-muted);
+  }
+  .head-nav a {
+    text-decoration: none;
+  }
+  .head-nav a:hover {
+    color: var(--fg);
+  }
+  .head-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .theme-toggle {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    transition: color 120ms var(--ease), background-color 120ms var(--ease);
+  }
+  .theme-toggle:hover {
+    color: var(--fg);
+    background: var(--surface);
+  }
+  .theme-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .theme-toggle svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .theme-toggle .moon {
+    display: none;
+  }
+  @media (prefers-color-scheme: light) {
+    :global(:root:not([data-theme="dark"])) .theme-toggle .sun {
+      display: none;
+    }
+    :global(:root:not([data-theme="dark"])) .theme-toggle .moon {
+      display: block;
+    }
+  }
+  :global(:root[data-theme="light"]) .theme-toggle .sun {
+    display: none;
+  }
+  :global(:root[data-theme="light"]) .theme-toggle .moon {
+    display: block;
+  }
+
+  .rail {
+    position: relative;
+    max-width: 1200px;
+    margin: 0 auto;
+    box-sizing: border-box;
+    border-left: 1px solid var(--line);
+    border-right: 1px solid var(--line);
+  }
+  .sec,
+  .hero {
+    position: relative;
+    border-top: 1px solid var(--line);
+  }
+  .sec {
+    padding: 96px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+  .sec::before,
+  .sec::after,
+  .hero::before,
+  .hero::after {
+    content: "+";
+    position: absolute;
+    top: -13px;
+    font: 300 18px/1 var(--font-sans);
+    color: var(--accent);
+  }
+  .sec::before,
+  .hero::before {
+    left: -6px;
+  }
+  .sec::after,
+  .hero::after {
+    right: -6px;
+  }
+  .sec.flush {
+    padding-top: 0;
+    padding-bottom: 0;
+    border-top: none;
+  }
+  .sec.flush::before,
+  .sec.flush::after,
+  .sec.flush-top::before,
+  .sec.flush-top::after {
+    content: none;
+  }
+  .sec.flush-top {
+    padding-top: 0;
+    border-top: none;
+  }
+  .seclabel {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--fg-subtle);
+  }
+  .seclabel b {
+    font-weight: 400;
+    color: var(--accent);
+  }
+  .title {
+    margin: 0;
+    font-size: 44px;
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    line-height: 1.08;
+    text-wrap: balance;
+  }
+  .title.narrow {
+    max-width: 22ch;
+  }
+  .title.light {
+    font-weight: 300;
+    letter-spacing: -0.035em;
+  }
+  .small-title {
+    font-size: 36px;
+  }
+
+  .dots,
+  .dots-ember {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-size: 9px 9px;
+  }
+  .dots {
+    background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.5px);
+    mask-image: radial-gradient(ellipse 60% 55% at 70% 45%, #000 20%, transparent 75%);
+  }
+  .dots-ember {
+    background-image: radial-gradient(circle, var(--accent) 1.3px, transparent 1.7px);
+    mask-image: radial-gradient(circle at 78% 30%, #000 0, transparent 16%);
+  }
+
+  .hero {
+    padding: 40px 64px 72px;
+    overflow: hidden;
+  }
+  .hero-mark {
+    position: relative;
+    margin-bottom: 48px;
+  }
+  .hero-grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.8fr);
+    gap: 40px;
+    align-items: end;
+  }
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .eyebrow {
+    font-size: 13.5px;
+    color: var(--fg-subtle);
+  }
+  h1 {
+    margin: 0;
+    font-size: 60px;
+    font-weight: 500;
+    letter-spacing: -0.045em;
+    line-height: 1.02;
+  }
+  .lead {
+    margin: 0;
+    font-size: 18px;
+    color: var(--fg-muted);
+    max-width: 44ch;
+  }
+  .prompt-card {
+    justify-self: end;
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    box-shadow: 0 12px 40px var(--shadow);
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .prompt-card b {
+    font-weight: 500;
+  }
+  .prompt-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px 12px;
+  }
+  .prompt-row .btn {
+    margin-left: auto;
+  }
+  .prompt-note {
+    order: 3;
+    flex-basis: 100%;
+    font-size: 12.5px;
+    color: var(--fg-subtle);
+    line-height: 1.35;
+  }
+
+
+  .walls {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .walls li {
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    padding: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .wall-label {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    color: var(--fg-subtle);
+  }
+  .walls b {
+    font-weight: 500;
+    font-size: 18px;
+    letter-spacing: -0.015em;
+  }
+  .walls .muted {
+    font-size: 14.5px;
+  }
+  .answer {
+    margin: 8px 0 0;
+    max-width: 34ch;
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    line-height: 1.2;
+  }
+  .answer .muted {
+    font-weight: 400;
+  }
+  .feature-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+  }
+  .feature-icon svg {
+    fill: none;
+    stroke: var(--fg);
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    text-align: left;
+  }
+  .steps li {
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .steps b {
+    font-weight: 500;
+  }
+  .steps .muted {
+    font-size: 14px;
+  }
+
+  .feat {
+    display: grid;
+    grid-template-columns: 1fr 1.5fr 1fr;
+    gap: 40px;
+    align-items: center;
+  }
+  .feat-col {
+    display: flex;
+    flex-direction: column;
+    gap: 48px;
+  }
+  .feature {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .feature-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+  .feature b {
+    font-weight: 500;
+    font-size: 17px;
+  }
+  .feature .muted {
+    font-size: 14.5px;
+  }
+  .feat-stage {
+    position: relative;
+    overflow: hidden;
+    border-radius: 16px;
+    background: var(--surface);
+    aspect-ratio: 1.15;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+    box-sizing: border-box;
+  }
+  .feat-stage .dots {
+    opacity: 0.7;
+  }
+  .consent {
+    position: relative;
+    width: 100%;
+    max-width: 340px;
+    box-sizing: border-box;
+    border-radius: 14px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    box-shadow: 0 18px 50px var(--shadow);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .consent b {
+    font-weight: 500;
+    font-size: 15px;
+  }
+  .consent-scope {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--line);
+    font-size: 13.5px;
+  }
+  .consent-scope .mono {
+    font-size: 11.5px;
+  }
+  .consent-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .consent-actions span:not(.mono) {
+    flex: 1;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .c-deny {
+    border: 1px solid var(--line-strong);
+  }
+  .c-allow {
+    background: var(--fg);
+    color: var(--bg);
+  }
+  .c-allow .mono {
+    opacity: 0.6;
+    font-size: 11px;
+  }
+
+  .cmp {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 15px;
+  }
+  .cmp th,
+  .cmp td {
+    padding: 14px 16px;
+    border-top: 1px solid var(--line);
+    font-weight: 400;
+  }
+  .cmp thead th {
+    border-top: none;
+    padding-block: 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-subtle);
+  }
+  .cmp thead th:nth-child(2) {
+    color: var(--fg);
+  }
+  .cmp th:first-child {
+    text-align: left;
+    width: 50%;
+  }
+  .cmp td,
+  .cmp thead th:not(:first-child) {
+    text-align: center;
+  }
+  .cmp td svg {
+    vertical-align: middle;
+    fill: none;
+    stroke: var(--fg);
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .cmp td.subtle {
+    font-size: 14px;
+  }
+  .cmp tbody tr:first-child {
+    background: var(--hover);
+  }
+
+  .panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px 64px;
+    align-items: center;
+    margin: 0 -24px;
+    padding: 56px;
+    border-radius: 18px;
+    background: var(--feat-bg);
+    color: var(--feat-fg);
+  }
+  .panel-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .panel-copy .title {
+    font-size: 40px;
+  }
+  .panel-copy p {
+    margin: 0;
+    color: var(--feat-muted);
+  }
+  .seclabel.on-panel {
+    color: var(--feat-muted);
+  }
+  .on-panel-btn {
+    align-self: flex-start;
+    height: 42px;
+    padding: 0 20px;
+    background: var(--feat-fg);
+    color: var(--feat-bg);
+  }
+  .stack {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .stack polygon,
+  .stack path,
+  .stack circle {
+    fill: var(--feat-bg);
+    stroke-linejoin: round;
+  }
+  .s-muted polygon,
+  .s-muted path {
+    stroke: var(--feat-muted);
+    stroke-width: 1.1;
+  }
+  .s-muted path,
+  .s-accent circle {
+    fill: none;
+  }
+  .s-accent polygon,
+  .s-accent circle {
+    stroke: var(--accent);
+    stroke-width: 1.3;
+  }
+  .s-labels text {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    fill: var(--feat-fg);
+  }
+  .stack .s-lead {
+    fill: none;
+    stroke: var(--feat-muted);
+  }
+  .stack .s-lead.accent {
+    stroke: var(--accent);
+  }
+  .s-labels text.accent {
+    fill: var(--accent);
+  }
+
+  .faq-sec {
+    margin-top: 96px;
+    gap: 36px;
+  }
+  .faq {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px 64px;
+  }
+  .faq div {
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .faq dt {
+    font-weight: 500;
+  }
+  .faq dd {
+    margin: 0;
+    font-size: 14.5px;
+    color: var(--fg-muted);
+  }
+
+  .cta {
+    border-radius: 16px;
+    background: var(--surface);
+    padding: 48px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .cta h2 {
+    margin: 0;
+    font-size: 32px;
+    font-weight: 400;
+    letter-spacing: -0.03em;
+  }
+  .cta .primary {
+    height: 42px;
+    padding: 0 20px;
+  }
+
+  .foot {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 32px;
+    padding-top: 48px;
+    padding-bottom: 48px;
+    font-size: 14px;
+  }
+  .foot-mark {
+    width: 96px;
+    display: block;
+  }
+  .foot-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .foot-label {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    color: var(--accent-text);
+  }
+  .foot-col a {
+    text-decoration: none;
+    color: var(--fg-muted);
+  }
+  .foot-col a:hover {
+    color: var(--fg);
+  }
+
+  @media (max-width: 1212px) {
+    .rail {
+      overflow-x: clip;
+    }
+  }
+  @media (max-width: 860px) {
+    .head {
+      padding: 0 16px;
+    }
+    .hide-sm {
+      display: none !important;
+    }
+    .hero,
+    .sec {
+      padding-left: 20px;
+      padding-right: 20px;
+    }
+    .sec {
+      padding-top: 64px;
+      padding-bottom: 64px;
+    }
+    .hero-grid,
+    .feat,
+    .panel,
+    .faq,
+    .walls,
+    .foot {
+      grid-template-columns: 1fr;
+    }
+    .steps {
+      grid-template-columns: 1fr 1fr;
+    }
+    .prompt-card {
+      justify-self: stretch;
+      max-width: none;
+    }
+    .prompt-row {
+      flex-wrap: wrap;
+    }
+    h1 {
+      font-size: 38px;
+    }
+    .title {
+      font-size: 34px;
+    }
+    .panel {
+      margin: 0;
+      padding: 32px 24px;
+    }
+    .cmp {
+      font-size: 13.5px;
+    }
+    .cmp th,
+    .cmp td {
+      padding: 12px 8px;
+    }
+    .answer {
+      font-size: 22px;
+    }
+    .cta {
+      padding: 32px 24px;
+    }
+  }
+</style>

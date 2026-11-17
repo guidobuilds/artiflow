@@ -1,0 +1,28 @@
+{
+  "name": "@artiflow/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Transport-agnostic MCP tool logic for Artiflow. Receives its persistence backend through ports; imports no pg, no AWS SDK, no app code.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    "./claims": "./src/claims.ts",
+    "./ports": "./src/ports.ts",
+    "./server": "./src/server.ts",
+    "./constants": "./src/constants.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@artiflow/contracts": "*",
+    "@artiflow/domain": "*",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

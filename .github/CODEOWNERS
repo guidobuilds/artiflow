@@ -1,0 +1,11 @@
+* @guidobuilds
+
+apps/api/ @guidobuilds
+apps/dashboard/ @guidobuilds
+packages/ @guidobuilds
+plugins/ @guidobuilds
+docker/ @guidobuilds
+drizzle/ @guidobuilds
+scripts/ @guidobuilds
+test/ @guidobuilds
+docs/ @guidobuilds

@@ -1,0 +1,38 @@
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "../../../dashboard/src/styles/tokens.css";
+
+:root {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  --dot: rgba(244, 244, 242, 0.16);
+  --shadow: rgba(0, 0, 0, 0.4);
+  --tint: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  --tint-2: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --dot: rgba(15, 29, 22, 0.22);
+    --shadow: rgba(15, 29, 22, 0.08);
+  }
+}
+
+:root[data-theme="light"] {
+  --dot: rgba(15, 29, 22, 0.22);
+  --shadow: rgba(15, 29, 22, 0.08);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

@@ -1,0 +1,14 @@
+{$SITE_ADDRESS::80} {
+	root * /srv
+	encode zstd gzip
+
+	@backend path /api/* /mcp /mcp/* /.well-known/* /share/* /artifact/*
+	handle @backend {
+		reverse_proxy {$API_UPSTREAM::api:8787}
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+}

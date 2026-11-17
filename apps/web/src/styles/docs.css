@@ -1,0 +1,92 @@
+@import "./site.css";
+
+:root {
+  --sl-font: var(--font-sans);
+  --sl-font-mono: var(--font-mono);
+
+  --sl-color-white: var(--fg);
+  --sl-color-gray-1: var(--fg);
+  --sl-color-gray-2: var(--fg-muted);
+  --sl-color-gray-3: var(--fg-subtle);
+  --sl-color-gray-4: var(--line-strong);
+  --sl-color-gray-5: var(--line);
+  --sl-color-gray-6: var(--surface);
+  --sl-color-gray-7: var(--side-bg);
+  --sl-color-black: var(--bg);
+
+  --sl-color-accent-low: var(--accent-wash);
+  --sl-color-accent: var(--accent);
+  --sl-color-accent-high: var(--accent-text);
+  --sl-color-text-accent: var(--accent-text);
+  --sl-color-text-invert: var(--bg);
+
+  --sl-color-bg: var(--bg);
+  --sl-color-bg-nav: var(--bg);
+  --sl-color-bg-sidebar: var(--side-bg);
+  --sl-color-bg-inline-code: var(--surface);
+  --sl-color-hairline: var(--line);
+  --sl-color-hairline-light: var(--line);
+  --sl-color-hairline-shade: var(--line);
+  --sl-color-backdrop-overlay: var(--overlay);
+}
+
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--fg);
+  text-decoration-color: var(--accent);
+  text-underline-offset: 3px;
+}
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  color: var(--accent-text);
+}
+.sidebar-content a[aria-current="page"],
+.sidebar-content a[aria-current="page"]:hover,
+.sidebar-content a[aria-current="page"]:focus {
+  background-color: var(--surface-2);
+  color: var(--fg);
+  font-weight: 500;
+}
+.sl-link-button {
+  border-radius: 999px;
+  font-weight: 500;
+}
+.sl-link-button.primary {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
+}
+.sl-link-button.primary:hover {
+  background: color-mix(in oklab, var(--fg) 86%, var(--bg));
+  color: var(--bg);
+}
+.sl-link-button.secondary {
+  background: var(--surface);
+  border-color: var(--surface);
+  color: var(--fg);
+}
+.sl-link-button.secondary:hover {
+  background: var(--surface-2);
+  border-color: var(--surface-2);
+}
+.sidebar-content .large {
+  font-weight: 500;
+}
+
+.site-title img {
+  height: 22px;
+  width: auto;
+}
+
+h1#_top,
+.sl-markdown-content :is(h1, h2, h3) {
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+h1#_top {
+  letter-spacing: -0.04em;
+}
+
+:where(a, button, summary, input, [role="tab"]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

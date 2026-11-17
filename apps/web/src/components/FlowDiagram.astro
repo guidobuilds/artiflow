@@ -1,0 +1,275 @@
+---
+import AgentLogos from "./AgentLogos.astro";
+import Mark from "./Mark.astro";
+
+const pct = (x: number, y: number) => `left: ${x / 10}%; top: ${(y / 420) * 100}%`;
+
+const artifacts = [
+  { label: "DECK", x: 392, y: 118, tilt: -4, hue: "#3b6fe0", glyph: "M4 4h32v20H4zM8 9h12M9 20v-4M14 20v-7M19 20v-5" },
+  { label: "DOC", x: 500, y: 82, tilt: 2, hue: "#2f7a4d", glyph: "M10 4h20M10 9h20M10 14h14M10 19h18M6 4h.01M6 9h.01M6 14h.01M6 19h.01" },
+  { label: "DASHBOARD", x: 608, y: 118, tilt: 4, hue: "#6366f1", glyph: "M4 4h14v8H4zM22 4h14v8H22zM6 24v-6M11 24v-9M16 24v-4M21 24v-10M26 24v-7M31 24v-12" },
+  { label: "MOCKUP", x: 392, y: 302, tilt: 3, hue: "#d4480f", glyph: "M4 4h32v20H4zM4 9h32M9 9v15M13 13h10M13 17h18M13 21h14" },
+  { label: "FLOW", x: 500, y: 338, tilt: -2, hue: "#7c6ad6", glyph: "M5 8h8v6H5zM27 4h8v6h-8zM27 18h8v6h-8zM13 11c7 0 7-4 14-4M13 11c7 0 7 10 14 10" },
+  { label: "SHEET", x: 608, y: 302, tilt: -4, hue: "#b8860b", glyph: "M4 4h32v20H4zM4 10h32M4 17h32M15 4v20M26 4v20" },
+];
+
+const people = [
+  { label: "YOUR TEAM", y: 96, icon: "M16 11a3 3 0 1 0-3-3M3 20a6 6 0 0 1 12 0M16 14a5 5 0 0 1 5 5M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" },
+  { label: "A CLIENT", y: 172, icon: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" },
+  { label: "A PARTNER", y: 248, icon: "M7 11l3-3 4 2 3-3 4 4-6 6-3-2-2 2-4-4zM3 11l4 4" },
+  { label: "ANY LINK", y: 324, icon: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" },
+];
+
+const route =
+  "M110 172 C190 172 210 210 280 210 C300 194 320 194 340 210 S380 226 400 210 L600 210 C620 194 640 194 660 210 S700 226 720 210 C800 210 810 248 890 248";
+---
+
+<div class="flow" role="img" aria-label="Any agent, through your artiflow library of decks, docs, dashboards, mockups, flows and sheets, out to your team, a client, a partner or anyone with a link.">
+  <div class="flow-dots" aria-hidden="true"></div>
+  <svg viewBox="0 0 1000 420" class="flow-lines" aria-hidden="true">
+    <g class="in">
+      {[96, 172, 248, 324].map((y) => <path d={`M110 ${y} C190 ${y} 210 210 280 210`} />)}
+    </g>
+    <g class="out">
+      {people.map((p) => <path d={`M720 210 C800 210 810 ${p.y} 890 ${p.y}`} />)}
+    </g>
+    <path class="wave" d="M280 210 C300 194 320 194 340 210 S380 226 400 210 S440 194 460 210" />
+    <path class="wave" d="M540 210 C560 194 580 194 600 210 S640 226 660 210 S700 194 720 210" />
+    <g class="travel">
+      <circle r="5">
+        <animateMotion dur="6s" repeatCount="indefinite" path={route} />
+      </circle>
+      <circle r="5">
+        <animateMotion dur="6s" begin="-3s" repeatCount="indefinite" path={route} />
+      </circle>
+    </g>
+  </svg>
+
+  <div class="agents" style={pct(70, 210)}>
+    <div class="agents-stack"><AgentLogos /></div>
+  </div>
+  <span class="caption" style={pct(70, 392)}>ANY AGENT · ANY MODEL</span>
+
+  {
+    artifacts.map((a) => (
+      <span class="artifact" style={`${pct(a.x, a.y)}; --hue: ${a.hue}; --tilt: ${a.tilt}deg`}>
+        <svg viewBox="0 0 40 28" aria-hidden="true">
+          <path d={a.glyph} />
+        </svg>
+        <span>{a.label}</span>
+      </span>
+    ))
+  }
+
+  <span class="core" style={pct(500, 210)}><Mark label="" /></span>
+  <span class="caption" style={pct(500, 400)}>YOUR LIBRARY</span>
+
+  {
+    people.map((p) => (
+      <span class="person" style={pct(915, p.y)}>
+        <span class="person-icon">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d={p.icon} />
+          </svg>
+        </span>
+        <span class="person-label">{p.label}</span>
+      </span>
+    ))
+  }
+</div>
+
+<style>
+  .flow {
+    position: relative;
+    width: 100%;
+    max-width: 1000px;
+    aspect-ratio: 1000 / 420;
+  }
+  .flow-dots {
+    position: absolute;
+    inset: 8% 28%;
+    background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.5px);
+    background-size: 10px 10px;
+    mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 30%, transparent 75%);
+  }
+  .flow-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    fill: none;
+  }
+  .in path,
+  .out path {
+    stroke: var(--line-strong);
+    stroke-width: 1.2;
+  }
+  .wave {
+    stroke: var(--accent);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+  }
+  .travel circle {
+    fill: var(--accent);
+  }
+
+  .agents,
+  .artifact,
+  .core,
+  .person,
+  .caption {
+    position: absolute;
+    transform: translate(-50%, -50%);
+  }
+  .agents {
+    height: calc(54.29% + 40px);
+  }
+  .agents-stack,
+  .agents-stack :global(.agent-logos) {
+    height: 100%;
+  }
+  .agents-stack :global(.agent-logos) {
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .agents-stack :global(.agent-logo) {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--bg-raised);
+    box-shadow: 0 4px 14px var(--shadow);
+  }
+  .agents-stack :global(.agent-logo svg) {
+    width: 18px;
+    height: 18px;
+  }
+  .caption {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--fg-subtle);
+    white-space: nowrap;
+  }
+
+  .artifact {
+    width: 8.6%;
+    aspect-ratio: 86 / 66;
+    box-sizing: border-box;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--hue) 30%, var(--line));
+    background: color-mix(in srgb, var(--hue) 9%, var(--bg-raised));
+    box-shadow: 0 8px 22px var(--shadow);
+    transform: translate(-50%, -50%) rotate(var(--tilt));
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 6px;
+  }
+  .artifact svg {
+    width: 62%;
+    fill: none;
+    stroke: var(--hue);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .artifact span {
+    font-family: var(--font-mono);
+    font-size: 8.5px;
+    letter-spacing: 0.06em;
+    color: var(--fg-muted);
+  }
+
+  .core {
+    width: 7.6%;
+    aspect-ratio: 1;
+    box-sizing: border-box;
+    padding: 1.6%;
+    border-radius: 18px;
+    background: var(--bg-raised);
+    border: 1px solid var(--line-strong);
+    box-shadow:
+      0 0 0 8px color-mix(in srgb, var(--accent) 10%, transparent),
+      0 14px 34px var(--shadow);
+    color: var(--fg);
+  }
+
+  .person {
+    transform: translate(-50%, -20px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .person-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    box-shadow: 0 4px 14px var(--shadow);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .person-icon svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: var(--fg);
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .person-label {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--fg-subtle);
+    white-space: nowrap;
+    background: var(--bg);
+    padding: 0 4px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .travel {
+      display: none;
+    }
+  }
+
+  @media (max-width: 860px) {
+    .agents {
+      height: calc(54.29% + 26px);
+    }
+    .person {
+      transform: translate(-50%, -13px);
+    }
+    .agents-stack :global(.agent-logo),
+    .person-icon {
+      width: 26px;
+      height: 26px;
+    }
+    .agents-stack :global(.agent-logo svg),
+    .person-icon svg {
+      width: 13px;
+      height: 13px;
+    }
+    .artifact {
+      width: 10%;
+      border-radius: 6px;
+      padding: 2px;
+    }
+    .artifact span,
+    .person-label,
+    .caption {
+      display: none;
+    }
+    .core {
+      border-radius: 10px;
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
+    }
+  }
+</style>

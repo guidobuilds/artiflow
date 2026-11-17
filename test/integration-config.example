@@ -1,0 +1,12 @@
+# Public, disposable loopback test configuration; never use for deployment.
+NODE_ENV=development
+DATABASE_URL=postgres://artiflow_test:artiflow_test_local_only@127.0.0.1:54329/artiflow
+ARTIFLOW_S3_ENDPOINT=http://127.0.0.1:9001
+ARTIFLOW_S3_REGION=us-east-1
+ARTIFLOW_S3_BUCKET=artiflow-integration
+ARTIFLOW_S3_ACCESS_KEY_ID=GK0123456789abcdef0123456789
+ARTIFLOW_S3_SECRET_ACCESS_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+ARTIFLOW_S3_FORCE_PATH_STYLE=1
+ARTIFLOW_AUTH_SECRET=artiflow-integration-only-not-a-production-secret
+ARTIFLOW_DEMO_AUTH=1
+ARTIFLOW_PUBLIC_ORIGIN=http://127.0.0.1:5173

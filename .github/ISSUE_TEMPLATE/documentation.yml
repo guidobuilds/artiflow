@@ -1,0 +1,31 @@
+name: Documentation
+description: Report missing, wrong or outdated documentation.
+title: "[Docs]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Documentation changes are welcome as pull requests. Use this form to report what is wrong or missing.
+
+  - type: input
+    id: location
+    attributes:
+      label: Page or file
+      description: URL or repository path, for example `docs/runbook.md`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested content
+      description: Optional wording, example or link.
+    validations:
+      required: false

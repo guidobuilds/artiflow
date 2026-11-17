@@ -1,0 +1,598 @@
+---
+import Mark from "./Mark.astro";
+
+const tabs = [
+  { id: "deck", title: "Decks", body: "Pitch an idea or report on a quarter.", doc: "Q4 pricing tiers", meta: "v3" },
+  { id: "markdown", title: "Docs", body: "Specs, runbooks and notes your team keeps editing.", doc: "Onboarding runbook", meta: "v5" },
+  { id: "html", title: "Dashboards", body: "Turn numbers into something people read.", doc: "API latency review", meta: "v2" },
+  { id: "canvas", title: "Mockups and flows", body: "Sketch a screen or a flow before anyone builds it.", doc: "Checkout flow", meta: "v1" },
+];
+---
+
+<div class="pt" data-tabs>
+  <div class="pt-list" role="tablist" aria-label="What you can make">
+    {
+      tabs.map((t, i) => (
+        <button
+          type="button"
+          role="tab"
+          id={`pt-tab-${t.id}`}
+          aria-controls={`pt-panel-${t.id}`}
+          aria-selected={i === 0 ? "true" : "false"}
+          tabindex={i === 0 ? 0 : -1}
+        >
+          <b>{t.title}</b>
+          <span>{t.body}</span>
+        </button>
+      ))
+    }
+  </div>
+
+  <div class="pt-window">
+    {
+      tabs.map((t, i) => (
+        <div class="pt-panel" role="tabpanel" id={`pt-panel-${t.id}`} aria-labelledby={`pt-tab-${t.id}`} hidden={i !== 0}>
+          <div class="pt-bar">
+            <span class="pt-cell pt-mark">
+              <Mark label="artiflow" />
+            </span>
+            <span class="pt-cell pt-title">
+              <b>{t.doc}</b>
+              <span class="mono">{t.meta}</span>
+            </span>
+            <span class="pt-grow" />
+            <span class="pt-cell pt-kind">{t.id === "markdown" ? "Doc" : "Page"}</span>
+            <span class="pt-cell">
+              <span class="pt-share">Share</span>
+            </span>
+          </div>
+          <div class:list={["pt-body", `pt-${t.id}`]} aria-hidden="true">
+            {t.id === "deck" && (
+              <div class="deck">
+                <div class="slide">
+                  <span class="slide-kicker">Pricing · Q4</span>
+                  <b class="slide-title">Three tiers, one upgrade path</b>
+                  <div class="tiers">
+                    {[
+                      ["Starter", "$12", 40],
+                      ["Team", "$29", 68],
+                      ["Business", "$59", 92],
+                    ].map(([name, price, h]) => (
+                      <div class="tier">
+                        <span class="tier-bar" style={`height: ${h}%`} />
+                        <b>{name}</b>
+                        <span>{price} / seat</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div class="deck-nav">
+                  <span>‹</span>
+                  <span class="mono">3 / 12</span>
+                  <span>›</span>
+                </div>
+              </div>
+            )}
+            {t.id === "markdown" && (
+              <article class="doc">
+                <h3>Onboarding runbook</h3>
+                <p>Everything a new engineer needs in the first week, in the order they need it.</p>
+                <h4>Day one</h4>
+                <ul class="checks">
+                  <li class="done">Laptop, SSO and the on-call rota</li>
+                  <li class="done">Clone the monorepo and run the tests</li>
+                  <li>Ship one small change behind review</li>
+                </ul>
+                <h4>Run the stack locally</h4>
+                <pre><code>{"bun install\nbun run dev"}</code></pre>
+                <p class="doc-note">Last edited by your agent · restored from v4 on Monday</p>
+              </article>
+            )}
+            {t.id === "html" && (
+              <div class="dash">
+                <div class="kpis">
+                  {[
+                    ["p50", "84 ms", "−12%"],
+                    ["p95", "312 ms", "−8%"],
+                    ["Errors", "0.21%", "−0.05"],
+                  ].map(([k, v, d]) => (
+                    <div class="kpi">
+                      <span>{k}</span>
+                      <b>{v}</b>
+                      <span class="kpi-delta">{d}</span>
+                    </div>
+                  ))}
+                </div>
+                <div class="chart">
+                  <span class="chart-label">Latency by endpoint, last 7 days</span>
+                  <div class="bars">
+                    {[62, 48, 75, 40, 88, 55, 70, 46, 64, 52, 80, 58].map((h) => (
+                      <span style={`height: ${h}%`} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {t.id === "canvas" && (
+              <div class="board">
+                <svg viewBox="0 0 1000 600" preserveAspectRatio="none" class="board-lines">
+                  <path d="M240 180 C360 180 360 300 440 300" />
+                  <path d="M240 420 C360 420 360 300 440 300" />
+                  <path d="M560 300 H750" />
+                  <path d="M530 325 C560 468 590 468 610 468" />
+                </svg>
+                <span class="node n1">Cart</span>
+                <span class="node n2">Guest checkout</span>
+                <span class="node n3 hot">Payment</span>
+                <span class="node n4">Receipt</span>
+                <span class="node n5">Retry</span>
+                <span class="sticky">Drop the extra address step?</span>
+              </div>
+            )}
+          </div>
+        </div>
+      ))
+    }
+  </div>
+</div>
+
+<script>
+  for (const root of document.querySelectorAll<HTMLElement>("[data-tabs]")) {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const select = (next: HTMLButtonElement) => {
+      for (const tab of tabs) {
+        const on = tab === next;
+        tab.setAttribute("aria-selected", String(on));
+        tab.tabIndex = on ? 0 : -1;
+        const panel = document.getElementById(tab.getAttribute("aria-controls") ?? "");
+        if (panel) panel.hidden = !on;
+      }
+    };
+    tabs.forEach((tab, i) => {
+      tab.addEventListener("click", () => select(tab));
+      tab.addEventListener("keydown", (event) => {
+        const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+        if (!step) return;
+        event.preventDefault();
+        const next = tabs[(i + step + tabs.length) % tabs.length]!;
+        select(next);
+        next.focus();
+      });
+    });
+  }
+</script>
+
+<style>
+  .pt {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+  .pt-list {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .pt-list button {
+    text-align: left;
+    padding: 14px 0 4px;
+    border: none;
+    border-top: 2px solid var(--line);
+    background: transparent;
+    color: var(--fg-muted);
+    font: inherit;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    transition: border-color 120ms var(--ease);
+  }
+  .pt-list button:hover {
+    border-top-color: var(--line-strong);
+  }
+  .pt-list button[aria-selected="true"] {
+    border-top-color: var(--fg);
+    color: var(--fg);
+  }
+  .pt-list b {
+    font-weight: 500;
+    font-size: 15px;
+  }
+  .pt-list span {
+    font-size: 13.5px;
+    color: var(--fg-subtle);
+  }
+  .pt-list button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .pt-window {
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    overflow: hidden;
+    box-shadow: 0 24px 64px var(--shadow);
+    height: 600px;
+    background: var(--bg-raised);
+  }
+  .pt-panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .pt-panel[hidden] {
+    display: none;
+  }
+  .pt-bar {
+    height: 48px;
+    flex: none;
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+  }
+  .pt-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    border-right: 1px solid var(--line);
+  }
+  .pt-cell:last-child {
+    border-right: none;
+    padding: 0 8px;
+  }
+  .pt-grow {
+    flex: 1;
+    border-right: 1px solid var(--line);
+  }
+  .pt-mark {
+    width: 20px;
+    box-sizing: content-box;
+  }
+  .pt-mark :global(svg) {
+    width: 20px;
+    height: 20px;
+  }
+  .pt-title b {
+    font-weight: 500;
+  }
+  .pt-title .mono {
+    font-size: 12px;
+    color: var(--fg-subtle);
+  }
+  .pt-kind {
+    color: var(--fg-muted);
+  }
+  .pt-share {
+    height: 30px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 8px;
+    background: var(--fg);
+    color: var(--bg);
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .pt-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .pt-deck {
+    background: #1d1f24;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .deck {
+    width: min(78%, 720px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .slide {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    box-sizing: border-box;
+    background: #ffffff;
+    color: #111827;
+    border-radius: 6px;
+    padding: 6% 7%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  }
+  .slide-kicker {
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #3b6fe0;
+    font-weight: 600;
+  }
+  .slide-title {
+    font-size: clamp(18px, 2.4vw, 28px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .tiers {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    align-items: end;
+  }
+  .tier {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 4px;
+    font-size: 13px;
+    color: #4b5563;
+  }
+  .tier b {
+    color: #111827;
+    font-weight: 600;
+  }
+  .tier-bar {
+    background: #3b6fe0;
+    border-radius: 4px 4px 0 0;
+  }
+  .tier:nth-child(2) .tier-bar {
+    background: #2a55b8;
+  }
+  .tier:nth-child(3) .tier-bar {
+    background: #1b3a85;
+  }
+  .deck-nav {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    color: #c9ccd3;
+    font-size: 13px;
+  }
+
+  .pt-markdown {
+    background: #ffffff;
+    color: #1f2328;
+    overflow: hidden;
+  }
+  .doc {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 40px 32px;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  .doc h3 {
+    margin: 0 0 8px;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .doc h4 {
+    margin: 22px 0 8px;
+    font-size: 17px;
+    font-weight: 600;
+  }
+  .doc p {
+    margin: 0;
+    color: #4b5157;
+  }
+  .checks {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .checks li::before {
+    content: "";
+    display: inline-block;
+    width: 13px;
+    height: 13px;
+    margin-right: 10px;
+    vertical-align: -1px;
+    border: 1.5px solid #8c959f;
+    border-radius: 3px;
+  }
+  .checks li.done::before {
+    background: #1f883d;
+    border-color: #1f883d;
+  }
+  .doc pre {
+    margin: 0;
+    padding: 12px 14px;
+    border-radius: 6px;
+    background: #f6f8fa;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    white-space: pre;
+  }
+  .doc .doc-note {
+    margin-top: 22px;
+    font-size: 12.5px;
+    color: #8c959f;
+  }
+
+  .pt-html {
+    background: #f7f8fb;
+    color: #0f172a;
+  }
+  .dash {
+    height: 100%;
+    box-sizing: border-box;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .kpi {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12.5px;
+    color: #64748b;
+  }
+  .kpi b {
+    font-size: 26px;
+    font-weight: 600;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+  }
+  .kpi-delta {
+    color: #059669;
+  }
+  .chart {
+    flex: 1;
+    min-height: 0;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .chart-label {
+    font-size: 13px;
+    color: #64748b;
+  }
+  .bars {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+  }
+  .bars span {
+    flex: 1;
+    border-radius: 4px 4px 0 0;
+    background: #6366f1;
+  }
+  .bars span:nth-child(5),
+  .bars span:nth-child(11) {
+    background: #f97316;
+  }
+
+  .pt-canvas {
+    background-color: #fbfaf7;
+    background-image: radial-gradient(circle, #d6d3cc 1px, transparent 1.4px);
+    background-size: 18px 18px;
+  }
+  .board {
+    position: absolute;
+    inset: 0;
+  }
+  .board-lines {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: #7c6ad6;
+    stroke-width: 2;
+  }
+  .board-lines path {
+    vector-effect: non-scaling-stroke;
+  }
+  .node,
+  .sticky {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    font-size: 13.5px;
+  }
+  .node {
+    padding: 10px 16px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1.5px solid #7c6ad6;
+    color: #2b2350;
+    font-weight: 500;
+    box-shadow: 0 6px 18px rgba(43, 35, 80, 0.12);
+    white-space: nowrap;
+  }
+  .node.hot {
+    background: #7c6ad6;
+    color: #ffffff;
+  }
+  .n1 {
+    left: 18%;
+    top: 30%;
+  }
+  .n2 {
+    left: 18%;
+    top: 70%;
+  }
+  .n3 {
+    left: 50%;
+    top: 50%;
+  }
+  .n4 {
+    left: 82%;
+    top: 50%;
+  }
+  .n5 {
+    left: 66%;
+    top: 78%;
+  }
+  .sticky {
+    left: 76%;
+    top: 22%;
+    width: 150px;
+    padding: 12px;
+    background: #fde68a;
+    color: #5b4a10;
+    border-radius: 4px;
+    transform: translate(-50%, -50%) rotate(2deg);
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+  }
+
+  @media (max-width: 860px) {
+    .pt-list {
+      grid-template-columns: 1fr 1fr;
+    }
+    .pt-window {
+      height: 480px;
+    }
+    .pt-kind,
+    .pt-grow {
+      display: none;
+    }
+    .pt-title {
+      flex: 1;
+      min-width: 0;
+    }
+    .deck {
+      width: 90%;
+    }
+    .kpis {
+      grid-template-columns: 1fr 1fr;
+    }
+    .kpi:nth-child(3) {
+      display: none;
+    }
+    .node {
+      font-size: 11.5px;
+      padding: 8px 10px;
+    }
+    .sticky {
+      display: none;
+    }
+  }
+</style>

@@ -1,0 +1,20 @@
+{
+  "name": "@artiflow/mcp-apps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCP Apps viewer document and host-capability helpers for Artiflow. Pure string work; imports nothing.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    "./viewer": "./src/viewer.ts",
+    "./hosts": "./src/hosts.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

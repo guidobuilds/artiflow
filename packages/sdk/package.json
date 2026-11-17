@@ -1,0 +1,25 @@
+{
+  "name": "@artiflow/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed fetch client for the existing HTTP surface. Injectable fetch so the same client runs against app.fetch or a network URL.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    "./client": "./src/client.ts",
+    "./auth": "./src/auth.ts",
+    "./poll": "./src/poll.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@artiflow/contracts": "*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

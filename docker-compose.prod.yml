@@ -1,0 +1,72 @@
+name: artiflow
+
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    command: ["bun", "apps/api/src/adapters/postgres/db/migrate.ts"]
+    env_file:
+      - ${ARTIFLOW_PROD_ENV_FILE:-.env.prod}
+    environment:
+      ARTIFLOW_ALLOW_REMOTE_MIGRATE: "1"
+    restart: "no"
+    networks:
+      - artiflow
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    env_file:
+      - ${ARTIFLOW_PROD_ENV_FILE:-.env.prod}
+    environment:
+      NODE_ENV: production
+      ARTIFLOW_API_HOST: 0.0.0.0
+    # No published ports: only the web container's proxy reaches the API.
+    networks:
+      - artiflow
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "fetch('http://127.0.0.1:8787/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
+    environment:
+      SITE_ADDRESS: ${ARTIFLOW_SITE_ADDRESS:?set ARTIFLOW_SITE_ADDRESS in .env.prod}
+      API_UPSTREAM: api:8787
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - artiflow
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  artiflow:
+    name: artiflow-prod-net

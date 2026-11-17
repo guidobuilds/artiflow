@@ -1,0 +1,2 @@
+ALTER TABLE "artifactRevisions" DROP CONSTRAINT "artifactRevisions_storageKey_unique";--> statement-breakpoint
+CREATE INDEX "artifactRevisions_storageKey_idx" ON "artifactRevisions" USING btree ("storageKey");

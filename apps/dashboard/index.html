@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="color-scheme" content="dark light" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Artiflow</title>
+  </head>
+  <body>
+    <script>
+      // Force data-theme before first paint (brand/BRAND.md §9): the stored
+      // choice wins, otherwise the OS preference, otherwise dark.
+      // (theme.ts in the app keeps both paths in sync.)
+      try {
+        var stored = localStorage.getItem("artiflow-theme");
+        document.documentElement.dataset.theme =
+          stored === "light" || stored === "dark"
+            ? stored
+            : matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark";
+        // Palettes were retired: drop a stale choice so it never comes back.
+        localStorage.removeItem("artiflow-palette");
+      } catch (error) {
+        document.documentElement.dataset.theme = "dark";
+      }
+    </script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,1 @@
+ALTER TABLE "artifactPublicLinks" ADD CONSTRAINT "artifactPublicLinks_tokenHash_hex_check" CHECK ("tokenHash" ~ '^[0-9a-f]{64}$');

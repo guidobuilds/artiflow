@@ -1,0 +1,27 @@
+{
+  "_status": "draft-pending-E0",
+  "_note": "Provisional shape for an isolated OpenWork test workspace. Field names and semantics are unverified against client 0.18.58 and must be reconciled with observed behavior before any run. Contains no secrets and no connection settings; staging alias and URL are supplied by the operator at run time, never stored here.",
+  "name": "openwork-artiflow-matrix",
+  "description": "Isolated test workspace for the Artiflow OpenWork compatibility acceptance matrix",
+  "clientVersionUnderTest": "0.18.58",
+  "isolation": {
+    "network": "E0-controlled",
+    "home": "scratch",
+    "datastores": "disposable-pg-s3"
+  },
+  "servers": {
+    "artiflow": {
+      "transport": "declared-at-run-time",
+      "authPlane": "observed-not-assumed",
+      "note": "OAuth plane (native wrapper vs MCP path) is recorded from actual behavior, not docs"
+    }
+  },
+  "rules": {
+    "readOnlyHint": "verify-active-app-rule",
+    "lease": {
+      "durationMinutes": 30,
+      "autoExtension": false
+    },
+    "hostIdentity": "per-instance"
+  }
+}

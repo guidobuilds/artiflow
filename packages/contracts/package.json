@@ -1,0 +1,26 @@
+{
+  "name": "@artiflow/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wire schemas shared by the API, dashboard and SDK. Zod only; no app internals.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    "./artifacts": "./src/artifacts.ts",
+    "./document": "./src/document.ts",
+    "./shares": "./src/shares.ts",
+    "./comments": "./src/comments.ts",
+    "./errors": "./src/errors.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

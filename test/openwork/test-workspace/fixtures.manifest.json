@@ -1,0 +1,29 @@
+{
+  "_status": "draft-pending-E0",
+  "_note": "Benign functional fixtures only. Contents are materialized at test time inside the E0 envelope; nothing here connects to staging or production. No secrets, no real user data, no security payloads.",
+  "artifacts": [
+    {
+      "id": "seed-html-01",
+      "kind": "html",
+      "purpose": "A4/A6/A7: create, read, edit, read-back, CAS conflict, comment anchor",
+      "generate": {
+        "strategy": "template-at-test-time",
+        "requires": ["matrix-run-context"]
+      }
+    },
+    {
+      "id": "seed-markdown-01",
+      "kind": "markdown",
+      "purpose": "A5: create, read, edit, read-back round trip",
+      "generate": {
+        "strategy": "template-at-test-time",
+        "requires": ["matrix-run-context"]
+      }
+    }
+  ],
+  "crossHarnessScenario": {
+    "id": "cross-harness-update-01",
+    "purpose": "A8: update originated in another harness; observe lease/revision behavior",
+    "actors": ["writer-harness", "openwork-client"]
+  }
+}

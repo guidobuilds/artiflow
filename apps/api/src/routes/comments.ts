@@ -1,0 +1,177 @@
+import { Hono, type Context } from "hono";
+import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
+import {
+  commentDocument,
+  currentRevision,
+  deleteComment,
+  findComment,
+  insertComment,
+  listComments,
+  setCommentResolved,
+  type CommentDocument,
+} from "../adapters/postgres/comments-repo.ts";
+import type { createAuth } from "../auth.ts";
+import { MAX_ARTIFACT_BYTES, MAX_COMMENT_BODY, MAX_COMMENT_QUOTE } from "../adapters/postgres/db/artifact-schema.ts";
+import { getRevisionBytes } from "../adapters/storage/s3.ts";
+import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { cookieMutationGuard, isUuid, Rollback } from "../http/index.ts";
+import { readPrincipal } from "../http/principal.ts";
+import type { CommentListResponse, CommentMutationResponse } from "@artiflow/contracts/comments";
+import type { Storage } from "../adapters/storage/client.ts";
+import { anchorText, type CommentAnchor } from "@artiflow/domain/comment-anchors";
+
+type Options = {
+  database: Database;
+  auth: ReturnType<typeof createAuth>;
+  storage: Storage;
+  publicOrigin: string;
+  principal?: true;
+};
+
+type Doc = CommentDocument;
+type Row = Awaited<ReturnType<typeof listComments>>[number];
+
+const canComment = (doc: Doc) => ["owner", "editor", "commenter"].includes(doc.access);
+
+export function createCommentsApp({ database, auth, storage, publicOrigin, principal }: Options) {
+  const db = database.db;
+  const app = new Hono();
+  const guard = (c: Context): Response | null => {
+    if (principal) return null;
+    const rejected = cookieMutationGuard(c, publicOrigin);
+    return rejected === null
+      ? null
+      : rejected === "origin_not_allowed"
+        ? c.json({ error: rejected }, 403)
+        : c.json({ error: rejected }, 415);
+  };
+  const gate = async (c: Context, query: AppDb | AppTx, lock = false) => {
+    const id = c.req.param("id") ?? "";
+    const commentId = c.req.param("commentId");
+    if (!isUuid(id) || (commentId !== undefined && !isUuid(commentId))) return c.json({ error: "not_found" }, 404);
+    const bearerUserId = principal ? readPrincipal(c.req.raw.headers)?.userId : undefined;
+    const userId = bearerUserId ?? (await auth.api.getSession({ headers: c.req.raw.headers }))?.user?.id;
+    if (!userId) return c.json({ error: "unauthorized" }, 401);
+    const doc = await commentDocument(query, userId, id, "shared", lock);
+    if (!doc) return c.json({ error: "not_found" }, 404);
+    if (doc.kind !== "markdown") return c.json({ error: "wrong_kind" }, 409);
+    return { doc, userId };
+  };
+  app.get("/api/artifacts/:id/comments", async (c) => {
+    const result = await gate(c, db);
+    if (result instanceof Response) return result;
+    const { doc, userId } = result;
+    const rows = await listComments(db, doc.id, true);
+    const serialize = (row: Row) => ({
+      id: row.id,
+      authorId: row.authorId,
+      author: { email: row.authorEmail },
+      anchor: {
+        startLine: row.anchorStartLine,
+        startCol: row.anchorStartCol,
+        endLine: row.anchorEndLine,
+        endCol: row.anchorEndCol,
+      },
+      quotedText: row.quotedText,
+      body: row.body,
+      resolvedAt: row.resolvedAt?.toISOString() ?? null,
+      createdAt: row.createdAt.toISOString(),
+      canDelete: doc.ownerId === userId || row.authorId === userId,
+    });
+    return c.json({
+      canComment: canComment(doc),
+      comments: rows
+        .filter((row) => row.parentId === null)
+        .map((row) => ({
+          ...serialize(row),
+          replies: rows.filter((reply) => reply.parentId === row.id).map(serialize),
+        })),
+    } satisfies CommentListResponse);
+  });
+  type Gate = { doc: Doc; userId: string };
+  const mutate = async (c: Context, action: (client: AppTx, result: Gate) => Promise<Response>) => {
+    const rejected = guard(c);
+    if (rejected) return rejected;
+    try {
+      return await db.transaction(async (tx) => {
+        const result = await gate(c, tx, true);
+        const response = result instanceof Response ? result : await action(tx, result);
+        if (response.status >= 400) throw new Rollback(response);
+        return response;
+      });
+    } catch (error) {
+      if (error instanceof Rollback) return error.carried;
+      throw error;
+    }
+  };
+  app.post("/api/artifacts/:id/comments", (c) =>
+    mutate(c, async (client, { doc, userId }) => {
+      if (!canComment(doc)) return c.json({ error: "forbidden" }, 403);
+      const body = (await c.req.json().catch(() => null)) as {
+        anchor?: CommentAnchor;
+        quotedText?: unknown;
+        body?: unknown;
+        parentId?: unknown;
+      } | null;
+      if (typeof body?.body !== "string" || !body.body.trim()) return c.json({ error: "body_required" }, 400);
+      if (typeof body.quotedText !== "string" || !body.quotedText) return c.json({ error: "quote_required" }, 400);
+      if (Array.from(body.body).length > MAX_COMMENT_BODY || Array.from(body.quotedText).length > MAX_COMMENT_QUOTE)
+        return c.json({ error: "too_large" }, 413);
+      const parentId = body.parentId ?? null;
+      if (parentId !== null) {
+        if (typeof parentId !== "string" || !isUuid(parentId)) return c.json({ error: "comment_not_found" }, 404);
+        const parent = await findComment(client, doc.id, parentId);
+        if (!parent) return c.json({ error: "comment_not_found" }, 404);
+        if (parent.parentId !== null) return c.json({ error: "nested_reply" }, 400);
+      }
+      const revision = await currentRevision(client, doc.id);
+      if (!revision) return c.json({ error: "no_current_revision" }, 409);
+      const read = await getRevisionBytes({
+        storage,
+        storageKey: revision.storageKey,
+        sha256: revision.sha256,
+        maxBytes: MAX_ARTIFACT_BYTES,
+      });
+      if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      const decoded = decodeMarkdownText(read.value.bytes);
+      if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      const anchor = body.anchor;
+      const selected = anchor ? anchorText(decoded.text, anchor) : null;
+      if (selected === null) return c.json({ error: "invalid_anchor" }, 400);
+      if (selected !== body.quotedText) return c.json({ error: "anchor_mismatch" }, 400);
+      const inserted = await insertComment(client, {
+        artifactId: doc.id,
+        authorId: userId,
+        parentId: parentId as string | null,
+        anchor: anchor!,
+        quotedText: body.quotedText,
+        body: body.body,
+      });
+      return c.json({ id: inserted.id } satisfies CommentMutationResponse, 201);
+    }),
+  );
+  for (const operation of ["resolve", "unresolve"] as const) {
+    app.post(`/api/artifacts/:id/comments/:commentId/${operation}`, (c) =>
+      mutate(c, async (client, { doc }) => {
+        if (!canComment(doc)) return c.json({ error: "forbidden" }, 403);
+        const id = c.req.param("commentId");
+        const row = await findComment(client, doc.id, id);
+        if (!row) return c.json({ error: "comment_not_found" }, 404);
+        if (row.parentId !== null) return c.json({ error: "root_required" }, 400);
+        await setCommentResolved(client, id, operation === "resolve");
+        return c.json({ id } satisfies CommentMutationResponse);
+      }),
+    );
+  }
+  app.delete("/api/artifacts/:id/comments/:commentId", (c) =>
+    mutate(c, async (client, { doc, userId }) => {
+      const id = c.req.param("commentId");
+      const row = await findComment(client, doc.id, id);
+      if (!row) return c.json({ error: "comment_not_found" }, 404);
+      if (doc.ownerId !== userId && row.authorId !== userId) return c.json({ error: "forbidden" }, 403);
+      await deleteComment(client, id);
+      return c.json({ id } satisfies CommentMutationResponse);
+    }),
+  );
+  return app;
+}

@@ -1,0 +1,109 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: verify
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Check repository hygiene
+        run: node scripts/check-hygiene.mjs
+
+      - name: Boundaries
+        run: bun run check:boundaries
+
+      - name: Audit dependencies
+        run: |
+          audit_dir="$RUNNER_TEMP/npm-audit"
+          mkdir -p "$audit_dir"
+          for manifest in package.json apps/*/package.json packages/*/package.json plugins/*/package.json; do
+            mkdir -p "$audit_dir/$(dirname "$manifest")"
+            cp "$manifest" "$audit_dir/$manifest"
+          done
+          cd "$audit_dir"
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm audit --omit=dev --audit-level=high
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Check changed files
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/check-changed.mjs "$BASE_SHA"
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+  opencode-plugin:
+    name: opencode plugin packaging
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Plugin tests
+        run: node --test test/opencode-plugin*.test.ts
+      - name: Pack smoke
+        run: |
+          npm run build:plugin
+          node plugins/opencode/scripts/pack-plugin.mjs stage
+          (cd plugins/opencode && npm pack --ignore-scripts=false --pack-destination "$RUNNER_TEMP")
+          node plugins/opencode/scripts/pack-plugin.mjs clean
+          mkdir "$RUNNER_TEMP/pack-check"
+          tar -xzf "$RUNNER_TEMP"/artiflow-opencode-plugin-*.tgz -C "$RUNNER_TEMP/pack-check"
+          cmp "$RUNNER_TEMP/pack-check/package/skills/creating-artifacts/SKILL.md" skills/creating-artifacts/SKILL.md
+          cmp "$RUNNER_TEMP/pack-check/package/skills/using-artiflow/SKILL.md" skills/using-artiflow/SKILL.md
+          test -f "$RUNNER_TEMP/pack-check/package/dist/server.mjs"
+          test -f "$RUNNER_TEMP/pack-check/package/dist/gui-experimental.cjs"

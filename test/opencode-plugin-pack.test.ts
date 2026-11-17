@@ -1,0 +1,92 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { cp, mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test, { before } from "node:test";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+import { skillFilePath } from "../plugins/opencode/src/skill-files.ts";
+
+const run = promisify(execFile);
+const packageDirectory = fileURLToPath(new URL("../plugins/opencode", import.meta.url));
+const skillsDirectory = fileURLToPath(new URL("../skills", import.meta.url));
+const manifest = JSON.parse(readFileSync(join(packageDirectory, "package.json"), "utf8")) as {
+  exports: Record<string, string>;
+  files: string[];
+};
+
+const SKILLS = ["creating-artifacts", "using-artiflow"];
+
+before(async () => {
+  const bundle = (name: string) => existsSync(join(packageDirectory, "dist", name));
+  if (!bundle("server.mjs") || !bundle("gui-experimental.cjs")) {
+    await run("npm", ["run", "build"], { cwd: packageDirectory });
+    await run("npm", ["run", "build:server"], { cwd: packageDirectory });
+  }
+});
+
+async function packLayout(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "artiflow-pack-"));
+  await mkdir(join(root, "plugins"), { recursive: true });
+  await cp(packageDirectory, join(root, "plugins/opencode"), {
+    recursive: true,
+    filter: (source) => !source.includes("node_modules"),
+  });
+  await cp(skillsDirectory, join(root, "skills"), { recursive: true });
+  return root;
+}
+
+async function packScript(root: string, command: "stage" | "clean"): Promise<void> {
+  await run(process.execPath, [join(root, "plugins/opencode/scripts/pack-plugin.mjs"), command], {
+    cwd: join(root, "plugins/opencode"),
+  });
+}
+
+async function installLayout(root: string): Promise<string> {
+  const site = join(root, "site");
+  const installed = join(site, "node_modules/artiflow-opencode-plugin");
+  await mkdir(installed, { recursive: true });
+  await cp(join(root, "plugins/opencode/package.json"), join(installed, "package.json"));
+  for (const entry of manifest.files)
+    await cp(join(root, "plugins/opencode", entry), join(installed, entry), { recursive: true });
+  return installed;
+}
+
+test("the pack flow stages both canonical skills byte-identically and removes them afterwards", async () => {
+  const root = await packLayout();
+  const staged = join(root, "plugins/opencode/skills");
+  try {
+    assert.equal(existsSync(staged), false);
+    await packScript(root, "stage");
+    for (const name of SKILLS)
+      assert.ok(
+        readFileSync(join(staged, name, "SKILL.md")).equals(readFileSync(join(root, "skills", name, "SKILL.md"))),
+        `${name} was not staged byte-identically`,
+      );
+    await packScript(root, "clean");
+    assert.equal(existsSync(staged), false);
+    assert.ok(existsSync(join(root, "plugins/opencode/src/index.ts")), "clean must not touch package sources");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a packed install resolves package-local skills and both export entries", async () => {
+  const root = await packLayout();
+  const installed = join(root, "site/node_modules/artiflow-opencode-plugin");
+  try {
+    await packScript(root, "stage");
+    await installLayout(root);
+    for (const [name, target] of Object.entries(manifest.exports))
+      assert.ok(existsSync(join(installed, target)), `export ${name} is missing from the packed files`);
+    for (const name of SKILLS) {
+      const path = skillFilePath(join(installed, "src/index.ts"), name);
+      assert.equal(path, join(installed, "skills", name, "SKILL.md"));
+      assert.ok(readFileSync(path).equals(readFileSync(join(skillsDirectory, name, "SKILL.md"))));
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

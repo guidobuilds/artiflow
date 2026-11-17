@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js"
+  },
+  "files": ["src/gui.tsx"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"]
+}
