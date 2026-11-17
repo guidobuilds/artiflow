@@ -1,0 +1,8 @@
+[
+  {
+    "package": "picomatch",
+    "advisory": "GHSA-fc5q-39xc-vjpf",
+    "reason": "No patched release exists: 4.0.7 is the newest published version. Build and documentation chain only (Astro, Starlight, @astrojs/check, dashboard Vite and @opencode/plugin); it is not on the API runtime path.",
+    "reviewBy": "2026-12-17"
+  }
+]

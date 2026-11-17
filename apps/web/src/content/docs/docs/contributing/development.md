@@ -108,13 +108,14 @@ The repository's `verify` workflow runs the root checks on every push and pull r
 does not build or deploy the documentation site, so run `bun run web:verify`
 locally before opening a docs change.
 
-Bun has no audit command, so the gate audits the workspace manifests with npm: it copies every
-workspace `package.json` into a scratch directory, generates a throwaway lockfile
-(`npm install --package-lock-only --ignore-scripts`) and runs `npm audit --omit=dev --audit-level=high`,
-failing on high or critical advisories. `--omit=dev` does not filter dev dependencies out of that
-generated lockfile, so the `high` threshold is what actually gates. The MCP transport is Hono
-(`@hono/node-server`, `apps/api/src/mcp/mount.ts`), so the MCP SDK's `express`/`body-parser` subtree
-is not on the HTTP path today.
+The gate audits the resolved tree with bun: after `bun install --frozen-lockfile` it runs
+`bun audit --json` through `scripts/audit.mjs` (`bun run audit`) and fails on any high or critical
+advisory that is not listed in `scripts/audit-allowlist.json`. Each entry names the package, the GHSA
+id, the reason the risk is accepted and a `reviewBy` date. The date only produces a warning, so an
+advisory without a patched release never turns the gate red for every pull request; remove the entry
+once a patch lands. The MCP transport is Hono (`@hono/node-server`, `apps/api/src/mcp/mount.ts`), so
+the MCP SDK's `express`/`body-parser` subtree is not on the HTTP path today, and `body-parser` is
+pinned to a patched version regardless.
 
 ## Add a documentation page
 
