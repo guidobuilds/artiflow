@@ -203,9 +203,8 @@ Examples:
 
 ## Code style and decisions
 
-- **Comments:** follow [`AGENTS.md`](AGENTS.md). A comment exists for a
-  non-obvious invariant, a security or correctness reason, or a workaround with
-  its tracking issue. Delete narration and historical task labels.
+- **Comments:** follow [`AGENTS.md`](AGENTS.md). No comments in source: code must
+  explain itself, and reasoning belongs in the commit message or the pull request.
 - **Persistence:** product queries belong in repositories that receive the typed
   `AppDb`/`AppTx` from `apps/api/src/db/client.ts`. HTTP routes and MCP tools consume
   the same operations instead of duplicating SQL. Prefer Drizzle builders; keep
