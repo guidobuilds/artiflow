@@ -155,7 +155,7 @@ const footer = [
             </div>
             <div class="prompt-row">
               <AgentLogos />
-              <span class="prompt-note">Claude Code, Codex, OpenCode, Pi or any MCP client</span>
+              <span class="prompt-note">OpenCode, Pi, Claude Code, Codex or any MCP client</span>
               <button type="button" class="btn primary sm" data-copy={agentPrompt}>Copy prompt</button>
             </div>
           </div>
@@ -190,18 +190,7 @@ const footer = [
       <section class="sec center">
         <span class="seclabel">[ <b>03</b> / 06 ] · HOW IT WORKS</span>
         <h2 class="title narrow">Any agent in. Anyone you choose out.</h2>
-        <FlowDiagram />
-        <ol class="steps">
-          {
-            steps.map((s) => (
-              <li>
-                <span class="mono accent-text">{s.n}</span>
-                <b>{s.title}</b>
-                <span class="muted">{s.body}</span>
-              </li>
-            ))
-          }
-        </ol>
+        <FlowDiagram steps={steps} />
       </section>
 
       <section class="sec">
@@ -228,7 +217,7 @@ const footer = [
           <div class="feat-stage">
             <div class="dots" aria-hidden="true"></div>
             <div class="consent" aria-label="Example consent screen" role="img">
-              <b>Codex wants to publish to your library</b>
+              <b>OpenCode wants to publish to your library</b>
               <div class="consent-scope"><span>Create artifacts and versions</span><span class="mono subtle">artifacts:write</span></div>
               <div class="consent-actions"><span class="c-deny">Deny</span><span class="c-allow">Allow <span class="mono">⏎</span></span></div>
             </div>
@@ -822,30 +811,6 @@ const footer = [
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .steps {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
-    text-align: left;
-  }
-  .steps li {
-    border-radius: 12px;
-    border: 1px solid var(--line);
-    padding: 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .steps b {
-    font-weight: 500;
-  }
-  .steps .muted {
-    font-size: 14px;
-  }
 
   .feat {
     display: grid;
@@ -1174,9 +1139,6 @@ const footer = [
     .walls,
     .foot {
       grid-template-columns: 1fr;
-    }
-    .steps {
-      grid-template-columns: 1fr 1fr;
     }
     .prompt-card {
       justify-self: stretch;

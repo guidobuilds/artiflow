@@ -2,11 +2,54 @@
 import Mark from "./Mark.astro";
 
 const tabs = [
-  { id: "deck", title: "Decks", body: "Pitch an idea or report on a quarter.", doc: "Q4 pricing tiers", meta: "v3" },
-  { id: "markdown", title: "Docs", body: "Specs, runbooks and notes your team keeps editing.", doc: "Onboarding runbook", meta: "v5" },
-  { id: "html", title: "Dashboards", body: "Turn numbers into something people read.", doc: "API latency review", meta: "v2" },
-  { id: "canvas", title: "Mockups and flows", body: "Sketch a screen or a flow before anyone builds it.", doc: "Checkout flow", meta: "v1" },
+  { id: "html", title: "Web pages", body: "Dashboards, reports and sites, built in HTML.", doc: "Checkout conversion · October", meta: "v4", kind: "Page" },
+  { id: "markdown", title: "Docs", body: "Specs, runbooks and notes your team keeps editing.", doc: "Rate limits for the public API", meta: "v5", kind: "Doc" },
+  { id: "deck", title: "Decks", body: "Pitch an idea or report on a quarter.", doc: "Q3 business review", meta: "v3", kind: "Deck", soon: true },
+  { id: "canvas", title: "Mockups", body: "Design screens on a canvas before anyone builds them.", doc: "Stays · home", meta: "v1", kind: "Canvas", soon: true },
 ];
+
+const conv = [3.2, 3.3, 3.1, 3.4, 3.6, 3.7, 3.9, 3.8, 4.1, 4.2, 4.0, 4.3];
+const prev = [3.2, 3.1, 3.3, 3.2, 3.3, 3.1, 3.2, 3.4, 3.3, 3.2, 3.3, 3.3];
+const yTicks = [3, 3.5, 4, 4.5];
+const r2 = (n: number) => Math.round(n * 100) / 100;
+const xAt = (i: number) => r2((i / (conv.length - 1)) * 100);
+const yAt = (v: number) => r2(100 - ((v - 2.8) / 1.8) * 100);
+const toPath = (values: number[]) => values.map((v, i) => `${i ? "L" : "M"}${xAt(i)} ${yAt(v)}`).join(" ");
+const nowPath = toPath(conv);
+const prevPath = toPath(prev);
+function spark(values: number[]) {
+  const lo = Math.min(...values);
+  const hi = Math.max(...values);
+  return values.map((v, i) => `${i ? "L" : "M"}${r2((i / (values.length - 1)) * 100)} ${r2(28 - ((v - lo) / (hi - lo)) * 26)}`).join(" ");
+}
+const kpis = [
+  { label: "Conversion", value: "3.9%", delta: "+0.6 pt", spark: spark(conv) },
+  { label: "Revenue", value: "€412k", delta: "+18%", spark: spark([88, 92, 90, 97, 101, 99, 108, 112, 110, 118, 121, 126]) },
+  { label: "Average order", value: "€54", delta: "+3%", spark: spark([52, 53, 52, 52, 53, 54, 53, 54, 55, 54, 54, 55]) },
+];
+const funnel = [
+  ["Cart", "12,480", 100],
+  ["Shipping", "8,990", 72],
+  ["Payment", "7,240", 58],
+  ["Purchased", "4,870", 39],
+] as const;
+
+const toc = ["Summary", "Proposal", "Limits by plan", "Rollout", "Open questions"];
+const limits = [
+  ["Free", "60", "120"],
+  ["Team", "600", "1,200"],
+  ["Business", "3,000", "6,000"],
+];
+const rollout = [
+  { text: "Send rate-limit headers in shadow mode", done: true },
+  { text: "Email Business accounts above 80% of their limit", done: true },
+  { text: "Enforce limits on November 30", done: false },
+];
+
+const arr = [2.1, 2.4, 2.7, 3.0, 3.6, 4.2];
+const chartPoints = arr.map((v, i) => [i * 60, Math.round(150 - (v - 1.6) * 45)] as const);
+const line = chartPoints.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ");
+const slides = ["cover", "agenda", "market", "growth", "plan"];
 ---
 
 <div class="pt" data-tabs>
@@ -21,7 +64,10 @@ const tabs = [
           aria-selected={i === 0 ? "true" : "false"}
           tabindex={i === 0 ? 0 : -1}
         >
-          <b>{t.title}</b>
+          <b>
+            {t.title}
+            {t.soon && <span class="pt-soon">Soon</span>}
+          </b>
           <span>{t.body}</span>
         </button>
       ))
@@ -41,92 +87,308 @@ const tabs = [
               <span class="mono">{t.meta}</span>
             </span>
             <span class="pt-grow" />
-            <span class="pt-cell pt-kind">{t.id === "markdown" ? "Doc" : "Page"}</span>
+            {t.soon && (
+              <span class="pt-cell pt-soon-cell">
+                <span class="pt-badge">Coming soon</span>
+              </span>
+            )}
+            <span class="pt-cell pt-kind">{t.kind}</span>
             <span class="pt-cell">
               <span class="pt-share">Share</span>
             </span>
           </div>
           <div class:list={["pt-body", `pt-${t.id}`]} aria-hidden="true">
-            {t.id === "deck" && (
-              <div class="deck">
-                <div class="slide">
-                  <span class="slide-kicker">Pricing · Q4</span>
-                  <b class="slide-title">Three tiers, one upgrade path</b>
-                  <div class="tiers">
-                    {[
-                      ["Starter", "$12", 40],
-                      ["Team", "$29", 68],
-                      ["Business", "$59", 92],
-                    ].map(([name, price, h]) => (
-                      <div class="tier">
-                        <span class="tier-bar" style={`height: ${h}%`} />
-                        <b>{name}</b>
-                        <span>{price} / seat</span>
+            {t.id === "html" && (
+              <div class="report">
+                <header class="report-head">
+                  <div class="report-titles">
+                    <span class="report-kicker">Growth · Weekly report</span>
+                    <b class="report-title">Checkout conversion is up 18% since the redesign</b>
+                    <span class="report-sub">Oct 1 – Oct 28 · updated 2 h ago by your agent</span>
+                  </div>
+                  <div class="report-controls">
+                    <span class="seg">
+                      <span>7d</span>
+                      <span class="on">30d</span>
+                      <span>90d</span>
+                    </span>
+                    <span class="chip">All regions ▾</span>
+                  </div>
+                </header>
+                <div class="kpis">
+                  {kpis.map((k) => (
+                    <div class="kpi">
+                      <span class="kpi-label">{k.label}</span>
+                      <span class="kpi-row">
+                        <b>{k.value}</b>
+                        <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+                          <path d={k.spark} />
+                        </svg>
+                      </span>
+                      <span class="kpi-delta">
+                        {k.delta} <span class="kpi-vs">vs. September</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div class="report-main">
+                  <div class="panel">
+                    <div class="panel-head">
+                      <b>Conversion rate</b>
+                      <span class="legend">
+                        <i class="key now" />
+                        October
+                        <i class="key prev" />
+                        September
+                      </span>
+                    </div>
+                    <div class="plot">
+                      {yTicks.map((v) => (
+                        <span class="y-tick" style={`top: ${yAt(v)}%`}>
+                          {v.toFixed(1)}%
+                        </span>
+                      ))}
+                      <div class="plot-area">
+                        <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+                          {yTicks.map((v) => (
+                            <path class="grid" d={`M0 ${yAt(v)} H100`} />
+                          ))}
+                          <path class="area" d={`${nowPath} L100 100 L0 100 Z`} />
+                          <path class="prev" d={prevPath} />
+                          <path class="now" d={nowPath} />
+                          <path class="marker" d={`M${xAt(3)} 0 V100`} />
+                        </svg>
+                        <span class="note" style={`left: ${xAt(3)}%`}>Redesign shipped</span>
+                        <span class="pt-dot" style={`left: ${xAt(9)}%; top: ${yAt(conv[9]!)}%`} />
+                        <span class="pt-dot prev" style={`left: ${xAt(9)}%; top: ${yAt(prev[9]!)}%`} />
+                        <span class="tip" style={`left: ${xAt(9)}%; top: ${yAt(conv[9]!)}%`}>
+                          <b>Oct 23</b>
+                          <span>
+                            <i class="key now" />
+                            4.2%
+                          </span>
+                          <span>
+                            <i class="key prev" />
+                            3.2%
+                          </span>
+                        </span>
+                      </div>
+                      <div class="x-ticks">
+                        {["Oct 1", "Oct 8", "Oct 15", "Oct 22", "Oct 28"].map((d) => (
+                          <span>{d}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="panel funnel">
+                    <div class="panel-head">
+                      <b>Checkout funnel</b>
+                    </div>
+                    {funnel.map(([step, count, pct]) => (
+                      <div class="step">
+                        <span class="step-row">
+                          <span>{step}</span>
+                          <span class="step-n">{count}</span>
+                        </span>
+                        <span class="step-bar">
+                          <span style={`width: ${pct}%`} />
+                        </span>
+                        <span class="step-pct">{pct}%</span>
                       </div>
                     ))}
                   </div>
                 </div>
-                <div class="deck-nav">
-                  <span>‹</span>
-                  <span class="mono">3 / 12</span>
-                  <span>›</span>
-                </div>
               </div>
             )}
+
             {t.id === "markdown" && (
-              <article class="doc">
-                <h3>Onboarding runbook</h3>
-                <p>Everything a new engineer needs in the first week, in the order they need it.</p>
-                <h4>Day one</h4>
-                <ul class="checks">
-                  <li class="done">Laptop, SSO and the on-call rota</li>
-                  <li class="done">Clone the monorepo and run the tests</li>
-                  <li>Ship one small change behind review</li>
-                </ul>
-                <h4>Run the stack locally</h4>
-                <pre><code>{"bun install\nbun run dev"}</code></pre>
-                <p class="doc-note">Last edited by your agent · restored from v4 on Monday</p>
-              </article>
+              <div class="doc-page">
+                <nav class="doc-toc">
+                  <span class="doc-toc-head">On this page</span>
+                  {toc.map((item, n) => (
+                    <span class:list={{ on: n === 2 }}>{item}</span>
+                  ))}
+                </nav>
+                <article class="doc">
+                  <span class="doc-crumb">Engineering / RFCs / 0142</span>
+                  <h3>Rate limits for the public API</h3>
+                  <div class="doc-meta">
+                    <span class="doc-status">In review</span>
+                    <span>Platform team</span>
+                    <span>Updated 2 days ago</span>
+                  </div>
+                  <p class="doc-summary">
+                    Limits move from one global cap to per-plan quotas, so a single noisy integration can no longer slow everyone else
+                    down.
+                  </p>
+                  <h4>Limits by plan</h4>
+                  <p>
+                    Each key gets a per-minute quota and a short burst allowance. Responses carry <code>RateLimit-Remaining</code> and{" "}
+                    <code>Retry-After</code> so clients can back off on their own.
+                  </p>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Plan</th>
+                        <th>Requests / min</th>
+                        <th>Burst</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {limits.map(([plan, rpm, burst]) => (
+                        <tr>
+                          <td>{plan}</td>
+                          <td>{rpm}</td>
+                          <td>{burst}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <h4>Rollout</h4>
+                  <ul class="checks">
+                    {rollout.map((r) => (
+                      <li class:list={{ done: r.done }}>{r.text}</li>
+                    ))}
+                  </ul>
+                </article>
+              </div>
             )}
-            {t.id === "html" && (
-              <div class="dash">
-                <div class="kpis">
-                  {[
-                    ["p50", "84 ms", "−12%"],
-                    ["p95", "312 ms", "−8%"],
-                    ["Errors", "0.21%", "−0.05"],
-                  ].map(([k, v, d]) => (
-                    <div class="kpi">
-                      <span>{k}</span>
-                      <b>{v}</b>
-                      <span class="kpi-delta">{d}</span>
-                    </div>
+
+            {t.id === "deck" && (
+              <div class="deck">
+                <div class="strip">
+                  {slides.map((s, n) => (
+                    <span class:list={["thumb", `thumb-${s}`, { on: n === 3 }]}>
+                      <span class="thumb-n">{n + 1}</span>
+                    </span>
                   ))}
                 </div>
-                <div class="chart">
-                  <span class="chart-label">Latency by endpoint, last 7 days</span>
-                  <div class="bars">
-                    {[62, 48, 75, 40, 88, 55, 70, 46, 64, 52, 80, 58].map((h) => (
-                      <span style={`height: ${h}%`} />
-                    ))}
+                <div class="stage">
+                  <div class="slide">
+                    <div class="slide-copy">
+                      <span class="slide-kicker">Q3 review · Growth</span>
+                      <b class="slide-title">Revenue up 38%, churn cut in half.</b>
+                      <div class="slide-stats">
+                        <span>
+                          <b>$4.2M</b>ARR
+                        </span>
+                        <span>
+                          <b>1.9%</b>Monthly churn
+                        </span>
+                        <span>
+                          <b>112%</b>Net retention
+                        </span>
+                      </div>
+                    </div>
+                    <svg class="slide-chart" viewBox="-6 -6 312 172">
+                      <path class="area" d={`${line} L300 160 L0 160 Z`} />
+                      <path class="trend" d={line} />
+                      <circle cx={chartPoints[3]![0]} cy={chartPoints[3]![1]} r="4.5" />
+                      <text x={chartPoints[3]![0] - 6} y={chartPoints[3]![1] - 12} text-anchor="end">
+                        Team plan launch
+                      </text>
+                    </svg>
+                    <span class="slide-foot">Acme · Board meeting</span>
+                    <span class="slide-page">04</span>
                   </div>
                 </div>
               </div>
             )}
+
             {t.id === "canvas" && (
-              <div class="board">
-                <svg viewBox="0 0 1000 600" preserveAspectRatio="none" class="board-lines">
-                  <path d="M240 180 C360 180 360 300 440 300" />
-                  <path d="M240 420 C360 420 360 300 440 300" />
-                  <path d="M560 300 H750" />
-                  <path d="M530 325 C560 468 590 468 610 468" />
-                </svg>
-                <span class="node n1">Cart</span>
-                <span class="node n2">Guest checkout</span>
-                <span class="node n3 hot">Payment</span>
-                <span class="node n4">Receipt</span>
-                <span class="node n5">Retry</span>
-                <span class="sticky">Drop the extra address step?</span>
+              <div class="canvas">
+                <span class="frame-label phone-label">Home · Mobile</span>
+                <div class="phone">
+                  <span class="app-hello">Good morning, Ana</span>
+                  <b class="app-title">Where to next?</b>
+                  <span class="app-search">Search stays</span>
+                  <div class="app-card">
+                    <span class="app-photo" />
+                    <b>Lisbon, Alfama</b>
+                    <span>3 nights · from €118</span>
+                  </div>
+                  <div class="app-row">
+                    <span class="app-thumb t1" />
+                    <span>
+                      <b>Porto riverside</b>Weekend · €96
+                    </span>
+                  </div>
+                  <div class="app-row">
+                    <span class="app-thumb t2" />
+                    <span>
+                      <b>Sintra cottage</b>2 nights · €140
+                    </span>
+                  </div>
+                </div>
+
+                <span class="frame-label web-label">Home · Desktop</span>
+                <div class="web">
+                  <div class="web-nav">
+                    <b>stays</b>
+                    <span>Destinations</span>
+                    <span>Journal</span>
+                    <span class="web-btn">Sign in</span>
+                  </div>
+                  <div class="web-hero">
+                    <div class="web-copy">
+                      <b>Find a stay you'll remember.</b>
+                      <span>Small places, picked by people who have slept there.</span>
+                      <span class="web-cta">Explore stays</span>
+                    </div>
+                    <div class="web-photo">
+                      <span class="sel-size">480 × 320</span>
+                      <i class="h tl" />
+                      <i class="h tr" />
+                      <i class="h bl" />
+                      <i class="h br" />
+                    </div>
+                  </div>
+                  <span class="cursor">
+                    <svg viewBox="0 0 16 16">
+                      <path d="M2 1l11 6-5 1.5L5.5 14z" />
+                    </svg>
+                    <span>Your agent</span>
+                  </span>
+                </div>
+
+                <div class="props">
+                  <b>Image</b>
+                  <div class="props-grid">
+                    <span>W</span>
+                    <span>480</span>
+                    <span>H</span>
+                    <span>320</span>
+                    <span>X</span>
+                    <span>640</span>
+                    <span>Y</span>
+                    <span>120</span>
+                  </div>
+                  <span class="props-row">
+                    Fill <i class="swatch" />
+                    <span class="mono">#E9B49A</span>
+                  </span>
+                  <span class="props-row">
+                    Radius <span class="mono">16</span>
+                  </span>
+                </div>
+
+                <div class="tools">
+                  <svg viewBox="0 0 24 24" class="on">
+                    <path d="M5 3l12 7-6 1.6L8.5 18z" />
+                  </svg>
+                  <svg viewBox="0 0 24 24">
+                    <path d="M7 3v18M17 3v18M3 7h18M3 17h18" />
+                  </svg>
+                  <svg viewBox="0 0 24 24">
+                    <rect x="4" y="5" width="16" height="14" rx="2" />
+                  </svg>
+                  <svg viewBox="0 0 24 24">
+                    <path d="M5 6V4h14v2M12 4v16M9 20h6" />
+                  </svg>
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 20l4-1L19 8a2.1 2.1 0 0 0-3-3L5 16z" />
+                  </svg>
+                </div>
               </div>
             )}
           </div>
@@ -197,10 +459,23 @@ const tabs = [
   .pt-list b {
     font-weight: 500;
     font-size: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
   .pt-list span {
     font-size: 13.5px;
     color: var(--fg-subtle);
+  }
+  .pt-list .pt-soon {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    color: var(--fg-muted);
   }
   .pt-list button:focus-visible {
     outline: 2px solid var(--accent);
@@ -254,8 +529,14 @@ const tabs = [
     width: 20px;
     height: 20px;
   }
+  .pt-title {
+    min-width: 0;
+  }
   .pt-title b {
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .pt-title .mono {
     font-size: 12px;
@@ -263,6 +544,15 @@ const tabs = [
   }
   .pt-kind {
     color: var(--fg-muted);
+  }
+  .pt-badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--fg-muted);
+    white-space: nowrap;
   }
   .pt-share {
     height: 30px;
@@ -282,108 +572,432 @@ const tabs = [
     position: relative;
   }
 
-  .pt-deck {
-    background: #1d1f24;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .pt-html {
+    background: #f8fafc;
+    color: #0f172a;
   }
-  .deck {
-    width: min(78%, 720px);
+  .report {
+    height: 100%;
+    box-sizing: border-box;
+    padding: 22px 26px;
     display: flex;
     flex-direction: column;
-    align-items: center;
     gap: 16px;
   }
-  .slide {
-    width: 100%;
-    aspect-ratio: 16 / 9;
-    box-sizing: border-box;
-    background: #ffffff;
-    color: #111827;
-    border-radius: 6px;
-    padding: 6% 7%;
+  .report-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+  }
+  .report-titles {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
-  }
-  .slide-kicker {
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #3b6fe0;
-    font-weight: 600;
-  }
-  .slide-title {
-    font-size: clamp(18px, 2.4vw, 28px);
-    font-weight: 700;
-    letter-spacing: -0.02em;
-  }
-  .tiers {
-    flex: 1;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
-    align-items: end;
-  }
-  .tier {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
     gap: 4px;
-    font-size: 13px;
-    color: #4b5563;
+    min-width: 0;
   }
-  .tier b {
-    color: #111827;
+  .report-kicker {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #4f46e5;
+  }
+  .report-title {
+    font-size: 21px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+  }
+  .report-sub {
+    font-size: 12.5px;
+    color: #64748b;
+  }
+  .report-controls {
+    flex: none;
+    display: flex;
+    gap: 8px;
+    font-size: 12.5px;
+  }
+  .seg {
+    display: flex;
+    padding: 3px;
+    border-radius: 8px;
+    background: #e2e8f0;
+    color: #475569;
+  }
+  .seg span {
+    padding: 4px 10px;
+    border-radius: 6px;
+  }
+  .seg .on {
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 500;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+  }
+  .chip {
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #334155;
+  }
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+  }
+  .kpi,
+  .panel {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+  }
+  .kpi {
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .kpi-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .kpi b {
+    font-size: 24px;
+    font-weight: 650;
+    color: #0f172a;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+  }
+  .spark {
+    width: 84px;
+    height: 26px;
+    overflow: visible;
+  }
+  .spark path {
+    fill: none;
+    stroke: #6366f1;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .kpi-delta {
+    color: #059669;
+  }
+  .report-main {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr);
+    gap: 14px;
+  }
+  .panel {
+    min-height: 0;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+  }
+  .panel-head b {
     font-weight: 600;
   }
-  .tier-bar {
-    background: #3b6fe0;
-    border-radius: 4px 4px 0 0;
-  }
-  .tier:nth-child(2) .tier-bar {
-    background: #2a55b8;
-  }
-  .tier:nth-child(3) .tier-bar {
-    background: #1b3a85;
-  }
-  .deck-nav {
+  .legend {
     display: flex;
-    gap: 18px;
     align-items: center;
-    color: #c9ccd3;
-    font-size: 13px;
+    gap: 6px;
+    font-size: 12px;
+    color: #64748b;
+  }
+  .key {
+    display: inline-block;
+    width: 10px;
+    height: 3px;
+    border-radius: 2px;
+    margin-left: 6px;
+  }
+  .key.now {
+    background: #6366f1;
+  }
+  .key.prev {
+    background: #94a3b8;
+  }
+  .plot {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    padding: 0 0 22px 36px;
+    display: flex;
+    flex-direction: column;
+  }
+  .plot-area {
+    position: relative;
+    flex: 1;
+  }
+  .plot-area svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .plot-area path {
+    fill: none;
+    vector-effect: non-scaling-stroke;
+  }
+  .plot-area .grid {
+    stroke: #eef2f6;
+    stroke-width: 1;
+  }
+  .plot-area .area {
+    fill: rgba(99, 102, 241, 0.08);
+  }
+  .plot-area .now {
+    stroke: #6366f1;
+    stroke-width: 2.5;
+    stroke-linejoin: round;
+  }
+  .plot-area .prev {
+    stroke: #94a3b8;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 4;
+  }
+  .plot-area .marker {
+    stroke: #f97316;
+    stroke-width: 1.5;
+    stroke-dasharray: 3 3;
+  }
+  .y-tick {
+    position: absolute;
+    left: 0;
+    width: 30px;
+    transform: translateY(-50%);
+    margin-top: 0;
+    font-size: 11px;
+    color: #94a3b8;
+  }
+  .note {
+    position: absolute;
+    top: -2px;
+    margin-left: 6px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: #fff7ed;
+    color: #c2410c;
+    font-size: 11px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .pt-dot {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #6366f1;
+    border: 2px solid #ffffff;
+    box-shadow: 0 0 0 1px #6366f1;
+    transform: translate(-50%, -50%);
+  }
+  .pt-dot.prev {
+    background: #94a3b8;
+    box-shadow: 0 0 0 1px #94a3b8;
+  }
+  .tip {
+    position: absolute;
+    transform: translate(calc(-100% - 12px), -50%);
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #e2e8f0;
+    font-size: 11.5px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    white-space: nowrap;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+  }
+  .tip b {
+    color: #ffffff;
+    font-weight: 600;
+  }
+  .tip .key {
+    margin: 0 6px 1px 0;
+    vertical-align: middle;
+  }
+  .x-ticks {
+    position: absolute;
+    left: 36px;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: #94a3b8;
+  }
+  .funnel {
+    gap: 14px;
+  }
+  .step {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 36px;
+    gap: 6px 10px;
+    align-items: center;
+    font-size: 12.5px;
+  }
+  .step-row {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    color: #334155;
+  }
+  .step-n {
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+  }
+  .step-bar {
+    height: 8px;
+    border-radius: 4px;
+    background: #eef2f6;
+    overflow: hidden;
+  }
+  .step-bar span {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+    background: #6366f1;
+  }
+  .step:last-child .step-bar span {
+    background: #059669;
+  }
+  .step-pct {
+    text-align: right;
+    font-size: 12px;
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
   }
 
   .pt-markdown {
     background: #ffffff;
     color: #1f2328;
-    overflow: hidden;
+  }
+  .pt-markdown::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 72px;
+    background: linear-gradient(rgba(255, 255, 255, 0), #ffffff);
+  }
+  .doc-page {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 36px 32px 0;
+    display: grid;
+    grid-template-columns: 170px minmax(0, 1fr);
+    gap: 48px;
+  }
+  .doc-toc {
+    padding-top: 92px;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    font-size: 13px;
+    color: #656d76;
+  }
+  .doc-toc-head {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #1f2328;
+    margin-bottom: 4px;
+  }
+  .doc-toc .on {
+    color: #0969da;
+    font-weight: 500;
   }
   .doc {
-    max-width: 640px;
-    margin: 0 auto;
-    padding: 40px 32px;
     font-size: 15px;
     line-height: 1.6;
   }
+  .doc-crumb {
+    font-size: 12.5px;
+    color: #656d76;
+  }
   .doc h3 {
-    margin: 0 0 8px;
-    font-size: 28px;
-    font-weight: 600;
+    margin: 6px 0 10px;
+    font-size: 30px;
+    line-height: 1.2;
+    font-weight: 650;
     letter-spacing: -0.02em;
   }
+  .doc-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    font-size: 13px;
+    color: #656d76;
+  }
+  .doc-status {
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #fff8c5;
+    color: #7d4e00;
+    font-weight: 500;
+  }
+  .doc-summary {
+    margin: 20px 0 0;
+    padding: 14px 16px;
+    border-radius: 8px;
+    background: #f6f8fa;
+    border: 1px solid #d1d9e0;
+    color: #1f2328;
+  }
   .doc h4 {
-    margin: 22px 0 8px;
-    font-size: 17px;
+    margin: 26px 0 8px;
+    font-size: 19px;
     font-weight: 600;
   }
   .doc p {
     margin: 0;
-    color: #4b5157;
+    color: #3d444d;
+  }
+  .doc code {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    padding: 2px 5px;
+    border-radius: 5px;
+    background: #eff1f3;
+    white-space: nowrap;
+  }
+  .doc table {
+    margin-top: 14px;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .doc th,
+  .doc td {
+    text-align: left;
+    padding: 8px 12px;
+    border: 1px solid #d1d9e0;
+  }
+  .doc th {
+    background: #f6f8fa;
+    font-weight: 600;
   }
   .checks {
     margin: 0;
@@ -403,164 +1017,494 @@ const tabs = [
     border: 1.5px solid #8c959f;
     border-radius: 3px;
   }
+  .checks li.done {
+    color: #656d76;
+  }
   .checks li.done::before {
     background: #1f883d;
     border-color: #1f883d;
   }
-  .doc pre {
-    margin: 0;
-    padding: 12px 14px;
-    border-radius: 6px;
-    background: #f6f8fa;
-    font-family: var(--font-mono);
-    font-size: 13px;
-    white-space: pre;
-  }
-  .doc .doc-note {
-    margin-top: 22px;
-    font-size: 12.5px;
-    color: #8c959f;
-  }
 
-  .pt-html {
-    background: #f7f8fb;
-    color: #0f172a;
+  .pt-deck {
+    background: #17191e;
+    display: flex;
   }
-  .dash {
-    height: 100%;
-    box-sizing: border-box;
-    padding: 28px;
+  .deck {
+    flex: 1;
+    display: flex;
+    min-width: 0;
+  }
+  .strip {
+    flex: none;
+    width: 128px;
+    padding: 20px 14px;
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: 14px;
+    border-right: 1px solid #2a2d34;
   }
-  .kpis {
+  .thumb {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    border-radius: 4px;
+    background: #f4f1ea;
+    outline: 1px solid #2f333b;
+    background-repeat: no-repeat;
+  }
+  .thumb.on {
+    outline: 2px solid #4f7cff;
+    outline-offset: 2px;
+  }
+  .thumb-n {
+    position: absolute;
+    left: -14px;
+    top: 0;
+    font-size: 10px;
+    color: #7d828c;
+  }
+  .thumb-cover {
+    background-color: #1c2b4a;
+    background-image: linear-gradient(#f4f1ea, #f4f1ea), linear-gradient(#f4f1ea, #f4f1ea);
+    background-size:
+      55% 10%,
+      35% 6%;
+    background-position:
+      12% 42%,
+      12% 62%;
+  }
+  .thumb-agenda {
+    background-image: linear-gradient(#1c2b4a, #1c2b4a), repeating-linear-gradient(#b9b3a6 0 2px, transparent 2px 7px);
+    background-size:
+      40% 9%,
+      60% 42%;
+    background-position:
+      12% 18%,
+      12% 70%;
+  }
+  .thumb-market {
+    background-image: linear-gradient(#1c2b4a, #1c2b4a), radial-gradient(circle, #e0785a 0 32%, transparent 33%);
+    background-size:
+      42% 9%,
+      40% 70%;
+    background-position:
+      12% 20%,
+      85% 65%;
+  }
+  .thumb-growth {
+    background-image: linear-gradient(#1c2b4a, #1c2b4a), linear-gradient(160deg, transparent 55%, #e0785a 56% 60%, transparent 61%);
+    background-size:
+      40% 18%,
+      45% 60%;
+    background-position:
+      12% 30%,
+      88% 60%;
+  }
+  .thumb-plan {
+    background-image:
+      linear-gradient(#1c2b4a, #1c2b4a), linear-gradient(#d9d3c6, #d9d3c6), linear-gradient(#d9d3c6, #d9d3c6),
+      linear-gradient(#d9d3c6, #d9d3c6);
+    background-size:
+      40% 9%,
+      22% 40%,
+      22% 40%,
+      22% 40%;
+    background-position:
+      12% 18%,
+      12% 80%,
+      50% 80%,
+      88% 80%;
+  }
+  .stage {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 28px;
+  }
+  .slide {
+    position: relative;
+    width: min(100%, 760px);
+    aspect-ratio: 16 / 9;
+    box-sizing: border-box;
+    padding: 5.5% 6%;
+    border-radius: 6px;
+    background: #f4f1ea;
+    color: #1c2b4a;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: 1fr 1.1fr;
+    gap: 6%;
+    align-items: center;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  }
+  .slide-copy {
+    display: flex;
+    flex-direction: column;
     gap: 14px;
   }
-  .kpi {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 14px 16px;
+  .slide-kicker {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #b4532f;
+    font-weight: 600;
+  }
+  .slide-title {
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: clamp(20px, 2.7vw, 34px);
+    line-height: 1.12;
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+  .slide-stats {
+    margin-top: 6px;
+    display: grid;
+    grid-template-columns: repeat(3, auto);
+    justify-content: start;
+    gap: 22px;
+    font-size: 11px;
+    color: #5b6478;
+  }
+  .slide-stats span {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: 12.5px;
-    color: #64748b;
   }
-  .kpi b {
-    font-size: 26px;
+  .slide-stats b {
+    font-size: clamp(15px, 1.6vw, 20px);
     font-weight: 600;
-    color: #0f172a;
-    letter-spacing: -0.02em;
+    color: #1c2b4a;
   }
-  .kpi-delta {
-    color: #059669;
+  .slide-chart {
+    width: 100%;
+    overflow: visible;
   }
-  .chart {
-    flex: 1;
-    min-height: 0;
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  .slide-chart .area {
+    fill: rgba(224, 120, 90, 0.16);
   }
-  .chart-label {
-    font-size: 13px;
-    color: #64748b;
+  .slide-chart .trend {
+    fill: none;
+    stroke: #c95f3d;
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
-  .bars {
-    flex: 1;
-    display: flex;
-    align-items: flex-end;
-    gap: 10px;
+  .slide-chart circle {
+    fill: #f4f1ea;
+    stroke: #1c2b4a;
+    stroke-width: 2;
   }
-  .bars span {
-    flex: 1;
-    border-radius: 4px 4px 0 0;
-    background: #6366f1;
+  .slide-chart text {
+    font-size: 11px;
+    fill: #5b6478;
   }
-  .bars span:nth-child(5),
-  .bars span:nth-child(11) {
-    background: #f97316;
+  .slide-foot,
+  .slide-page {
+    position: absolute;
+    bottom: 4.5%;
+    font-size: 10px;
+    color: #8a8f99;
+  }
+  .slide-foot {
+    left: 6%;
+  }
+  .slide-page {
+    right: 6%;
   }
 
   .pt-canvas {
-    background-color: #fbfaf7;
-    background-image: radial-gradient(circle, #d6d3cc 1px, transparent 1.4px);
-    background-size: 18px 18px;
+    background-color: #f3f3f1;
+    background-image: radial-gradient(circle, #d4d4cf 1px, transparent 1.4px);
+    background-size: 20px 20px;
+    color: #1d1d1f;
   }
-  .board {
+  .canvas {
     position: absolute;
     inset: 0;
+    font-family: var(--font-sans);
   }
-  .board-lines {
+  .frame-label {
     position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    fill: none;
-    stroke: #7c6ad6;
-    stroke-width: 2;
+    font-size: 11.5px;
+    color: #6e6e73;
   }
-  .board-lines path {
-    vector-effect: non-scaling-stroke;
+  .phone-label {
+    left: 6%;
+    top: 36px;
   }
-  .node,
-  .sticky {
+  .phone {
     position: absolute;
-    transform: translate(-50%, -50%);
-    font-size: 13.5px;
+    left: 6%;
+    top: 56px;
+    width: 210px;
+    height: 430px;
+    box-sizing: border-box;
+    padding: 22px 16px;
+    border-radius: 18px;
+    background: #fffaf6;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 11px;
+    color: #6b5b53;
   }
-  .node {
-    padding: 10px 16px;
-    border-radius: 10px;
-    background: #ffffff;
-    border: 1.5px solid #7c6ad6;
-    color: #2b2350;
-    font-weight: 500;
-    box-shadow: 0 6px 18px rgba(43, 35, 80, 0.12);
+  .app-title {
+    font-size: 19px;
+    color: #2d1f18;
+    letter-spacing: -0.02em;
+  }
+  .app-search {
+    padding: 9px 12px;
+    border-radius: 999px;
+    background: #f3e8e0;
+  }
+  .app-card {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .app-card b,
+  .app-row b {
+    display: block;
+    font-size: 12px;
+    color: #2d1f18;
+  }
+  .app-photo {
+    height: 104px;
+    border-radius: 12px;
+    margin-bottom: 6px;
+    background:
+      radial-gradient(circle at 72% 30%, #fbe3b5 0 12%, transparent 13%),
+      linear-gradient(#e9b49a 0 58%, #c9805f 58% 100%);
+  }
+  .app-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .app-thumb {
+    width: 38px;
+    height: 38px;
+    border-radius: 9px;
+    flex: none;
+  }
+  .t1 {
+    background: linear-gradient(#a9c4d6 0 55%, #5f8aa3 55%);
+  }
+  .t2 {
+    background: linear-gradient(#cfd9b8 0 50%, #7f9b62 50%);
+  }
+
+  .web-label {
+    left: calc(6% + 250px);
+    top: 36px;
+  }
+  .web {
+    position: absolute;
+    left: calc(6% + 250px);
+    top: 56px;
+    width: 520px;
+    height: 360px;
+    box-sizing: border-box;
+    padding: 18px 26px;
+    border-radius: 6px;
+    background: #fffaf6;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.08);
+    font-size: 11px;
+    color: #6b5b53;
+  }
+  .web-nav {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+  .web-nav b {
+    font-size: 14px;
+    color: #2d1f18;
+    margin-right: auto;
+  }
+  .web-btn {
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid #e3d3c8;
+  }
+  .web-hero {
+    margin-top: 40px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 26px;
+    align-items: center;
+  }
+  .web-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .web-copy b {
+    font-size: 26px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: #2d1f18;
+  }
+  .web-cta {
+    align-self: flex-start;
+    margin-top: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: #2d1f18;
+    color: #fffaf6;
+  }
+  .web-photo {
+    position: relative;
+    height: 180px;
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at 70% 28%, #fbe3b5 0 10%, transparent 11%),
+      linear-gradient(#e9b49a 0 60%, #c9805f 60% 100%);
+    outline: 1.5px solid #0d99ff;
+    outline-offset: 3px;
+  }
+  .sel-size {
+    position: absolute;
+    left: 50%;
+    bottom: -26px;
+    transform: translateX(-50%);
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #0d99ff;
+    color: #ffffff;
+    font-size: 10px;
     white-space: nowrap;
   }
-  .node.hot {
-    background: #7c6ad6;
+  .h {
+    position: absolute;
+    width: 7px;
+    height: 7px;
+    background: #ffffff;
+    border: 1.5px solid #0d99ff;
+    box-sizing: border-box;
+  }
+  .tl {
+    left: -7px;
+    top: -7px;
+  }
+  .tr {
+    right: -7px;
+    top: -7px;
+  }
+  .bl {
+    left: -7px;
+    bottom: -7px;
+  }
+  .br {
+    right: -7px;
+    bottom: -7px;
+  }
+  .cursor {
+    position: absolute;
+    right: 18px;
+    bottom: 18px;
+    display: flex;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .cursor svg {
+    width: 16px;
+    height: 16px;
+    fill: #fa5a1e;
+    stroke: #ffffff;
+    stroke-width: 1.2;
+  }
+  .cursor span {
+    margin-top: 12px;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #fa5a1e;
     color: #ffffff;
+    font-size: 10.5px;
+    font-weight: 500;
   }
-  .n1 {
-    left: 18%;
-    top: 30%;
+
+  .props {
+    position: absolute;
+    right: 18px;
+    top: 18px;
+    width: 176px;
+    box-sizing: border-box;
+    padding: 14px;
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 11.5px;
+    color: #6e6e73;
   }
-  .n2 {
-    left: 18%;
-    top: 70%;
+  .props b {
+    font-size: 12px;
+    color: #1d1d1f;
   }
-  .n3 {
-    left: 50%;
-    top: 50%;
+  .props-grid {
+    display: grid;
+    grid-template-columns: 14px 1fr 14px 1fr;
+    gap: 7px 6px;
   }
-  .n4 {
-    left: 82%;
-    top: 50%;
+  .props-grid span:nth-child(even) {
+    color: #1d1d1f;
   }
-  .n5 {
-    left: 66%;
-    top: 78%;
+  .props-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 9px;
+    border-top: 1px solid #ececec;
   }
-  .sticky {
-    left: 76%;
-    top: 22%;
-    width: 150px;
-    padding: 12px;
-    background: #fde68a;
-    color: #5b4a10;
+  .props-row .mono {
+    margin-left: auto;
+    color: #1d1d1f;
+    font-size: 11px;
+  }
+  .swatch {
+    width: 14px;
+    height: 14px;
     border-radius: 4px;
-    transform: translate(-50%, -50%) rotate(2deg);
-    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.12);
+    background: #e9b49a;
+  }
+  .tools {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 4px;
+    padding: 6px;
+    border-radius: 12px;
+    background: #ffffff;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04), 0 10px 30px rgba(0, 0, 0, 0.12);
+  }
+  .tools svg {
+    width: 32px;
+    height: 32px;
+    padding: 7px;
+    box-sizing: border-box;
+    border-radius: 8px;
+    fill: none;
+    stroke: #1d1d1f;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .tools svg.on {
+    background: #0d99ff;
+    stroke: #ffffff;
+  }
+
+  @media (max-width: 1100px) {
+    .props {
+      display: none;
+    }
   }
 
   @media (max-width: 860px) {
@@ -571,28 +1515,75 @@ const tabs = [
       height: 480px;
     }
     .pt-kind,
-    .pt-grow {
+    .pt-grow,
+    .pt-soon-cell {
       display: none;
     }
     .pt-title {
       flex: 1;
-      min-width: 0;
     }
-    .deck {
-      width: 90%;
+    .report {
+      padding: 18px 16px;
+      gap: 12px;
+    }
+    .report-controls,
+    .funnel,
+    .kpi:nth-child(3),
+    .spark {
+      display: none;
+    }
+    .report-title {
+      font-size: 17px;
     }
     .kpis {
       grid-template-columns: 1fr 1fr;
+      gap: 10px;
     }
-    .kpi:nth-child(3) {
+    .kpi b {
+      font-size: 20px;
+    }
+    .report-main {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .note,
+    .legend,
+    .tip,
+    .kpi-vs {
       display: none;
     }
-    .node {
-      font-size: 11.5px;
-      padding: 8px 10px;
+    .doc-page {
+      grid-template-columns: minmax(0, 1fr);
+      padding: 24px 20px 0;
     }
-    .sticky {
+    .doc-toc {
       display: none;
+    }
+    .doc h3 {
+      font-size: 24px;
+    }
+    .strip {
+      display: none;
+    }
+    .stage {
+      padding: 16px;
+    }
+    .slide {
+      grid-template-columns: 1fr;
+      padding: 7%;
+    }
+    .slide-chart,
+    .slide-foot,
+    .slide-page {
+      display: none;
+    }
+    .web,
+    .web-label {
+      display: none;
+    }
+    .phone,
+    .phone-label {
+      left: 50%;
+      transform: translateX(-50%);
     }
   }
 </style>

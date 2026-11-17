@@ -41,6 +41,14 @@ type Client = {
 
 const CLIENTS: Client[] = [
   {
+    name: "OpenCode",
+    mark: "opencode",
+    lead: "Add a remote server to opencode.json.",
+    where: "opencode.json",
+    code: (url) => `{\n  "mcp": {\n    "artiflow": { "type": "remote", "url": "${url}" }\n  }\n}`,
+    signIn: "OpenCode opens this browser the first time a tool needs access.",
+  },
+  {
     name: "Claude Code",
     mark: "claude",
     lead: "One command in your terminal.",
@@ -56,14 +64,6 @@ const CLIENTS: Client[] = [
     code: (url) => `[mcp_servers.artiflow]\nurl = "${url}"`,
     after: { text: "Then sign in once from your terminal:", code: "codex mcp login artiflow" },
     signIn: "The login command opens this browser to approve access.",
-  },
-  {
-    name: "OpenCode",
-    mark: "opencode",
-    lead: "Add a remote server to opencode.json.",
-    where: "opencode.json",
-    code: (url) => `{\n  "mcp": {\n    "artiflow": { "type": "remote", "url": "${url}" }\n  }\n}`,
-    signIn: "OpenCode opens this browser the first time a tool needs access.",
   },
   {
     name: "Cursor",

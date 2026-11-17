@@ -121,7 +121,7 @@ services.
 flowchart LR
   subgraph Clients
     Browser["Browser\n(owner / recipient / visitor)"]
-    Agent["MCP client\n(Claude, OpenCode, Pi, Cursor…)"]
+    Agent["MCP client\n(OpenCode, Pi, Claude, Cursor…)"]
     Operator["Operator\n(CLI / deploy)"]
   end
 

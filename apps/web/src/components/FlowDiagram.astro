@@ -1,237 +1,432 @@
 ---
-import AgentLogos from "./AgentLogos.astro";
+import { agents } from "./agents";
 import Mark from "./Mark.astro";
 
-const pct = (x: number, y: number) => `left: ${x / 10}%; top: ${(y / 420) * 100}%`;
+interface Props {
+  steps: { n: string; title: string; body: string }[];
+}
+const { steps } = Astro.props;
 
-const artifacts = [
-  { label: "DECK", x: 392, y: 118, tilt: -4, hue: "#3b6fe0", glyph: "M4 4h32v20H4zM8 9h12M9 20v-4M14 20v-7M19 20v-5" },
-  { label: "DOC", x: 500, y: 82, tilt: 2, hue: "#2f7a4d", glyph: "M10 4h20M10 9h20M10 14h14M10 19h18M6 4h.01M6 9h.01M6 14h.01M6 19h.01" },
-  { label: "DASHBOARD", x: 608, y: 118, tilt: 4, hue: "#6366f1", glyph: "M4 4h14v8H4zM22 4h14v8H22zM6 24v-6M11 24v-9M16 24v-4M21 24v-10M26 24v-7M31 24v-12" },
-  { label: "MOCKUP", x: 392, y: 302, tilt: 3, hue: "#d4480f", glyph: "M4 4h32v20H4zM4 9h32M9 9v15M13 13h10M13 17h18M13 21h14" },
-  { label: "FLOW", x: 500, y: 338, tilt: -2, hue: "#7c6ad6", glyph: "M5 8h8v6H5zM27 4h8v6h-8zM27 18h8v6h-8zM13 11c7 0 7-4 14-4M13 11c7 0 7 10 14 10" },
-  { label: "SHEET", x: 608, y: 302, tilt: -4, hue: "#b8860b", glyph: "M4 4h32v20H4zM4 10h32M4 17h32M15 4v20M26 4v20" },
-];
+const ISO = "matrix(0.866 0.5 -0.866 0.5 640 320)";
+const W = 1280;
+const H = 560;
+
+const round = (n: number) => Math.round(n * 100) / 100;
+const pts = (...p: [number, number][]) => p.map(([u, v]) => `${round(u)},${round(v)}`).join(" ");
+
+function box(u: number, v: number, w: number, h: number, z: number) {
+  return {
+    left: pts([u, v + h], [u + w, v + h], [u + w - z, v + h - z], [u - z, v + h - z]),
+    right: pts([u + w, v], [u + w, v + h], [u + w - z, v + h - z], [u + w - z, v - z]),
+    top: { x: u - z, y: v - z, w, h },
+    cx: u - z + w / 2,
+    cy: v - z + h / 2,
+  };
+}
+
+function place(viewBox: string, cx: number, cy: number, size: number) {
+  const [x, y, w] = viewBox.split(" ").map(Number);
+  const s = size / w;
+  return `translate(${round(cx - size / 2 - x * s)} ${round(cy - size / 2 - y * s)}) scale(${Math.round(s * 1e4) / 1e4})`;
+}
+
+const agentPlatform = box(-300, 150, 150, 150, 18);
+const library = box(-110, -110, 220, 220, 24);
+const peoplePlatform = box(150, -300, 150, 150, 18);
+
+const agentBlocks = (
+  [
+    [-297, 153],
+    [-235, 153],
+    [-297, 215],
+    [-235, 215],
+  ] as const
+).map(([u, v], i) => ({ ...box(u, v, 46, 46, 24), agent: agents[i] }));
 
 const people = [
-  { label: "YOUR TEAM", y: 96, icon: "M16 11a3 3 0 1 0-3-3M3 20a6 6 0 0 1 12 0M16 14a5 5 0 0 1 5 5M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" },
-  { label: "A CLIENT", y: 172, icon: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" },
-  { label: "A PARTNER", y: 248, icon: "M7 11l3-3 4 2 3-3 4 4-6 6-3-2-2 2-4-4zM3 11l4 4" },
-  { label: "ANY LINK", y: 324, icon: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" },
+  { name: "Your team", u: 153, v: -297, icon: "M16 11a3 3 0 1 0-3-3M3 20a6 6 0 0 1 12 0M16 14a5 5 0 0 1 5 5M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" },
+  { name: "A client", u: 215, v: -297, icon: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" },
+  { name: "A partner", u: 153, v: -235, icon: "M7 11l3-3 4 2 3-3 4 4-6 6-3-2-2 2-4-4zM3 11l4 4" },
+  { name: "Any link", u: 215, v: -235, icon: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" },
+].map((p) => ({ ...p, ...box(p.u, p.v, 46, 46, 24) }));
+
+const artifacts = [
+  { label: "Deck", u: -116, v: -83, hue: "#3b6fe0", glyph: "M4 4h32v20H4zM8 9h12M9 20v-4M14 20v-7M19 20v-5" },
+  { label: "Doc", u: -50, v: -83, hue: "#2f7a4d", glyph: "M10 4h20M10 9h20M10 14h14M10 19h18M6 4h.01M6 9h.01M6 14h.01M6 19h.01" },
+  { label: "Dashboard", u: 16, v: -83, hue: "#6366f1", glyph: "M4 4h14v8H4zM22 4h14v8H22zM6 24v-6M11 24v-9M16 24v-4M21 24v-10M26 24v-7M31 24v-12" },
+  { label: "Mockup", u: -116, v: -17, hue: "#d4480f", glyph: "M4 4h32v20H4zM4 9h32M9 9v15M13 13h10M13 17h18M13 21h14" },
+  { label: "Flow", u: -50, v: -17, hue: "#7c6ad6", glyph: "M5 8h8v6H5zM27 4h8v6h-8zM27 18h8v6h-8zM13 11c7 0 7-4 14-4M13 11c7 0 7 10 14 10" },
+  { label: "Sheet", u: 16, v: -17, hue: "#b8860b", glyph: "M4 4h32v20H4zM4 10h32M4 17h32M15 4v20M26 4v20" },
+]
+  .map((a) => ({ ...a, ...box(a.u, a.v, 52, 52, 10) }))
+  .sort((a, b) => a.u + a.v - (b.u + b.v));
+
+const routes = ["M-150 225 H0 V110", "M110 0 H225 V-150"];
+
+const faceLabels = [
+  { x: 129.1, y: 319, text: "ANY AGENT · ANY MODEL" },
+  { x: 459.9, y: 318, text: "YOUR LIBRARY", strong: true },
+  { x: 908.5, y: 319, text: "ANYONE YOU CHOOSE" },
 ];
 
-const route =
-  "M110 172 C190 172 210 210 280 210 C300 194 320 194 340 210 S380 226 400 210 L600 210 C620 194 640 194 660 210 S700 226 720 210 C800 210 810 248 890 248";
+const callouts = [
+  { x: 92, y: 72, leader: "M200 112 C200 184 250 186 250 219", end: [250, 222] },
+  { x: 300, y: 470, leader: "M410 490 C410 452 445 456 445 438", end: [445, 434] },
+  { x: 730, y: 60, leader: "M800 100 C800 214 726 222 726 296", end: [726, 300] },
+  { x: 950, y: 452, leader: "M1030 472 V400", end: [1030, 397] },
+];
+const pct = (x: number, y: number) => `--x: ${round((x / W) * 100)}%; --y: ${round((y / H) * 100)}%`;
 ---
 
-<div class="flow" role="img" aria-label="Any agent, through your artiflow library of decks, docs, dashboards, mockups, flows and sheets, out to your team, a client, a partner or anyone with a link.">
-  <div class="flow-dots" aria-hidden="true"></div>
-  <svg viewBox="0 0 1000 420" class="flow-lines" aria-hidden="true">
-    <g class="in">
-      {[96, 172, 248, 324].map((y) => <path d={`M110 ${y} C190 ${y} 210 210 280 210`} />)}
-    </g>
-    <g class="out">
-      {people.map((p) => <path d={`M720 210 C800 210 810 ${p.y} 890 ${p.y}`} />)}
-    </g>
-    <path class="wave" d="M280 210 C300 194 320 194 340 210 S380 226 400 210 S440 194 460 210" />
-    <path class="wave" d="M540 210 C560 194 580 194 600 210 S640 226 660 210 S700 194 720 210" />
-    <g class="travel">
-      <circle r="5">
-        <animateMotion dur="6s" repeatCount="indefinite" path={route} />
-      </circle>
-      <circle r="5">
-        <animateMotion dur="6s" begin="-3s" repeatCount="indefinite" path={route} />
-      </circle>
-    </g>
-  </svg>
+<div class="flow">
+  <div class="art">
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      role="img"
+      aria-label="Any agent, through your artiflow library of decks, docs, dashboards, mockups, flows and sheets, out to your team, a client, a partner or anyone with a link."
+    >
+      <defs>
+        <pattern id="flow-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <circle cx="12" cy="12" r="1.3" class="grid-dot"></circle>
+        </pattern>
+        <radialGradient id="flow-fade" cx="50%" cy="52%" r="62%">
+          <stop offset="55%" class="fade-in"></stop>
+          <stop offset="100%" class="fade-out"></stop>
+        </radialGradient>
+      </defs>
 
-  <div class="agents" style={pct(70, 210)}>
-    <div class="agents-stack"><AgentLogos /></div>
+      <g transform={ISO}>
+        <rect x="-380" y="-380" width="760" height="760" fill="url(#flow-grid)"></rect>
+      </g>
+      <rect width={W} height={H} fill="url(#flow-fade)"></rect>
+
+      <g transform={ISO}>
+        <rect class="footprint" x="-316" y="134" width="182" height="182"></rect>
+        <rect class="footprint" x="-128" y="-128" width="256" height="256"></rect>
+        <rect class="footprint" x="134" y="-316" width="182" height="182"></rect>
+
+        {routes.map((d) => <path class="route" d={d} />)}
+        <circle class="node" cx="0" cy="225" r="3.2"></circle>
+        <circle class="node" cx="225" cy="0" r="3.2"></circle>
+        {
+          routes.map((d) => (
+            <>
+              <path class="travel" d={d} />
+              <path class="travel late" d={d} />
+            </>
+          ))
+        }
+
+        <polygon class="face-left" points={agentPlatform.left}></polygon>
+        <polygon class="face-right" points={agentPlatform.right}></polygon>
+        <rect class="face-top" x={agentPlatform.top.x} y={agentPlatform.top.y} width={agentPlatform.top.w} height={agentPlatform.top.h}></rect>
+        {
+          agentBlocks.map((b) => (
+            <>
+              <polygon class="ink-left" points={b.left} />
+              <polygon class="ink-right" points={b.right} />
+              <rect class="ink-top" x={b.top.x} y={b.top.y} width={b.top.w} height={b.top.h} />
+              <path class="logo" style={b.agent.color ? `fill: ${b.agent.color}` : undefined} transform={place(b.agent.viewBox, b.cx, b.cy, 27.6)} d={b.agent.d} />
+            </>
+          ))
+        }
+
+        <polygon class="face-left" points={library.left}></polygon>
+        <polygon class="face-right" points={library.right}></polygon>
+        <rect class="face-top" x={library.top.x} y={library.top.y} width={library.top.w} height={library.top.h}></rect>
+        <polyline class="edge" points={pts([library.top.x, library.top.y + library.top.h], [library.top.x + library.top.w, library.top.y + library.top.h], [library.top.x + library.top.w, library.top.y])}></polyline>
+        {
+          artifacts.map((a) => (
+            <g style={`--hue: ${a.hue}`}>
+              <polygon class="face-left" points={a.left} />
+              <polygon class="face-right" points={a.right} />
+              <rect class="tile-top" x={a.top.x} y={a.top.y} width={a.top.w} height={a.top.h} />
+              <path class="glyph" transform={`translate(${a.cx - 17} ${round(a.cy - 11.9)}) scale(0.85)`} d={a.glyph} />
+            </g>
+          ))
+        }
+
+        <polygon class="face-left" points={peoplePlatform.left}></polygon>
+        <polygon class="face-right" points={peoplePlatform.right}></polygon>
+        <rect class="face-top" x={peoplePlatform.top.x} y={peoplePlatform.top.y} width={peoplePlatform.top.w} height={peoplePlatform.top.h}></rect>
+        {
+          people.map((p) => (
+            <>
+              <polygon class="face-left" points={p.left} />
+              <polygon class="face-right" points={p.right} />
+              <rect class="face-top" x={p.top.x} y={p.top.y} width={p.top.w} height={p.top.h} />
+              <path class="person" transform={place("0 0 24 24", p.cx, p.cy, 26.4)} d={p.icon} />
+            </>
+          ))
+        }
+      </g>
+
+      {
+        faceLabels.map((l) => (
+          <text class:list={["face-label", { strong: l.strong }]} transform={`matrix(0.866 0.5 0 1 ${l.x} ${l.y})`}>
+            {l.text}
+          </text>
+        ))
+      }
+
+      <g class="leaders" aria-hidden="true">
+        <path d="M640 160 V184"></path>
+        {
+          callouts.map((c) => (
+            <>
+              <path d={c.leader} />
+              <circle cx={c.end[0]} cy={c.end[1]} r="3" />
+            </>
+          ))
+        }
+      </g>
+    </svg>
+
+    <span class="core" style={`left: ${(612 / W) * 100}%; top: ${(102 / H) * 100}%`} aria-hidden="true"><Mark label="" /></span>
   </div>
-  <span class="caption" style={pct(70, 392)}>ANY AGENT · ANY MODEL</span>
 
-  {
-    artifacts.map((a) => (
-      <span class="artifact" style={`${pct(a.x, a.y)}; --hue: ${a.hue}; --tilt: ${a.tilt}deg`}>
-        <svg viewBox="0 0 40 28" aria-hidden="true">
-          <path d={a.glyph} />
-        </svg>
-        <span>{a.label}</span>
-      </span>
-    ))
-  }
-
-  <span class="core" style={pct(500, 210)}><Mark label="" /></span>
-  <span class="caption" style={pct(500, 400)}>YOUR LIBRARY</span>
-
-  {
-    people.map((p) => (
-      <span class="person" style={pct(915, p.y)}>
-        <span class="person-icon">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d={p.icon} />
-          </svg>
-        </span>
-        <span class="person-label">{p.label}</span>
-      </span>
-    ))
-  }
+  <ol class="steps">
+    {
+      steps.map((s, i) => (
+        <li style={pct(callouts[i]?.x ?? 0, callouts[i]?.y ?? 0)}>
+          <span class="step-n">{s.n}</span>
+          <span class="step-text">
+            <b>{s.title}</b>
+            <span>{s.body}</span>
+          </span>
+        </li>
+      ))
+    }
+  </ol>
 </div>
 
 <style>
   .flow {
+    --iso-stroke: color-mix(in srgb, var(--fg) 34%, var(--bg));
+    --iso-top: var(--surface-3);
+    --iso-left: var(--surface);
+    --iso-right: var(--bg-raised);
+    align-self: stretch;
+    position: relative;
+  }
+  @media (prefers-color-scheme: light) {
+    :global(:root:not([data-theme="dark"])) .flow {
+      --iso-stroke: var(--fg);
+      --iso-top: var(--bg-raised);
+      --iso-left: var(--surface);
+      --iso-right: var(--surface-3);
+    }
+  }
+  :global(:root[data-theme="light"]) .flow {
+    --iso-stroke: var(--fg);
+    --iso-top: var(--bg-raised);
+    --iso-left: var(--surface);
+    --iso-right: var(--surface-3);
+  }
+
+  .art {
     position: relative;
     width: 100%;
-    max-width: 1000px;
-    aspect-ratio: 1000 / 420;
+    aspect-ratio: 1280 / 560;
   }
-  .flow-dots {
-    position: absolute;
-    inset: 8% 28%;
-    background-image: radial-gradient(circle, var(--dot) 1.1px, transparent 1.5px);
-    background-size: 10px 10px;
-    mask-image: radial-gradient(ellipse 50% 50% at 50% 50%, #000 30%, transparent 75%);
-  }
-  .flow-lines {
+  .art svg {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     overflow: visible;
-    fill: none;
   }
-  .in path,
-  .out path {
+
+  .grid-dot {
+    fill: var(--dot);
+  }
+  .fade-in {
+    stop-color: var(--bg);
+    stop-opacity: 0;
+  }
+  .fade-out {
+    stop-color: var(--bg);
+    stop-opacity: 1;
+  }
+  .footprint {
+    fill: none;
     stroke: var(--line-strong);
-    stroke-width: 1.2;
+    stroke-width: 1;
+    stroke-dasharray: 4 5;
   }
-  .wave {
-    stroke: var(--accent);
-    stroke-width: 2.4;
-    stroke-linecap: round;
-  }
-  .travel circle {
-    fill: var(--accent);
-  }
-
-  .agents,
-  .artifact,
-  .core,
-  .person,
-  .caption {
-    position: absolute;
-    transform: translate(-50%, -50%);
-  }
-  .agents {
-    height: calc(54.29% + 40px);
-  }
-  .agents-stack,
-  .agents-stack :global(.agent-logos) {
-    height: 100%;
-  }
-  .agents-stack :global(.agent-logos) {
-    flex-direction: column;
-    justify-content: space-between;
-  }
-  .agents-stack :global(.agent-logo) {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
-    background: var(--bg-raised);
-    box-shadow: 0 4px 14px var(--shadow);
-  }
-  .agents-stack :global(.agent-logo svg) {
-    width: 18px;
-    height: 18px;
-  }
-  .caption {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    letter-spacing: 0.06em;
-    color: var(--fg-subtle);
-    white-space: nowrap;
-  }
-
-  .artifact {
-    width: 8.6%;
-    aspect-ratio: 86 / 66;
-    box-sizing: border-box;
-    border-radius: 10px;
-    border: 1px solid color-mix(in srgb, var(--hue) 30%, var(--line));
-    background: color-mix(in srgb, var(--hue) 9%, var(--bg-raised));
-    box-shadow: 0 8px 22px var(--shadow);
-    transform: translate(-50%, -50%) rotate(var(--tilt));
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 6px;
-  }
-  .artifact svg {
-    width: 62%;
+  .route {
     fill: none;
-    stroke: var(--hue);
-    stroke-width: 1.8;
-    stroke-linecap: round;
+    stroke: color-mix(in srgb, var(--fg) 30%, var(--bg));
+    stroke-width: 1.4;
     stroke-linejoin: round;
   }
-  .artifact span {
-    font-family: var(--font-mono);
-    font-size: 8.5px;
-    letter-spacing: 0.06em;
-    color: var(--fg-muted);
+  .node {
+    fill: var(--bg-raised);
+    stroke: var(--iso-stroke);
+    stroke-width: 1.2;
+  }
+  .travel {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 8;
+    stroke-linecap: round;
+    stroke-dasharray: 0 1000;
+    animation: travel 3.6s linear infinite;
+  }
+  .travel.late {
+    animation-delay: -1.8s;
+  }
+  @keyframes travel {
+    0% {
+      stroke-dashoffset: 0;
+      opacity: 0;
+    }
+    8%,
+    92% {
+      opacity: 1;
+    }
+    100% {
+      stroke-dashoffset: -265px;
+      opacity: 0;
+    }
   }
 
-  .core {
-    width: 7.6%;
-    aspect-ratio: 1;
-    box-sizing: border-box;
-    padding: 1.6%;
-    border-radius: 18px;
-    background: var(--bg-raised);
-    border: 1px solid var(--line-strong);
-    box-shadow:
-      0 0 0 8px color-mix(in srgb, var(--accent) 10%, transparent),
-      0 14px 34px var(--shadow);
-    color: var(--fg);
+  .face-top,
+  .face-left,
+  .face-right,
+  .tile-top,
+  .ink-top,
+  .ink-left,
+  .ink-right {
+    stroke: var(--iso-stroke);
+    stroke-width: 1.1;
+    stroke-linejoin: round;
   }
-
+  .face-top {
+    fill: var(--iso-top);
+  }
+  .face-left {
+    fill: var(--iso-left);
+  }
+  .face-right {
+    fill: var(--iso-right);
+  }
+  .ink-top {
+    fill: var(--fg);
+  }
+  .ink-left {
+    fill: color-mix(in srgb, var(--fg) 85%, var(--bg));
+  }
+  .ink-right {
+    fill: color-mix(in srgb, var(--fg) 74%, var(--bg));
+  }
+  .logo {
+    fill: var(--bg);
+    fill-rule: evenodd;
+  }
   .person {
-    transform: translate(-50%, -20px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-  }
-  .person-icon {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    border: 1px solid var(--line);
-    background: var(--bg-raised);
-    box-shadow: 0 4px 14px var(--shadow);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .person-icon svg {
-    width: 18px;
-    height: 18px;
     fill: none;
     stroke: var(--fg);
     stroke-width: 1.7;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  .person-label {
+  .edge {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .tile-top {
+    fill: color-mix(in srgb, var(--hue) 10%, var(--bg-raised));
+  }
+  .glyph {
+    fill: none;
+    stroke: var(--hue);
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .face-label {
     font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    fill: var(--fg-muted);
+  }
+  .face-label.strong {
     font-size: 10.5px;
-    letter-spacing: 0.06em;
-    color: var(--fg-subtle);
-    white-space: nowrap;
-    background: var(--bg);
-    padding: 0 4px;
+    fill: var(--fg);
+  }
+  .leaders path {
+    fill: none;
+    stroke: var(--fg-subtle);
+    stroke-width: 1;
+    stroke-dasharray: 3 3;
+  }
+  .leaders circle {
+    fill: var(--fg);
+  }
+
+  .core {
+    position: absolute;
+    width: 4.375%;
+    aspect-ratio: 1;
+    box-sizing: border-box;
+    padding: 0.9%;
+    border-radius: 15px;
+    background: var(--bg-raised);
+    border: 1px solid var(--iso-stroke);
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--fg);
+  }
+
+  .steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    text-align: left;
+  }
+  .steps li {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+    width: 224px;
+    box-sizing: border-box;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    background: var(--bg-raised);
+    border: 1px solid var(--iso-stroke);
+    box-shadow: 3px 3px 0 var(--iso-stroke);
+  }
+  .step-n {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--fg);
+    color: var(--bg);
+    font-family: var(--font-mono);
+    font-size: 11px;
+  }
+  .step-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .step-text b {
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .step-text span {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--fg-muted);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -240,35 +435,35 @@ const route =
     }
   }
 
+  @media (max-width: 1212px) {
+    .leaders {
+      display: none;
+    }
+    .steps {
+      margin-top: 32px;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .steps li {
+      position: static;
+      width: auto;
+      flex-direction: column;
+      padding: 18px;
+      border-radius: 12px;
+      border-color: var(--line);
+      box-shadow: none;
+    }
+  }
   @media (max-width: 860px) {
-    .agents {
-      height: calc(54.29% + 26px);
+    .steps {
+      grid-template-columns: 1fr 1fr;
     }
-    .person {
-      transform: translate(-50%, -13px);
-    }
-    .agents-stack :global(.agent-logo),
-    .person-icon {
-      width: 26px;
-      height: 26px;
-    }
-    .agents-stack :global(.agent-logo svg),
-    .person-icon svg {
-      width: 13px;
-      height: 13px;
-    }
-    .artifact {
-      width: 10%;
-      border-radius: 6px;
-      padding: 2px;
-    }
-    .artifact span,
-    .person-label,
-    .caption {
+    .face-label {
       display: none;
     }
     .core {
-      border-radius: 10px;
+      border-radius: 8px;
       box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent);
     }
   }
