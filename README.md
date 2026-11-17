@@ -11,6 +11,13 @@ external services that you provide and operate; the application never starts, cr
 owns them. The one exception is the disposable loopback test stack in `docker-compose.yml`
 (PostgreSQL + Garage), which serves the integration suites and never touches real data.
 
+> **Alpha — not production-ready.** Artiflow is pre-1.0 and may include breaking changes or data
+> loss between releases. Keep backups, read the [deployment guide](docs/deployment-guide.md) before
+> exposing an instance, and report vulnerabilities through [SECURITY.md](SECURITY.md).
+
+[Documentation](https://artiflow.dev/docs/) · [Releases](https://github.com/guidobuilds/artiflow/releases) ·
+[MIT License](LICENSE) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md)
+
 ## How it works
 
 - An agent connects to `/mcp` and publishes a page or a document. Every publish appends an immutable
@@ -56,7 +63,24 @@ owns them. The one exception is the disposable loopback test stack in `docker-co
   compatible provider).
 - Docker for the integration-test stack or the production images.
 
-## Quick path
+## Quickstart
+
+```bash
+git clone https://github.com/guidobuilds/artiflow.git
+cd artiflow
+bun install
+bun run setup:local        # writes .env.local and generates the auth secret
+# edit .env.local: DATABASE_URL and ARTIFLOW_S3_*
+bun run check:local
+bun run db:migrate
+bun run dev
+```
+
+Open <http://127.0.0.1:5173/>, create a local account, and connect an agent. The
+[quickstart](https://artiflow.dev/docs/start/quickstart/) covers publishing and sharing the first
+artifact.
+
+### Step by step
 
 1. `bun install` — install the pinned workspace dependencies from `bun.lock`, including the OpenCode
    plugin workspace: its dependencies resolve from the root `node_modules`, so `test`, `typecheck`
@@ -139,8 +163,9 @@ PostgreSQL and object storage listen wherever your provider exposes them; this r
 publish or manage those ports.
 
 Stack: React/Vite/TypeScript, Bun/Hono, the official MCP SDK, PostgreSQL with Drizzle, private
-S3-compatible object storage and Better Auth. Google/GitHub sign-in are optional per deployment; the
-local email/password form is development-only.
+S3-compatible object storage and Better Auth. Production signs in with email/password for invited
+accounts; public registration is closed and accounts come from invitations. GitHub/Google sign-in
+are optional per deployment, and only the local demo profile creates accounts in the browser.
 
 ## Accounts and access
 
