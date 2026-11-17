@@ -43,20 +43,11 @@ jobs:
       - name: Boundaries
         run: bun run check:boundaries
 
-      - name: Audit dependencies
-        run: |
-          audit_dir="$RUNNER_TEMP/npm-audit"
-          mkdir -p "$audit_dir"
-          for manifest in package.json apps/*/package.json packages/*/package.json plugins/*/package.json; do
-            mkdir -p "$audit_dir/$(dirname "$manifest")"
-            cp "$manifest" "$audit_dir/$manifest"
-          done
-          cd "$audit_dir"
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          npm audit --omit=dev --audit-level=high
-
       - name: Install
         run: bun install --frozen-lockfile
+
+      - name: Audit dependencies
+        run: bun run audit
 
       - name: Check changed files
         if: github.event_name == 'pull_request'

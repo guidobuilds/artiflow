@@ -141,13 +141,15 @@ example `node scripts/check-changed.mjs HEAD^`. Do not reformat unrelated files
 in the same pull request.
 
 The `verify` workflow also audits dependencies on every push and pull request.
-Bun has no audit command, so the step copies the workspace manifests to a scratch
-directory, generates a throwaway lockfile (`npm install --package-lock-only
---ignore-scripts`) and runs `npm audit --omit=dev --audit-level=high`; high or
-critical advisories fail the job. `--omit=dev` does not filter dev dependencies
-out of that generated lockfile, so the `high` threshold is what actually gates.
-The MCP transport is Hono (`@hono/node-server`, `apps/api/src/mcp/mount.ts`), so
-the MCP SDK's `express`/`body-parser` subtree is not on the HTTP path today.
+The step runs after `bun install --frozen-lockfile` and audits the resolved tree:
+`bun run audit` (`scripts/audit.mjs`) reads `bun audit --json` and fails on any
+high or critical advisory that is not listed in `scripts/audit-allowlist.json`.
+Each allowlist entry names the package, the GHSA id, why the risk is accepted and
+a `reviewBy` date. The date is a reminder, not a gate: once it passes the audit
+only warns, so an advisory without a patched release never blocks every pull
+request. Remove the entry when a patch lands. The MCP transport is Hono
+(`@hono/node-server`, `apps/api/src/mcp/mount.ts`), so the MCP SDK's
+`express`/`body-parser` subtree is not on the HTTP path today.
 
 The integration suites talk to real PostgreSQL and S3, so they need a disposable
 database and bucket:
