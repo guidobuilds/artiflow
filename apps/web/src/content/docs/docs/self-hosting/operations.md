@@ -186,6 +186,7 @@ production data: `test:integration`, `test:auth` and `test:oauth` write to the s
 | `/api/health` is `503`                             | Database and bucket probes; credentials, TLS, bucket name and endpoint reachability.                                            |
 | `403` from `/mcp` while the URL works in a browser | The proxy sends a `Host` the origin does not cover. Preserve `Host` or add it to `ARTIFLOW_ALLOWED_HOSTS`.                      |
 | `401` on every MCP call                            | Sign-in never completed, or the client discarded its token; re-run the client's login.                                          |
+| MCP client fails after the origin changed          | `ARTIFLOW_PUBLIC_ORIGIN` moved the issuer; re-register the client and authenticate it again.                                    |
 | Certificate never issues                           | Ports 80/443 reachable, DNS already pointing at the server, `ARTIFLOW_SITE_ADDRESS` correct.                                    |
 | Containers exit after a config change              | Startup names the invalid variable; compare `.env.prod` with the table in [Install Artiflow](/docs/self-hosting/installation/). |
 

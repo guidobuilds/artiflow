@@ -136,8 +136,8 @@ search service to run.
 
 ## Conventions
 
-- Read `AGENTS.md` before changing source: comments exist for invariants, security reasons or
-  workarounds, not narration, and historical task labels do not belong in code.
+- Read `AGENTS.md` before changing source: no comments in source, and reasoning belongs in the
+  commit message or the pull request.
 - Product queries belong behind repositories that take the typed database from `apps/api/src/db/client.ts`.
   HTTP routes and MCP tools consume the same operations instead of duplicating SQL.
 - Security invariants are summarized in `docs/architecture/README.md`; artifact bytes never execute on

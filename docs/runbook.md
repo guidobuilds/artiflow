@@ -1,7 +1,9 @@
 # Artiflow local runbook
 
 This is the local development runbook for `127.0.0.1`. PostgreSQL and
-S3-compatible object storage are external services. For production, read
+S3-compatible object storage are external services. For the deployment
+profiles (development over HTTP vs production over HTTPS), the environment that
+changes between them, the sign-in model and the OAuth-origin caveat, read
 [deployment-guide.md](deployment-guide.md).
 
 ## 1. What this is

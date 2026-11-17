@@ -58,6 +58,48 @@ Secrets live in the compose env file (`ARTIFLOW_PROD_ENV_FILE`, default
 `.env.prod`, mode 0600, never committed). See `env.prod.example` for the full
 contract; invalid values fail startup naming the variable only.
 
+### Deployment profiles
+
+The repository runs in three profiles. Only the last one is a public deployment.
+
+| Profile           | Entry point                | Transport                                               | Sign-in                                                     |
+| ----------------- | -------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
+| Local development | `bun run dev`              | `http://127.0.0.1:5173`                                 | Demo email/password, including in-browser account creation  |
+| Integration tests | `bun run test:integration` | Disposable loopback Compose stack (PostgreSQL + Garage) | Not used                                                    |
+| Production        | `bun run deploy:up`        | `https://artifacts.<org>.com` through Caddy             | Email/password for invited accounts; GitHub/Google optional |
+
+What changes between the local and the production profile:
+
+| Setting                  | Local development          | Production                                                    |
+| ------------------------ | -------------------------- | ------------------------------------------------------------- |
+| `NODE_ENV`               | `development`              | `production`                                                  |
+| `ARTIFLOW_PUBLIC_ORIGIN` | `http://127.0.0.1:5173`    | `https://artifacts.<org>.com`                                 |
+| `ARTIFLOW_SITE_ADDRESS`  | not set                    | The public hostname; Caddy obtains and renews the certificate |
+| `ARTIFLOW_DEMO_AUTH`     | `1`                        | unset; startup rejects it outside development                 |
+| Cookies                  | not `Secure`               | `Secure`, `HttpOnly`, `SameSite=Lax`                          |
+| Database TLS             | usually off                | `?sslmode=require` (or `verify-full`)                         |
+| S3 endpoint              | `http` allowed on loopback | `https` required                                              |
+| Migrations               | loopback target allowed    | `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1` for the one-shot `migrate`  |
+| Environment file         | `.env.local`               | `.env.prod`, selected with `ARTIFLOW_PROD_ENV_FILE`           |
+
+The full variable contract, including `ARTIFLOW_ALLOWED_HOSTS`,
+`ARTIFLOW_INTERNAL_ORIGIN` and the optional social providers, is in the
+[configuration reference](../apps/web/src/content/docs/docs/reference/configuration.md).
+
+### Sign-in per deployment
+
+Public registration is closed in every profile: `POST /api/auth/sign-up/email`
+is refused, and a configured social provider signs in an existing account but
+never creates one. The operator creates accounts with
+`bun run user:invite person@example.com`, and the invited person sets a password
+when redeeming the link. Email/password sign-in is therefore required by the
+invitation flow and cannot be disabled today; an SSO-only instance depends on
+the instance-admin settings work, not on a flag in this repository.
+
+The local demo profile is the exception: `ARTIFLOW_DEMO_AUTH=1` plus a loopback
+origin allows in-browser account creation. Any other `NODE_ENV` or a
+non-loopback origin is refused at startup.
+
 ## 3. Proxy requirements (read before pointing a domain)
 
 The MCP transport's **DNS-rebinding guard is the only Host/Origin protection**
@@ -101,6 +143,16 @@ Two OAuth notes:
 - Users connecting to **two instances** (e.g. work and personal) is fine: the
   harness namespaces tokens per base URL.
 
+### Changing the public origin
+
+The OAuth issuer, the JWKS and every resource identifier derive from
+`ARTIFLOW_PUBLIC_ORIGIN` (see the
+[configuration reference](../apps/web/src/content/docs/docs/reference/configuration.md)).
+Changing that value invalidates every client registered under the previous
+origin and every token issued for it: each harness must be registered and
+authenticated again. Treat that as a deployment step, not as a bug, and choose
+the final origin before the first production connect.
+
 ## 5. Cloud harness requirements (ChatGPT, Claude remote connectors)
 
 Cloud agents connect **from the provider's infrastructure, not from the user's
@@ -122,6 +174,7 @@ never published — that is the MCPB/stdio path.
 - [ ] DNS record for the dedicated subdomain; 80/443 reachable.
 - [ ] `ARTIFLOW_SITE_ADDRESS` set to the public subdomain (ACME on).
 - [ ] `ARTIFLOW_PUBLIC_ORIGIN=https://artifacts.<org>.com` (bare origin, matches DNS).
+- [ ] Final origin decided: changing it later re-registers every harness (see §4).
 - [ ] Postgres reachable, `DATABASE_URL` with TLS if required;
       `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1` set for the deploy.
 - [ ] Private bucket created; S3 credentials with least privilege; path style
