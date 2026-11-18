@@ -4,7 +4,8 @@ import { readFileSync } from "node:fs";
 import { compileFunction } from "node:vm";
 import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
-import { guiConfig } from "../plugins/opencode/src/gui-core.ts";
+import { guiConfigReader } from "../plugins/opencode/src/gui-core.ts";
+import { Associated } from "../plugins/opencode/src/associated-rpc.ts";
 import { ViewerAuth, viewerHeaders } from "../plugins/opencode/src/gui-auth.ts";
 import { createArtifactWatcher } from "../plugins/opencode/src/freshness.ts";
 
@@ -25,6 +26,7 @@ function host(
   onCreate?: () => void,
   loadError?: Error,
   metadata?: (artifactId: string, options: { base: string; token: string }) => Promise<unknown>,
+  serverUrl: () => Promise<{ url: string | null }> = async () => ({ url: null }),
 ) {
   const instances: FakeView[] = [];
   class FakeView {
@@ -61,7 +63,8 @@ function host(
     .replace("export const main", "const main");
   const setup = compileFunction(`${stripTypeScriptTypes(source)}\nreturn main;`, [
     "WebContentsView",
-    "guiConfig",
+    "guiConfigReader",
+    "Associated",
     "viewerHeaders",
     "ViewerAuth",
     "Views",
@@ -78,10 +81,9 @@ function host(
   windows.get = (id) => ({ id });
   const changes: number[] = [];
   const logs: unknown[] = [];
+  const rpcCalls: unknown[] = [];
   const calls: { artifactId: string; token: string }[] = [];
-  const readMetadata =
-    metadata ??
-    (async (artifactId: string) => md(artifactId, 1, "bytes-A"));
+  const readMetadata = metadata ?? (async (artifactId: string) => md(artifactId, 1, "bytes-A"));
   const artifactApi = (options: { base: string; token: string; signal?: AbortSignal }) => ({
     async metadata(input: { artifactId: string }) {
       calls.push({ artifactId: input.artifactId, token: options.token });
@@ -90,7 +92,8 @@ function host(
   });
   const cleanup = setup(
     FakeView,
-    guiConfig,
+    guiConfigReader,
+    Associated,
     viewerHeaders,
     ViewerAuth,
     {},
@@ -124,6 +127,12 @@ function host(
         logs.push(args);
       },
     },
+    client: {
+      rpc(definition: unknown) {
+        rpcCalls.push(definition);
+        return { "config.url": serverUrl };
+      },
+    },
     provide(_definition: unknown, methods: Api) {
       api = methods;
       return {
@@ -136,7 +145,7 @@ function host(
   const caller = { window: 1, signal: new AbortController().signal };
   const open = (key: string, artifactId = "a", reload = false, token: string | null = "access") =>
     api.open({ key, artifactId, reload, token }, caller);
-  return { api, open, instances, caller, cleanup, windows, changes, logs, calls };
+  return { api, open, instances, caller, cleanup, windows, changes, logs, calls, rpcCalls };
 }
 
 test("main keeps one embed per session/tab/window; update reloads only that view in place", async () => {
@@ -499,6 +508,37 @@ test("a renderer reload rebases the freshness base instead of reloading the page
     t.mock.timers.tick(8_000);
     await settle();
     assert.equal(wc.loads.length, 2);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("main takes the viewer origin from the server chain instead of options and environment", async () => {
+  const h = host(undefined, undefined, undefined, async () => ({ url: "https://server.example" }));
+  try {
+    assert.deepEqual(await h.api.config(), { base: "https://a.example", error: null });
+    await settle();
+    assert.deepEqual(await h.api.config(), { base: "https://server.example", error: null });
+    const id = await h.open("s:artifact:a");
+    assert.ok(id);
+    assert.deepEqual(h.instances[0]!.webContents.loads[0], {
+      url: "https://server.example/artifact/a?embed=1",
+      options: { extraHeaders: "Authorization: Bearer access" },
+    });
+    assert.ok(h.rpcCalls.length > 0);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("main falls back to options and environment when the server has no URL", async () => {
+  const h = host(undefined, undefined, undefined, async () => ({ url: null }));
+  try {
+    await settle();
+    assert.deepEqual(await h.api.config(), { base: "https://a.example", error: null });
+    const id = await h.open("s:artifact:a");
+    assert.ok(id);
+    assert.equal(h.instances[0]!.webContents.loads[0]?.url, "https://a.example/artifact/a?embed=1");
   } finally {
     h.cleanup();
   }
