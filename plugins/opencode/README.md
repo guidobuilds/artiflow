@@ -29,18 +29,10 @@ with zero environment variables set (the plugin loads, the `/artiflow` tab is vi
 ```
 
 `options.url` configures both the server and GUI parts, so no `ARTIFLOW_URL` is needed when the
-options object is used. Two fallbacks stay documented for hosts that cannot carry options:
-
-- **String-form entry plus the environment.** The singular `plugin` key of older CLIs accepts only
-  a package string or a `[package, options]` tuple — its object form is dropped by config
-  normalization, so it cannot carry `options.url`. Load the plugin by string and set
-  `ARTIFLOW_URL` in the OpenCode server environment instead; the GUI part needs it to reach the
-  Desktop main process, and restart Desktop after changing it.
-- **Service definition.** When OpenCode runs as its own service or daemon, declare `ARTIFLOW_URL`
-  in that unit's environment (`Environment=` for systemd, `environment:` for Compose) so the server
-  process and the Desktop main process inherit one origin.
-
-`options.url` takes precedence over the environment variable. The URL must be an HTTP(S) origin:
+options object is used. Alternatively, run `/artiflow-setup <origin>` once in any OpenCode
+session: it validates the origin and persists it per plugin, so the server and the Desktop GUI
+pick it up without any environment variable. Install, run the command, restart/reload the server
+and open `/artiflow`. `options.url` still wins when present. The URL must be an HTTP(S) origin:
 credentials, path prefixes, queries and fragments are rejected.
 
 ## Tools and authentication
@@ -101,8 +93,9 @@ Storage security is provided by the host; this plugin does not encrypt storage.
   tokens are not read, so the old `token:<sha256(origin)>` storage entry stays
   orphaned and harmless, and may be deleted.
 - **Configuration.** With the plural `plugins` form and `options.url`, no
-  environment variable is needed on Desktop 2.2.6/2.3.0. String-form installs
-  that rely on `ARTIFLOW_URL` keep working unchanged.
+  environment variable is needed on Desktop 2.2.6/2.3.0. `/artiflow-setup <origin>` persists a
+  URL per plugin and works on any install, including fresh string-form installs. String-form
+  installs that rely on `ARTIFLOW_URL` keep working unchanged.
 - **Tool names and schemas are unchanged** (`artiflow_get`, `artiflow_write`, …).
   Only the transport changed: the tools call the instance's `/api/v1` API instead
   of `/mcp`.
@@ -177,9 +170,10 @@ server plugin identity. It is not a standalone browser or CLI extension.
 - Settings → Artiflow documents `url`; configuration guidance stays there,
   not in the conversation panel. No origin is supplied by default.
 
-Both parts reuse the same origin validation and options precedence. For the GUI,
-`ARTIFLOW_URL` must be available to the Desktop main process (not just a remote
-OpenCode server). Restart Desktop after changing configuration. Embeds use the
+Both parts reuse the same origin validation and options precedence, and the GUI resolves the
+origin through the server part's `config.url` RPC (options → persisted URL → local fallback), so
+`ARTIFLOW_URL` no longer needs to reach the Desktop main process. Restart the OpenCode server
+after changing configuration so dependent tools reload. Embeds use the
 persistent browser partition `persist:artiflow`: cookies survive artifact changes
 and Desktop restarts. The panel obtains the current OAuth access token through
 the `viewer.token` RPC, proves it with a read of `/api/v1/artifacts`, and refreshes
