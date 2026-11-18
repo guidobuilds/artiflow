@@ -14,7 +14,15 @@ export type ParentCommand =
 
 export type FrameEvent =
   | { type: "geometry"; id: string; x: number; y: number; visible: boolean }
-  | { type: "pick"; selector: string; textHint: string; x: number; y: number; viewportWidth: number }
+  | {
+      type: "pick";
+      selector: string;
+      textHint: string;
+      x: number;
+      y: number;
+      viewportWidth: number;
+      viewportY: number;
+    }
   | { type: "pin-click"; id: string }
   | { type: "ready" };
 
@@ -73,7 +81,8 @@ const validCommand = (raw: Record<string, unknown>): boolean => {
         raw.textHint.length <= 120 &&
         isFiniteNumber(raw.x) &&
         isFiniteNumber(raw.y) &&
-        isFiniteNumber(raw.viewportWidth)
+        isFiniteNumber(raw.viewportWidth) &&
+        isFiniteNumber(raw.viewportY)
       );
     case "pin-click":
       return isString(raw.id) && raw.id.length > 0;

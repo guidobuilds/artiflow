@@ -42,6 +42,24 @@ test("an unknown channel, version or shape is refused", () => {
   assert.deepEqual(validate({ ...envelope, channel: "other", type: "ready" }), { ok: false, reason: "wrong-channel" });
   assert.deepEqual(validate({ ...envelope, version: 99, type: "ready" }), { ok: false, reason: "wrong-version" });
   assert.deepEqual(validate({ ...envelope, type: "pick", selector: "#a" }), { ok: false, reason: "schema" });
+  assert.deepEqual(
+    validate({ ...envelope, type: "pick", selector: "#a", textHint: "", x: 0.5, y: 0.5, viewportWidth: 900 }),
+    { ok: false, reason: "schema" },
+    "a pick without the viewport y cannot place the draft",
+  );
+  assert.equal(
+    validate({
+      ...envelope,
+      type: "pick",
+      selector: "#a",
+      textHint: "",
+      x: 0.5,
+      y: 0.5,
+      viewportWidth: 900,
+      viewportY: 240,
+    }).ok,
+    true,
+  );
   assert.deepEqual(validate({ ...envelope, type: "geometry", id: "c1", x: "12", y: 1, visible: true }), {
     ok: false,
     reason: "schema",

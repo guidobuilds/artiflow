@@ -131,6 +131,7 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       x: rect.width === 0 ? 0 : Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
       y: rect.height === 0 ? 0 : Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
       viewportWidth: window.innerWidth,
+      viewportY: Math.round(event.clientY),
     });
   };
   window.addEventListener("message", (event) => {

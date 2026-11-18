@@ -272,7 +272,7 @@ export function mountViewerCommentsInFrame(): void {
     anchors: {} as Record<string, number>,
     error: null as string | null,
     commenting: false,
-    draft: null as { anchor: ElementAnchor } | null,
+    draft: null as { anchor: ElementAnchor; top: number } | null,
     busy: false,
   };
   const send = (command: ParentCommand) => {
@@ -334,7 +334,7 @@ export function mountViewerCommentsInFrame(): void {
                 error: state.error,
               }
         }
-        draftAnchorTop={0}
+        draftAnchorTop={state.draft?.top ?? 0}
         onSubmitDraft={(body) => {
           if (state.draft === null) return;
           state.busy = true;
@@ -418,6 +418,7 @@ export function mountViewerCommentsInFrame(): void {
           point: { x: message.x, y: message.y },
           viewportWidth: Math.round(message.viewportWidth),
         },
+        top: Math.max(0, Math.round(message.viewportY) - 16),
       };
       render();
     }
