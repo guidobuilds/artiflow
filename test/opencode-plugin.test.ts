@@ -35,6 +35,23 @@ for (const value of [
     });
   });
 }
+test("the persisted URL sits between options and environment", () => {
+  assert.equal(instanceUrl({}, undefined, "https://stored.example"), "https://stored.example");
+  assert.equal(instanceUrl({}, "https://env.example", "https://stored.example"), "https://stored.example");
+  assert.equal(
+    instanceUrl({ url: "https://option.example" }, "https://env.example", "https://stored.example"),
+    "https://option.example",
+  );
+  assert.equal(instanceUrl({}, "https://env.example", undefined), "https://env.example");
+});
+for (const value of ["ftp://example.com", "/relative", "https://user:secret@example.com", "https://example.com/path"]) {
+  test(`reject invalid persisted config ${value.split(":")[0]}`, () => {
+    assert.throws(() => instanceUrl({}, undefined, value), {
+      message:
+        "Configure artiflow.url (options.url) or ARTIFLOW_URL with an absolute http(s) origin without credentials, path, query, or fragment.",
+    });
+  });
+}
 test("viewer link is a pure helper and escapes path input", () => {
   assert.equal(viewerUrl("https://a.example", "id/?#"), "https://a.example/artifact/id%2F%3F%23");
 });

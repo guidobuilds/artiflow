@@ -1,9 +1,9 @@
-export function instanceUrl(options: { url?: unknown }, env: string | undefined): string {
+export function instanceUrl(options: { url?: unknown }, env: string | undefined, stored?: unknown): string {
   const invalid = () =>
     new Error(
       "Configure artiflow.url (options.url) or ARTIFLOW_URL with an absolute http(s) origin without credentials, path, query, or fragment.",
     );
-  const value = options.url ?? env;
+  const value = options.url ?? stored ?? env;
   if (typeof value !== "string" || !/^https?:\/\//i.test(value)) throw invalid();
   let url: URL;
   try {

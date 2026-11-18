@@ -2,9 +2,11 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Plugin, type Skill } from "@opencode/plugin";
 import { ArtiflowAuth } from "@artiflow/plugin-core/auth";
-import { instanceUrl, viewerUrl } from "@artiflow/plugin-core/core";
+import { viewerUrl } from "@artiflow/plugin-core/core";
 import { Associated } from "./associated-rpc.ts";
 import { Associations } from "@artiflow/plugin-core/associations";
+import { configUrl, optionalInstanceUrl, type UrlSources } from "./instance.ts";
+import { setupCommand, setupRequiredMessage } from "./setup-command.ts";
 import { skillFilePath } from "./skill-files.ts";
 import { toolDefinitions } from "./tool-definitions.ts";
 import { executeArtifactTool } from "@artiflow/plugin-core/tools";
@@ -12,7 +14,37 @@ import { executeArtifactTool } from "@artiflow/plugin-core/tools";
 export default Plugin.define({
   id: "artiflow",
   async setup(ctx) {
-    const base = instanceUrl(ctx.options, process.env.ARTIFLOW_URL);
+    const sources: UrlSources = {
+      options: ctx.options,
+      env: process.env.ARTIFLOW_URL,
+      storage: { get: (key) => ctx.storage.get(key) },
+    };
+    const base = await optionalInstanceUrl(sources);
+    const commands = await ctx.command.transform((editor) => {
+      editor.add(
+        setupCommand(
+          {
+            get: (key) => ctx.storage.get(key),
+            set: (key, value) => ctx.storage.set(key, value),
+          },
+          async ({ sessionID, text }) => {
+            await ctx.session.synthetic({ sessionID, text, description: "Artiflow setup" });
+          },
+        ),
+      );
+    });
+    if (base === null) {
+      const bootstrap = await ctx.rpc.register(Associated, {
+        "viewer.token": async () => null,
+        "viewer.consent": async () => ({ error: setupRequiredMessage }),
+        "associated.list": async () => [],
+        "config.url": () => configUrl(sources),
+      });
+      return async () => {
+        await commands.dispose();
+        await bootstrap.dispose();
+      };
+    }
     const auth = new ArtiflowAuth(base, {
       get: (key) => ctx.storage.get(key),
       set: (key, value) => ctx.storage.set(key, value),
@@ -32,6 +64,7 @@ export default Plugin.define({
       "viewer.token": () => auth.viewerToken(),
       "viewer.consent": () => auth.consent(),
       "associated.list": ({ sessionID }) => associations.list(sessionID),
+      "config.url": () => configUrl(sources),
     });
     const skills = await Promise.all(
       ["creating-artifacts", "using-artiflow"].map(async (name) => {
@@ -102,6 +135,7 @@ Choose the write path by payload size.
     return async () => {
       await registeredTools.dispose();
       await registeredSkills.dispose();
+      await commands.dispose();
       await registration.dispose();
     };
   },
