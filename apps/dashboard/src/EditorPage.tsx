@@ -34,7 +34,8 @@ import {
 } from "./lib/editor-freshness.ts";
 import { Autosave, type SaveState } from "./editor-autosave.ts";
 import { blockTypes, currentBlockType, toolbarGroups, markdownExtensions } from "./editor-markdown.ts";
-import CommentSidebar, { type CommentSelection } from "./CommentSidebar.tsx";
+import MarkdownComments, { type CommentSelection } from "./components/comments/markdown-comments.tsx";
+import { browserCommentStorage, readCommentsVisible, writeCommentsVisible } from "./comment-visibility.ts";
 
 const labels = {
   saved: "Saved",
@@ -128,7 +129,12 @@ function DocumentEditor({ initial }: { initial: Document }) {
   const [history, setHistory] = useState<Revision[]>([]);
   const [pendingVersion, setPendingVersion] = useState<number | null>(null);
   const freshness = useRef<EditorFreshness | null>(null);
-  const [commentsOpen, setCommentsOpen] = useState(false);
+  const commentStorage = useRef(browserCommentStorage());
+  const [commentsVisible, setCommentsVisible] = useState(() => readCommentsVisible(commentStorage.current));
+  const [showResolved, setShowResolved] = useState(false);
+  const [activeThread, setActiveThread] = useState<string | null>(null);
+  const [anchorTops, setAnchorTops] = useState<Record<string, number>>({});
+  const canvasRef = useRef<HTMLDivElement>(null);
   const [comments, setComments] = useState<CommentList>({ canComment: false, comments: [] });
   const markers = useRef<{ source: string; data: CommentList }>({ source: initial.text, data: comments });
   markers.current = { source: state.text, data: comments };
@@ -148,18 +154,25 @@ function DocumentEditor({ initial }: { initial: Document }) {
       if (result.ok) setHistory(result.value);
     });
   }, [initial.artifactId]);
-  const [selectedThread, setSelectedThread] = useState<{ id: string; serial: number } | null>(null);
   const selectThread = (id: string) => {
-    setCommentsOpen(true);
+    setActiveThread(id);
     setHistoryOpen(false);
-    setSelectedThread((previous) => ({ id, serial: (previous?.serial ?? 0) + 1 }));
   };
+  const live = useRef({ visible: commentsVisible, showResolved, active: activeThread });
+  live.current = { visible: commentsVisible, showResolved, active: activeThread };
+  const resolvedIds = useRef(new Set<string>());
+  resolvedIds.current = new Set(comments.comments.filter((thread) => thread.resolvedAt !== null).map((t) => t.id));
   const markerRanges = (editorState: EditorState) => {
     const runs: { text: string; from: number }[] = [];
     editorState.doc.descendants((node, from) => {
       if (node.isText) runs.push({ text: node.text!, from });
     });
-    return commentDecorations(markers.current.source, markers.current.data.comments, runs);
+    if (!live.current.visible) return [];
+    const threads = markers.current.data.comments
+      .filter((thread) => thread.anchor !== null)
+      .filter((thread) => live.current.showResolved || thread.resolvedAt === null)
+      .map((thread) => ({ id: thread.id, anchor: thread.anchor!, quotedText: thread.quotedText }));
+    return commentDecorations(markers.current.source, threads, runs);
   };
   const editor = useEditor({
     extensions: [
@@ -173,9 +186,15 @@ function DocumentEditor({ initial }: { initial: Document }) {
               decorations: (editorState) =>
                 DecorationSet.create(
                   editorState.doc,
-                  markerRanges(editorState).map((range) =>
+                  (commentsVisible ? markerRanges(editorState) : []).map((range) =>
                     Decoration.inline(range.from, range.to, {
-                      class: range.className,
+                      class: [
+                        range.className,
+                        range.id === activeThread ? "comment-marker-active" : "",
+                        resolvedIds.current.has(range.id) ? "comment-marker-resolved" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" "),
                       "data-comment-id": range.id,
                       title: `${range.stale ? "Outdated comment" : "Comment"} — click or press Enter inside to open thread`,
                     }),
@@ -303,8 +322,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
         freshness.current = created;
         created.start();
       })
-      .catch(() => {
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
       handle?.stop();
@@ -316,8 +334,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
     if (!current) return;
     try {
       current.adopt(await requireMetadata(initial.artifactId, initial.kind));
-    } catch {
-    }
+    } catch {}
   };
   const busy = state.status === "saving" || state.status === "restoring";
   const readOnly =
@@ -387,7 +404,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
   };
   useEffect(() => {
     if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(markerKey, true));
-  }, [editor, comments, state.text]);
+  }, [editor, comments, state.text, commentsVisible, showResolved, activeThread]);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -408,19 +425,58 @@ function DocumentEditor({ initial }: { initial: Document }) {
       window.removeEventListener("pointerdown", outside);
     };
   }, [editor]);
-  const focusThread = (id: string) => {
+  const markAnchor = (id: string) => {
     const nodes = editor?.view.dom.querySelectorAll<HTMLElement>("[data-comment-id]");
     const matches = Array.from(nodes ?? []).filter((node) => node.dataset.commentId === id);
-    matches[0]?.scrollIntoView({
-      block: "center",
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-    });
+    const canvas = canvasRef.current;
+    const first = matches[0];
+    if (canvas && first) {
+      const box = first.getBoundingClientRect();
+      const view = canvas.getBoundingClientRect();
+      if (box.top < view.top || box.bottom > view.bottom)
+        first.scrollIntoView({
+          block: "nearest",
+          behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
+        });
+    }
     matches.forEach((node) => {
       node.classList.remove("comment-marker-flash");
       void node.offsetWidth;
       node.classList.add("comment-marker-flash");
     });
   };
+  const measureAnchors = useCallback(() => {
+    const view = editor?.view;
+    const canvas = canvasRef.current;
+    if (!view || !canvas || editor?.isDestroyed) return;
+    const base = canvas.getBoundingClientRect().top + canvas.scrollTop;
+    const next: Record<string, number> = {};
+    for (const range of markerRanges(view.state)) {
+      const top = Math.max(0, view.coordsAtPos(range.from).top - base);
+      next[range.id] = next[range.id] === undefined ? top : Math.min(next[range.id]!, top);
+    }
+    setAnchorTops((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next));
+  }, [editor]);
+  useEffect(() => {
+    measureAnchors();
+  }, [measureAnchors, comments, state.text, commentsVisible, showResolved]);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const frame = () => window.requestAnimationFrame(measureAnchors);
+    const observer = new ResizeObserver(frame);
+    observer.observe(canvas);
+    canvas.addEventListener("scroll", frame);
+    window.addEventListener("resize", frame);
+    window.addEventListener("scroll", frame, true);
+    void document.fonts?.ready.then(frame);
+    return () => {
+      observer.disconnect();
+      canvas.removeEventListener("scroll", frame);
+      window.removeEventListener("resize", frame);
+      window.removeEventListener("scroll", frame, true);
+    };
+  }, [measureAnchors]);
   const blocked = readOnly || !editor;
   return (
     <section aria-labelledby="editor-title" className="document-editor">
@@ -448,17 +504,18 @@ function DocumentEditor({ initial }: { initial: Document }) {
             aria-controls="version-history"
             onClick={() => {
               setHistoryOpen(!historyOpen);
-              setCommentsOpen(false);
             }}
           />
           <IconAction
             icon="chat"
             label="Comments"
-            aria-expanded={commentsOpen}
+            aria-expanded={commentsVisible}
             aria-controls="document-comments"
             onClick={() => {
-              setCommentsOpen(!commentsOpen);
-              setHistoryOpen(false);
+              const next = !commentsVisible;
+              setCommentsVisible(next);
+              writeCommentsVisible(commentStorage.current, next);
+              if (!next) setActiveThread(null);
             }}
           />
         </nav>
@@ -617,8 +674,10 @@ function DocumentEditor({ initial }: { initial: Document }) {
           />
         </div>
       ) : null}
-      <div className={`editor-workspace ${historyOpen || commentsOpen ? "editor-panel-open" : ""}`}>
-        <div className="editor-canvas">
+      <div
+        className={`editor-workspace ${historyOpen ? "editor-panel-open" : ""} ${commentsVisible ? "editor-margin-open" : ""}`}
+      >
+        <div className="editor-canvas" ref={canvasRef}>
           {editor ? (
             <BubbleMenu
               editor={editor}
@@ -676,8 +735,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
                         text: editor.state.doc.textBetween(from, to, "\n"),
                         span,
                         serial: (previous?.serial ?? 0) + 1,
-                        left: position.left,
-                        top: position.bottom + 12,
+                        top: Math.max(0, position.top - (canvasRef.current?.getBoundingClientRect().top ?? 0) - 8),
                       }));
                       dismissed.current = true;
                       editor.commands.setMeta("bubbleMenu", "hide");
@@ -730,18 +788,30 @@ function DocumentEditor({ initial }: { initial: Document }) {
             </ol>
           </aside>
         ) : null}
-        <CommentSidebar
-          artifactId={initial.artifactId}
-          source={state.text}
-          revisionId={state.revisionId}
-          saved={!state.dirty && state.status !== "restoring" && state.status !== "conflict"}
-          selection={commentSelection}
-          open={commentsOpen}
-          selectedThread={selectedThread}
-          readOnly={readOnly}
-          onData={setComments}
-          onFocus={focusThread}
-        />
+        {commentsVisible ? (
+          <div className="editor-comments-column">
+            <MarkdownComments
+              artifactId={initial.artifactId}
+              source={state.text}
+              revisionId={state.revisionId}
+              saved={!state.dirty && state.status !== "restoring" && state.status !== "conflict"}
+              selection={commentSelection}
+              readOnly={readOnly}
+              visible={commentsVisible}
+              onVisibleChange={(next) => {
+                setCommentsVisible(next);
+                if (!next) setActiveThread(null);
+              }}
+              showResolved={showResolved}
+              onShowResolvedChange={setShowResolved}
+              anchorTops={anchorTops}
+              activeId={activeThread}
+              onActivate={setActiveThread}
+              onData={setComments}
+              onFocusAnchor={markAnchor}
+            />
+          </div>
+        ) : null}
       </div>
     </section>
   );

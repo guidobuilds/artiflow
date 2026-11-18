@@ -17,7 +17,12 @@ export const DEFAULT_THREAD_GAP = 12;
 const order = (a: { id: string; anchorTop: number }, b: { id: string; anchorTop: number }): number =>
   a.anchorTop - b.anchorTop || a.id.localeCompare(b.id);
 
-export function layoutCommentThreads({ threads, activeId = null, gap = DEFAULT_THREAD_GAP, minTop = 0 }: LayoutInput): ThreadPlacement[] {
+export function layoutCommentThreads({
+  threads,
+  activeId = null,
+  gap = DEFAULT_THREAD_GAP,
+  minTop = 0,
+}: LayoutInput): ThreadPlacement[] {
   if (threads.length === 0) return [];
   const sorted = [...threads].sort(order).map((thread) => ({
     id: thread.id,

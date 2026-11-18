@@ -33,7 +33,5 @@ export function browserCommentStorage(): CommentStorage | null {
 export const openThreadCount = (threads: { resolvedAt: string | null }[]): number =>
   threads.filter((thread) => thread.resolvedAt === null).length;
 
-export const visibleThreads = <T extends { resolvedAt: string | null }>(
-  threads: T[],
-  showResolved: boolean,
-): T[] => (showResolved ? threads : threads.filter((thread) => thread.resolvedAt === null));
+export const visibleThreads = <T extends { resolvedAt: string | null }>(threads: T[], showResolved: boolean): T[] =>
+  showResolved ? threads : threads.filter((thread) => thread.resolvedAt === null);

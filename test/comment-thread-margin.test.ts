@@ -26,7 +26,8 @@ test("the bar toggles visibility, counts open threads and hides resolved ones by
   assert.match(component, /aria-controls=\{label\}/);
   assert.match(component, /\{visible \? "Hide comments" : "Show comments"\}/);
   assert.match(component, /openThreadCount\(threads\)/);
-  assert.match(component, /\[showResolved, setShowResolved\] = useState\(false\)/);
+  assert.match(component, /\[resolvedState, setResolvedState\] = useState\(false\)/);
+  assert.match(component, /const showResolved = showResolvedProp \?\? resolvedState;/);
   assert.match(component, /Show resolved/);
   assert.equal(component.includes("readCommentsVisible(store)"), true);
   assert.equal(component.includes("writeCommentsVisible(store, next)"), true);

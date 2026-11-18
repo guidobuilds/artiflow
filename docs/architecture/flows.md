@@ -255,7 +255,8 @@ No comment edit, no lifecycle beyond resolve/unresolve, no anchor relocation and
 exist or are implied here.
 
 Modules: `comments.ts`, `artifact-tools.ts`, `web/comment-anchors.ts`,
-`web/CommentSidebar.tsx`.
+`web/components/comments/comment-thread-margin.tsx`, fed by
+`web/components/comments/markdown-comments.tsx`.
 
 ## 9. Delete and garbage collection
 

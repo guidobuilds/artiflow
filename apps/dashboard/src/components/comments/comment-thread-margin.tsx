@@ -3,12 +3,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Avatar } from "@/components/ui/avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconAction } from "@/components/ui/icon.tsx";
-import {
-  layoutCommentThreads,
-  marginHeight,
-  placementOf,
-  type ThreadPlacement,
-} from "@/comment-thread-layout.ts";
+import { layoutCommentThreads, marginHeight, placementOf, type ThreadPlacement } from "@/comment-thread-layout.ts";
 import {
   browserCommentStorage,
   openThreadCount,
@@ -65,6 +60,11 @@ export type CommentThreadMarginProps = {
   onCancelDraft?: () => void;
   publishError?: string | null;
   storage?: CommentStorage | null;
+  visible?: boolean;
+  onVisibleChange?: (visible: boolean) => void;
+  showResolved?: boolean;
+  onShowResolvedChange?: (show: boolean) => void;
+  draftAnchorTop?: number;
   heights?: Record<string, number>;
   measuredHeight?: { collapsed: number; active: number };
   className?: string;
@@ -408,6 +408,17 @@ function MobileSheet({
   );
 }
 
+function draftPlacement(placements: ThreadPlacement[], anchorTop: number, height: number): ThreadPlacement {
+  const [placed] = layoutCommentThreads({
+    threads: [
+      ...placements.map(({ id, anchorTop: top, height: size }) => ({ id, anchorTop: top, height: size })),
+      { id: "__draft__", anchorTop, height },
+    ],
+    activeId: "__draft__",
+  }).filter((placement) => placement.id === "__draft__");
+  return placed ?? { id: "__draft__", anchorTop, height, top: marginHeight(placements) };
+}
+
 function Skeleton() {
   return (
     <div className="comment-thread-skeletons" aria-hidden="true">
@@ -433,22 +444,34 @@ export default function CommentThreadMargin({
   onCancelDraft,
   publishError = null,
   storage,
+  visible: visibleProp,
+  onVisibleChange,
+  showResolved: showResolvedProp,
+  onShowResolvedChange,
+  draftAnchorTop = 0,
   heights = {},
   measuredHeight,
   className,
 }: CommentThreadMarginProps) {
   const store = storage === undefined ? browserCommentStorage() : storage;
-  const [visible, setVisible] = useState(() => readCommentsVisible(store));
-  const [showResolved, setShowResolved] = useState(false);
+  const [visibleState, setVisibleState] = useState(() => readCommentsVisible(store));
+  const [resolvedState, setResolvedState] = useState(false);
+  const visible = visibleProp ?? visibleState;
+  const showResolved = showResolvedProp ?? resolvedState;
   const label = useId();
   const collapsed = measuredHeight?.collapsed ?? COLLAPSED_HEIGHT;
   const active = measuredHeight?.active ?? ACTIVE_HEIGHT;
-  const toggle = () => {
-    const next = !visible;
-    setVisible(next);
+  const setVisible = (next: boolean) => {
+    setVisibleState(next);
+    onVisibleChange?.(next);
     writeCommentsVisible(store, next);
     if (!next) onActivate(null);
   };
+  const setShowResolved = (next: boolean) => {
+    setResolvedState(next);
+    onShowResolvedChange?.(next);
+  };
+  const toggle = () => setVisible(!visible);
   const shown = useMemo(() => visibleThreads(threads, showResolved), [threads, showResolved]);
   const placements = useMemo(
     () =>
@@ -542,12 +565,7 @@ export default function CommentThreadMargin({
               draft={draft}
               onSubmit={onSubmitDraft}
               onCancel={onCancelDraft}
-              placement={{
-                id: "draft",
-                anchorTop: 0,
-                height: active,
-                top: marginHeight(placements),
-              }}
+              placement={draftPlacement(placements, draftAnchorTop, active)}
             />
           ) : null}
         </div>

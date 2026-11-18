@@ -16,7 +16,12 @@ import { toolbarGroups, blockTypes } from "../apps/dashboard/src/editor-markdown
 test("every editor chrome, selection and comment action uses the shared noninteractive tooltip", () => {
   const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
   const page = read("../apps/dashboard/src/EditorPage.tsx");
-  const sidebar = read("../apps/dashboard/src/CommentSidebar.tsx");
+  const sidebar = read("../apps/dashboard/src/components/comments/comment-thread-margin.tsx");
+  assert.doesNotMatch(
+    sidebar,
+    /<IconAction\s+icon="trash"\s+label=\{root/,
+    "the shared margin replaced the old sidebar actions",
+  );
   const actions = [...(page + sidebar).matchAll(/<IconAction\s+icon="([^"]+)"\s+label=("[^"]+"|\{[^}]+\})/g)].map(
     (match) => [match[1], match[2]],
   );
@@ -38,19 +43,21 @@ test("every editor chrome, selection and comment action uses the shared noninter
     ["chat", '"Comment"'],
     ["refresh", '"Retry history"'],
     ["history", "{`Restore version ${revision.revisionNumber}"],
-    ["trash", '{root ? "Delete thread" : "Delete reply"}'],
-    ["x", '"Cancel comment"'],
-    ["send", '{draft.parentId ? "Post reply" : "Post comment"}'],
-    ["refresh", '"Refresh threads"'],
-    ["chat", '"Reply"'],
-    ["check", '{thread.resolvedAt ? "Unresolve" : "Resolve"}'],
+    ["trash", "{`Delete reply by ${entry.author.name || entry.author.id}"],
+    ["left", '"Previous thread"'],
+    ["right", '"Next thread"'],
+    ["x", '"Close thread"'],
   ]);
   assert.equal(
     [...page.matchAll(/<button\b/g)].length,
     1,
     "only the text-valued block type trigger bypasses IconAction",
   );
-  assert.doesNotMatch(sidebar, /<button\b/, "comment actions still use shared tooltips");
+  assert.match(
+    sidebar,
+    /<button\s+type="button"\s+id=\{`\$\{bodyId\}-label`\}/,
+    "only the card header is a native button so keyboard focus works; every icon action keeps the shared tooltip",
+  );
   assert.match(page, /icon=\{entry\.icon\}\s+label=\{entry\.label\}/, "every toolbar entry uses the shared tooltip");
   assert.deepEqual(
     toolbarGroups.flatMap((g) => g.entries.map((e) => e.label)),
@@ -92,60 +99,87 @@ test("every editor chrome, selection and comment action uses the shared noninter
 });
 
 test("composer quotes the rendered selection and offers rendered occurrences, never source edits", () => {
-  const sidebar = readFileSync(new URL("../apps/dashboard/src/CommentSidebar.tsx", import.meta.url), "utf8");
+  const sidebar = readFileSync(
+    new URL("../apps/dashboard/src/components/comments/markdown-comments.tsx", import.meta.url),
+    "utf8",
+  );
   assert.doesNotMatch(
     sidebar,
     /Markdown source|Select comment source|Select source to comment|sourceInput|setSelectionRange/,
   );
-  assert.match(sidebar, /Which occurrence\?/);
-  assert.match(sidebar, /\{draft\.quotedText\}/);
+  assert.match(sidebar, /mapRenderedSelection/);
+  assert.match(sidebar, /renderedQuote\(draft\.quotedText\)/);
   assert.match(sidebar, /quotedText: quote/);
-  assert.match(sidebar, /renderedQuote\(thread\.quotedText\)/);
+  assert.match(sidebar, /kind: "text-range"/);
   const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
   assert.match(page, /sourceBlockSpan/);
 });
 
-test("canvas selection opens the panel with a repeatable request; sidebar focuses, scrolls and flashes even resolved threads", () => {
+test("canvas selection opens the margin at the selection; cards mark, scroll when needed and flash", () => {
   const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
-  const sidebar = readFileSync(new URL("../apps/dashboard/src/CommentSidebar.tsx", import.meta.url), "utf8");
+  const margin = readFileSync(
+    new URL("../apps/dashboard/src/components/comments/comment-thread-margin.tsx", import.meta.url),
+    "utf8",
+  );
+  const markdown = readFileSync(
+    new URL("../apps/dashboard/src/components/comments/markdown-comments.tsx", import.meta.url),
+    "utf8",
+  );
   const callback = page.match(/const selectThread = \(id: string\) => \{([^]*?)\n  \};/);
   assert.ok(callback, "canvas navigation has an isolated state-only callback");
-  let open = false,
-    history = true,
-    selected: { id: string; serial: number } | null = null;
-  const select = compileFunction(`return (id) => {${callback[1]}}`, [
-    "setCommentsOpen",
-    "setHistoryOpen",
-    "setSelectedThread",
-  ])(
-    (value: boolean) => {
-      open = value;
+  let active: string | null = null,
+    history = true;
+  const select = compileFunction(`return (id) => {${callback[1]}}`, ["setActiveThread", "setHistoryOpen"])(
+    (value: string | null) => {
+      active = value;
     },
     (value: boolean) => {
       history = value;
     },
-    (update: (previous: typeof selected) => typeof selected) => {
-      selected = update(selected);
-    },
   );
-  select("resolved");
-  assert.deepEqual([open, history, selected], [true, false, { id: "resolved", serial: 1 }]);
-  select("resolved");
-  assert.deepEqual(selected, { id: "resolved", serial: 2 });
+  select("thread");
+  assert.deepEqual([active, history], ["thread", false], "a highlight opens its thread and closes history");
   assert.match(page, /handleClick:/);
   assert.match(page, /handleKeyDown:[^]*?event.key !== "Enter"[^]*?selection.empty/);
-  assert.match(page, /selectedThread=\{selectedThread\}/);
-  assert.match(sidebar, /if \(!open \|\| !selectedThread\) return/);
-  assert.match(sidebar, /data-thread-id=\{thread.id\}\s+tabIndex=\{-1\}/);
-  assert.match(sidebar, /focus\(\{ preventScroll: true \}\)/);
-  assert.match(sidebar, /scrollIntoView/);
-  assert.match(sidebar, /classList.add\("comment-marker-flash"\)/);
-  assert.match(sidebar, /\[open, selectedThread, data\]/);
-  assert.match(
-    sidebar,
-    /<details open=\{!thread.resolvedAt\}>/,
-    "resolved rows remain navigable without mutating resolution",
+  assert.match(page, /onFocusAnchor=\{markAnchor\}/);
+  assert.match(page, /activeId=\{activeThread\}/);
+  assert.match(page, /top: Math\.max\(0, position\.top/);
+  assert.match(markdown, /begin\(selection\.text, selection\.span, selection\.top\)/);
+  assert.match(markdown, /draftAnchorTop=\{draft\?\.anchorTop \?\? 0\}/);
+  assert.match(page, /box\.top < view\.top \|\| box\.bottom > view\.bottom/);
+  assert.match(page, /block: "nearest"/);
+  assert.match(page, /classList\.add\("comment-marker-flash"\)/);
+  assert.match(margin, /data-thread-id=\{thread\.id\}/);
+  assert.match(margin, /tabIndex=\{0\}/);
+  assert.match(margin, /aria-expanded=\{active\}/);
+});
+
+test("the editor highlights follow the thread state and hide with the margin", () => {
+  const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
+  const styles = readFileSync(new URL("../apps/dashboard/src/styles/globals.css", import.meta.url), "utf8");
+  assert.match(page, /if \(!live\.current\.visible\) return \[\]/);
+  assert.match(page, /live\.current\.showResolved \|\| thread\.resolvedAt === null/);
+  assert.match(page, /"comment-marker-active"/);
+  assert.match(page, /"comment-marker-resolved"/);
+  assert.match(page, /readCommentsVisible\(commentStorage\.current\)/);
+  assert.match(page, /writeCommentsVisible\(commentStorage\.current, next\)/);
+  assert.match(styles, /\.comment-marker-active \{/);
+  assert.match(styles, /\.comment-marker-stale \{[^}]*border-bottom: 1px dotted var\(--fg-subtle\)/);
+  assert.match(styles, /\.editor-workspace\.editor-margin-open \{\s*grid-template-columns: minmax\(0, 1fr\) 320px;/);
+  assert.equal(
+    readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8").includes("CommentSidebar"),
+    false,
   );
+});
+
+test("anchor positions recompute on resize, scroll, content and font load", () => {
+  const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
+  assert.match(page, /coordsAtPos\(range\.from\)\.top - base/);
+  assert.match(page, /new ResizeObserver\(frame\)/);
+  assert.match(page, /canvas\.addEventListener\("scroll", frame\)/);
+  assert.match(page, /window\.addEventListener\("resize", frame\)/);
+  assert.match(page, /document\.fonts\?\.ready\.then\(frame\)/);
+  assert.match(page, /\[measureAnchors, comments, state\.text, commentsVisible, showResolved\]/);
 });
 
 const anchor: TextRangeAnchor = {

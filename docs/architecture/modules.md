@@ -218,14 +218,14 @@ throw inside the transaction and are mapped back to domain results outside it.
 
 ### Pages
 
-| File                                                                            | Responsibility                                                                                                                           |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `LibraryPage.tsx`                                                               | Owned + shared lists, filters, grid/list layout, sort, keyboard selection, command palette, onboarding, share/delete modals.             |
-| `EditorPage.tsx`                                                                | TipTap markdown editor: autosave state machine, version history/restore, comment markers, selection composer, read-only/conflict states. |
-| `AuthScreen.tsx`, `LoginPage.tsx`, `ConsentPage.tsx`                            | Sign-up/in plus OAuth login continuation and consent.                                                                                    |
-| `ConnectPage.tsx`, `OnboardingSteps.tsx`                                        | "Connect an agent" instructions and first-run steps.                                                                                     |
-| `AccountPage.tsx`, `NotFoundPage.tsx`                                           | Account summary and branded 404.                                                                                                         |
-| `CommandPalette.tsx`, `ShareModal.tsx`, `DeleteModal.tsx`, `CommentSidebar.tsx` | Interaction surfaces.                                                                                                                    |
+| File                                                                              | Responsibility                                                                                                                           |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `LibraryPage.tsx`                                                                 | Owned + shared lists, filters, grid/list layout, sort, keyboard selection, command palette, onboarding, share/delete modals.             |
+| `EditorPage.tsx`                                                                  | TipTap markdown editor: autosave state machine, version history/restore, comment markers, selection composer, read-only/conflict states. |
+| `AuthScreen.tsx`, `LoginPage.tsx`, `ConsentPage.tsx`                              | Sign-up/in plus OAuth login continuation and consent.                                                                                    |
+| `ConnectPage.tsx`, `OnboardingSteps.tsx`                                          | "Connect an agent" instructions and first-run steps.                                                                                     |
+| `AccountPage.tsx`, `NotFoundPage.tsx`                                             | Account summary and branded 404.                                                                                                         |
+| `CommandPalette.tsx`, `ShareModal.tsx`, `DeleteModal.tsx`, `components/comments/` | Interaction surfaces.                                                                                                                    |
 
 ### Client data layer
 
@@ -240,12 +240,12 @@ throw inside the transaction and are mapped back to domain results outside it.
 
 ## 3. Support trees
 
-| Tree       | Contents                                                                                                                                                                                                          |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tree       | Contents                                                                                                                                                                         |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/` | `local.mjs` (`.env.local` generation + external service check), `auth-env.mjs`, `dev.mjs` (API + Vite, port checks, shutdown), and the browser/E2E probe (`e2e-full-cycle.mjs`). |
-| `drizzle/` | 10 forward migrations (auth → OAuth → artifacts → staging → indexes → sharing/links → checks → comments) + Drizzle snapshots.                                                                                     |
-| `test/`    | 43 files: pure unit tests, HTTP integration tests (real server), OAuth/auth suites (real PostgreSQL), Chrome-free UI assertions, schema/migration checks.                                                         |
-| `tmp/`     | Local scratch material and historical skills; not part of the runtime.                                                                                                                                            |
+| `drizzle/` | 10 forward migrations (auth → OAuth → artifacts → staging → indexes → sharing/links → checks → comments) + Drizzle snapshots.                                                    |
+| `test/`    | 43 files: pure unit tests, HTTP integration tests (real server), OAuth/auth suites (real PostgreSQL), Chrome-free UI assertions, schema/migration checks.                        |
+| `tmp/`     | Local scratch material and historical skills; not part of the runtime.                                                                                                           |
 
 ## 4. Dependency direction
 
