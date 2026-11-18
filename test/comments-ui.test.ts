@@ -9,6 +9,7 @@ import {
   parseComments,
   resolveComment,
 } from "../apps/dashboard/src/comments-api.ts";
+import type { TextRangeAnchor } from "@artiflow/domain/comment-anchors";
 import { Autosave } from "../apps/dashboard/src/editor-autosave.ts";
 import { toolbarGroups, blockTypes } from "../apps/dashboard/src/editor-markdown.ts";
 
@@ -147,20 +148,29 @@ test("canvas selection opens the panel with a repeatable request; sidebar focuse
   );
 });
 
-const anchor = { startLine: 1, startCol: 1, endLine: 1, endCol: 6 };
+const anchor: TextRangeAnchor = {
+  kind: "text-range",
+  startLine: 1,
+  startCol: 1,
+  endLine: 1,
+  endCol: 6,
+  quotedText: "Hello",
+};
 const row = {
   id: "comment",
   authorId: "author",
   author: { email: "author@example.test" },
   anchor,
-  quotedText: "Hello",
   body: "Thought",
   resolvedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   canDelete: false,
 };
 test("thread parsing preserves server permissions, source anchors and ordered replies", () => {
-  const payload = { canComment: false, comments: [{ ...row, replies: [{ ...row, id: "reply" }] }] };
+  const payload = {
+    canComment: false,
+    comments: [{ ...row, quotedText: "Hello", replies: [{ ...row, anchor: null, quotedText: "", id: "reply" }] }],
+  };
   assert.deepEqual(parseComments(payload), payload);
   assert.equal(parseComments({ comments: payload.comments }), null);
   assert.equal(
@@ -198,7 +208,7 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
   };
   try {
     assert.equal((await listComments("doc")).ok, true);
-    assert.equal((await createComment("doc", { anchor, quotedText: "Hello", body: "Thought" })).ok, true);
+    assert.equal((await createComment("doc", { anchor, body: "Thought" })).ok, true);
     assert.equal((await resolveComment("doc", "comment", true)).ok, true);
     assert.equal((await resolveComment("doc", "comment", false)).ok, true);
     assert.equal((await deleteComment("doc", "comment")).ok, true);
@@ -218,7 +228,7 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
       assert.ok(init.body);
     }
     forbidden = true;
-    const result = await createComment("doc", { anchor, quotedText: "Hello", body: "Thought" });
+    const result = await createComment("doc", { anchor, body: "Thought" });
     assert.ok(!result.ok);
     assert.equal(result.code, "forbidden");
     assert.deepEqual(

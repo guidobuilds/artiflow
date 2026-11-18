@@ -221,20 +221,26 @@ Modules: `editing.ts`, `artifacts/commits.ts`, `artifacts/s3.ts`, `web/editor-ap
 ## 8. Comments on a source selection
 
 1. The UI maps a TipTap selection to 1-indexed source line/UTF-16 columns and
-   renders the source slice as `quotedText`.
+   renders the source slice as the `quotedText` of a `text-range` anchor.
 2. `POST /api/artifacts/:id/comments` locks the artifact row (`FOR UPDATE OF a`),
-   re-reads the **current** revision after the lock, verifies the anchor and the
-   exact quote, then inserts.
-3. A stale quote → `400 anchor_mismatch`; invalid range → `400 invalid_anchor`.
-4. Replies store only a body and inherit the root's anchor/quote; replies to replies
-   are refused. Resolve/unresolve affects roots only.
+   re-reads the **current** revision after the lock, validates the discriminated
+   anchor against the document kind, verifies the anchor and the exact quote,
+   then inserts with that revision id.
+3. A stale quote → `400 anchor_mismatch`; invalid range or malformed anchor →
+   `400 invalid_anchor`; an anchor kind the document kind does not accept →
+   `400 unsupported_anchor_kind`; a root without an anchor → `400
+root_requires_anchor`; a reply carrying an anchor → `400 reply_has_no_anchor`.
+4. Replies store only a body and inherit their context from the root; replies to
+   replies are refused. Resolve/unresolve affects roots only and records
+   `resolvedBy`.
 5. Deleting a root cascades replies in the database.
 
 Comments never create revisions. Public viewers have no comments.
 
 Agents read a source window with `artifact_get_markdown`, quote or anchor the exact text that
-window returned, and comment on it. A comment never moves: the row keeps the `anchor*` coordinates
-and the `quotedText` recorded at creation, while the document head may have been edited since.
+window returned, and comment on it. A comment never moves: the row keeps the `anchor` recorded at
+creation (for markdown a `text-range` anchor with its coordinates and `quotedText`), while the
+document head may have been edited since.
 Staleness is detected by comparing the current source at those recorded coordinates with the stored
 quote, so an outdated thread stays at its anchor and is labelled outdated instead of being relocated
 to a guessed position, and comments that now look alike (the same rendered quote after an edit, two

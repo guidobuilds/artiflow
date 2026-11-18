@@ -84,10 +84,10 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
     insertComment: (executor, input) => insertComment(executorOf(executor), input),
     listComments: (executor, artifactId, includeAuthors) =>
       listComments(executorOf(executor), artifactId, includeAuthors) as unknown as Promise<McpCommentRow[]>,
-    setCommentResolved: (executor, commentId, resolved) =>
-      setCommentResolved(executorOf(executor), commentId, resolved),
-    currentRevisionStorageKey: async (executor, artifactId, requireMatching) =>
-      (await currentRevision(executorOf(executor), artifactId, requireMatching))?.storageKey ?? null,
+    setCommentResolved: (executor, commentId, resolved, resolvedBy) =>
+      setCommentResolved(executorOf(executor), commentId, resolved, resolvedBy),
+    currentRevision: async (executor, artifactId, requireMatching) =>
+      (await currentRevision(executorOf(executor), artifactId, requireMatching)) ?? null,
     commentTransaction: async (run) => {
       try {
         return await db.transaction(async (tx) => run(tx));

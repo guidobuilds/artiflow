@@ -1,5 +1,6 @@
 import { and, asc, eq, getTableColumns, isNotNull, isNull, or, sql } from "drizzle-orm";
 
+import type { AnyCommentAnchor } from "@artiflow/domain/comment-anchors";
 import type { AppDb, AppTx } from "./db/client.ts";
 import { artifactComments, artifactRevisions, artifacts, artifactShares } from "./db/artifact-schema.ts";
 import { user } from "./db/schema.ts";
@@ -7,7 +8,6 @@ import { user } from "./db/schema.ts";
 type Query = AppDb | AppTx;
 export type CommentRow = typeof artifactComments.$inferSelect;
 export type CommentDocument = { id: string; ownerId: string; kind: string; access: string; deletedAt: Date | null };
-type Anchor = { startLine: number; startCol: number; endLine: number; endCol: number };
 
 export async function commentDocument(
   db: Query,
@@ -64,22 +64,15 @@ export async function insertComment(
     artifactId: string;
     authorId: string;
     parentId: string | null;
-    anchor: Anchor;
-    quotedText: string;
+    anchor: AnyCommentAnchor | null;
+    revisionId: string | null;
     body: string;
   },
 ) {
-  const { anchor, ...values } = input;
   return (
     await db
       .insert(artifactComments)
-      .values({
-        ...values,
-        anchorStartLine: anchor.startLine,
-        anchorStartCol: anchor.startCol,
-        anchorEndLine: anchor.endLine,
-        anchorEndCol: anchor.endCol,
-      })
+      .values({ ...input })
       .returning({ id: artifactComments.id })
   )[0]!;
 }
@@ -94,10 +87,14 @@ export async function listComments(db: Query, artifactId: string, includeAuthors
   return query;
 }
 
-export async function setCommentResolved(db: Query, commentId: string, resolved: boolean) {
+export async function setCommentResolved(db: Query, commentId: string, resolved: boolean, resolvedBy?: string) {
   await db
     .update(artifactComments)
-    .set({ resolvedAt: resolved ? sql`now()` : null, updatedAt: sql`now()` })
+    .set({
+      resolvedAt: resolved ? sql`now()` : null,
+      resolvedBy: resolved ? (resolvedBy ?? null) : null,
+      updatedAt: sql`now()`,
+    })
     .where(eq(artifactComments.id, commentId));
 }
 
@@ -108,7 +105,11 @@ export async function deleteComment(db: Query, commentId: string) {
 export async function currentRevision(db: Query, artifactId: string, requireMatchingArtifact = false) {
   return (
     await db
-      .select({ storageKey: artifactRevisions.storageKey, sha256: artifactRevisions.sha256 })
+      .select({
+        id: artifactRevisions.id,
+        storageKey: artifactRevisions.storageKey,
+        sha256: artifactRevisions.sha256,
+      })
       .from(artifacts)
       .innerJoin(artifactRevisions, eq(artifactRevisions.id, artifacts.currentRevisionId))
       .where(

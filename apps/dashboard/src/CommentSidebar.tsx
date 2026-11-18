@@ -215,25 +215,19 @@ export default function CommentSidebar({
           }}
           onSubmit={(event) => {
             event.preventDefault();
-            if (
-              busy ||
-              !draft.body.trim() ||
-              draft.body.length > 4000 ||
-              !anchor ||
-              !quote ||
-              quote.length > 2000 ||
-              outdatedDraft ||
-              !saved
-            )
-              return;
+            if (busy || !draft.body.trim() || draft.body.length > 4000 || outdatedDraft || !saved) return;
+            if (!draft.parentId && (!anchor || !quote || quote.length > 2000)) return;
             void mutate(
               () =>
-                createComment(artifactId, {
-                  anchor,
-                  quotedText: quote,
-                  body: draft.body,
-                  ...(draft.parentId ? { parentId: draft.parentId } : {}),
-                }),
+                createComment(
+                  artifactId,
+                  draft.parentId
+                    ? { body: draft.body, parentId: draft.parentId }
+                    : {
+                        anchor: { ...anchor!, kind: "text-range", quotedText: quote! },
+                        body: draft.body,
+                      },
+                ),
               true,
             );
           }}
@@ -295,7 +289,11 @@ export default function CommentSidebar({
               label={draft.parentId ? "Post reply" : "Post comment"}
               type="submit"
               disabled={
-                busy || !saved || outdatedDraft || !anchor || !quote || quote.length > 2000 || !draft.body.trim()
+                busy ||
+                !saved ||
+                outdatedDraft ||
+                (!draft.parentId && (!anchor || !quote || quote.length > 2000)) ||
+                !draft.body.trim()
               }
             />
           </div>

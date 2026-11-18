@@ -13,7 +13,7 @@ import {
   type McpRevisionInput,
 } from "@artiflow/mcp-server/ports";
 
-import { anchorText, type CommentAnchor } from "@artiflow/domain/comment-anchors";
+import { anchorText, type AnyCommentAnchor, type TextRangeAnchor } from "@artiflow/domain/comment-anchors";
 import { MCP_SERVER_INFO, type McpClaims } from "./claims.ts";
 
 export { ARTIFACT_VIEWER_RESOURCE_URI } from "@artiflow/mcp-server/constants";
@@ -80,7 +80,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     setRevisionCas,
     commentDocument,
     findComment: backendFindComment,
-    currentRevisionStorageKey,
+    currentRevision,
     insertComment,
     listComments,
     setCommentResolved,
@@ -628,8 +628,8 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       artifactId: string,
       userId: string,
       parentId: string | null,
-      anchor: CommentAnchor,
-      quotedText: string,
+      anchor: AnyCommentAnchor | null,
+      revisionId: string | null,
       body: string,
     ): Promise<ToolReply> => {
       const inserted = await insertComment(client, {
@@ -637,7 +637,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         authorId: userId,
         parentId,
         anchor,
-        quotedText,
+        revisionId,
         body,
       });
       return reply({ id: inserted.id });
@@ -665,7 +665,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
               ...serializeComment(row),
               replies: rows
                 .filter((child) => child.parentId === row.id)
-                .map((child) => ({ ...serializeComment(child), replies: [] })),
+                .map((child) => ({ ...serializeComment(child, row.anchor), replies: [] })),
             })),
         });
       },
@@ -691,16 +691,24 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           if (!quotedText) return refusal("validation", "quote_required");
           if (Array.from(quotedText).length > MAX_COMMENT_QUOTE)
             return refusal("too_large", "comment_quote_exceeds_cap", { maxCharacters: MAX_COMMENT_QUOTE });
-          const storageKey = await currentRevisionStorageKey(client, artifactId, true);
-          if (!storageKey) return refusal("not_found", "revision_not_found");
-          const read = await getRevisionBytes({ storageKey, maxBytes: MAX_ARTIFACT_BYTES });
+          const revision = await currentRevision(client, artifactId, true);
+          if (!revision) return refusal("not_found", "revision_not_found");
+          const read = await getRevisionBytes({ storageKey: revision.storageKey, maxBytes: MAX_ARTIFACT_BYTES });
           if (!read.ok) return refusalOf(read);
           const decoded = decodeMarkdownText(read.value.bytes);
           if (!decoded.ok) return refusal("not_valid_utf8_markdown", "stored markdown bytes are not valid UTF-8");
           const selected = anchorText(decoded.text, anchor);
           if (selected === null) return refusal("validation", "invalid_anchor");
           if (selected !== quotedText) return refusal("anchor_mismatch", "anchor_mismatch");
-          return insertStored(client, artifactId, access.userId, null, anchor, quotedText, body);
+          return insertStored(
+            client,
+            artifactId,
+            access.userId,
+            null,
+            { ...anchor, kind: "text-range", quotedText },
+            revision.id,
+            body,
+          );
         });
       },
     );
@@ -720,15 +728,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           const parent = await findStored(client, artifactId, commentId);
           if (!("id" in parent)) return parent;
           if (parent.parentId !== null) return refusal("nested_reply", "nested_reply", { status: 400 });
-          return insertStored(
-            client,
-            artifactId,
-            access.userId,
-            parent.id,
-            serializeComment(parent).anchor,
-            parent.quotedText,
-            body,
-          );
+          return insertStored(client, artifactId, access.userId, parent.id, null, null, body);
         });
       },
     );
@@ -747,7 +747,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             const row = await findStored(client, artifactId, commentId);
             if (!("id" in row)) return row;
             if (row.parentId !== null) return refusal("reply_is_not_root", "reply_is_not_root", { status: 400 });
-            await setCommentResolved(client, commentId, operation === "resolve");
+            await setCommentResolved(client, commentId, operation === "resolve", access.userId);
             return reply({ id: commentId });
           });
         },
@@ -758,18 +758,23 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
   };
 }
 
-const serializeComment = (row: McpCommentRow) => ({
-  id: row.id,
-  parentId: row.parentId,
-  authorId: row.authorId,
-  anchor: {
-    startLine: row.anchorStartLine,
-    startCol: row.anchorStartCol,
-    endLine: row.anchorEndLine,
-    endCol: row.anchorEndCol,
-  },
-  quotedText: row.quotedText,
-  body: row.body,
-  resolvedAt: row.resolvedAt?.toISOString() ?? null,
-  createdAt: row.createdAt.toISOString(),
-});
+const serializeComment = (row: McpCommentRow, inheritedAnchor?: unknown) => {
+  const anchor = (row.anchor ?? inheritedAnchor ?? null) as TextRangeAnchor | null;
+  return {
+    id: row.id,
+    parentId: row.parentId,
+    authorId: row.authorId,
+    anchor: anchor
+      ? {
+          startLine: anchor.startLine,
+          startCol: anchor.startCol,
+          endLine: anchor.endLine,
+          endCol: anchor.endCol,
+        }
+      : null,
+    quotedText: anchor?.quotedText ?? "",
+    body: row.body,
+    resolvedAt: row.resolvedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+};

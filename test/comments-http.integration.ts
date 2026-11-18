@@ -33,7 +33,7 @@ type User = { cookie: string; userId: string; email: string };
 type Comment = {
   id: string;
   body: string;
-  quotedText: string;
+  anchor: { kind: string; quotedText?: string } | null;
   resolvedAt: string | null;
   replies: Comment[];
   canDelete: boolean;
@@ -68,10 +68,9 @@ const request = async (path: string, user?: User, method = "GET", body?: unknown
   };
 };
 const revisionKeyOf = async (revisionId: string): Promise<string> => {
-  const row = await pool.query<{ storageKey: string }>(
-    `select "storageKey" from "artifactRevisions" where "id" = $1`,
-    [revisionId],
-  );
+  const row = await pool.query<{ storageKey: string }>(`select "storageKey" from "artifactRevisions" where "id" = $1`, [
+    revisionId,
+  ]);
   const storageKey = row.rows[0]?.storageKey;
   assert.ok(typeof storageKey === "string", "the revision row names its own storage key");
   return storageKey;
@@ -117,8 +116,8 @@ const seed = async (text: string, kind?: "markdown") => {
   return result.value.artifactId;
 };
 const path = () => `/api/artifacts/${doc}/comments`;
-const anchor = { startLine: 1, startCol: 3, endLine: 1, endCol: 8 };
-const payload = { anchor, quotedText: "Hello", body: "A comment" };
+const anchor = { kind: "text-range", startLine: 1, startCol: 3, endLine: 1, endCol: 8, quotedText: "Hello" };
+const payload = { anchor, body: "A comment" };
 const list = async () => (await request(path(), owner)).json;
 const create = async (user: User, body: unknown = payload) => {
   const result = await request(path(), user, "POST", body);
@@ -231,15 +230,40 @@ test(
     const before = await list();
     const document = await request(`/api/artifacts/${doc}/document`, owner);
     for (const [body, status, error] of [
-      [{ ...payload, quotedText: "Wrong" }, 400, "anchor_mismatch"],
+      [{ ...payload, anchor: { ...anchor, quotedText: "Wrong" } }, 400, "anchor_mismatch"],
       [{ ...payload, anchor: { ...anchor, endCol: 999 } }, 400, "invalid_anchor"],
       [{ ...payload, anchor: { ...anchor, startLine: 99, endLine: 99 } }, 400, "invalid_anchor"],
       [{ ...payload, anchor: { ...anchor, startCol: 1.5 } }, 400, "invalid_anchor"],
+      [
+        {
+          ...payload,
+          anchor: {
+            kind: "element",
+            selector: "p",
+            point: { x: 0.5, y: 0.5 },
+            textHint: "",
+            viewportWidth: 800,
+          },
+        },
+        400,
+        "unsupported_anchor_kind",
+      ],
+      [
+        { ...payload, anchor: { kind: "page-point", x: 0.5, y: 10, viewportWidth: 800 } },
+        400,
+        "unsupported_anchor_kind",
+      ],
+      [{ body: "No anchor" }, 400, "root_requires_anchor"],
+      [
+        { ...payload, parentId: "11111111-1111-4111-8111-111111111111", body: "Reply with anchor" },
+        400,
+        "reply_has_no_anchor",
+      ],
       [{ ...payload, body: " " }, 400, "body_required"],
       [{ ...payload, body: "x".repeat(4001) }, 413, "too_large"],
-      [{ ...payload, quotedText: "x".repeat(2001) }, 413, "too_large"],
-      [{ ...payload, parentId: randomUUID() }, 404, "comment_not_found"],
-      [{ ...payload, parentId: "bad" }, 404, "comment_not_found"],
+      [{ ...payload, anchor: { ...anchor, quotedText: "x".repeat(2001) } }, 413, "too_large"],
+      [{ parentId: randomUUID(), body: "x" }, 404, "comment_not_found"],
+      [{ parentId: "bad", body: "x" }, 404, "comment_not_found"],
     ] as const) {
       assert.deepEqual(await request(path(), owner, "POST", body), { status, json: { error } });
       assert.deepEqual(await list(), before);
@@ -257,8 +281,7 @@ test(
     assert.equal((await request(`${path()}/bad/resolve`, owner, "POST", {})).status, 404);
     assert.deepEqual(await list(), before);
     await create(owner, {
-      anchor: { startLine: 3, startCol: 1, endLine: 4, endCol: 1 },
-      quotedText: "| a | b |\n",
+      anchor: { kind: "text-range", startLine: 3, startCol: 1, endLine: 4, endCol: 1, quotedText: "| a | b |\n" },
       body: "x".repeat(4000),
     });
   },
@@ -269,23 +292,21 @@ test(
   { skip: SKIP },
   async () => {
     const id = await create(commenter);
-    const reply = await create(editor, { ...payload, parentId: id, body: "First reply" });
-    const second = await create(owner, { ...payload, parentId: id, body: "Second reply" });
+    const reply = await create(editor, { parentId: id, body: "First reply" });
+    const second = await create(owner, { parentId: id, body: "Second reply" });
     const before = await list();
     assert.deepEqual(
       before.comments!.find((row) => row.id === id)!.replies.map((row) => row.id),
       [reply, second],
     );
-    assert.equal((await request(path(), editor, "POST", { ...payload, parentId: reply })).status, 400);
+    assert.equal((await request(path(), editor, "POST", { parentId: reply, body: "Nested" })).status, 400);
     assert.equal((await request(`${path()}/${reply}/resolve`, owner, "POST", {})).status, 400);
     assert.equal((await request(`${path()}/${id}`, editor, "DELETE", {})).status, 403);
     assert.equal(
       (
         await request(`/api/artifacts/${other}/comments`, owner, "POST", {
-          ...payload,
-          anchor: { ...anchor, endCol: 8 },
           parentId: id,
-          quotedText: "Other",
+          body: "Other",
         })
       ).status,
       404,
@@ -319,7 +340,8 @@ test(
     assert.equal(save.status, 200);
     usedKeys.add(await revisionKeyOf(String(save.json.revisionId)));
     const root = (await list()).comments!.find((row) => row.id === id)!;
-    assert.equal(root.quotedText, "Hello");
+    assert.equal(root.anchor!.kind, "text-range");
+    assert.equal(root.anchor!.quotedText, "Hello");
     assert.equal(root.body, payload.body);
   },
 );

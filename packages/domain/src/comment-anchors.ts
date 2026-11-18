@@ -3,6 +3,28 @@ import MarkdownIt from "markdown-it";
 const quoteMarkdown = new MarkdownIt({ html: true });
 
 export type CommentAnchor = { startLine: number; startCol: number; endLine: number; endCol: number };
+export type TextRangeAnchor = { kind: "text-range"; quotedText: string } & CommentAnchor;
+export type ElementAnchor = {
+  kind: "element";
+  selector: string;
+  point: { x: number; y: number };
+  textHint: string;
+  viewportWidth: number;
+};
+export type PagePointAnchor = { kind: "page-point"; x: number; y: number; viewportWidth: number };
+export type BoardPointAnchor = { kind: "board-point"; boardId: string; x: number; y: number };
+export type SlidePointAnchor = { kind: "slide-point"; slideId: string; x: number; y: number };
+export type AnyCommentAnchor = TextRangeAnchor | ElementAnchor | PagePointAnchor | BoardPointAnchor | SlidePointAnchor;
+export type CommentAnchorKind = AnyCommentAnchor["kind"];
+
+export const ANCHOR_KINDS_BY_DOCUMENT: Record<"markdown" | "html", readonly CommentAnchorKind[]> = {
+  markdown: ["text-range"],
+  html: ["element", "page-point"],
+};
+export const anchorKindsForDocument = (documentKind: string): readonly CommentAnchorKind[] =>
+  ANCHOR_KINDS_BY_DOCUMENT[documentKind as "markdown" | "html"] ?? [];
+export const anchorKindAllowed = (documentKind: string, kind: CommentAnchorKind): boolean =>
+  anchorKindsForDocument(documentKind).includes(kind);
 export function anchorText(source: string, anchor: CommentAnchor): string | null {
   if (
     !anchor ||
@@ -27,6 +49,52 @@ export function anchorText(source: string, anchor: CommentAnchor): string | null
 }
 export const anchorIsStale = (source: string, anchor: CommentAnchor, quote: string): boolean =>
   anchorText(source, anchor) !== quote;
+
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const ratio = (value: unknown): value is number => finite(value) && value >= 0 && value <= 1;
+const nonNegative = (value: unknown): value is number => finite(value) && value >= 0;
+const positiveInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+const nonEmptyString = (value: unknown): value is string => typeof value === "string" && value.length >= 1;
+
+export function anchorShapeIsValid(anchor: unknown): boolean {
+  if (!anchor || typeof anchor !== "object") return false;
+  const candidate = anchor as AnyCommentAnchor;
+  if (candidate.kind === "text-range")
+    return (
+      [candidate.startLine, candidate.startCol, candidate.endLine, candidate.endCol].every(positiveInteger) &&
+      candidate.endLine >= candidate.startLine &&
+      nonEmptyString(candidate.quotedText)
+    );
+  if (candidate.kind === "element")
+    return (
+      nonEmptyString(candidate.selector) &&
+      ratio(candidate.point?.x) &&
+      ratio(candidate.point?.y) &&
+      typeof candidate.textHint === "string" &&
+      positiveInteger(candidate.viewportWidth)
+    );
+  if (candidate.kind === "page-point")
+    return ratio(candidate.x) && nonNegative(candidate.y) && positiveInteger(candidate.viewportWidth);
+  if (candidate.kind === "board-point")
+    return nonEmptyString(candidate.boardId) && finite(candidate.x) && finite(candidate.y);
+  if (candidate.kind === "slide-point")
+    return nonEmptyString(candidate.slideId) && finite(candidate.x) && finite(candidate.y);
+  return false;
+}
+
+export const textRangeAnchorIsCurrent = (source: string, anchor: TextRangeAnchor): boolean =>
+  anchorText(source, anchor) === anchor.quotedText;
+export const elementAnchorIsCurrent = (anchor: ElementAnchor): boolean => anchorShapeIsValid(anchor);
+export const pagePointAnchorIsCurrent = (anchor: PagePointAnchor): boolean => anchorShapeIsValid(anchor);
+
+export function anchorIsCurrent(documentKind: string, source: string, anchor: unknown): boolean {
+  if (!anchorShapeIsValid(anchor)) return false;
+  const candidate = anchor as AnyCommentAnchor;
+  if (!anchorKindAllowed(documentKind, candidate.kind)) return false;
+  if (candidate.kind === "text-range") return textRangeAnchorIsCurrent(source, candidate);
+  return true;
+}
 export function anchorFromOffsets(source: string, start: number, end: number): CommentAnchor | null {
   if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end > source.length || start >= end)
     return null;

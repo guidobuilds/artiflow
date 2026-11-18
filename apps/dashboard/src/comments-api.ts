@@ -1,37 +1,41 @@
 import { manageRequest } from "./auth-client.ts";
-import type { CommentAnchor } from "@artiflow/domain/comment-anchors";
+import type { CommentAnchor, TextRangeAnchor } from "@artiflow/domain/comment-anchors";
 export type CommentEntry = {
   id: string;
   authorId: string;
   author: { email: string };
-  anchor: CommentAnchor;
+  anchor: CommentAnchor | null;
   quotedText: string;
   body: string;
   resolvedAt: string | null;
   createdAt: string;
   canDelete: boolean;
 };
-export type CommentThread = CommentEntry & { replies: CommentEntry[] };
+export type CommentThread = CommentEntry & { anchor: CommentAnchor; replies: CommentEntry[] };
 export type CommentList = { canComment: boolean; comments: CommentThread[] };
-export type NewComment = { anchor: CommentAnchor; quotedText: string; body: string; parentId?: string };
+export type NewComment = { anchor: TextRangeAnchor; body: string } | { body: string; parentId: string };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
+const textRange = (value: unknown): TextRangeAnchor | null => {
+  if (!record(value) || value.kind !== "text-range") return null;
+  const { startLine, startCol, endLine, endCol } = value;
+  if (!positive(startLine) || !positive(startCol) || !positive(endLine) || !positive(endCol) || endLine < startLine)
+    return null;
+  if (typeof value.quotedText !== "string" || !value.quotedText) return null;
+  return { kind: "text-range", startLine, startCol, endLine, endCol, quotedText: value.quotedText };
+};
 function entry(value: unknown): CommentEntry | null {
   if (
     !record(value) ||
     typeof value.id !== "string" ||
     typeof value.authorId !== "string" ||
     !record(value.author) ||
-    typeof value.author.email !== "string" ||
-    !record(value.anchor)
+    typeof value.author.email !== "string"
   )
     return null;
-  const { startLine, startCol, endLine, endCol } = value.anchor;
-  if (!positive(startLine) || !positive(startCol) || !positive(endLine) || !positive(endCol) || endLine < startLine)
-    return null;
+  const anchor = textRange(value.anchor);
   if (
-    typeof value.quotedText !== "string" ||
     typeof value.body !== "string" ||
     (value.resolvedAt !== null && typeof value.resolvedAt !== "string") ||
     typeof value.createdAt !== "string" ||
@@ -42,8 +46,8 @@ function entry(value: unknown): CommentEntry | null {
     id: value.id,
     authorId: value.authorId,
     author: { email: value.author.email },
-    anchor: { startLine, startCol, endLine, endCol },
-    quotedText: value.quotedText,
+    anchor,
+    quotedText: anchor?.quotedText ?? "",
     body: value.body,
     resolvedAt: value.resolvedAt,
     createdAt: value.createdAt,
@@ -54,9 +58,9 @@ export function parseComments(value: unknown): CommentList | null {
   if (!record(value) || typeof value.canComment !== "boolean" || !Array.isArray(value.comments)) return null;
   const comments = value.comments.map((row): CommentThread | null => {
     const root = entry(row);
-    if (!root || !record(row) || !Array.isArray(row.replies)) return null;
+    if (!root?.anchor || !record(row) || !Array.isArray(row.replies)) return null;
     const replies = row.replies.map(entry);
-    return replies.every((reply) => reply !== null) ? { ...root, replies } : null;
+    return replies.every((reply) => reply !== null) ? { ...root, anchor: root.anchor, replies } : null;
   });
   return comments.every((row) => row !== null) ? { canComment: value.canComment, comments } : null;
 }
