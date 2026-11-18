@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
 import { test } from "node:test";
 
 import {
@@ -53,11 +54,7 @@ test("the served viewer policy is today's wrapper list plus one connect-src, in 
   assert.deepEqual(VIEWER_CSP.split("; ").slice(0, -1), TODAYS_POLICY.split("; "), "directive order is unchanged");
   assert.equal(VIEWER_CSP.split("; ").at(-1), "connect-src 'self'", "the only added directive is last");
   assert.equal(VIEWER_HEADERS["content-security-policy"], VIEWER_CSP);
-  assert.deepEqual(Object.keys(VIEWER_HEADERS), [
-    "content-security-policy",
-    "x-content-type-options",
-    "cache-control",
-  ]);
+  assert.deepEqual(Object.keys(VIEWER_HEADERS), ["content-security-policy", "x-content-type-options", "cache-control"]);
 });
 
 test("the widened policy adds no source, host or sandbox relaxation", () => {
@@ -108,13 +105,11 @@ test("the HTML wrapper keeps one opaque-origin frame and hands it the stored byt
 });
 
 test("the markdown wrapper keeps its scriptless sandbox and its own policy list", () => {
-  const page = markdownViewerPage(
-    renderMarkdownFragment("# Notas"),
-    "/",
-    { title: "T", version: 1 },
-    false,
-    { metaUrl: "/api/artifacts/1111", revisionNumber: 1, sha256: "bbb" },
-  );
+  const page = markdownViewerPage(renderMarkdownFragment("# Notas"), "/", { title: "T", version: 1 }, false, {
+    metaUrl: "/api/artifacts/1111",
+    revisionNumber: 1,
+    sha256: "bbb",
+  });
   assert.ok(page.includes('<iframe sandbox="" referrerpolicy="no-referrer"'), "the document frame runs no script");
   assert.equal(/sandbox="[^"]*allow-scripts/.test(page), false);
   assert.equal(page.includes(THEME_BOOTSTRAP), false, "the markdown viewer ships no theme bootstrap");
@@ -127,13 +122,11 @@ test("the markdown wrapper keeps its scriptless sandbox and its own policy list"
 
 test("the additional gate: the artifact inherits the wrapper list and stays opaque-origin", () => {
   const html = wrapperPage(escapeAttribute("<p>x</p>"), "/", { title: "T", version: 1 }, false, OWNER_REFRESH);
-  const markdown = markdownViewerPage(
-    renderMarkdownFragment("# x"),
-    "/",
-    { title: "T", version: 1 },
-    false,
-    { metaUrl: "/api/artifacts/1111", revisionNumber: 1, sha256: "bbb" },
-  );
+  const markdown = markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, false, {
+    metaUrl: "/api/artifacts/1111",
+    revisionNumber: 1,
+    sha256: "bbb",
+  });
   assert.equal(VIEWER_CSP, VIEWER_POLICY, "the inherited list equals the wrapper's list");
   assert.notEqual(VIEWER_CSP, WRAPPER_CSP, "the inherited list is the widened one: this gate exists because of that");
 
@@ -191,7 +184,7 @@ class StubElement {
     this.listeners.set(type, current);
   }
   dispatch(type: string): void {
-    for (const handler of [...(this.listeners.get(type) ?? [])]) handler();
+    for (const handler of Array.from(this.listeners.get(type) ?? [])) handler();
   }
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
@@ -238,7 +231,9 @@ function makeEnvironment(options: {
   let reloads = 0;
   const history = { scrollRestoration: "manual" };
   class StubDomParser {
-    parseFromString(text: string): { querySelector: (selector: string) => { getAttribute: (name: string) => string | null } | null } {
+    parseFromString(text: string): {
+      querySelector: (selector: string) => { getAttribute: (name: string) => string | null } | null;
+    } {
       const attribute = /srcdoc="([^"]*)"/.exec(text)?.[1];
       const value = attribute === undefined ? null : unescapeAttribute(attribute);
       return {
@@ -287,20 +282,18 @@ function makeEnvironment(options: {
   };
   return {
     run: (script: string): void => {
-      const body = new Function(
-        "document",
-        "location",
-        "history",
-        "fetch",
-        "setInterval",
-        "clearInterval",
-        "DOMParser",
-        script,
-      );
-      body(documentStub, locationStub, history, fetchStub, setIntervalStub, clearIntervalStub, StubDomParser);
+      runInNewContext(script, {
+        document: documentStub,
+        location: locationStub,
+        history,
+        fetch: fetchStub,
+        setInterval: setIntervalStub,
+        clearInterval: clearIntervalStub,
+        DOMParser: StubDomParser,
+      });
     },
     tick: (): void => {
-      for (const handler of [...timers.values()]) handler();
+      for (const handler of Array.from(timers.values())) handler();
     },
     intervals: (): number => timers.size,
     fetches,
@@ -308,7 +301,7 @@ function makeEnvironment(options: {
     history,
     element: elementOf,
     fireDocument: (type: string, event?: { key?: string }): void => {
-      for (const handler of [...(documentListeners.get(type) ?? [])]) handler(event);
+      for (const handler of Array.from(documentListeners.get(type) ?? [])) handler(event);
     },
     setHidden: (hidden: boolean): void => {
       documentStub.hidden = hidden;
@@ -324,9 +317,9 @@ const json = (body: unknown): StubResponse => ({ ok: true, json: async () => bod
 const html = (body: string): StubResponse => ({ ok: true, text: async () => body });
 const refused: StubResponse = { ok: false };
 
-const ownerPage = (): string => wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 3 }, false, OWNER_REFRESH);
-const sharePage = (): string =>
-  wrapperPage(escapeAttribute(BYTES), undefined, undefined, false, SHARE_REFRESH);
+const ownerPage = (): string =>
+  wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 3 }, false, OWNER_REFRESH);
+const sharePage = (): string => wrapperPage(escapeAttribute(BYTES), undefined, undefined, false, SHARE_REFRESH);
 
 test("a changed revision re-reads the gated page and swaps the frame document without a reload", async () => {
   const freshPage = wrapperPage(escapeAttribute(FRESH_BYTES), "/", { title: "T", version: 4 }, false, OWNER_REFRESH);
@@ -341,7 +334,13 @@ test("a changed revision re-reads the gated page and swaps the frame document wi
   });
   const frame = environment.element("iframe");
   frame.setAttribute("srcdoc", BYTES);
-  const scroller = { scrollY: 240, calls: [] as number[][], scrollTo(x: number, y: number) { this.calls.push([x, y]); } };
+  const scroller = {
+    scrollY: 240,
+    calls: [] as number[][],
+    scrollTo(x: number, y: number) {
+      this.calls.push([x, y]);
+    },
+  };
   frame.contentWindow = scroller;
 
   environment.run(refreshScriptOf(ownerPage()));
@@ -391,7 +390,8 @@ test("polling pauses while the page is hidden and resumes with an immediate read
   const environment = makeEnvironment({
     selectors: ["iframe"],
     hidden: true,
-    respond: (url) => (url === OWNER_REFRESH.metaUrl ? json({ revision: { revisionNumber: 3, sha256: "aaa" } }) : refused),
+    respond: (url) =>
+      url === OWNER_REFRESH.metaUrl ? json({ revision: { revisionNumber: 3, sha256: "aaa" } }) : refused,
   });
   environment.run(refreshScriptOf(ownerPage()));
   assert.equal(environment.intervals(), 0, "a hidden page schedules no poll");
@@ -429,7 +429,8 @@ test("an embed=1 page runs the same poller without a bar to attach to", async ()
   assert.equal(page.includes("<header"), false, "embed mode renders no bar");
   const environment = makeEnvironment({
     selectors: ["iframe"],
-    respond: (url) => (url === OWNER_REFRESH.metaUrl ? json({ revision: { revisionNumber: 3, sha256: "aaa" } }) : refused),
+    respond: (url) =>
+      url === OWNER_REFRESH.metaUrl ? json({ revision: { revisionNumber: 3, sha256: "aaa" } }) : refused,
   });
   assert.doesNotThrow(() => environment.run(refreshScriptOf(page)), "no missing-element throw in embed mode");
   environment.tick();
@@ -475,8 +476,8 @@ test("the public share 200s both spread the widened viewer headers", () => {
   assert.equal(source.includes("WRAPPER_CSP"), false, "the share viewer never serves the narrow policy");
   assert.equal(
     [...source.matchAll(/"x-robots-tag": "noindex"/g)].length,
-    3,
-    "both served pages stay unindexable, as does the ?meta=1 projection",
+    4,
+    "both served pages stay unindexable, as do the ?meta=1 projection and the link comments",
   );
   assert.equal([...source.matchAll(/markdownViewerPage\(/g)].length, 1, "the markdown share page is one of them");
   assert.equal([...source.matchAll(/wrapperPage\(/g)].length, 1, "and the HTML share page is the other");

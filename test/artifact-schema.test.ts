@@ -98,6 +98,7 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["tokenHash", true],
       ["revokedAt", false],
       ["rotatedFromId", false],
+      ["showComments", true],
       ["createdAt", true],
     ],
     artifactComments: [

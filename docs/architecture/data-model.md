@@ -135,14 +135,15 @@ grant is refused before insert.
 
 ### `artifactPublicLinks`
 
-| Column          | Type                  | Meaning                                                   |
-| --------------- | --------------------- | --------------------------------------------------------- |
-| `id`            | uuid PK               | Server-generated.                                         |
-| `artifactId`    | text FK               | Cascade.                                                  |
-| `tokenHash`     | text                  | `sha256(token)`, unique and CHECK-enforced lowercase hex. |
-| `revokedAt`     | timestamptz nullable  | Revocation timestamp; row retained for provenance.        |
-| `rotatedFromId` | uuid nullable self-FK | Predecessor in a rotation chain.                          |
-| `createdAt`     | timestamptz           |                                                           |
+| Column          | Type                  | Meaning                                                        |
+| --------------- | --------------------- | -------------------------------------------------------------- |
+| `id`            | uuid PK               | Server-generated.                                              |
+| `artifactId`    | text FK               | Cascade.                                                       |
+| `tokenHash`     | text                  | `sha256(token)`, unique and CHECK-enforced lowercase hex.      |
+| `showComments`  | boolean               | Off by default; the owner opts a link into read-only comments. |
+| `revokedAt`     | timestamptz nullable  | Revocation timestamp; row retained for provenance.             |
+| `rotatedFromId` | uuid nullable self-FK | Predecessor in a rotation chain.                               |
+| `createdAt`     | timestamptz           |                                                                |
 
 No expiry column: links live until revoked, by product decision. The raw token is
 never stored, logged or returned after creation.

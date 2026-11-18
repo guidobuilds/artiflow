@@ -14,6 +14,7 @@ import {
 } from "../adapters/postgres/db/artifact-schema.ts";
 import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
+import { listComments } from "../adapters/postgres/comments-repo.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
@@ -87,6 +88,7 @@ async function listLinks(db: AppDb, artifactId: string) {
       id: artifactPublicLinks.id,
       createdAt: artifactPublicLinks.createdAt,
       revokedAt: artifactPublicLinks.revokedAt,
+      showComments: artifactPublicLinks.showComments,
     })
     .from(artifactPublicLinks)
     .where(eq(artifactPublicLinks.artifactId, artifactId))
@@ -94,19 +96,30 @@ async function listLinks(db: AppDb, artifactId: string) {
     .limit(200);
 }
 
-async function insertLink(db: AppDb | AppTx, artifactId: string, tokenHash: string, rotatedFromId: string | null) {
+async function insertLink(
+  db: AppDb | AppTx,
+  artifactId: string,
+  tokenHash: string,
+  rotatedFromId: string | null,
+  showComments = false,
+) {
   return (
-    await db
-      .insert(artifactPublicLinks)
-      .values({ artifactId, tokenHash, rotatedFromId })
-      .returning({ id: artifactPublicLinks.id, createdAt: artifactPublicLinks.createdAt })
+    await db.insert(artifactPublicLinks).values({ artifactId, tokenHash, rotatedFromId, showComments }).returning({
+      id: artifactPublicLinks.id,
+      createdAt: artifactPublicLinks.createdAt,
+      showComments: artifactPublicLinks.showComments,
+    })
   )[0];
 }
 
 async function linkState(db: AppDb | AppTx, linkId: string, artifactId: string) {
   return (
     await db
-      .select({ id: artifactPublicLinks.id, revokedAt: artifactPublicLinks.revokedAt })
+      .select({
+        id: artifactPublicLinks.id,
+        revokedAt: artifactPublicLinks.revokedAt,
+        showComments: artifactPublicLinks.showComments,
+      })
       .from(artifactPublicLinks)
       .where(and(eq(artifactPublicLinks.id, linkId), eq(artifactPublicLinks.artifactId, artifactId)))
   )[0];
@@ -136,9 +149,9 @@ async function rotateLink(db: AppDb, linkId: string, artifactId: string) {
       if (!current) throw new RollbackLink("not_found");
       if (current.revokedAt !== null) throw new RollbackLink("already_revoked");
       const { token, tokenHash } = generateLinkToken();
-      const inserted = await insertLink(tx, artifactId, tokenHash, current.id);
+      const inserted = await insertLink(tx, artifactId, tokenHash, current.id, current.showComments);
       await revokeLink(tx, current.id, artifactId);
-      return { ok: true as const, id: inserted?.id, token };
+      return { ok: true as const, id: inserted?.id, token, showComments: inserted?.showComments ?? false };
     });
   } catch (error) {
     if (error instanceof RollbackLink) return { ok: false as const, error: error.carried };
@@ -151,6 +164,8 @@ async function publicArtifact(db: AppDb, tokenHash: string) {
   return (
     await db
       .select({
+        artifactId: artifactPublicLinks.artifactId,
+        showComments: artifactPublicLinks.showComments,
         storageKey: artifactRevisions.storageKey,
         sha256: artifactRevisions.sha256,
         revisionNumber: artifactRevisions.revision,
@@ -285,8 +300,38 @@ export function createSharingApp(options: SharingOptions): Hono {
       id: row.id,
       createdAt: row.createdAt.toISOString(),
       revokedAt: row.revokedAt === null ? null : row.revokedAt.toISOString(),
+      showComments: row.showComments,
     }));
     return c.json({ links } satisfies LinkListResponse);
+  });
+
+  app.patch("/api/artifacts/:id/links/:linkId", async (c) => {
+    const rejected = guard(c, publicOrigin, options.principal === true);
+    if (rejected) return rejected;
+    const ownerId = readPrincipal(c.req.raw.headers)?.userId ?? (await sessionUserId(auth, c.req.raw.headers));
+    if (!ownerId) return c.json({ error: "unauthorized" }, 401);
+    const artifactId = c.req.param("id");
+    if (!(await ownedArtifactId(db, artifactId, ownerId))) return c.json({ error: "not_found" }, 404);
+    const linkId = linkParam(c);
+    if (!linkId) return c.json({ error: "not_found" }, 404);
+    const body = (await c.req.json().catch(() => null)) as { showComments?: unknown } | null;
+    if (typeof body?.showComments !== "boolean") return c.json({ error: "invalid_show_comments" }, 400);
+    const updated = await db
+      .update(artifactPublicLinks)
+      .set({ showComments: body.showComments })
+      .where(
+        and(
+          eq(artifactPublicLinks.id, linkId),
+          eq(artifactPublicLinks.artifactId, artifactId),
+          isNull(artifactPublicLinks.revokedAt),
+        ),
+      )
+      .returning({ id: artifactPublicLinks.id, showComments: artifactPublicLinks.showComments });
+    if (updated.length === 0) {
+      const state = await linkState(db, linkId, artifactId);
+      return !state ? c.json({ error: "not_found" }, 404) : c.json({ error: "already_revoked" }, 409);
+    }
+    return c.json({ id: updated[0]!.id, showComments: updated[0]!.showComments }, 200);
   });
 
   app.post("/api/artifacts/:id/links", async (c) => {
@@ -297,7 +342,15 @@ export function createSharingApp(options: SharingOptions): Hono {
     if (!(await ownedArtifactId(db, c.req.param("id"), ownerId))) return c.json({ error: "not_found" }, 404);
     const { token, tokenHash } = generateLinkToken();
     const created = await insertLink(db, c.req.param("id"), tokenHash, null);
-    return c.json({ id: created?.id, url: shareUrl(token), token } satisfies LinkReveal, 201);
+    return c.json(
+      {
+        id: created?.id,
+        url: shareUrl(token),
+        token,
+        showComments: created?.showComments ?? false,
+      } satisfies LinkReveal,
+      201,
+    );
   });
 
   app.post("/api/artifacts/:id/links/:linkId/rotate", async (c) => {
@@ -311,7 +364,15 @@ export function createSharingApp(options: SharingOptions): Hono {
     if (!linkId) return c.json({ error: "not_found" }, 404);
     const rotated = await rotateLink(db, linkId, artifactId);
     if (!rotated.ok) return c.json({ error: rotated.error }, rotated.error === "not_found" ? 404 : 409);
-    return c.json({ id: rotated.id, url: shareUrl(rotated.token), token: rotated.token } satisfies LinkReveal, 201);
+    return c.json(
+      {
+        id: rotated.id,
+        url: shareUrl(rotated.token),
+        token: rotated.token,
+        showComments: rotated.showComments,
+      } satisfies LinkReveal,
+      201,
+    );
   });
 
   app.delete("/api/artifacts/:id/links/:linkId", async (c) => {
@@ -337,6 +398,41 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
   const db = database.db;
   const maxBytes = Math.min(options.maxArtifactBytes ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
   const app = new Hono();
+  const publicHeaders = {
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-robots-tag": "noindex",
+  };
+
+  app.get("/share/:token/comments", async (c) => {
+    const token = c.req.param("token");
+    if (!LINK_TOKEN_RE.test(token)) return c.json({ error: "not_found" }, 404, publicHeaders);
+    const row = await publicArtifact(db, hashLinkToken(token));
+    if (!row || !row.showComments) return c.json({ error: "not_found" }, 404, publicHeaders);
+    const rows = await listComments(db, row.artifactId, true);
+    const serialize = (comment: (typeof rows)[number]) => ({
+      id: comment.id,
+      authorId: comment.authorId,
+      author: { id: comment.authorId, name: comment.authorName ?? "", image: comment.authorImage ?? null },
+      anchor: comment.anchor ?? null,
+      body: comment.body,
+      resolvedAt: comment.resolvedAt?.toISOString() ?? null,
+      createdAt: comment.createdAt.toISOString(),
+      canDelete: false,
+    });
+    return c.json(
+      {
+        comments: rows
+          .filter((comment) => comment.parentId === null)
+          .map((comment) => ({
+            ...serialize(comment),
+            replies: rows.filter((reply) => reply.parentId === comment.id).map(serialize),
+          })),
+      },
+      200,
+      publicHeaders,
+    );
+  });
 
   app.get("/share/:token", async (c) => {
     const token = c.req.param("token");
@@ -363,10 +459,14 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     if (row.kind === "markdown") {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-      return c.html(markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh), 200, {
-        ...VIEWER_HEADERS,
-        "x-robots-tag": "noindex",
-      });
+      return c.html(
+        markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh),
+        200,
+        {
+          ...VIEWER_HEADERS,
+          "x-robots-tag": "noindex",
+        },
+      );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
     return c.html(wrapperPage(escaped, undefined, undefined, false, refresh), 200, {

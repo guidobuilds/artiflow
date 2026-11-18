@@ -1,9 +1,10 @@
 import { manageRequest } from "./auth-client.ts";
 import type { CommentAnchor, TextRangeAnchor } from "@artiflow/domain/comment-anchors";
+export type CommentAuthor = { id: string; name: string; image: string | null };
 export type CommentEntry = {
   id: string;
   authorId: string;
-  author: { email: string };
+  author: CommentAuthor;
   anchor: CommentAnchor | null;
   quotedText: string;
   body: string;
@@ -31,7 +32,9 @@ function entry(value: unknown): CommentEntry | null {
     typeof value.id !== "string" ||
     typeof value.authorId !== "string" ||
     !record(value.author) ||
-    typeof value.author.email !== "string"
+    typeof value.author.id !== "string" ||
+    typeof value.author.name !== "string" ||
+    (value.author.image !== null && typeof value.author.image !== "string")
   )
     return null;
   const anchor = textRange(value.anchor);
@@ -45,7 +48,7 @@ function entry(value: unknown): CommentEntry | null {
   return {
     id: value.id,
     authorId: value.authorId,
-    author: { email: value.author.email },
+    author: { id: value.author.id, name: value.author.name, image: value.author.image },
     anchor,
     quotedText: anchor?.quotedText ?? "",
     body: value.body,

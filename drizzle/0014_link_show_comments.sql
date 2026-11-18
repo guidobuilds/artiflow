@@ -1,0 +1,1 @@
+ALTER TABLE "artifactPublicLinks" ADD COLUMN "showComments" boolean DEFAULT false NOT NULL;

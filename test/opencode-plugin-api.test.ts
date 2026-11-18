@@ -230,7 +230,7 @@ test("a line-op mismatch refuses with the live window and writes nothing", async
 const comment = (id: string) => ({
   id,
   authorId: "u1",
-  author: { email: "owner@example.com" },
+  author: { id: "u1", name: "Owner", image: null },
   anchor: { kind: "text-range", startLine: 1, startCol: 1, endLine: 1, endCol: 2, quotedText: "# A" },
   body: "body",
   resolvedAt: null,

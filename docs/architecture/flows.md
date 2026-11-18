@@ -235,7 +235,11 @@ root_requires_anchor`; a reply carrying an anchor → `400 reply_has_no_anchor`.
    `resolvedBy`.
 5. Deleting a root cascades replies in the database.
 
-Comments never create revisions. Public viewers have no comments.
+Comments never create revisions. A reader sees the threads and is refused every write with
+`403 forbidden`. HTML documents accept `element` and `page-point` anchors, which the server validates
+for shape only and the client positions; Markdown keeps `text-range`. A public link serves its threads
+read-only through `GET /share/:token/comments` only while the link's `showComments` option is on, with
+authors reduced to `{ id, name, image }`.
 
 Agents read a source window with `artifact_get_markdown`, quote or anchor the exact text that
 window returned, and comment on it. A comment never moves: the row keeps the `anchor` recorded at

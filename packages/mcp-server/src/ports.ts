@@ -97,7 +97,8 @@ export type McpRenameInput = {
 export type McpCommentRow = {
   id: string;
   authorId: string;
-  authorEmail: string | null;
+  authorName: string | null;
+  authorImage: string | null;
   anchor: unknown;
   body: string;
   parentId: string | null;

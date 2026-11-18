@@ -59,7 +59,6 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     if (!userId) return c.json({ error: "unauthorized" }, 401);
     const doc = await commentDocument(query, userId, id, "shared", lock);
     if (!doc) return c.json({ error: "not_found" }, 404);
-    if (doc.kind !== "markdown") return c.json({ error: "wrong_kind" }, 409);
     return { doc, userId };
   };
   app.get("/api/artifacts/:id/comments", async (c) => {
@@ -70,7 +69,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     const serialize = (row: Row) => ({
       id: row.id,
       authorId: row.authorId,
-      author: { email: row.authorEmail },
+      author: { id: row.authorId, name: row.authorName ?? "", image: row.authorImage ?? null },
       anchor: (row.anchor ?? null) as CommentAnchorWire | null,
       body: row.body,
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
@@ -137,19 +136,19 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
       }
       const revision = await currentRevision(client, doc.id);
       if (!revision) return c.json({ error: "no_current_revision" }, 409);
-      const read = await getRevisionBytes({
-        storage,
-        storageKey: revision.storageKey,
-        sha256: revision.sha256,
-        maxBytes: MAX_ARTIFACT_BYTES,
-      });
-      if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const decoded = decodeMarkdownText(read.value.bytes);
-      if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const anchor = parsedAnchor ? parsedAnchor.data : null;
-      if (anchor) {
-        const selected = anchor.kind === "text-range" ? anchorText(decoded.text, anchor) : null;
-        if (anchor.kind !== "text-range" || selected === null) return c.json({ error: "invalid_anchor" }, 400);
+      if (anchor?.kind === "text-range") {
+        const read = await getRevisionBytes({
+          storage,
+          storageKey: revision.storageKey,
+          sha256: revision.sha256,
+          maxBytes: MAX_ARTIFACT_BYTES,
+        });
+        if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
+        const decoded = decodeMarkdownText(read.value.bytes);
+        if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
+        const selected = anchorText(decoded.text, anchor);
+        if (selected === null) return c.json({ error: "invalid_anchor" }, 400);
         if (Array.from(anchor.quotedText).length > MAX_COMMENT_QUOTE) return c.json({ error: "too_large" }, 413);
         if (selected !== anchor.quotedText) return c.json({ error: "anchor_mismatch" }, 400);
       }
@@ -158,7 +157,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         authorId: userId,
         parentId,
         anchor,
-        revisionId: revision.id,
+        revisionId: parentId === null ? revision.id : null,
         body: body.body,
       });
       return c.json({ id: inserted.id } satisfies CommentMutationResponse, 201);

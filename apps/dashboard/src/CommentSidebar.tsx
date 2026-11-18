@@ -173,7 +173,7 @@ export default function CommentSidebar({
   };
   const content = (row: CommentEntry, root = false) => (
     <>
-      <p className="break-all text-xs text-fg-muted">{row.author.email}</p>
+      <p className="break-all text-xs text-fg-muted">{row.author.name || row.author.id}</p>
       <p className="mt-2 whitespace-pre-wrap break-words text-sm">{row.body}</p>
       <time dateTime={row.createdAt} className="mt-2 block text-xs text-fg-muted">
         {new Date(row.createdAt).toLocaleString()}

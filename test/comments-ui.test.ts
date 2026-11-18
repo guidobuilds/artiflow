@@ -159,7 +159,7 @@ const anchor: TextRangeAnchor = {
 const row = {
   id: "comment",
   authorId: "author",
-  author: { email: "author@example.test" },
+  author: { id: "author", name: "Author One", image: null },
   anchor,
   body: "Thought",
   resolvedAt: null,

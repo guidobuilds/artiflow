@@ -79,7 +79,11 @@ export async function insertComment(
 
 export async function listComments(db: Query, artifactId: string, includeAuthors = false) {
   const query = db
-    .select({ ...getTableColumns(artifactComments), authorEmail: user.email })
+    .select({
+      ...getTableColumns(artifactComments),
+      authorName: user.name,
+      authorImage: user.image,
+    })
     .from(artifactComments)
     .leftJoin(user, eq(user.id, artifactComments.authorId))
     .where(and(eq(artifactComments.artifactId, artifactId), includeAuthors ? isNotNull(user.id) : undefined))

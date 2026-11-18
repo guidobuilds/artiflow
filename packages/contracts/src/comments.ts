@@ -67,10 +67,17 @@ export const commentAnchorSchema = z.discriminatedUnion("kind", [
 ]);
 export type CommentAnchorWire = z.infer<typeof commentAnchorSchema>;
 
+export const commentAuthorSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  image: z.string().nullable(),
+});
+export type CommentAuthorWire = z.infer<typeof commentAuthorSchema>;
+
 export const commentEntrySchema = z.object({
   id: z.string().min(1),
   authorId: z.string(),
-  author: z.object({ email: z.string().nullable() }),
+  author: commentAuthorSchema,
   anchor: commentAnchorSchema.nullable(),
   body: z.string(),
   resolvedAt: z.string().nullable(),

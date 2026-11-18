@@ -440,8 +440,8 @@ type CommentThread = {
   id: string;
   parentId: string | null;
   authorId: string;
+  author: { id: string; name: string; image: string | null };
   anchor: unknown;
-  quotedText: string;
   body: string;
   resolvedAt: string | null;
   createdAt: string;
@@ -449,7 +449,7 @@ type CommentThread = {
 };
 const commentsOf = async (artifactId: unknown): Promise<CommentThread[]> =>
   expectOk(await callTool(readToken, "artifact_list_comments", { artifactId })).comments as CommentThread[];
-const COMMENT_ANCHOR = { startLine: 1, startCol: 1, endLine: 1, endCol: 6 };
+const COMMENT_ANCHOR = { kind: "text-range", startLine: 1, startCol: 1, endLine: 1, endCol: 6, quotedText: "hello" };
 
 toolTest("artifact_write commits authored text in one call and binds the MCP Apps viewer", async () => {
   const text = `<!doctype html><html><head><meta charset="utf-8"><title>Write tool</title></head><body><h1 id="write-tool">authored inline</h1></body></html>`;
@@ -534,7 +534,6 @@ toolTest("MCP comments list, add, reply and resolve roots without creating docum
     await callTool(writeToken, "artifact_add_comment", {
       artifactId,
       anchor: COMMENT_ANCHOR,
-      quotedText: "hello",
       body: "Root",
     }),
   ).id;
@@ -544,8 +543,8 @@ toolTest("MCP comments list, add, reply and resolve roots without creating docum
     id,
     parentId: null,
     authorId: ownerId,
+    author: { id: ownerId, name: roots[0]!.author.name, image: null },
     anchor: COMMENT_ANCHOR,
-    quotedText: "hello",
     body: "Root",
     resolvedAt: null,
     createdAt: roots[0]!.createdAt,
@@ -584,18 +583,30 @@ toolTest("MCP comments list, add, reply and resolve roots without creating docum
 toolTest("MCP comment refusals leave threads unchanged: anchors, caps, scopes, ownership and kind", async () => {
   const created = await commitBytes(new TextEncoder().encode("hello\nworld"), "markdown");
   const artifactId = created.artifactId;
-  const args = { artifactId, anchor: COMMENT_ANCHOR, quotedText: "hello", body: "Root" };
+  const args = { artifactId, anchor: COMMENT_ANCHOR, body: "Root" };
   for (const [extra, error] of [
-    [{ quotedText: "wrong" }, "anchor_mismatch"],
-    [{ anchor: { ...COMMENT_ANCHOR, endLine: 99 } }, "validation"],
-    [{ anchor: { ...COMMENT_ANCHOR, endCol: 99 } }, "validation"],
-    [{ anchor: { ...COMMENT_ANCHOR, startCol: 0 } }, "validation"],
+    [{ anchor: { ...COMMENT_ANCHOR, quotedText: "wrong" } }, "anchor_mismatch"],
+    [{ anchor: { ...COMMENT_ANCHOR, endLine: 99, endCol: 99 } }, "validation"],
     [{ anchor: { ...COMMENT_ANCHOR, endCol: 1 } }, "validation"],
+    [
+      { anchor: { kind: "element", selector: "p", point: { x: 0.5, y: 0.5 }, textHint: "", viewportWidth: 800 } },
+      "unsupported_anchor_kind",
+    ],
+    [{ anchor: { kind: "page-point", x: 0.5, y: 10, viewportWidth: 800 } }, "unsupported_anchor_kind"],
     [{ body: " " }, "validation"],
     [{ body: "x".repeat(MAX_COMMENT_BODY + 1) }, "too_large"],
-    [{ quotedText: "x".repeat(MAX_COMMENT_QUOTE + 1) }, "too_large"],
   ] as const) {
     expectError(await callTool(writeToken, "artifact_add_comment", { ...args, ...extra }), error);
+    assert.deepEqual(await commentsOf(artifactId), []);
+  }
+  for (const anchor of [
+    { ...COMMENT_ANCHOR, startCol: 0 },
+    { ...COMMENT_ANCHOR, quotedText: "" },
+    { ...COMMENT_ANCHOR, quotedText: "x".repeat(MAX_COMMENT_QUOTE + 1) },
+    { kind: "text-range" },
+  ] as const) {
+    const rejected = await callTool(writeToken, "artifact_add_comment", { artifactId, anchor, body: "Root" });
+    assert.equal(rejected.isError, true, "a malformed anchor never reaches the handler");
     assert.deepEqual(await commentsOf(artifactId), []);
   }
   expectError(await callTool(foreignToken, "artifact_list_comments", { artifactId }), "not_found");
@@ -630,18 +641,26 @@ toolTest("MCP comment refusals leave threads unchanged: anchors, caps, scopes, o
     expectError(await callTool(writeToken, name, { artifactId, commentId: "bad", body: "Reply" }), "validation");
   }
   const html = await commitBytes(new TextEncoder().encode("<p>html</p>"));
-  for (const name of [
-    "artifact_list_comments",
-    "artifact_add_comment",
-    "artifact_reply_comment",
-    "artifact_resolve_comment",
-    "artifact_unresolve_comment",
-  ]) {
-    expectError(
-      await callTool(writeToken, name, { ...args, artifactId: html.artifactId, commentId: id }),
-      "wrong_kind",
-    );
-  }
+  expectError(
+    await callTool(writeToken, "artifact_add_comment", { ...args, artifactId: html.artifactId }),
+    "unsupported_anchor_kind",
+  );
+  const htmlThreads = expectOk(await callTool(readToken, "artifact_list_comments", { artifactId: html.artifactId }))
+    .comments as CommentThread[];
+  assert.deepEqual(htmlThreads, [], "the refused anchor wrote nothing");
+  const htmlComment = expectOk(
+    await callTool(writeToken, "artifact_add_comment", {
+      artifactId: html.artifactId,
+      anchor: { kind: "page-point", x: 0.4, y: 120, viewportWidth: 1000 },
+      body: "Positioned note",
+    }),
+  ).id;
+  const positioned = expectOk(await callTool(readToken, "artifact_list_comments", { artifactId: html.artifactId }))
+    .comments as CommentThread[];
+  assert.deepEqual(positioned[0]!.anchor, { kind: "page-point", x: 0.4, y: 120, viewportWidth: 1000 });
+  expectOk(
+    await callTool(writeToken, "artifact_resolve_comment", { artifactId: html.artifactId, commentId: htmlComment }),
+  );
   assert.deepEqual(await commentsOf(artifactId), before);
   assert.equal(
     expectOk(await callTool(readToken, "artifact_get_markdown", { artifactId })).revisionId,

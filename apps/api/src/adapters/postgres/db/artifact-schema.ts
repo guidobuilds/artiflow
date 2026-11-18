@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   check,
   index,
   integer,
@@ -191,6 +192,7 @@ export const artifactPublicLinks = pgTable(
     rotatedFromId: uuid("rotatedFromId").references((): AnyPgColumn => artifactPublicLinks.id, {
       onDelete: "set null",
     }),
+    showComments: boolean("showComments").notNull().default(false),
     createdAt: date("createdAt").notNull().defaultNow(),
   },
   (table) => [
