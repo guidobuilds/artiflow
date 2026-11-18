@@ -1,4 +1,9 @@
+import { createHash } from "node:crypto";
+
 import { anchorIsStale } from "@artiflow/domain/comment-anchors";
+
+export const bridgeNonce = (artifactId: string, sha256: string): string =>
+  createHash("sha256").update(`comments:${artifactId}:${sha256}`).digest("hex").slice(0, 32);
 
 export type ViewerCommentAuthor = { id: string; name: string; image: string | null };
 
@@ -11,6 +16,7 @@ export type ViewerComment = {
   resolvedAt: string | null;
   stale: boolean;
   occurrence: number;
+  anchor?: unknown;
   canDelete: boolean;
   canResolve: boolean;
 };
@@ -19,6 +25,7 @@ export type ViewerCommentThread = ViewerComment & { replies: ViewerComment[] };
 
 export type ViewerCommentsConfig = {
   artifactId: string;
+  mode: "text" | "element";
   canComment: boolean;
   canResolve: boolean;
   threads: ViewerCommentThread[];
@@ -38,7 +45,9 @@ type Row = {
   canDelete?: boolean;
 };
 
-const textRange = (anchor: unknown): { startLine: number; startCol: number; endLine: number; endCol: number; quotedText: string } | null => {
+const textRange = (
+  anchor: unknown,
+): { startLine: number; startCol: number; endLine: number; endCol: number; quotedText: string } | null => {
   if (typeof anchor !== "object" || anchor === null) return null;
   const candidate = anchor as Record<string, unknown>;
   if (candidate.kind !== "text-range") return null;
@@ -59,13 +68,34 @@ const occurrencesBefore = (source: string, needle: string, before: number): numb
 const sourceOffset = (source: string, anchor: { startLine: number; startCol: number }): number => {
   const lines = source.split("\n");
   let offset = 0;
-  for (let line = 1; line < anchor.startLine && line <= lines.length; line++) offset += (lines[line - 1]?.length ?? 0) + 1;
+  for (let line = 1; line < anchor.startLine && line <= lines.length; line++)
+    offset += (lines[line - 1]?.length ?? 0) + 1;
   return offset + anchor.startCol - 1;
 };
 
-const mapRow = (source: string, row: Row, viewerId: string, role: { comment: boolean; resolve: boolean }): ViewerComment => {
+const mapRow = (
+  source: string,
+  row: Row,
+  viewerId: string,
+  role: { comment: boolean; resolve: boolean },
+  mode: "text" | "element",
+): ViewerComment => {
   const anchor = textRange(row.anchor);
   const offset = anchor === null ? 0 : sourceOffset(source, anchor);
+  if (mode === "element")
+    return {
+      id: row.id,
+      author: { id: row.authorId, name: row.authorName ?? "", image: row.authorImage ?? null },
+      quotedText: "",
+      body: row.body,
+      createdAt: row.createdAt.toISOString(),
+      resolvedAt: row.resolvedAt?.toISOString() ?? null,
+      stale: false,
+      occurrence: 0,
+      anchor: row.anchor,
+      canDelete: row.canDelete === true,
+      canResolve: role.resolve && row.parentId === null,
+    };
   return {
     id: row.id,
     author: { id: row.authorId, name: row.authorName ?? "", image: row.authorImage ?? null },
@@ -88,26 +118,77 @@ export function viewerCommentsConfig(input: {
   canComment: boolean;
   canDeleteOwn: boolean;
   endpoints: ViewerCommentsConfig["endpoints"];
+  mode?: "text" | "element";
 }): ViewerCommentsConfig {
+  const mode = input.mode ?? "text";
   const role = { comment: input.canComment, resolve: input.canComment };
   const owned = (row: Row): boolean => input.canDeleteOwn && row.authorId === input.viewerId;
   const roots = input.rows
     .filter((row) => row.parentId === null)
     .map((row) => ({
-      ...mapRow(input.source, row, input.viewerId ?? "", role),
+      ...mapRow(input.source, row, input.viewerId ?? "", role, mode),
       canDelete: row.canDelete === true || owned(row),
       replies: input.rows
         .filter((reply) => reply.parentId === row.id)
         .map((reply) => ({
-          ...mapRow(input.source, reply, input.viewerId ?? "", role),
+          ...mapRow(input.source, reply, input.viewerId ?? "", role, mode),
           canDelete: reply.canDelete === true || owned(reply),
         })),
     }));
   return {
     artifactId: input.artifactId,
+    mode,
     canComment: input.canComment,
     canResolve: role.resolve,
     threads: roots,
     endpoints: input.endpoints,
   };
 }
+
+export type BridgePin = {
+  id: string;
+  number: number;
+  selector: string;
+  textHint: string;
+  x: number;
+  y: number;
+  stale: boolean;
+};
+
+export const bridgePins = (threads: ViewerCommentThread[]): BridgePin[] =>
+  threads.flatMap((thread, index) => {
+    const anchor = thread.anchor as {
+      kind?: string;
+      selector?: string;
+      textHint?: string;
+      point?: { x: number; y: number };
+      x?: number;
+      y?: number;
+    } | null;
+    if (anchor === null || typeof anchor !== "object") return [];
+    if (anchor.kind === "element")
+      return [
+        {
+          id: thread.id,
+          number: index + 1,
+          selector: typeof anchor.selector === "string" ? anchor.selector : "",
+          textHint: typeof anchor.textHint === "string" ? anchor.textHint : "",
+          x: anchor.point?.x ?? 0.5,
+          y: anchor.point?.y ?? 0.5,
+          stale: false as boolean,
+        },
+      ];
+    if (anchor.kind === "page-point")
+      return [
+        {
+          id: thread.id,
+          number: index + 1,
+          selector: "",
+          textHint: "",
+          x: typeof anchor.x === "number" ? anchor.x : 0.5,
+          y: typeof anchor.y === "number" ? anchor.y : 0,
+          stale: true as boolean,
+        },
+      ];
+    return [];
+  });

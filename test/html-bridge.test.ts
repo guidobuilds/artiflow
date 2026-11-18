@@ -1,0 +1,186 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+
+import {
+  BRIDGE_CHANNEL,
+  BRIDGE_VERSION,
+  createMessageBudget,
+  describeElement,
+  encodeCommand,
+  parseBridgeMessage,
+  resolveElement,
+  type ElementLike,
+  type Structure,
+} from "../packages/domain/src/html-bridge.ts";
+import { htmlBridgeScript } from "../apps/api/src/viewer/html-bridge-script.ts";
+import { bridgePins, viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
+
+const nonce = "nonce-1";
+const frame = { id: "frame" };
+const envelope = { channel: BRIDGE_CHANNEL, version: BRIDGE_VERSION, nonce };
+
+const validate = (raw: unknown, overrides: Partial<{ source: unknown; nonce: string }> = {}) =>
+  parseBridgeMessage(raw, { nonce: overrides.nonce ?? nonce, source: overrides.source ?? frame, frame });
+
+test("a well-formed frame message passes validation", () => {
+  const result = validate({ ...envelope, type: "geometry", id: "c1", x: 12, y: 40, visible: true });
+  assert.equal(result.ok, true);
+});
+
+test("a message from another window is refused before anything else", () => {
+  const result = validate({ ...envelope, type: "ready" }, { source: { id: "other" } });
+  assert.deepEqual(result, { ok: false, reason: "wrong-source" });
+});
+
+test("a message with the wrong nonce is refused", () => {
+  const result = validate({ ...envelope, nonce: "guessed", type: "ready" });
+  assert.deepEqual(result, { ok: false, reason: "wrong-nonce" });
+});
+
+test("an unknown channel, version or shape is refused", () => {
+  assert.deepEqual(validate({ ...envelope, channel: "other", type: "ready" }), { ok: false, reason: "wrong-channel" });
+  assert.deepEqual(validate({ ...envelope, version: 99, type: "ready" }), { ok: false, reason: "wrong-version" });
+  assert.deepEqual(validate({ ...envelope, type: "pick", selector: "#a" }), { ok: false, reason: "schema" });
+  assert.deepEqual(validate({ ...envelope, type: "geometry", id: "c1", x: "12", y: 1, visible: true }), {
+    ok: false,
+    reason: "schema",
+  });
+  assert.deepEqual(validate({ ...envelope, type: "nonsense" }), { ok: false, reason: "schema" });
+  assert.deepEqual(validate("hello"), { ok: false, reason: "not-an-object" });
+});
+
+test("the per-frame budget stops a flooding frame", () => {
+  const budget = createMessageBudget(3);
+  const context = { nonce, source: frame, frame, budget };
+  for (let index = 0; index < 3; index++)
+    assert.equal(parseBridgeMessage({ ...envelope, type: "ready" }, context).ok, true);
+  assert.deepEqual(parseBridgeMessage({ ...envelope, type: "ready" }, context), { ok: false, reason: "budget" });
+  assert.equal(budget.used(), 3);
+});
+
+const pin = {
+  id: "c1",
+  number: 1,
+  selector: "#hero",
+  textHint: "",
+  x: 0.5,
+  y: 0.5,
+  stale: false,
+};
+
+test("no command sent to the frame carries comment text", () => {
+  const commands = [
+    { type: "pins" as const, pins: [pin] },
+    { type: "mode" as const, on: true },
+    { type: "focus" as const, id: "c1" },
+  ];
+  const config = viewerCommentsConfig({
+    artifactId: "a1",
+    mode: "element",
+    source: "",
+    rows: [
+      {
+        id: "c1",
+        authorId: "u1",
+        authorName: "Ann",
+        authorImage: null,
+        anchor: { kind: "element", selector: "#hero", point: { x: 0.5, y: 0.5 }, textHint: "Hero", viewportWidth: 900 },
+        body: "secret body text",
+        parentId: null,
+        resolvedAt: null,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+    ],
+    viewerId: "u1",
+    canComment: true,
+    canDeleteOwn: true,
+    endpoints: { comments: "/c", resolve: "/c", deleteComment: "/c" },
+  });
+  const payload = JSON.stringify(commands.map((command) => encodeCommand(command, nonce)));
+  assert.equal(payload.includes("secret body text"), false, "the body never crosses the bridge");
+  assert.equal(payload.includes('"author"'), false, "and neither does the author");
+  assert.equal(JSON.stringify(bridgePins(config.threads)).includes("secret body text"), false);
+  const bridge = htmlBridgeScript({ nonce, pins: bridgePins(config.threads) });
+  assert.equal(bridge.includes("secret body text"), false, "the injected script carries no comment text either");
+  assert.ok(bridge.includes("#hero"), "but it does carry the anchor selector");
+  assert.ok(bridge.includes(nonce), "and the per-load nonce");
+});
+
+const element = (overrides: Partial<ElementLike> & { tagName: string }): ElementLike => overrides;
+
+const structure = (parts: {
+  id?: Record<string, ElementLike>;
+  bySelector?: Record<string, ElementLike[]>;
+  candidates?: ElementLike[];
+}): Structure => ({
+  getElementById: (id: string) => parts.id?.[id] ?? null,
+  querySelector: (selector: string) => parts.bySelector?.[selector]?.[0] ?? null,
+  querySelectorAll: (selector: string) =>
+    selector.includes(",") ? (parts.candidates ?? []) : (parts.bySelector?.[selector] ?? []),
+  documentElement: null,
+});
+
+test("an id anchor resolves to that element and an unknown id falls back", () => {
+  const html = structure({ id: { hero: element({ tagName: "div" }) } });
+  assert.equal(resolveElement(html, { selector: "#hero", textHint: "" }).status, "resolved");
+  assert.equal(resolveElement(html, { selector: "#gone", textHint: "" }).status, "missing");
+});
+
+test("a data-* anchor resolves only when it stays unique", () => {
+  const unique = structure({ bySelector: { '[data-block="metrics"]': [element({ tagName: "section" })] } });
+  assert.equal(resolveElement(unique, { selector: '[data-block="metrics"]', textHint: "" }).status, "resolved");
+  const duplicated = structure({
+    bySelector: { '[data-block="metrics"]': [element({ tagName: "section" }), element({ tagName: "section" })] },
+  });
+  assert.equal(resolveElement(duplicated, { selector: '[data-block="metrics"]', textHint: "" }).status, "ambiguous");
+});
+
+test("a text hint resolves only when exactly one element starts with it", () => {
+  const one = structure({ candidates: [element({ tagName: "p", textContent: "Revenue grew" })] });
+  assert.equal(resolveElement(one, { selector: "", textHint: "Revenue" }).status, "resolved");
+  const two = structure({
+    candidates: [
+      element({ tagName: "p", textContent: "Revenue grew" }),
+      element({ tagName: "p", textContent: "Revenue fell" }),
+    ],
+  });
+  assert.equal(resolveElement(two, { selector: "", textHint: "Revenue" }).status, "ambiguous");
+  assert.equal(resolveElement(structure({ candidates: [] }), { selector: "", textHint: "Gone" }).status, "missing");
+  assert.equal(resolveElement(structure({ candidates: [] }), { selector: "", textHint: "" }).status, "missing");
+});
+
+test("picking an element prefers id, then data-*, then a unique text hint and never a path", () => {
+  assert.deepEqual(describeElement(element({ tagName: "div", id: "hero" })), { selector: "#hero", textHint: "" });
+  assert.deepEqual(
+    describeElement(
+      element({ tagName: "section", getAttribute: (name: string) => (name === "data-block" ? "metrics" : null) }),
+    ),
+    { selector: '[data-block="metrics"]', textHint: "" },
+  );
+  assert.deepEqual(describeElement(element({ tagName: "p", textContent: "  Revenue   grew " })), {
+    selector: "",
+    textHint: "Revenue grew",
+  });
+  assert.deepEqual(describeElement(element({ tagName: "script", textContent: "x" })), { selector: "", textHint: "" });
+  assert.equal(
+    JSON.stringify(describeElement(element({ tagName: "p", textContent: "a" }))).includes("nth-of-type"),
+    false,
+  );
+});
+
+test("the page injects the bridge inside the frame and keeps the margin outside it", () => {
+  const html = readFileSync(new URL("../apps/api/src/viewer/html.ts", import.meta.url), "utf8");
+  assert.match(html, /srcdoc="\$\{escaped\}\$\{comments === undefined \? "" : comments\.bridge\}"/);
+  assert.match(html, /<div id="viewer-comments" class="viewer-comments"><\/div>/);
+  assert.match(html, /type="application\/json" id="viewer-comments-data"/);
+  assert.match(html, /docshell\$\{comments === undefined \? "" : " comments-available"\}/);
+});
+
+test("both HTML viewers pass the bridge and the asset, the public one only with showComments", () => {
+  const library = readFileSync(new URL("../apps/api/src/routes/library.ts", import.meta.url), "utf8");
+  const sharing = readFileSync(new URL("../apps/api/src/routes/sharing.ts", import.meta.url), "utf8");
+  assert.match(library, /bridge: htmlBridgeScript\(\{ nonce, pins: bridgePins\(htmlConfig\.threads\) \}\)/);
+  assert.match(sharing, /row\.showComments \? await listComments\(db, row\.artifactId, true\) : \[\]/);
+  assert.match(sharing, /bridge: htmlBridgeScript\(\{ nonce, pins: bridgePins\(htmlConfig\.threads\) \}\)/);
+});

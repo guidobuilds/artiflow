@@ -92,6 +92,9 @@ export type ViewerRefresh = {
   sha256: string;
 };
 
+const escapeJsonText = (json: string): string =>
+  json.replace(/[<>&\u2028\u2029]/g, (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
+
 const scriptValue = (value: string | number): string => JSON.stringify(value).replaceAll("<", "\\u003c");
 
 export function viewerBarStart(backHref?: string, meta?: ViewerMeta, embed = false): string {
@@ -224,12 +227,20 @@ document.addEventListener("visibilitychange", () => {
 if (!document.hidden) startPolling();`;
 }
 
+export type WrapperComments = {
+  nonce: string;
+  bridge: string;
+  config: unknown;
+  asset: string;
+};
+
 export function wrapperPage(
   escaped: string,
   backHref: string | undefined,
   meta: ViewerMeta | undefined,
   embed: boolean,
   refresh: ViewerRefresh,
+  comments?: WrapperComments,
 ): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Artifact</title>
@@ -242,6 +253,11 @@ ${VIEWER_CHROME_CSS}
 .vbar-exit:hover,.vbar-exit:focus-visible{opacity:1}
 body.focus .vbar{display:none}
 body.focus .vbar-exit{display:block}
+.docshell{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0}
+.docshell.comments-visible{grid-template-columns:minmax(0,1fr) 320px}
+.viewer-comments{display:none}
+.docshell.comments-visible .viewer-comments{display:block;overflow:auto;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
+@media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
 iframe{flex:1;min-height:0;width:100%;border:0;background:white}
 </style></head>
 <body>${
@@ -252,7 +268,16 @@ ${viewerBarStart(backHref, meta)}<div class="vbar-cell vbar-actions"><button cla
 </header>
 <button class="vbar-exit" type="button" aria-label="Exit focus mode" title="Exit focus mode (Esc)">×</button>`
   }
-<iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${escaped}"></iframe>
+<div class="docshell${comments === undefined ? "" : " comments-available"}" id="docshell">
+<iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${escaped}${comments === undefined ? "" : comments.bridge}"></iframe>
+${comments === undefined ? "" : `<div id="viewer-comments" class="viewer-comments"></div>`}
+</div>
+${
+  comments === undefined
+    ? ""
+    : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>
+<script type="module" src="${escapeAttribute(comments.asset)}"></script>`
+}
 <script>
 const exitButton = document.querySelector(".vbar-exit");
 const setFocus = (on) => {

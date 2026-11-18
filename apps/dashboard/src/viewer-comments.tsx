@@ -1,11 +1,26 @@
 import { createRoot } from "react-dom/client";
 
 import CommentThreadMargin, { type CommentThread } from "@/components/comments/comment-thread-margin.tsx";
+import {
+  createMessageBudget,
+  encodeCommand,
+  parseBridgeMessage,
+  type ParentCommand,
+} from "@artiflow/domain/html-bridge";
 
-type ViewerThread = CommentThread & { occurrence: number };
+type ElementAnchor = {
+  kind: "element";
+  selector: string;
+  point: { x: number; y: number };
+  textHint: string;
+  viewportWidth: number;
+};
+
+type ViewerThread = CommentThread & { occurrence: number; anchor?: unknown };
 
 type Config = {
   artifactId: string;
+  mode: "text" | "element";
   canComment: boolean;
   canResolve: boolean;
   threads: ViewerThread[];
@@ -208,4 +223,214 @@ export function mountViewerComments(): void {
   });
 }
 
-if (typeof document !== "undefined" && document.getElementById("viewer-comments") !== null) mountViewerComments();
+const pinsOf = (threads: ViewerThread[]) =>
+  threads.flatMap((thread, index) => {
+    const anchor = thread.anchor as
+      | {
+          kind?: string;
+          selector?: string;
+          textHint?: string;
+          point?: { x: number; y: number };
+          x?: number;
+          y?: number;
+        }
+      | null
+      | undefined;
+    if (anchor === null || anchor === undefined) return [];
+    const number = index + 1;
+    if (anchor.kind === "element")
+      return [
+        {
+          id: thread.id,
+          number,
+          selector: anchor.selector ?? "",
+          textHint: anchor.textHint ?? "",
+          x: anchor.point?.x ?? 0.5,
+          y: anchor.point?.y ?? 0.5,
+          stale: false,
+        },
+      ];
+    if (anchor.kind === "page-point")
+      return [{ id: thread.id, number, selector: "", textHint: "", x: anchor.x ?? 0.5, y: anchor.y ?? 0, stale: true }];
+    return [];
+  });
+
+export function mountViewerCommentsInFrame(): void {
+  const config = readConfig();
+  const host = document.getElementById("viewer-comments");
+  const frame = document.querySelector<HTMLIFrameElement>("#docshell iframe");
+  const shell = document.getElementById("docshell");
+  const bridge = document.querySelector<HTMLScriptElement>("script[data-artiflow-bridge]");
+  const nonce = bridge?.dataset.nonce ?? "";
+  if (config === null || host === null || frame === null || shell === null || nonce === "") return;
+  const root = createRoot(host);
+  const budget = createMessageBudget();
+  const state = {
+    activeId: null as string | null,
+    visible: true,
+    showResolved: false,
+    anchors: {} as Record<string, number>,
+    error: null as string | null,
+    commenting: false,
+    draft: null as { anchor: ElementAnchor } | null,
+    busy: false,
+  };
+  const send = (command: ParentCommand) => {
+    frame.contentWindow?.postMessage(encodeCommand(command, nonce), "*");
+  };
+  const pins = () => pinsOf(config.threads);
+  const render = (): void => {
+    host.style.display = state.visible ? "block" : "none";
+    shell.classList.toggle("comments-visible", state.visible);
+    if (!state.visible) send({ type: "mode", on: false });
+    root.render(
+      <CommentThreadMargin
+        threads={config.threads}
+        anchors={state.anchors}
+        activeId={state.activeId}
+        onActivate={(id) => {
+          state.activeId = id;
+          send({ type: "focus", id });
+          render();
+        }}
+        onResolve={(thread, resolved) => {
+          void postJson(
+            `${config.endpoints.resolve}/${encodeURIComponent(thread.id)}/${resolved ? "resolve" : "unresolve"}`,
+            {},
+          ).then(() => window.location.reload());
+        }}
+        onReply={(thread, body) => {
+          void postJson(config.endpoints.comments, { body, parentId: thread.id }).then(() => window.location.reload());
+        }}
+        onDelete={(thread, reply) => {
+          const target = reply ?? thread;
+          void fetch(`${config.endpoints.deleteComment}/${encodeURIComponent(target.id)}`, {
+            method: "DELETE",
+            credentials: "same-origin",
+          }).then(() => window.location.reload());
+        }}
+        onRetry={() => window.location.reload()}
+        status={state.error === null ? (config.threads.length === 0 ? "empty" : "ready") : "error"}
+        canComment={config.canComment}
+        publishError={state.error}
+        visible={state.visible}
+        onVisibleChange={(next) => {
+          state.visible = next;
+          if (!next) state.activeId = null;
+          render();
+        }}
+        showResolved={state.showResolved}
+        onShowResolvedChange={(next) => {
+          state.showResolved = next;
+          render();
+        }}
+        draft={
+          state.draft === null
+            ? null
+            : {
+                quotedText: state.draft.anchor.textHint || state.draft.anchor.selector,
+                body: "",
+                busy: state.busy,
+                error: state.error,
+              }
+        }
+        draftAnchorTop={0}
+        onSubmitDraft={(body) => {
+          if (state.draft === null) return;
+          state.busy = true;
+          render();
+          void postJson(config.endpoints.comments, { anchor: state.draft.anchor, body }).then(() => {
+            window.location.reload();
+          });
+        }}
+        onCancelDraft={() => {
+          state.draft = null;
+          state.commenting = false;
+          send({ type: "mode", on: false });
+          render();
+        }}
+      />,
+    );
+  };
+  const commentButton = document.querySelector<HTMLElement>(".vbar-actions");
+  if (config.canComment && commentButton !== null) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "vbar-focus";
+    button.dataset.commentMode = "true";
+    button.textContent = "Comment";
+    button.title = "Comment on an element (C)";
+    button.addEventListener("click", () => {
+      state.commenting = !state.commenting;
+      send({ type: "mode", on: state.commenting });
+      button.setAttribute("aria-pressed", String(state.commenting));
+    });
+    commentButton.prepend(button);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && state.commenting) {
+        state.commenting = false;
+        state.draft = null;
+        send({ type: "mode", on: false });
+        button.setAttribute("aria-pressed", "false");
+        render();
+      }
+      if (
+        (event.key === "c" || event.key === "C") &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        event.target === document.body
+      ) {
+        state.commenting = !state.commenting;
+        send({ type: "mode", on: state.commenting });
+        button.setAttribute("aria-pressed", String(state.commenting));
+      }
+    });
+  }
+  const onMessage = (event: MessageEvent) => {
+    const parsed = parseBridgeMessage(event.data, {
+      nonce,
+      source: event.source,
+      frame: frame.contentWindow,
+      budget,
+    });
+    if (!parsed.ok) return;
+    const message = parsed.message;
+    if (message.type === "geometry") {
+      state.anchors = { ...state.anchors, [message.id]: message.y };
+      render();
+      return;
+    }
+    if (message.type === "pin-click") {
+      state.activeId = message.id;
+      send({ type: "focus", id: message.id });
+      render();
+      return;
+    }
+    if (message.type === "pick") {
+      if (!config.canComment) return;
+      state.commenting = false;
+      state.draft = {
+        anchor: {
+          kind: "element",
+          selector: message.selector,
+          textHint: message.textHint,
+          point: { x: message.x, y: message.y },
+          viewportWidth: Math.round(message.viewportWidth),
+        },
+      };
+      render();
+    }
+  };
+  window.addEventListener("message", onMessage);
+  const sync = () => send({ type: "pins", pins: pins() });
+  frame.addEventListener("load", sync);
+  sync();
+  render();
+}
+
+if (typeof document !== "undefined" && document.getElementById("viewer-comments") !== null) {
+  const config = readConfig();
+  if (config?.mode === "element") mountViewerCommentsInFrame();
+  else mountViewerComments();
+}

@@ -19,7 +19,8 @@ import type { Storage } from "../adapters/storage/client.ts";
 import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
 import { viewerCommentsAsset } from "../viewer/assets.ts";
-import { viewerCommentsConfig } from "../viewer/comments-data.ts";
+import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
+import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
@@ -484,10 +485,31 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    return c.html(wrapperPage(escaped, undefined, undefined, false, refresh), 200, {
-      ...VIEWER_HEADERS,
-      "x-robots-tag": "noindex",
+    const visible = row.showComments ? await listComments(db, row.artifactId, true) : [];
+    const htmlConfig = viewerCommentsConfig({
+      artifactId: row.artifactId,
+      mode: "element",
+      source: "",
+      rows: visible,
+      viewerId: null,
+      canComment: false,
+      canDeleteOwn: false,
+      endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
     });
+    const nonce = bridgeNonce(row.artifactId, row.sha256);
+    return c.html(
+      wrapperPage(escaped, undefined, undefined, false, refresh, {
+        nonce,
+        bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
+        config: htmlConfig,
+        asset: viewerCommentsAsset(),
+      }),
+      200,
+      {
+        ...VIEWER_HEADERS,
+        "x-robots-tag": "noindex",
+      },
+    );
   });
   return app;
 }

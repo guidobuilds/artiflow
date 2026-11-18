@@ -241,6 +241,12 @@ for shape only and the client positions; Markdown keeps `text-range`. A public l
 read-only through `GET /share/:token/comments` only while the link's `showComments` option is on, with
 authors reduced to `{ id, name, image }`.
 
+HTML documents accept `element` anchors, and the bridge injected into the viewer frame resolves them by
+`id`, then a `data-*` attribute, then a unique text hint, falling back to the stored `page-point` and a
+dashed pin labelled "Element changed" when nothing matches uniquely. Pins are drawn inside the frame
+so they follow inner scroll, sticky elements and animations; the parent owns the margin, and no comment
+text ever crosses the bridge.
+
 The shared and public Markdown viewers render the sanitized fragment in the page itself and mount the
 same thread margin from a dedicated `viewer-comments` bundle, receiving an already-authorized JSON data
 island (`apps/api/src/viewer/comments-data.ts`) with each thread's staleness and text occurrence. The

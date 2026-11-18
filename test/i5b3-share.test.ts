@@ -269,7 +269,11 @@ test(
       [2, true],
       "the wrapper ships its own inline scripts (theme bootstrap, focus toggle); the artifact's script reaches the page only escaped",
     );
-    assert.equal(srcdocOf(reply.text), HTML_A, "the escaped attribute is the stored payload byte for byte");
+    assert.ok(
+      srcdocOf(reply.text).startsWith(HTML_A),
+      "the escaped attribute carries the stored payload byte for byte",
+    );
+    assert.ok(srcdocOf(reply.text).includes("data-artiflow-bridge"), "the comment bridge rides along the payload");
     assert.equal(reply.headers.get("x-robots-tag"), "noindex", "an unlisted link is not indexable");
   },
 );
@@ -314,10 +318,19 @@ test(
     const refreshLine = /const refresh = \{.*\};\n/;
     assert.match(owner.text, /const refresh = \{metaUrl:"\/api\/artifacts\//);
     assert.match(shared.text, /const refresh = \{metaUrl:"\/share\//);
+    const island = /<script type="application\/json" id="viewer-comments-data">[^<]*<\/script>/;
+    const bridgeData = /const PINS = .*;|const NONCE = .*;/g;
+    const normalize = (html: string) =>
+      html
+        .replace(back, "")
+        .replace(name, "")
+        .replace(refreshLine, "const refresh = CONFIG;\n")
+        .replace(island, "DATA")
+        .replace(bridgeData, "BRIDGE_DATA");
     assert.equal(
-      owner.text.replace(back, "").replace(name, "").replace(refreshLine, "const refresh = CONFIG;\n"),
-      shared.text.replace(refreshLine, "const refresh = CONFIG;\n"),
-      "identical body bytes once the owner cells are stripped",
+      normalize(owner.text),
+      normalize(shared.text),
+      "identical body bytes once the owner cells and the per-view data are stripped",
     );
     assert.deepEqual(
       [shared.headers.get("content-security-policy"), shared.headers.get("cache-control")],
@@ -373,8 +386,8 @@ test(
     const oldToken = await read(`/share/${original.token}`);
     const newToken = await read(`/share/${rotated.json?.token as string}`);
     assert.deepEqual(
-      [oldToken.status, oldToken.text, newToken.status, srcdocOf(newToken.text)],
-      [404, NOT_FOUND_PAGE, 200, HTML_A],
+      [oldToken.status, oldToken.text, newToken.status, srcdocOf(newToken.text).startsWith(HTML_A)],
+      [404, NOT_FOUND_PAGE, 200, true],
       "the predecessor is dead, the successor renders",
     );
   },
@@ -593,7 +606,7 @@ test(
       [200, "text/html; charset=UTF-8", "no-store", null],
     );
     assert.deepEqual(
-      [srcdocOf(reply.text) === HTML_A, reply.text.match(/<iframe /g)?.length],
+      [srcdocOf(reply.text).startsWith(HTML_A), reply.text.match(/<iframe /g)?.length],
       [true, 1],
       "the untouched viewer path still delivers the stored payload in one sandboxed frame",
     );
@@ -619,9 +632,9 @@ test(
     );
     assert.deepEqual(
       [
-        srcdocOf(sharedA.text) === HTML_A,
+        srcdocOf(sharedA.text).startsWith(HTML_A),
         sharedA.text.includes("second artifact body"),
-        srcdocOf(publicB.text) === HTML_B,
+        srcdocOf(publicB.text).startsWith(HTML_B),
         publicB.text.includes("Share A"),
       ],
       [true, false, true, false],

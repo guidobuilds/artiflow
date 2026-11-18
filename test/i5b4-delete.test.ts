@@ -56,10 +56,9 @@ const usedKeys: string[] = [];
 
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const revisionKeyOf = async (revisionId: string): Promise<string> => {
-  const row = await pool.query<{ storageKey: string }>(
-    `select "storageKey" from "artifactRevisions" where "id" = $1`,
-    [revisionId],
-  );
+  const row = await pool.query<{ storageKey: string }>(`select "storageKey" from "artifactRevisions" where "id" = $1`, [
+    revisionId,
+  ]);
   const storageKey = row.rows[0]?.storageKey;
   assert.ok(typeof storageKey === "string", "the revision row names its own storage key");
   return storageKey;
@@ -359,15 +358,11 @@ test(
       "only the deleted artifact's own key is gone",
     );
     assert.deepEqual(
-      [survivor.status, srcdocOf(survivor.text) === html],
+      [survivor.status, srcdocOf(survivor.text).startsWith(html)],
       [200, true],
       "the survivor is still readable through the real viewer",
     );
-    assert.equal(
-      (await bytesOf(secondKey)).equals(Buffer.from(html, "utf8")),
-      true,
-      "and its stored bytes are exact",
-    );
+    assert.equal((await bytesOf(secondKey)).equals(Buffer.from(html, "utf8")), true, "and its stored bytes are exact");
     assert.equal((await remove(owner, second.id)).status, 200);
     assert.equal((await revisionKeys()).includes(secondKey), false, "the survivor's own key goes with it");
   },
@@ -429,24 +424,20 @@ test(
   },
 );
 
-test(
-  "(j) cleanup survives a throwing byte delete and still answers 200",
-  { skip: SKIP, timeout: 60_000 },
-  async () => {
-    const owner = await seedOwner("Delete Owner J"),
-      artifact = await seed(owner, `<!doctype html><p>orphan ${randomUUID()}</p>`, "Orphan");
-    failKey = artifact.storageKey;
-    const reply = await remove(owner, artifact.id);
-    failKey = "";
-    assert.deepEqual(
-      [reply.status, reply.json, (await deletedAtOf(artifact.id)) instanceof Date],
-      [200, { ok: true }, true],
-      "the committed soft delete is the answer",
-    );
-    assert.equal(
-      (await revisionKeys()).includes(await revisionKeyOf(artifact.revisionId)),
-      true,
-      "the failed cleanup left the documented orphan for a later sweep",
-    );
-  },
-);
+test("(j) cleanup survives a throwing byte delete and still answers 200", { skip: SKIP, timeout: 60_000 }, async () => {
+  const owner = await seedOwner("Delete Owner J"),
+    artifact = await seed(owner, `<!doctype html><p>orphan ${randomUUID()}</p>`, "Orphan");
+  failKey = artifact.storageKey;
+  const reply = await remove(owner, artifact.id);
+  failKey = "";
+  assert.deepEqual(
+    [reply.status, reply.json, (await deletedAtOf(artifact.id)) instanceof Date],
+    [200, { ok: true }, true],
+    "the committed soft delete is the answer",
+  );
+  assert.equal(
+    (await revisionKeys()).includes(await revisionKeyOf(artifact.revisionId)),
+    true,
+    "the failed cleanup left the documented orphan for a later sweep",
+  );
+});

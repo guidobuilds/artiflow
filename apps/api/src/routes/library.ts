@@ -25,7 +25,8 @@ import type {
 import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
 import { viewerCommentsAsset } from "../viewer/assets.ts";
-import { viewerCommentsConfig } from "../viewer/comments-data.ts";
+import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
+import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
@@ -209,11 +210,37 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
+    const htmlShared = await commentDocument(db, ownerId, row.id, "shared");
+    const htmlRows = htmlShared === undefined ? [] : await listComments(db, row.id, true);
+    const htmlConfig = viewerCommentsConfig({
+      artifactId: row.id,
+      mode: "element",
+      source: "",
+      rows: htmlRows,
+      viewerId: ownerId,
+      canComment: htmlShared !== undefined && htmlShared.access !== "reader",
+      canDeleteOwn: true,
+      endpoints: {
+        comments: `/api/artifacts/${row.id}/comments`,
+        resolve: `/api/artifacts/${row.id}/comments`,
+        deleteComment: `/api/artifacts/${row.id}/comments`,
+      },
+    });
+    const nonce = bridgeNonce(row.id, row.sha256);
     return c.html(
-      wrapperPage(escaped, embed ? undefined : "/", { title: row.title, version: row.revisionNumber }, embed, {
-        ...refresh,
-        srcdocUrl: `/artifact/${row.id}`,
-      }),
+      wrapperPage(
+        escaped,
+        embed ? undefined : "/",
+        { title: row.title, version: row.revisionNumber },
+        embed,
+        { ...refresh, srcdocUrl: `/artifact/${row.id}` },
+        {
+          nonce,
+          bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
+          config: htmlConfig,
+          asset: viewerCommentsAsset(),
+        },
+      ),
       200,
       VIEWER_HEADERS,
     );

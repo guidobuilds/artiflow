@@ -269,10 +269,18 @@ test(
   async () => {
     const own = await read(`/artifact/${shared.id}`, {}, a);
     const recipient = await read(`/artifact/${shared.id}`, {}, b);
+    const island = /<script type="application\/json" id="viewer-comments-data">([^<]*)<\/script>/;
+    const withoutData = (html: string) => html.replace(island, "DATA");
     assert.deepEqual(
-      [own.status, recipient.status, recipient.text === own.text],
+      [own.status, recipient.status, withoutData(recipient.text) === withoutData(own.text)],
       [200, 200, true],
-      "the granted recipient receives the owner's exact wrapper page",
+      "the granted recipient receives the owner's exact wrapper page, minus the per-view comment data",
+    );
+    const viewerConfig = (html: string) => JSON.parse(html.match(island)?.[1] ?? "{}") as { canComment?: boolean };
+    assert.deepEqual(
+      [viewerConfig(own.text).canComment, viewerConfig(recipient.text).canComment],
+      [true, false],
+      "a granted reader receives the same page but may not comment",
     );
     assert.deepEqual(
       [

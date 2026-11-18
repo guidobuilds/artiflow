@@ -68,6 +68,7 @@ test("a comments mount adds the data island, the container and the module bundle
   const withComments = markdownViewerPage("<p>x</p>", undefined, undefined, false, REFRESH, {
     config: {
       artifactId: "a1",
+      mode: "text",
       canComment: true,
       canResolve: true,
       threads: [
@@ -104,6 +105,7 @@ test("the comments island escapes markup so the data cannot break out", () => {
   const html = markdownViewerPage("<p>x</p>", undefined, undefined, false, REFRESH, {
     config: {
       artifactId: "a1",
+      mode: "text",
       canComment: false,
       canResolve: false,
       threads: [],

@@ -323,3 +323,44 @@ measured precisely. The isolation trade is deliberate and bounded:
 
 The HTML viewer keeps its `sandbox="allow-scripts"` frame: those artifacts are executable pages and
 the frame is the boundary that keeps them away from the viewer origin.
+
+## The HTML viewer comment bridge
+
+The HTML viewer keeps its `sandbox="allow-scripts"` frame, so the artifact never shares an origin with
+the viewer. Comment pins still have to sit exactly on page elements, which means they must be drawn
+inside that frame. The wrapper therefore injects a small inline bridge into the `srcdoc`, next to the
+artifact bytes, and the parent keeps the margin and the cards.
+
+Protocol, versioned and nonce-scoped:
+
+| Direction      | Message              | Fields                                              |
+| -------------- | -------------------- | --------------------------------------------------- |
+| parent → frame | `pins`               | `{ id, number, selector, textHint, x, y, stale }[]` |
+| parent → frame | `mode`               | `{ on: boolean }`                                   |
+| parent → frame | `focus`              | `{ id: string \| null }`                            |
+| frame → parent | `geometry`           | `{ id, x, y, visible }`                             |
+| frame → parent | `pick`               | `{ selector, textHint, x, y, viewportWidth }`       |
+| frame → parent | `pin-click`, `ready` | `{ id }` / `{}`                                     |
+
+Every message carries `{ channel, version, nonce }`. The frame's origin is opaque (`null`), so origin
+is never used as identity: the parent requires `event.source === iframe.contentWindow`, the exact
+per-render nonce injected into that `srcdoc`, a strict shape check and a per-frame message budget.
+Anything else is dropped silently.
+
+Why this is safe to widen with:
+
+1. **No content crosses the bridge.** The parent only sends anchor identifiers, pin numbers and visual
+   flags; comment bodies, authors and quotes never enter the frame. A test asserts this for every
+   command the parent can send and for the injected script itself.
+2. **The frame only reports geometry and a clicked element.** Its worst case is lying about
+   coordinates or naming an element, which at most misplaces a pin or offers you an anchor you can
+   reject before posting the comment.
+3. **The bridge adds no capability the artifact lacks.** The frame already runs the artifact's own
+   scripts; the bridge reads the same DOM those scripts could read and posts messages the parent
+   validates.
+4. **The artifact still cannot reach the viewer.** It cannot read `parent.document`, navigate the top
+   window or fetch the network (`default-src 'none'`).
+
+The CSP does not change: the wrapper already allows `script-src 'unsafe-inline'`, which is what the
+inline bridge needs, and the parent bundle is the same same-origin `viewer-comments` asset used by the
+Markdown viewer.
