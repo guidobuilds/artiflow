@@ -18,6 +18,8 @@ import { listComments } from "../adapters/postgres/comments-repo.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
+import { viewerCommentsAsset } from "../viewer/assets.ts";
+import { viewerCommentsConfig } from "../viewer/comments-data.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
@@ -459,8 +461,21 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     if (row.kind === "markdown") {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+      const visible = row.showComments ? await listComments(db, row.artifactId, true) : [];
+      const comments = {
+        config: viewerCommentsConfig({
+          artifactId: row.artifactId,
+          source: decoded.text,
+          rows: visible,
+          viewerId: null,
+          canComment: false,
+          canDeleteOwn: false,
+          endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
+        }),
+        asset: viewerCommentsAsset(),
+      };
       return c.html(
-        markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh),
+        markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh, comments),
         200,
         {
           ...VIEWER_HEADERS,

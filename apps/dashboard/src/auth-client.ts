@@ -395,7 +395,12 @@ export async function fetchSharedArtifacts(): Promise<SharedLibraryResult> {
 }
 
 export type ShareGrant = { id: string; email: string; createdLabel: string };
-export type PublicLinkRow = { id: string; createdLabel: string; revokedLabel: string | null };
+export type PublicLinkRow = {
+  id: string;
+  createdLabel: string;
+  revokedLabel: string | null;
+  showComments: boolean;
+};
 export type RevealedLink = { linkId: string; url: string; token: string };
 export type ManageResult<T> =
   { ok: true; value: T } | { ok: false; error: string; code: string; signInRequired: boolean };
@@ -434,7 +439,7 @@ function sentCode(body: unknown, status: number): string {
 
 export async function manageRequest<T>(
   path: string,
-  method: "GET" | "POST" | "PUT" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
   parse: (body: unknown) => T | null,
   body: unknown = {},
 ): Promise<ManageResult<T>> {
@@ -477,6 +482,7 @@ function toLinkRow(value: unknown): PublicLinkRow | null {
     id: value.id,
     createdLabel: dayLabel(value.createdAt),
     revokedLabel: typeof value.revokedAt === "string" ? dayLabel(value.revokedAt) : null,
+    showComments: value.showComments === true,
   };
 }
 export function parseShareList(body: unknown): ShareGrant[] | null {
@@ -504,6 +510,13 @@ export const revokeShare = (artifactId: string, shareId: string) =>
 export const revokeLink = (artifactId: string, linkId: string) =>
   manageRequest(`${pathOf(artifactId, "/links")}/${encodeURIComponent(linkId)}`, "DELETE", confirmed);
 export const createLink = (artifactId: string) => manageRequest(pathOf(artifactId, "/links"), "POST", parseReveal);
+export const setLinkShowComments = (artifactId: string, linkId: string, showComments: boolean) =>
+  manageRequest(
+    `${pathOf(artifactId, "/links")}/${encodeURIComponent(linkId)}`,
+    "PATCH",
+    (body) => (isRecord(body) && body.showComments === showComments ? "confirmed" : null),
+    { showComments },
+  );
 export const rotateLink = (artifactId: string, linkId: string) =>
   manageRequest(`${pathOf(artifactId, "/links")}/${encodeURIComponent(linkId)}/rotate`, "POST", parseReveal);
 

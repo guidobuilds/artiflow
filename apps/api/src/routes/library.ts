@@ -22,14 +22,11 @@ import type {
   ArtifactSummary,
   SharedArtifactListResponse,
 } from "@artiflow/contracts/artifacts";
-import {
-  escapeAttribute,
-  NOT_FOUND_HEADERS,
-  NOT_FOUND_PAGE,
-  VIEWER_HEADERS,
-  wrapperPage,
-} from "../viewer/html.ts";
+import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
+import { viewerCommentsAsset } from "../viewer/assets.ts";
+import { viewerCommentsConfig } from "../viewer/comments-data.ts";
+import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
@@ -180,6 +177,24 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (row.kind === "markdown") {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      const shared = await commentDocument(db, ownerId, row.id, "shared");
+      const rows = shared === undefined ? [] : await listComments(db, row.id, true);
+      const comments = {
+        config: viewerCommentsConfig({
+          artifactId: row.id,
+          source: decoded.text,
+          rows,
+          viewerId: ownerId,
+          canComment: shared !== undefined && shared.access !== "reader",
+          canDeleteOwn: true,
+          endpoints: {
+            comments: `/api/artifacts/${row.id}/comments`,
+            resolve: `/api/artifacts/${row.id}/comments`,
+            deleteComment: `/api/artifacts/${row.id}/comments`,
+          },
+        }),
+        asset: viewerCommentsAsset(),
+      };
       return c.html(
         markdownViewerPage(
           renderMarkdownFragment(decoded.text),
@@ -187,6 +202,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
           { title: row.title, version: row.revisionNumber },
           embed,
           refresh,
+          comments,
         ),
         200,
         VIEWER_HEADERS,
@@ -194,13 +210,10 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
     return c.html(
-      wrapperPage(
-        escaped,
-        embed ? undefined : "/",
-        { title: row.title, version: row.revisionNumber },
-        embed,
-        { ...refresh, srcdocUrl: `/artifact/${row.id}` },
-      ),
+      wrapperPage(escaped, embed ? undefined : "/", { title: row.title, version: row.revisionNumber }, embed, {
+        ...refresh,
+        srcdocUrl: `/artifact/${row.id}`,
+      }),
       200,
       VIEWER_HEADERS,
     );

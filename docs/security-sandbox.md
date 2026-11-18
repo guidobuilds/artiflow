@@ -3,10 +3,10 @@
 `scripts/security-sandbox.mjs` runs one of two targets inside a throwaway Docker setup with a real
 isolated PostgreSQL and Garage, real HTTP and a read-only payload. It changes no product code.
 
-| Mode                   | Command                                                 | Target                                                                                                             |
-| ---------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `reproducer` (default) | `node scripts/security-sandbox.mjs`                     | `docker/security-sandbox/reproducer.integration.ts`, the interleaving against the per-revision key contract        |
-| `integration`          | `node scripts/security-sandbox.mjs --suite integration` | the ten repository integration suites that read the per-revision key contract, one file at a time                  |
+| Mode                   | Command                                                 | Target                                                                                                      |
+| ---------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `reproducer` (default) | `node scripts/security-sandbox.mjs`                     | `docker/security-sandbox/reproducer.integration.ts`, the interleaving against the per-revision key contract |
+| `integration`          | `node scripts/security-sandbox.mjs --suite integration` | the ten repository integration suites that read the per-revision key contract, one file at a time           |
 
 The reproducer run must end with **both** tests passing: exit `2` is the accepted verdict for a
 fixed build, and the retained evidence records the interleaving that used to remove bytes a live
@@ -116,7 +116,7 @@ is in the allowlist.
    `docker run`/`create` commands this run would execute, with container names that embed a fresh
    run id. This is the artifact to review before a run: it shows every mount and every `--env`.
 3. `node scripts/security-sandbox.mjs` (reproducer) or `node scripts/security-sandbox.mjs --suite
-   integration` — create, run, remove. The runner writes its own evidence (see below) and prints
+integration` — create, run, remove. The runner writes its own evidence (see below) and prints
    the directory on stdout.
 4. Read the verdict, the TAP results and the retained evidence file. Reproducer: exit `2` means
    control and race both passed and the invariant held (the accepted verdict); exit `3` means a race
@@ -150,16 +150,16 @@ sandbox itself, in a host directory that cleanup never touches:
 
 ## What the reproducer asserts
 
-| Step                                                                                | Public interface                                                                                  | Expected                                                                                                                                  |
-| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| A writes X, B is a second dummy owner                                               | real commit flow used by the create route                                                         | each revision gets its own `artifacts/<revision id>` key; byte-identical content never shares one                                          |
-| A's `DELETE` pauses after the ownership decision and the soft-delete commit         | `DELETE /api/artifacts/:id`                                                                       | request held at the injected seam, before the byte delete, not answered                                                                   |
-| B writes the same X and reads it before release                                     | `GET /artifact/:id`                                                                               | `200` with the exact original HTML                                                                                                       |
-| Both artifacts' keys and the bucket are inspected before release                    | one `artifactRevisions` query per artifact plus a bounded `listRevisionKeys` page over `artifacts/` | two distinct keys, both rows carrying the payload's `sha256`, both objects present                                                        |
-| A's delete resumes and commits                                                      | `DELETE /api/artifacts/:id`                                                                       | `200 {"ok":true}`                                                                                                                        |
-| A is read after deletion                                                            | `GET /artifact/:id`                                                                               | `404` with the branded not-found page (`NOT_FOUND_PAGE`, `apps/api/src/viewer/html.ts`), not JSON                                         |
-| B is read after A's delete                                                          | `GET /artifact/:id`                                                                               | **GREEN**: `200` with the exact original HTML; A's delete never targeted B's object                                                       |
-| Local-delete probe: the bucket is listed again after the delete                     | bounded `listRevisionKeys` over `artifacts/`                                                      | A's own key is gone and B's key is still there                                                                                           |
+| Step                                                                        | Public interface                                                                                    | Expected                                                                                          |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| A writes X, B is a second dummy owner                                       | real commit flow used by the create route                                                           | each revision gets its own `artifacts/<revision id>` key; byte-identical content never shares one |
+| A's `DELETE` pauses after the ownership decision and the soft-delete commit | `DELETE /api/artifacts/:id`                                                                         | request held at the injected seam, before the byte delete, not answered                           |
+| B writes the same X and reads it before release                             | `GET /artifact/:id`                                                                                 | `200` with the exact original HTML                                                                |
+| Both artifacts' keys and the bucket are inspected before release            | one `artifactRevisions` query per artifact plus a bounded `listRevisionKeys` page over `artifacts/` | two distinct keys, both rows carrying the payload's `sha256`, both objects present                |
+| A's delete resumes and commits                                              | `DELETE /api/artifacts/:id`                                                                         | `200 {"ok":true}`                                                                                 |
+| A is read after deletion                                                    | `GET /artifact/:id`                                                                                 | `404` with the branded not-found page (`NOT_FOUND_PAGE`, `apps/api/src/viewer/html.ts`), not JSON |
+| B is read after A's delete                                                  | `GET /artifact/:id`                                                                                 | **GREEN**: `200` with the exact original HTML; A's delete never targeted B's object               |
+| Local-delete probe: the bucket is listed again after the delete             | bounded `listRevisionKeys` over `artifacts/`                                                        | A's own key is gone and B's key is still there                                                    |
 
 That last row is the key-level evidence that B's bytes were never a delete target:
 `cleanupArtifactBlobs` reads only the deleted artifact's own rows, so the listing must show A's key
@@ -298,3 +298,28 @@ automatic cleanup, deterministic interleaving on top of the existing harness) an
 interleaving without rewriting the historical harness; keep the result outside the
 sandbox before destroying it — the runner now writes that evidence itself, see "Retained
 evidence"). S3 is answered in the first paragraph, not by renaming the test.
+
+## Shared and public Markdown viewers
+
+The shared (`/artifact/:id`) and public (`/share/:token`) Markdown pages used to serve the
+rendered fragment inside `<iframe sandbox="" srcdoc=...>`: a second, script-free frame around
+content that already had no script surface. The fragment comes from MarkdownIt with `html: false`,
+so raw HTML in the document is escaped and cannot produce a script, an event handler or an image
+tag; the only reason the frame existed was defence in depth.
+
+Those pages now render the same sanitized fragment directly in the page so comment anchors can be
+measured precisely. The isolation trade is deliberate and bounded:
+
+1. The fragment still cannot introduce script: `html: false` escapes every tag, and link schemes are
+   validated before rendering.
+2. The page CSP hardens what a future regression could reach: `default-src 'none'` still forbids
+   network, frames, fonts and forms; `script-src 'self' 'unsafe-inline'` admits only the same-origin
+   hashed bundle and the pre-existing inline poller, so no new inline script is added.
+3. The comments bundle is built by Vite as its own entry (`viewer-comments`) and served from the
+   dashboard build; it receives a JSON data island the server fills with already-authorized threads
+   and never fetches another origin.
+4. The public page embeds threads only when the link's `showComments` option is on; the option is off
+   by default and the server is the only place that decides.
+
+The HTML viewer keeps its `sandbox="allow-scripts"` frame: those artifacts are executable pages and
+the frame is the boundary that keeps them away from the viewer origin.

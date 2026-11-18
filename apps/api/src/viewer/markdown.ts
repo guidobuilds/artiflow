@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 
+import type { ViewerCommentsConfig } from "./comments-data.ts";
 import {
   escapeAttribute,
   VIEWER_CHROME_CSS,
@@ -10,6 +11,9 @@ import {
 } from "./html.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true });
+
+const escapeJson = (json: string): string =>
+  json.replace(/[<>&\u2028\u2029]/g, (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
 
 export function renderMarkdownFragment(text: string): string {
   return md.render(text);
@@ -38,12 +42,27 @@ export function markdownViewerPage(
   meta: ViewerMeta | undefined,
   embed: boolean,
   refresh: ViewerRefresh,
+  comments?: { config: ViewerCommentsConfig; asset: string },
 ): string {
+  const csp =
+    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'";
+  const commentsData =
+    comments === undefined
+      ? ""
+      : `<script type="application/json" id="viewer-comments-data">${escapeJson(JSON.stringify(comments.config))}</script>
+<div id="viewer-comments" class="viewer-comments"></div>
+<script type="module" src="${escapeAttribute(comments.asset)}"></script>`;
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'"><title>Document</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${csp}"><title>Document</title>
 <style>
 ${VIEWER_CHROME_CSS}
-iframe{flex:1;min-height:0;width:100%;border:0;background:var(--bg)}
+</style><style id="doc-styles">
+${DOCUMENT_CSS}
+.docshell{display:grid;grid-template-columns:minmax(0,1fr);min-height:0;flex:1;overflow:auto}
+.docshell.comments-visible{grid-template-columns:minmax(0,1fr) 320px}
+.viewer-comments{display:none}
+.docshell.comments-visible .viewer-comments{display:block;padding:16px;border-left:1px solid var(--doc-line);background:var(--doc-bg)}
+@media (max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
 </style></head>
 <body>${
     embed
@@ -51,9 +70,10 @@ iframe{flex:1;min-height:0;width:100%;border:0;background:var(--bg)}
       : `<header class="vbar">
 ${viewerBarStart(backHref, meta)}</header>`
   }
-<iframe sandbox="" referrerpolicy="no-referrer" srcdoc="${escapeAttribute(`<!doctype html><style>${DOCUMENT_CSS}</style><div class="mdpage">${fragment}</div>`)}"></iframe>
+<div class="docshell" id="docshell"><main class="mdpage" id="document">${fragment}</main></div>
 <script>
 ${viewerRefreshScript(refresh)}
 </script>
+${commentsData}
 </body></html>`;
 }

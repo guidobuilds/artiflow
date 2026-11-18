@@ -110,13 +110,13 @@ test("the markdown wrapper keeps its scriptless sandbox and its own policy list"
     revisionNumber: 1,
     sha256: "bbb",
   });
-  assert.ok(page.includes('<iframe sandbox="" referrerpolicy="no-referrer"'), "the document frame runs no script");
-  assert.equal(/sandbox="[^"]*allow-scripts/.test(page), false);
+  assert.equal(/<iframe/.test(page), false, "the document renders in the page, so there is no second frame");
+  assert.equal(/allow-scripts/.test(page), false, "and no script sandbox is granted anywhere");
   assert.equal(page.includes(THEME_BOOTSTRAP), false, "the markdown viewer ships no theme bootstrap");
   assert.equal(scriptBodies(page).length, 1, "exactly the one refresh script");
   assert.equal(
     /content-security-policy" content="([^"]*)"/.exec(page)?.[1],
-    `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'`,
+    `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'`,
   );
 });
 
@@ -140,11 +140,16 @@ test("the additional gate: the artifact inherits the wrapper list and stays opaq
   assert.equal(markdownMeta.includes("unsafe-eval"), false);
 
   assert.match(html, /<iframe sandbox="allow-scripts" referrerpolicy="no-referrer"/);
-  assert.match(markdown, /<iframe sandbox="" referrerpolicy="no-referrer"/);
-  assert.equal(/allow-same-origin/.test(html) || /allow-same-origin/.test(markdown), false);
+  assert.equal(/<iframe/.test(markdown), false, "the markdown page no longer ships a second frame");
+  assert.match(markdown, /<main class="mdpage" id="document">/);
+  assert.equal(/allow-same-origin/.test(html), false);
 
   assert.equal(srcdocOf(html), "<p>x</p>");
-  assert.equal(srcdocOf(markdown).includes("<script"), false);
+  assert.equal(
+    /<script[ >]/i.test(markdown.replace(/<script>[^]*?<\/script>/g, "")),
+    false,
+    "the fragment adds no script",
+  );
 });
 
 test("the served refresh script never takes bytes from the frame or rebuilds the document", () => {
@@ -450,7 +455,7 @@ test("the owner bar still handles focus and the F shortcut", () => {
   assert.equal(environment.element(".vbar-exit").focused, true);
 });
 
-test("the markdown document inherits a policy with no image source", () => {
+test("the markdown page keeps its own policy and the fragment can only add text", () => {
   assert.equal(/img-src/.test(VIEWER_CSP), false, "the response policy grants no image source");
   assert.match(VIEWER_CSP, /^default-src 'none'/, "img-src therefore falls back to default-src 'none'");
   assert.equal(VIEWER_CSP.includes("data:"), false);
@@ -465,9 +470,14 @@ test("the markdown document inherits a policy with no image source", () => {
   );
   const meta = /content-security-policy" content="([^"]*)"/.exec(markdown)?.[1] ?? "";
   assert.equal(meta.includes("img-src data: https:"), true, "the page's own allowance stays on the page");
-  const document = srcdocOf(markdown);
-  assert.equal(/content-security-policy/i.test(document), false, "the document declares no policy of its own");
-  assert.equal(/img-src/.test(document), false, "nothing inside the document grants an image source");
+  assert.equal(
+    meta.includes("frame-src"),
+    false,
+    "the page needs no frame source, so frames stay at default-src 'none'",
+  );
+  assert.match(markdown, /<img src="https:\/\/example\.com\/a\.png"/, "markdown images still render");
+  assert.equal(/onerror=/i.test(markdown), false, "the escaped fragment cannot attach handlers");
+  assert.equal(renderMarkdownFragment("<img src=x onerror=alert(1)>").includes("<img"), false);
 });
 
 test("the public share 200s both spread the widened viewer headers", () => {

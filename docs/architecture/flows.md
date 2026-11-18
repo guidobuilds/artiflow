@@ -241,6 +241,11 @@ for shape only and the client positions; Markdown keeps `text-range`. A public l
 read-only through `GET /share/:token/comments` only while the link's `showComments` option is on, with
 authors reduced to `{ id, name, image }`.
 
+The shared and public Markdown viewers render the sanitized fragment in the page itself and mount the
+same thread margin from a dedicated `viewer-comments` bundle, receiving an already-authorized JSON data
+island (`apps/api/src/viewer/comments-data.ts`) with each thread's staleness and text occurrence. The
+HTML viewer keeps its sandboxed frame.
+
 Agents read a source window with `artifact_get_markdown`, quote or anchor the exact text that
 window returned, and comment on it. A comment never moves: the row keeps the `anchor` recorded at
 creation (for markdown a `text-range` anchor with its coordinates and `quotedText`), while the

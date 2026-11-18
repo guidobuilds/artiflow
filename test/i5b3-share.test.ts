@@ -55,10 +55,9 @@ let baselineKeys = new Set<string>();
 
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const revisionKeyOf = async (revisionId: string): Promise<string> => {
-  const row = await pool.query<{ storageKey: string }>(
-    `select "storageKey" from "artifactRevisions" where "id" = $1`,
-    [revisionId],
-  );
+  const row = await pool.query<{ storageKey: string }>(`select "storageKey" from "artifactRevisions" where "id" = $1`, [
+    revisionId,
+  ]);
   const storageKey = row.rows[0]?.storageKey;
   assert.ok(typeof storageKey === "string", "the revision row names its own storage key");
   return storageKey;
@@ -335,9 +334,9 @@ test(
     const link = await createLink(a, doc.id);
     const reply = await read(`/share/${link.token}`);
     assert.equal(reply.status, 200);
-    assert.equal(/allow-scripts/.test(reply.text), false, "the document frame renders without scripts");
-    assert.equal(reply.text.match(/<script>/g)?.length, 1, "the page around the document ships only the poller");
-    assert.ok(/&lt;h1&gt;Notas/.test(reply.text), "the rendered fragment is escaped into the srcdoc");
+    assert.equal(/<iframe/.test(reply.text), false, "the document renders in the page, not in a second frame");
+    assert.equal(reply.text.match(/<script>/g)?.length, 1, "the page ships only the poller until comments are enabled");
+    assert.ok(/<h1>Notas<\/h1>/.test(reply.text), "the sanitized fragment is inline");
     assert.ok(/&lt;strong&gt;negrita|<strong>negrita|negrita/.test(reply.text), "emphasis survives rendering");
     assert.equal(reply.text.includes('href="/"'), false, "no owner back link on the public page");
     assert.equal(reply.headers.get("x-robots-tag"), "noindex");
@@ -487,24 +486,20 @@ test("?meta=1 on a revoked token is the same 404 as bytes mode", { skip: SKIP, t
   );
 });
 
-test(
-  "?meta=1 on a soft-deleted artifact's live link is the same 404",
-  { skip: SKIP, timeout: 60_000 },
-  async () => {
-    const doomed = await seed(a, HTML_B, "Doomed public metadata artifact");
-    const link = await createLink(a, doomed.id);
-    const live = await read(`/share/${link.token}?meta=1`);
-    assert.deepEqual(
-      [live.status, live.headers.get("content-type")],
-      [200, "application/json"],
-      "metadata while the artifact is live",
-    );
-    assert.equal((await markArtifactDeleted(database.db, doomed.id, a.userId)).ok, true);
-    const meta = await read(`/share/${link.token}?meta=1`);
-    const bytes = await read(`/share/${link.token}`);
-    assert.deepEqual([meta.status, meta.text, bytes.status, bytes.text], [404, NOT_FOUND_PAGE, 404, NOT_FOUND_PAGE]);
-  },
-);
+test("?meta=1 on a soft-deleted artifact's live link is the same 404", { skip: SKIP, timeout: 60_000 }, async () => {
+  const doomed = await seed(a, HTML_B, "Doomed public metadata artifact");
+  const link = await createLink(a, doomed.id);
+  const live = await read(`/share/${link.token}?meta=1`);
+  assert.deepEqual(
+    [live.status, live.headers.get("content-type")],
+    [200, "application/json"],
+    "metadata while the artifact is live",
+  );
+  assert.equal((await markArtifactDeleted(database.db, doomed.id, a.userId)).ok, true);
+  const meta = await read(`/share/${link.token}?meta=1`);
+  const bytes = await read(`/share/${link.token}`);
+  assert.deepEqual([meta.status, meta.text, bytes.status, bytes.text], [404, NOT_FOUND_PAGE, 404, NOT_FOUND_PAGE]);
+});
 
 test(
   "?meta=1 never turns a malformed or unknown token into a metadata answer",
@@ -557,9 +552,10 @@ test(
     const link = await createLink(a, gone.id);
     const storageKey = await revisionKeyOf(gone.revisionId);
     await storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: storageKey }));
-    const removed = await storage.client
-      .send(new HeadObjectCommand({ Bucket: storage.bucket, Key: storageKey }))
-      .then(() => false, () => true);
+    const removed = await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: storageKey })).then(
+      () => false,
+      () => true,
+    );
     assert.equal(removed, true, "the revision's own object is gone before either read");
     const revision = await currentRevisionOf(gone.id);
     const meta = await read(`/share/${link.token}?meta=1`);
