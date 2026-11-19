@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import vm from "node:vm";
 
 import {
   BRIDGE_CHANNEL,
@@ -257,9 +258,19 @@ test("the message budget refills every window instead of running out for the who
   assert.equal(budget.used(), 1);
 });
 
-test("the injected bridge escapes selectors completely and guards pin resolution", () => {
+test("the injected bridge parses and escapes exactly like the domain helper", () => {
   const script = htmlBridgeScript({ nonce, pins: [pin] });
+  const body = script.replace(/^<script[^>]*>/, "").replace(/<\/script>$/, "");
+  assert.doesNotThrow(() => new vm.Script(body), "the injected script parses as javascript");
   assert.equal(script.includes("value.replace(/([^\\w-])/g"), false, "the incomplete escape is gone");
-  assert.equal(script.includes('"\\uFFFD"'), true, "a null character is replaced instead of injected");
-  assert.match(script, /catch \(error\) \{\s*return \{ missing: true \};\s*\}/, "a pin selector cannot throw");
+  assert.match(body, /catch \(error\) \{\s*return \{ missing: true \};\s*\}/, "a pin selector cannot throw");
+  const helper = body.slice(body.indexOf("const cssEscape"), body.indexOf("const describe"));
+  const run = vm.runInNewContext(`${helper}\n({ cssEscape, cssString });`) as {
+    cssEscape(value: string): string;
+    cssString(value: string): string;
+  };
+  for (const sample of ["hero", "a\\b", 'a"b', "a b", "a[b]", "1abc", "-1a", "a\u0001b", "caf\u00e9", "\u0000"])
+    assert.equal(run.cssEscape(sample), cssEscape(sample), `escape agrees on ${JSON.stringify(sample)}`);
+  for (const sample of ['say "hi"', "a\\b", "a\nb", "a\u0001b"])
+    assert.equal(run.cssString(sample), cssString(sample), `string escape agrees on ${JSON.stringify(sample)}`);
 });

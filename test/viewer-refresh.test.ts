@@ -158,11 +158,20 @@ test("the additional gate: the artifact inherits the wrapper list and stays opaq
   assert.equal(/allow-same-origin/.test(html), false);
 
   assert.equal(srcdocOf(html), "<p>x</p>");
-  assert.equal(
-    /<script\b/i.test(markdown.replace(/<script\b[^>]*>[^]*?<\/script\s*>/gi, "")),
+  const documentMarkup = /<main class="mdpage" id="document">([\s\S]*?)<\/main>/.exec(markdown)?.[1];
+  assert.notEqual(documentMarkup, undefined, "the document region is addressable");
+  assert.equal(/<script/i.test(documentMarkup ?? ""), false, "the fragment adds no script");
+  assert.equal(scriptBodies(markdown).length, 1, "the page ships exactly its refresh script");
+  const hostile = markdownViewerPage(
+    renderMarkdownFragment("# x\n\n<script>alert(1)</script>\n"),
+    "/",
+    { title: "T", version: 1 },
     false,
-    "the fragment adds no script",
+    { metaUrl: "/api/artifacts/1111", revisionNumber: 1, sha256: "bbb" },
   );
+  const hostileDocument = /<main class="mdpage" id="document">([\s\S]*?)<\/main>/.exec(hostile)?.[1] ?? "";
+  assert.equal(/<script/i.test(hostileDocument), false, "raw html in the source is escaped, never executed");
+  assert.match(hostileDocument, /&lt;script&gt;/, "the reader sees the tag as text");
 });
 
 test("the served refresh script never takes bytes from the frame or rebuilds the document", () => {

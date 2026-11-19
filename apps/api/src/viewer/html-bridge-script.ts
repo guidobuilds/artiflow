@@ -33,7 +33,7 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       const secondDigitAfterDash = index === 1 && code >= 48 && code <= 57 && characters[0] === "-";
       if (code === 0) return "\\uFFFD";
       if ((code >= 1 && code <= 31) || code === 127 || leadingDigit || secondDigitAfterDash)
-        return "\\" + code.toString(16) + " ";
+        return "\\\\" + code.toString(16) + " ";
       if (
         code >= 128 ||
         code === 45 ||
@@ -43,14 +43,14 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
         (code >= 97 && code <= 122)
       )
         return character;
-      return "\\" + character;
+      return "\\\\" + character;
     }).join("");
   };
   const cssString = (value) =>
     String(value)
-      .replace(/["\\]/g, (character) => "\\" + character)
-      .replace(/\n/g, "\\a ")
-      .replace(/[\u0000-\u001f\u007f]/g, (character) => "\\" + (character.codePointAt(0) || 0).toString(16) + " ");
+      .replace(/["\\\\]/g, (character) => "\\\\" + character)
+      .replace(/\\n/g, "\\\\a ")
+      .replace(/[\u0000-\u001f\u007f]/g, (character) => "\\\\" + (character.codePointAt(0) || 0).toString(16) + " ");
   const describe = (element) => {
     if (element.id) return { selector: "#" + cssEscape(element.id), textHint: "" };
     const attributes = ["data-block","data-testid","data-widget","data-section","aria-label"];
