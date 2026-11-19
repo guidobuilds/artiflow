@@ -128,40 +128,60 @@ export function mountViewerComments(): void {
     geometry: {} as Record<string, number>,
     error: null as string | null,
   };
+  const shelfOrigin = (): number => {
+    const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
+    return shelf === null ? 0 : shelf.getBoundingClientRect().top;
+  };
+  const marked = new Set<string>();
   const repaintMarks = (): void => {
     clearMarks(documentRoot);
+    marked.clear();
     if (!state.visible) return;
     for (const thread of config.threads)
-      if (state.showResolved || thread.resolvedAt === null)
-        markThread(documentRoot, thread, thread.id === state.activeId);
+      if (state.showResolved || thread.resolvedAt === null) {
+        if (markThread(documentRoot, thread, thread.id === state.activeId) !== null) marked.add(thread.id);
+      }
   };
+  let measuredOrigin: number | null = null;
+  const scheduleOriginCheck = (): void => {
+    window.requestAnimationFrame(() => {
+      const origin = shelfOrigin();
+      if (measuredOrigin !== null && Math.abs(origin - measuredOrigin) > 1) render();
+    });
+  };
+  const convertedAnchors = (): Record<string, number> => {
+    const origin = shelfOrigin();
+    measuredOrigin = origin;
+    const anchors: Record<string, number> = {};
+    for (const [id, y] of Object.entries(state.geometry)) anchors[id] = Math.max(0, Math.round(y - origin));
+    return anchors;
+  };
+  const threadsWithStaleMarks = () =>
+    config.threads.map((thread) =>
+      !marked.has(thread.id) && (state.showResolved || thread.resolvedAt === null)
+        ? { ...thread, stale: true, staleLabel: "Text changed" }
+        : thread,
+    );
   const measure = (): void => {
-    const origin = shell.getBoundingClientRect().top - shell.scrollTop;
     const anchors: Record<string, number> = {};
     for (const mark of Array.from(documentRoot.querySelectorAll<HTMLElement>(`mark.${MARK}`))) {
       const id = mark.dataset.threadId;
       if (id === undefined) continue;
-      const top = mark.getBoundingClientRect().top - origin;
+      const top = mark.getBoundingClientRect().top + shell.scrollTop;
       anchors[id] = anchors[id] === undefined ? top : Math.min(anchors[id]!, top);
     }
     state.geometry = anchors;
     render();
   };
   const refresh = (): void => window.location.reload();
-  const shelfAnchors = (): Record<string, number> => {
-    const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
-    const origin = (shelf?.getBoundingClientRect().top ?? 0) - (shelf?.scrollTop ?? 0);
-    const anchors: Record<string, number> = {};
-    for (const [id, y] of Object.entries(state.geometry)) anchors[id] = Math.max(0, Math.round(y - origin));
-    return anchors;
-  };
   const render = (): void => {
+    scheduleOriginCheck();
     host.style.display = state.visible ? "block" : "none";
     shell.classList.toggle("comments-visible", state.visible);
     root.render(
       <CommentThreadMargin
-        threads={config.threads}
-        anchors={shelfAnchors()}
+        threads={threadsWithStaleMarks()}
+        anchors={convertedAnchors()}
         activeId={state.activeId}
         onActivate={(id) => {
           state.activeId = id;

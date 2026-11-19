@@ -831,3 +831,26 @@
 .editor-workspace.editor-panel-open.editor-margin-open .editor-comments-column {
   grid-column: 3;
 }
+
+mark.viewer-comment-mark {
+  background: var(--accent-wash);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 2px;
+  color: inherit;
+  padding: 0 1px;
+}
+
+mark.viewer-comment-mark-active {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  border-bottom-color: var(--accent);
+}
+
+mark.viewer-comment-mark-stale {
+  background: var(--hover);
+  border-bottom: 1px dotted var(--fg-subtle);
+}
+
+mark.viewer-comment-mark-resolved {
+  background: var(--hover);
+  border-bottom: 1px solid var(--line-strong);
+}

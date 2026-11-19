@@ -60,30 +60,31 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       const mark = marks.get(pin.id);
       if (!mark) continue;
       const found = resolve(pin);
+      const previous = mark.dataset.at ? mark.dataset.at.split(",").map(Number) : null;
       let left = 0;
       let top = 0;
       let visible = false;
-      const previous = mark.dataset.at ? mark.dataset.at.split(",").map(Number) : null;
       if (found.element) {
         const rect = box(found.element);
         left = rect.left + pin.x * rect.width;
         top = rect.top + pin.y * rect.height;
         visible = true;
-        mark.classList.toggle("artiflow-pin-stale", false);
+        mark.classList.remove("artiflow-pin-stale");
         mark.style.borderStyle = "solid";
         mark.style.opacity = "1";
-      } else if (pin.stalePixels === true) {
-        left = pin.x * (window.innerWidth || 1);
-        top = pin.y;
+      } else {
         mark.classList.add("artiflow-pin-stale");
         mark.style.borderStyle = "dashed";
         mark.style.opacity = "0.6";
-        if (previous && pin.stalePixels !== true) {
+        if (pin.stalePixels === true) {
+          left = pin.x * (window.innerWidth || 1);
+          top = pin.y;
+        } else if (previous !== null) {
           left = previous[0];
           top = previous[1];
-        } else if (pin.stalePixels !== true) {
+        } else {
           left = pin.x * (window.innerWidth || 1);
-          top = pin.y * (window.innerHeight || 1);
+          top = Math.max(24, Math.round(pin.y * (window.innerHeight || 1)));
         }
       }
       mark.style.transform = "translate(" + Math.round(left) + "px," + Math.round(top) + "px)";
@@ -102,7 +103,11 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       mark.style.cssText =
         "position:absolute;top:0;left:0;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;border:1px solid #fff;background:#ff6a2b;color:#170b05;font:600 12px/22px system-ui;cursor:pointer;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
       mark.style.transform =
-        "translate(" + Math.round(pin.x * (window.innerWidth || 1)) + "px," + Math.round(pin.y * (window.innerHeight || 1)) + "px)";
+        "translate(" +
+        Math.round(pin.x * (window.innerWidth || 1)) +
+        "px," +
+        Math.round(pin.stalePixels === true ? pin.y : Math.max(24, pin.y * (window.innerHeight || 1))) +
+        "px)";
       mark.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -172,6 +177,9 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
     mount();
     document.addEventListener("mousemove", onMove, true);
     document.addEventListener("click", onClick, true);
+    window.addEventListener("load", place);
+    setTimeout(place, 120);
+    document.addEventListener("DOMContentLoaded", place);
     window.addEventListener("scroll", place, true);
     window.addEventListener("resize", place, true);
     if (typeof ResizeObserver === "function") new ResizeObserver(place).observe(document.documentElement);

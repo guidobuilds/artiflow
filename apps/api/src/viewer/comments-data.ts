@@ -156,6 +156,7 @@ export type BridgePin = {
   x: number;
   y: number;
   stale: boolean;
+  stalePixels: boolean;
 };
 
 export const bridgePins = (threads: ViewerCommentThread[]): BridgePin[] =>
@@ -179,6 +180,7 @@ export const bridgePins = (threads: ViewerCommentThread[]): BridgePin[] =>
           x: anchor.point?.x ?? 0.5,
           y: anchor.point?.y ?? 0.5,
           stale: false as boolean,
+          stalePixels: false as boolean,
         },
       ];
     if (anchor.kind === "page-point")
@@ -191,6 +193,7 @@ export const bridgePins = (threads: ViewerCommentThread[]): BridgePin[] =>
           x: typeof anchor.x === "number" ? anchor.x : 0.5,
           y: typeof anchor.y === "number" ? anchor.y : 0,
           stale: true as boolean,
+          stalePixels: true as boolean,
         },
       ];
     return [];

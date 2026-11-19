@@ -7,7 +7,8 @@ const dashboardRoot = resolve(here, "../../../../apps/dashboard");
 const devEntry = "/src/viewer-comments.tsx";
 
 type ManifestChunk = { file?: string; css?: string[]; imports?: string[] };
-type Assets = { script: string; styles: string[]; dev: boolean };
+export type Assets = { script: string; styles: string[]; dev: boolean };
+export type AssetLog = (message: string) => void;
 
 let memo: { key: string; value: Assets } | null = null;
 
@@ -28,7 +29,10 @@ const collectStyles = (manifest: Record<string, ManifestChunk>, key: string, see
   return [...own, ...(chunk.imports ?? []).flatMap((next) => collectStyles(manifest, next, seen))];
 };
 
-export function viewerCommentsAssets(env: Record<string, string | undefined> = process.env): Assets {
+export function viewerCommentsAssets(
+  env: Record<string, string | undefined> = process.env,
+  log: AssetLog = (message) => console.error(message),
+): Assets {
   const explicit = env.ARTIFLOW_VIEWER_COMMENTS_ASSET;
   if (explicit !== undefined && explicit.trim() !== "") return { script: explicit.trim(), styles: [], dev: false };
   const dist = env.ARTIFLOW_DASHBOARD_DIST ?? join(dashboardRoot, "dist");
@@ -38,13 +42,16 @@ export function viewerCommentsAssets(env: Record<string, string | undefined> = p
   const entryKey =
     manifest === null ? undefined : Object.keys(manifest).find((name) => name.endsWith("viewer-comments.tsx"));
   const value: Assets =
-    manifest === null || entryKey === undefined
-      ? { script: devEntry, styles: [], dev: true }
-      : {
+    manifest !== null && entryKey !== undefined
+      ? {
           script: "/" + (manifest[entryKey]?.file ?? "").replace(/^\/+/, ""),
           styles: collectStyles(manifest, entryKey),
           dev: false,
-        };
+        }
+      : (env.NODE_ENV ?? "").trim() === "production"
+        ? (log(`[viewer] no comment bundle in ${key}; production serves the viewer without comments`),
+          { script: "", styles: [], dev: false })
+        : { script: devEntry, styles: [], dev: true };
   memo = { key, value };
   return value;
 }

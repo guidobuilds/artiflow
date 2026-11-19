@@ -25,6 +25,11 @@ const DOCUMENT_CSS = `:root{color-scheme:dark light;--doc-bg:#1c1c1c;--doc-fg:#f
 .mdpage pre code{border:0;background:none;padding:0}
 .mdpage table{border-collapse:collapse;margin:1em 0;width:100%}
 .mdpage th,.mdpage td{border:1px solid var(--doc-line-strong);padding:6px 10px;text-align:left}
+.mdpage ul,.mdpage ol{margin:1em 0;padding-left:1.4em}
+.mdpage ul{list-style:disc}
+.mdpage ol{list-style:decimal}
+.mdpage li{margin:.25em 0}
+.mdpage li>ul,.mdpage li>ol{margin:.25em 0}
 .mdpage th{background:var(--doc-surface)}
 .mdpage blockquote{margin:1em 0;padding:.1em 1em;border-left:3px solid var(--doc-line-strong);color:var(--doc-fg-muted)}
 .mdpage img{max-width:100%}
@@ -43,7 +48,9 @@ export function markdownViewerPage(
   const commentsData =
     comments === undefined
       ? ""
-      : `<script type="application/json" id="viewer-comments-data">${escapeJson(JSON.stringify(comments.config))}</script>
+      : comments.assets.script === ""
+        ? ""
+        : `<script type="application/json" id="viewer-comments-data">${escapeJson(JSON.stringify(comments.config))}</script>
 ${assetsScripts(comments.assets)}`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${csp}"><title>Document</title>

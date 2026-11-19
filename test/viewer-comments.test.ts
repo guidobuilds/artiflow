@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { resetViewerCommentsAssetCache, viewerCommentsAsset } from "../apps/api/src/viewer/assets.ts";
+import {
+  resetViewerCommentsAssetCache,
+  viewerCommentsAsset,
+  viewerCommentsAssets,
+} from "../apps/api/src/viewer/assets.ts";
 import { viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -44,11 +48,32 @@ test("the viewer asset prefers an explicit override and otherwise finds the mani
   }
 });
 
-test("without a manifest the asset falls back to the dev entry", () => {
+test("production without a manifest serves no bundle and says so", () => {
+  resetViewerCommentsAssetCache();
+  const dir = mkdtempSync(join(tmpdir(), "viewer-asset-prod-"));
+  const logged: string[] = [];
+  try {
+    const assets = viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir, NODE_ENV: "production" }, (message) =>
+      logged.push(message),
+    );
+    assert.deepEqual(assets, { script: "", styles: [], dev: false }, "no dev preamble ever reaches production");
+    assert.equal(logged.length, 1);
+    assert.match(logged[0]!, /no comment bundle/);
+    assert.equal(logged[0]!.includes(dir), true, "the log names the manifest it looked for");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    resetViewerCommentsAssetCache();
+  }
+});
+
+test("a missing manifest outside production falls back to the dev entry", () => {
   resetViewerCommentsAssetCache();
   const dir = mkdtempSync(join(tmpdir(), "viewer-asset-empty-"));
   try {
-    assert.equal(viewerCommentsAsset({ ARTIFLOW_DASHBOARD_DIST: dir }), "/src/viewer-comments.tsx");
+    assert.equal(
+      viewerCommentsAsset({ ARTIFLOW_DASHBOARD_DIST: dir, NODE_ENV: "development" }),
+      "/src/viewer-comments.tsx",
+    );
   } finally {
     rmSync(dir, { recursive: true, force: true });
     resetViewerCommentsAssetCache();
