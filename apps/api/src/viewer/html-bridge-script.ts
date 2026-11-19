@@ -69,10 +69,14 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
         top = rect.top + pin.y * rect.height;
         visible = true;
         mark.classList.toggle("artiflow-pin-stale", false);
+        mark.style.borderStyle = "solid";
+        mark.style.opacity = "1";
       } else {
         left = pin.x * (window.innerWidth || 1);
         top = pin.y;
         mark.classList.add("artiflow-pin-stale");
+        mark.style.borderStyle = "dashed";
+        mark.style.opacity = "0.6";
       }
       mark.style.transform = "translate(" + Math.round(left) + "px," + Math.round(top) + "px)";
       post({ type: "geometry", id: pin.id, x: Math.round(left), y: Math.round(top), visible });

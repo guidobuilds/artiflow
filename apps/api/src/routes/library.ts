@@ -212,9 +212,11 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
     const htmlShared = await commentDocument(db, ownerId, row.id, "shared");
     const htmlRows = htmlShared === undefined ? [] : await listComments(db, row.id, true);
+    const nonce = bridgeNonce(row.id, row.sha256);
     const htmlConfig = viewerCommentsConfig({
       artifactId: row.id,
       mode: "element",
+      bridgeNonce: nonce,
       source: "",
       rows: htmlRows,
       viewerId: ownerId,
@@ -226,7 +228,6 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         deleteComment: `/api/artifacts/${row.id}/comments`,
       },
     });
-    const nonce = bridgeNonce(row.id, row.sha256);
     return c.html(
       wrapperPage(
         escaped,

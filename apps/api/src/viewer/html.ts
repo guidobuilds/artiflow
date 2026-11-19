@@ -1,6 +1,6 @@
 export const WRAPPER_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
-export const VIEWER_CSP = `${WRAPPER_CSP}; connect-src 'self'`;
+export const VIEWER_CSP = `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'`;
 export const VIEWER_HEADERS = {
   "content-security-policy": VIEWER_CSP,
   "x-content-type-options": "nosniff",
@@ -269,7 +269,7 @@ ${viewerBarStart(backHref, meta)}<div class="vbar-cell vbar-actions"><button cla
 <button class="vbar-exit" type="button" aria-label="Exit focus mode" title="Exit focus mode (Esc)">×</button>`
   }
 <div class="docshell${comments === undefined ? "" : " comments-available"}" id="docshell">
-<iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${escaped}${comments === undefined ? "" : comments.bridge}"></iframe>
+<iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${escaped}${comments === undefined ? "" : escapeAttribute(comments.bridge)}"></iframe>
 ${comments === undefined ? "" : `<div id="viewer-comments" class="viewer-comments"></div>`}
 </div>
 ${

@@ -174,7 +174,7 @@ test("the editor highlights follow the thread state and hide with the margin", (
 
 test("anchor positions recompute on resize, scroll, content and font load", () => {
   const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
-  assert.match(page, /coordsAtPos\(range\.from\)\.top - base/);
+  assert.match(page, /coordsAtPos\(range\.from\)\.top \+ window\.scrollY - base/);
   assert.match(page, /new ResizeObserver\(frame\)/);
   assert.match(page, /canvas\.addEventListener\("scroll", frame\)/);
   assert.match(page, /window\.addEventListener\("resize", frame\)/);

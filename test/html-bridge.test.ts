@@ -189,7 +189,11 @@ test("picking an element prefers id, then data-*, then a unique text hint and ne
 
 test("the page injects the bridge inside the frame and keeps the margin outside it", () => {
   const html = readFileSync(new URL("../apps/api/src/viewer/html.ts", import.meta.url), "utf8");
-  assert.match(html, /srcdoc="\$\{escaped\}\$\{comments === undefined \? "" : comments\.bridge\}"/);
+  assert.match(
+    html,
+    /srcdoc="\$\{escaped\}\$\{comments === undefined \? "" : escapeAttribute\(comments\.bridge\)\}"/,
+    "the bridge is escaped into the attribute, so its own quotes cannot close it",
+  );
   assert.match(html, /<div id="viewer-comments" class="viewer-comments"><\/div>/);
   assert.match(html, /type="application\/json" id="viewer-comments-data"/);
   assert.match(html, /docshell\$\{comments === undefined \? "" : " comments-available"\}/);

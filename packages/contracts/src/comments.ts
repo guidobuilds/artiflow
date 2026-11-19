@@ -25,13 +25,15 @@ export const textRangeAnchorSchema = z
   .refine(({ startLine, endLine }) => endLine >= startLine, { message: "endLine < startLine" });
 export type TextRangeAnchorWire = z.infer<typeof textRangeAnchorSchema>;
 
-export const elementAnchorSchema = z.object({
-  kind: z.literal("element"),
-  selector: z.string().min(1).max(MAX_ELEMENT_SELECTOR),
-  point: at,
-  textHint: z.string().max(MAX_ELEMENT_TEXT_HINT),
-  viewportWidth,
-});
+export const elementAnchorSchema = z
+  .object({
+    kind: z.literal("element"),
+    selector: z.string().max(MAX_ELEMENT_SELECTOR),
+    point: at,
+    textHint: z.string().max(MAX_ELEMENT_TEXT_HINT),
+    viewportWidth,
+  })
+  .refine(({ selector, textHint }) => selector !== "" || textHint !== "", { message: "element_anchor_needs_locator" });
 export type ElementAnchorWire = z.infer<typeof elementAnchorSchema>;
 
 export const pagePointAnchorSchema = z.object({

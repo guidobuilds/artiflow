@@ -18,7 +18,8 @@ import { markdownViewerPage, renderMarkdownFragment } from "../apps/api/src/view
 
 const TODAYS_POLICY =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
-const VIEWER_POLICY = `${TODAYS_POLICY}; connect-src 'self'`;
+const VIEWER_POLICY =
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'";
 
 const unescapeAttribute = (value: string): string =>
   value
@@ -48,10 +49,22 @@ const SHARE_REFRESH = { metaUrl: "/share/token42?meta=1", revisionNumber: 2, sha
 const BYTES = `<!doctype html><p onclick="steal()">quotes "a" 'b' & more</p><script>document.title = "pwn"</script>`;
 const FRESH_BYTES = `<!doctype html><p>revision four</p>`;
 
-test("the served viewer policy is today's wrapper list plus one connect-src, in that order", () => {
+test("the served viewer policy is today's wrapper list plus the same-origin bundle and one connect-src", () => {
   assert.equal(WRAPPER_CSP, TODAYS_POLICY, "the wrapper policy stays byte-identical");
   assert.equal(VIEWER_CSP, VIEWER_POLICY);
-  assert.deepEqual(VIEWER_CSP.split("; ").slice(0, -1), TODAYS_POLICY.split("; "), "directive order is unchanged");
+  assert.equal(
+    VIEWER_CSP.includes("script-src 'self' 'unsafe-inline'"),
+    true,
+    "the viewer needs the same-origin comment bundle, and adds no host",
+  );
+  assert.deepEqual(VIEWER_CSP.split("; ").slice(0, -1), [
+    "default-src 'none'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'unsafe-inline'",
+    "frame-src 'self'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ]);
   assert.equal(VIEWER_CSP.split("; ").at(-1), "connect-src 'self'", "the only added directive is last");
   assert.equal(VIEWER_HEADERS["content-security-policy"], VIEWER_CSP);
   assert.deepEqual(Object.keys(VIEWER_HEADERS), ["content-security-policy", "x-content-type-options", "cache-control"]);
@@ -127,7 +140,7 @@ test("the additional gate: the artifact inherits the wrapper list and stays opaq
     revisionNumber: 1,
     sha256: "bbb",
   });
-  assert.equal(VIEWER_CSP, VIEWER_POLICY, "the inherited list equals the wrapper's list");
+  assert.equal(VIEWER_CSP, VIEWER_POLICY, "the inherited list equals the viewer's list");
   assert.notEqual(VIEWER_CSP, WRAPPER_CSP, "the inherited list is the widened one: this gate exists because of that");
 
   const hostDirectives = new Set(VIEWER_POLICY.split("; ").map((directive) => directive.split(" ")[0] ?? ""));

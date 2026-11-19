@@ -26,6 +26,7 @@ export type ViewerCommentThread = ViewerComment & { replies: ViewerComment[] };
 export type ViewerCommentsConfig = {
   artifactId: string;
   mode: "text" | "element";
+  bridgeNonce?: string;
   canComment: boolean;
   canResolve: boolean;
   threads: ViewerCommentThread[];
@@ -119,6 +120,7 @@ export function viewerCommentsConfig(input: {
   canDeleteOwn: boolean;
   endpoints: ViewerCommentsConfig["endpoints"];
   mode?: "text" | "element";
+  bridgeNonce?: string;
 }): ViewerCommentsConfig {
   const mode = input.mode ?? "text";
   const role = { comment: input.canComment, resolve: input.canComment };
@@ -138,6 +140,7 @@ export function viewerCommentsConfig(input: {
   return {
     artifactId: input.artifactId,
     mode,
+    ...(input.bridgeNonce === undefined ? {} : { bridgeNonce: input.bridgeNonce }),
     canComment: input.canComment,
     canResolve: role.resolve,
     threads: roots,

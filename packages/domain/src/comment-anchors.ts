@@ -68,7 +68,8 @@ export function anchorShapeIsValid(anchor: unknown): boolean {
     );
   if (candidate.kind === "element")
     return (
-      nonEmptyString(candidate.selector) &&
+      typeof candidate.selector === "string" &&
+      (candidate.selector !== "" || candidate.textHint !== "") &&
       ratio(candidate.point?.x) &&
       ratio(candidate.point?.y) &&
       typeof candidate.textHint === "string" &&

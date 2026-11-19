@@ -486,9 +486,11 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
     const visible = row.showComments ? await listComments(db, row.artifactId, true) : [];
+    const nonce = bridgeNonce(row.artifactId, row.sha256);
     const htmlConfig = viewerCommentsConfig({
       artifactId: row.artifactId,
       mode: "element",
+      bridgeNonce: nonce,
       source: "",
       rows: visible,
       viewerId: null,
@@ -496,7 +498,6 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       canDeleteOwn: false,
       endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
     });
-    const nonce = bridgeNonce(row.artifactId, row.sha256);
     return c.html(
       wrapperPage(escaped, undefined, undefined, false, refresh, {
         nonce,

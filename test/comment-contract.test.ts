@@ -52,8 +52,15 @@ test("malformed text-range anchors are rejected", () => {
   assert.deepEqual(anchorIssues({ ...textRange, quotedText: undefined }), ["rejected"]);
 });
 
+test("an element anchor needs a locator but not necessarily a selector", () => {
+  assert.deepEqual(anchorIssues({ ...element, selector: "" }), []);
+  assert.deepEqual(anchorIssues({ ...element, selector: "", textHint: "Visible text" }), []);
+  assert.deepEqual(anchorIssues({ ...element, selector: "", textHint: "" }), ["rejected"]);
+  assert.equal(anchorShapeIsValid({ ...element, selector: "", textHint: "Visible text" }), true);
+  assert.equal(anchorShapeIsValid({ ...element, selector: "", textHint: "" }), false);
+});
+
 test("malformed element anchors are rejected", () => {
-  assert.deepEqual(anchorIssues({ ...element, selector: "" }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...element, selector: "x".repeat(513) }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...element, point: { x: 1.5, y: 0.5 } }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...element, point: { x: 0.5, y: -0.1 } }), ["rejected"]);

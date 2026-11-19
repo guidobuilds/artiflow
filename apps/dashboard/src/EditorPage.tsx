@@ -449,10 +449,11 @@ function DocumentEditor({ initial }: { initial: Document }) {
     const view = editor?.view;
     const canvas = canvasRef.current;
     if (!view || !canvas || editor?.isDestroyed) return;
-    const base = canvas.getBoundingClientRect().top + canvas.scrollTop;
+    const shelf = canvas.parentElement?.querySelector<HTMLElement>(".comment-thread-margin");
+    const base = (shelf ?? canvas).getBoundingClientRect().top + window.scrollY;
     const next: Record<string, number> = {};
     for (const range of markerRanges(view.state)) {
-      const top = Math.max(0, view.coordsAtPos(range.from).top - base);
+      const top = Math.max(0, view.coordsAtPos(range.from).top + window.scrollY - base);
       next[range.id] = next[range.id] === undefined ? top : Math.min(next[range.id]!, top);
     }
     setAnchorTops((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next));

@@ -21,6 +21,7 @@ type ViewerThread = CommentThread & { occurrence: number; anchor?: unknown };
 type Config = {
   artifactId: string;
   mode: "text" | "element";
+  bridgeNonce?: string;
   canComment: boolean;
   canResolve: boolean;
   threads: ViewerThread[];
@@ -260,8 +261,7 @@ export function mountViewerCommentsInFrame(): void {
   const host = document.getElementById("viewer-comments");
   const frame = document.querySelector<HTMLIFrameElement>("#docshell iframe");
   const shell = document.getElementById("docshell");
-  const bridge = document.querySelector<HTMLScriptElement>("script[data-artiflow-bridge]");
-  const nonce = bridge?.dataset.nonce ?? "";
+  const nonce = config?.bridgeNonce ?? "";
   if (config === null || host === null || frame === null || shell === null || nonce === "") return;
   const root = createRoot(host);
   const budget = createMessageBudget();
@@ -271,6 +271,7 @@ export function mountViewerCommentsInFrame(): void {
     showResolved: false,
     anchors: {} as Record<string, number>,
     error: null as string | null,
+    staleIds: [] as string[],
     commenting: false,
     draft: null as { anchor: ElementAnchor; top: number } | null,
     busy: false,
@@ -285,7 +286,9 @@ export function mountViewerCommentsInFrame(): void {
     if (!state.visible) send({ type: "mode", on: false });
     root.render(
       <CommentThreadMargin
-        threads={config.threads}
+        threads={config.threads.map((thread) =>
+          state.staleIds.includes(thread.id) ? { ...thread, stale: true, staleLabel: "Element changed" } : thread,
+        )}
         anchors={state.anchors}
         activeId={state.activeId}
         onActivate={(id) => {
@@ -398,6 +401,9 @@ export function mountViewerCommentsInFrame(): void {
     const message = parsed.message;
     if (message.type === "geometry") {
       state.anchors = { ...state.anchors, [message.id]: message.y };
+      const stale = state.staleIds.includes(message.id);
+      if (!message.visible && !stale) state.staleIds = [...state.staleIds, message.id];
+      if (message.visible && stale) state.staleIds = state.staleIds.filter((id) => id !== message.id);
       render();
       return;
     }
