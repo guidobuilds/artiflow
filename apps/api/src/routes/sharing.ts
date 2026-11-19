@@ -18,7 +18,7 @@ import { listComments } from "../adapters/postgres/comments-repo.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
-import { viewerCommentsAsset } from "../viewer/assets.ts";
+import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
@@ -473,7 +473,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
           canDeleteOwn: false,
           endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
         }),
-        asset: viewerCommentsAsset(),
+        assets: viewerCommentsAssets(),
       };
       return c.html(
         markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh, comments),
@@ -503,7 +503,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
         nonce,
         bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
         config: htmlConfig,
-        asset: viewerCommentsAsset(),
+        assets: viewerCommentsAssets(),
       }),
       200,
       {

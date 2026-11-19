@@ -20,7 +20,7 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
   const SKIP = new Set(["html","head","body","script","style","meta","link","title"]);
   const layer = document.createElement("div");
   layer.setAttribute("data-artiflow-pin-layer", "");
-  layer.style.cssText = "position:absolute;inset:0;pointer-events:none;z-index:2147483647";
+  layer.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647";
   const post = (message) => {
     try { window.parent.postMessage({ channel: CHANNEL, version: VERSION, nonce: NONCE, ...message }, "*"); } catch (error) {}
   };
@@ -63,6 +63,7 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       let left = 0;
       let top = 0;
       let visible = false;
+      const previous = mark.dataset.at ? mark.dataset.at.split(",").map(Number) : null;
       if (found.element) {
         const rect = box(found.element);
         left = rect.left + pin.x * rect.width;
@@ -71,14 +72,22 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
         mark.classList.toggle("artiflow-pin-stale", false);
         mark.style.borderStyle = "solid";
         mark.style.opacity = "1";
-      } else {
+      } else if (pin.stalePixels === true) {
         left = pin.x * (window.innerWidth || 1);
         top = pin.y;
         mark.classList.add("artiflow-pin-stale");
         mark.style.borderStyle = "dashed";
         mark.style.opacity = "0.6";
+        if (previous && pin.stalePixels !== true) {
+          left = previous[0];
+          top = previous[1];
+        } else if (pin.stalePixels !== true) {
+          left = pin.x * (window.innerWidth || 1);
+          top = pin.y * (window.innerHeight || 1);
+        }
       }
       mark.style.transform = "translate(" + Math.round(left) + "px," + Math.round(top) + "px)";
+      if (visible) mark.dataset.at = Math.round(left) + "," + Math.round(top);
       post({ type: "geometry", id: pin.id, x: Math.round(left), y: Math.round(top), visible });
     }
   };
@@ -92,6 +101,8 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       mark.textContent = String(pin.number);
       mark.style.cssText =
         "position:absolute;top:0;left:0;width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;border:1px solid #fff;background:#ff6a2b;color:#170b05;font:600 12px/22px system-ui;cursor:pointer;pointer-events:auto;box-shadow:0 2px 8px rgba(0,0,0,.3)";
+      mark.style.transform =
+        "translate(" + Math.round(pin.x * (window.innerWidth || 1)) + "px," + Math.round(pin.y * (window.innerHeight || 1)) + "px)";
       mark.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();

@@ -19,7 +19,7 @@ import { markdownViewerPage, renderMarkdownFragment } from "../apps/api/src/view
 const TODAYS_POLICY =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
 const VIEWER_POLICY =
-  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'";
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'";
 
 const unescapeAttribute = (value: string): string =>
   value
@@ -60,7 +60,7 @@ test("the served viewer policy is today's wrapper list plus the same-origin bund
   assert.deepEqual(VIEWER_CSP.split("; ").slice(0, -1), [
     "default-src 'none'",
     "script-src 'self' 'unsafe-inline'",
-    "style-src 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
     "frame-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
@@ -129,7 +129,7 @@ test("the markdown wrapper keeps its scriptless sandbox and its own policy list"
   assert.equal(scriptBodies(page).length, 1, "exactly the one refresh script");
   assert.equal(
     /content-security-policy" content="([^"]*)"/.exec(page)?.[1],
-    `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'`,
+    `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'`,
   );
 });
 

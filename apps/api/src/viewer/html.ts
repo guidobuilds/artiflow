@@ -1,6 +1,8 @@
+import { assetsHead, assetsScripts, type viewerCommentsAssets } from "./assets.ts";
+
 export const WRAPPER_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
-export const VIEWER_CSP = `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'`;
+export const VIEWER_CSP: string = `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'`;
 export const VIEWER_HEADERS = {
   "content-security-policy": VIEWER_CSP,
   "x-content-type-options": "nosniff",
@@ -231,7 +233,7 @@ export type WrapperComments = {
   nonce: string;
   bridge: string;
   config: unknown;
-  asset: string;
+  assets: ReturnType<typeof viewerCommentsAssets>;
 };
 
 export function wrapperPage(
@@ -253,13 +255,14 @@ ${VIEWER_CHROME_CSS}
 .vbar-exit:hover,.vbar-exit:focus-visible{opacity:1}
 body.focus .vbar{display:none}
 body.focus .vbar-exit{display:block}
-.docshell{display:grid;grid-template-columns:minmax(0,1fr);flex:1;min-height:0}
+.docshell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;overflow:hidden}
 .docshell.comments-visible{grid-template-columns:minmax(0,1fr) 320px}
 .viewer-comments{display:none}
 .docshell.comments-visible .viewer-comments{display:block;overflow:auto;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
 @media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
-iframe{flex:1;min-height:0;width:100%;border:0;background:white}
-</style></head>
+iframe{height:100%;min-height:0;width:100%;border:0;background:white}
+</style>
+${comments === undefined ? "" : assetsHead(comments.assets)}</head>
 <body>${
     embed
       ? ""
@@ -276,7 +279,7 @@ ${
   comments === undefined
     ? ""
     : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>
-<script type="module" src="${escapeAttribute(comments.asset)}"></script>`
+${assetsScripts(comments.assets)}`
 }
 <script>
 const exitButton = document.querySelector(".vbar-exit");

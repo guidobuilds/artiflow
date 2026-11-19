@@ -92,7 +92,7 @@ test("a comments mount adds the data island, the container and the module bundle
         deleteComment: "/api/artifacts/a1/comments",
       },
     },
-    asset: "/assets/viewer-comments-abc.js",
+    assets: { script: "/assets/viewer-comments-abc.js", styles: [], dev: false },
   });
   assert.ok(withComments.includes('<div id="viewer-comments"'), withComments);
   assert.ok(withComments.includes('type="application/json" id="viewer-comments-data"'));
@@ -111,7 +111,7 @@ test("the comments island escapes markup so the data cannot break out", () => {
       threads: [],
       endpoints: { comments: "/share/t/comments", resolve: "", deleteComment: "" },
     },
-    asset: "/assets/viewer-comments-abc.js",
+    assets: { script: "/assets/viewer-comments-abc.js", styles: [], dev: false },
   });
   const island = html.match(/<script type="application\/json" id="viewer-comments-data">([^<]*)<\/script>/)?.[1] ?? "";
   assert.ok(island.length > 0, "the island exists");

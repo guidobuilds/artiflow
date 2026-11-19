@@ -1,5 +1,7 @@
 import { createRoot } from "react-dom/client";
 
+import "@/styles/globals.css";
+
 import CommentThreadMargin, { type CommentThread } from "@/components/comments/comment-thread-margin.tsx";
 import {
   createMessageBudget,
@@ -123,7 +125,7 @@ export function mountViewerComments(): void {
     activeId: null as string | null,
     visible: true,
     showResolved: false,
-    anchors: {} as Record<string, number>,
+    geometry: {} as Record<string, number>,
     error: null as string | null,
   };
   const repaintMarks = (): void => {
@@ -142,17 +144,24 @@ export function mountViewerComments(): void {
       const top = mark.getBoundingClientRect().top - origin;
       anchors[id] = anchors[id] === undefined ? top : Math.min(anchors[id]!, top);
     }
-    state.anchors = anchors;
+    state.geometry = anchors;
     render();
   };
   const refresh = (): void => window.location.reload();
+  const shelfAnchors = (): Record<string, number> => {
+    const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
+    const origin = (shelf?.getBoundingClientRect().top ?? 0) - (shelf?.scrollTop ?? 0);
+    const anchors: Record<string, number> = {};
+    for (const [id, y] of Object.entries(state.geometry)) anchors[id] = Math.max(0, Math.round(y - origin));
+    return anchors;
+  };
   const render = (): void => {
     host.style.display = state.visible ? "block" : "none";
     shell.classList.toggle("comments-visible", state.visible);
     root.render(
       <CommentThreadMargin
         threads={config.threads}
-        anchors={state.anchors}
+        anchors={shelfAnchors()}
         activeId={state.activeId}
         onActivate={(id) => {
           state.activeId = id;
@@ -269,7 +278,7 @@ export function mountViewerCommentsInFrame(): void {
     activeId: null as string | null,
     visible: true,
     showResolved: false,
-    anchors: {} as Record<string, number>,
+    geometry: {} as Record<string, number>,
     error: null as string | null,
     staleIds: [] as string[],
     commenting: false,
@@ -280,6 +289,13 @@ export function mountViewerCommentsInFrame(): void {
     frame.contentWindow?.postMessage(encodeCommand(command, nonce), "*");
   };
   const pins = () => pinsOf(config.threads);
+  const shelfAnchors = (): Record<string, number> => {
+    const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
+    const origin = (shelf?.getBoundingClientRect().top ?? 0) - (shelf?.scrollTop ?? 0);
+    const anchors: Record<string, number> = {};
+    for (const [id, y] of Object.entries(state.geometry)) anchors[id] = Math.max(0, Math.round(y - origin));
+    return anchors;
+  };
   const render = (): void => {
     host.style.display = state.visible ? "block" : "none";
     shell.classList.toggle("comments-visible", state.visible);
@@ -289,7 +305,7 @@ export function mountViewerCommentsInFrame(): void {
         threads={config.threads.map((thread) =>
           state.staleIds.includes(thread.id) ? { ...thread, stale: true, staleLabel: "Element changed" } : thread,
         )}
-        anchors={state.anchors}
+        anchors={shelfAnchors()}
         activeId={state.activeId}
         onActivate={(id) => {
           state.activeId = id;
@@ -399,8 +415,14 @@ export function mountViewerCommentsInFrame(): void {
     });
     if (!parsed.ok) return;
     const message = parsed.message;
+    if (message.type === "ready") {
+      send({ type: "pins", pins: pins() });
+      if (state.commenting) send({ type: "mode", on: true });
+      render();
+      return;
+    }
     if (message.type === "geometry") {
-      state.anchors = { ...state.anchors, [message.id]: message.y };
+      state.geometry = { ...state.geometry, [message.id]: message.y };
       const stale = state.staleIds.includes(message.id);
       if (!message.visible && !stale) state.staleIds = [...state.staleIds, message.id];
       if (message.visible && stale) state.staleIds = state.staleIds.filter((id) => id !== message.id);

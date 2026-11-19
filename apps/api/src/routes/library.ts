@@ -24,7 +24,7 @@ import type {
 } from "@artiflow/contracts/artifacts";
 import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
-import { viewerCommentsAsset } from "../viewer/assets.ts";
+import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
@@ -194,7 +194,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
             deleteComment: `/api/artifacts/${row.id}/comments`,
           },
         }),
-        asset: viewerCommentsAsset(),
+        assets: viewerCommentsAssets(),
       };
       return c.html(
         markdownViewerPage(
@@ -239,7 +239,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
           nonce,
           bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
           config: htmlConfig,
-          asset: viewerCommentsAsset(),
+          assets: viewerCommentsAssets(),
         },
       ),
       200,

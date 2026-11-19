@@ -35,7 +35,7 @@ const ENV_READY = Boolean(DATABASE_URL) && S3_VARS.every((name) => process.env[n
 const SKIP = ENV_READY ? false : "DATABASE_URL or S3 missing; run with --env-file=.env.local";
 const publicOrigin = ENV_READY ? loadConfig(process.env).publicOrigin : "";
 const CSP =
-  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
 const VIEWER_CSP = `${CSP}; connect-src 'self'`;
 const HTML_A = `<!doctype html><html><body><h1>Share A</h1><script>document.title = "pwn"</script><p>quotes "a" 'b' &amp; more</p></body></html>`;
 const HTML_B = `<!doctype html><p>second artifact body</p>`;

@@ -1,14 +1,8 @@
 import MarkdownIt from "markdown-it";
 
+import { assetsHead, assetsScripts } from "./assets.ts";
 import type { ViewerCommentsConfig } from "./comments-data.ts";
-import {
-  escapeAttribute,
-  VIEWER_CHROME_CSS,
-  viewerBarStart,
-  viewerRefreshScript,
-  type ViewerMeta,
-  type ViewerRefresh,
-} from "./html.ts";
+import { VIEWER_CHROME_CSS, viewerBarStart, viewerRefreshScript, type ViewerMeta, type ViewerRefresh } from "./html.ts";
 
 const md = new MarkdownIt({ html: false, linkify: true });
 
@@ -42,18 +36,18 @@ export function markdownViewerPage(
   meta: ViewerMeta | undefined,
   embed: boolean,
   refresh: ViewerRefresh,
-  comments?: { config: ViewerCommentsConfig; asset: string },
+  comments?: { config: ViewerCommentsConfig; assets: { script: string; styles: string[]; dev: boolean } },
 ): string {
   const csp =
-    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'";
+    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'";
   const commentsData =
     comments === undefined
       ? ""
       : `<script type="application/json" id="viewer-comments-data">${escapeJson(JSON.stringify(comments.config))}</script>
-<div id="viewer-comments" class="viewer-comments"></div>
-<script type="module" src="${escapeAttribute(comments.asset)}"></script>`;
+${assetsScripts(comments.assets)}`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${csp}"><title>Document</title>
+${comments === undefined ? "" : assetsHead(comments.assets)}
 <style>
 ${VIEWER_CHROME_CSS}
 </style><style id="doc-styles">
@@ -70,7 +64,9 @@ ${DOCUMENT_CSS}
       : `<header class="vbar">
 ${viewerBarStart(backHref, meta)}</header>`
   }
-<div class="docshell" id="docshell"><main class="mdpage" id="document">${fragment}</main></div>
+<div class="docshell" id="docshell"><main class="mdpage" id="document">${fragment}</main>${
+    comments === undefined ? "" : `<div id="viewer-comments" class="viewer-comments"></div>`
+  }</div>
 <script>
 ${viewerRefreshScript(refresh)}
 </script>
