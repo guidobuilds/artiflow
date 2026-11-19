@@ -159,7 +159,7 @@ test("the additional gate: the artifact inherits the wrapper list and stays opaq
 
   assert.equal(srcdocOf(html), "<p>x</p>");
   assert.equal(
-    /<script[ >]/i.test(markdown.replace(/<script>[^]*?<\/script>/g, "")),
+    /<script\b/i.test(markdown.replace(/<script\b[^>]*>[^]*?<\/script\s*>/gi, "")),
     false,
     "the fragment adds no script",
   );

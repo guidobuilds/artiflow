@@ -348,7 +348,18 @@ test(
     const reply = await read(`/share/${link.token}`);
     assert.equal(reply.status, 200);
     assert.equal(/<iframe/.test(reply.text), false, "the document renders in the page, not in a second frame");
-    assert.equal(reply.text.match(/<script>/g)?.length, 1, "the page ships only the poller until comments are enabled");
+    assert.equal(
+      [...reply.text.matchAll(/<script\b/gi)].length,
+      [...reply.text.matchAll(/<\/script\s*>/gi)].length,
+      "every script the page opens is closed",
+    );
+    const island = /<script type="application\/json" id="viewer-comments-data">([^]*?)<\/script\s*>/i.exec(
+      reply.text,
+    )?.[1];
+    assert.notEqual(island, undefined, "the margin mounts with an authorized data island");
+    const shared = JSON.parse(island ?? "{}") as { threads?: unknown[]; canComment?: boolean };
+    assert.deepEqual(shared.threads ?? [], [], "a link without the option carries no thread");
+    assert.equal(shared.canComment ?? false, false, "the public reader never writes");
     assert.ok(/<h1>Notas<\/h1>/.test(reply.text), "the sanitized fragment is inline");
     assert.ok(/&lt;strong&gt;negrita|<strong>negrita|negrita/.test(reply.text), "emphasis survives rendering");
     assert.equal(reply.text.includes('href="/"'), false, "no owner back link on the public page");
