@@ -1,6 +1,8 @@
+import { assetsHead, assetsScripts, type viewerCommentsAssets } from "./assets.ts";
+
 export const WRAPPER_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
-export const VIEWER_CSP = `${WRAPPER_CSP}; connect-src 'self'`;
+export const VIEWER_CSP: string = `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'`;
 export const VIEWER_HEADERS = {
   "content-security-policy": VIEWER_CSP,
   "x-content-type-options": "nosniff",
@@ -91,6 +93,9 @@ export type ViewerRefresh = {
   revisionNumber: number;
   sha256: string;
 };
+
+const escapeJsonText = (json: string): string =>
+  json.replace(/[<>&\u2028\u2029]/g, (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
 
 const scriptValue = (value: string | number): string => JSON.stringify(value).replaceAll("<", "\\u003c");
 
@@ -224,12 +229,20 @@ document.addEventListener("visibilitychange", () => {
 if (!document.hidden) startPolling();`;
 }
 
+export type WrapperComments = {
+  nonce: string;
+  bridge: string;
+  config: unknown;
+  assets: ReturnType<typeof viewerCommentsAssets>;
+};
+
 export function wrapperPage(
   escaped: string,
   backHref: string | undefined,
   meta: ViewerMeta | undefined,
   embed: boolean,
   refresh: ViewerRefresh,
+  comments?: WrapperComments,
 ): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Artifact</title>
@@ -242,8 +255,14 @@ ${VIEWER_CHROME_CSS}
 .vbar-exit:hover,.vbar-exit:focus-visible{opacity:1}
 body.focus .vbar{display:none}
 body.focus .vbar-exit{display:block}
-iframe{flex:1;min-height:0;width:100%;border:0;background:white}
-</style></head>
+.docshell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;overflow:hidden}
+.docshell.comments-visible{grid-template-columns:minmax(0,1fr) 320px}
+.viewer-comments{display:none}
+.docshell.comments-visible .viewer-comments{display:block;overflow:auto;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
+@media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
+iframe{height:100%;min-height:0;width:100%;border:0;background:white}
+</style>
+${comments === undefined ? "" : assetsHead(comments.assets)}</head>
 <body>${
     embed
       ? ""
@@ -252,7 +271,16 @@ ${viewerBarStart(backHref, meta)}<div class="vbar-cell vbar-actions"><button cla
 </header>
 <button class="vbar-exit" type="button" aria-label="Exit focus mode" title="Exit focus mode (Esc)">×</button>`
   }
-<iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${escaped}"></iframe>
+<div class="docshell${comments === undefined ? "" : " comments-available"}" id="docshell">
+<iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${escaped}${comments === undefined ? "" : escapeAttribute(comments.bridge)}"></iframe>
+${comments === undefined ? "" : `<div id="viewer-comments" class="viewer-comments"></div>`}
+</div>
+${
+  comments === undefined
+    ? ""
+    : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>
+${assetsScripts(comments.assets)}`
+}
 <script>
 const exitButton = document.querySelector(".vbar-exit");
 const setFocus = (on) => {

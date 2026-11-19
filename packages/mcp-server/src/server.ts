@@ -8,12 +8,19 @@ import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contrac
 import {
   McpRollback,
   type McpBackend,
+  type McpCommentDocument,
   type McpCommentRow,
   type McpExecutor,
   type McpRevisionInput,
 } from "@artiflow/mcp-server/ports";
 
-import { anchorText, type CommentAnchor } from "@artiflow/domain/comment-anchors";
+import {
+  anchorKindsForDocument,
+  anchorKindAllowed,
+  anchorText,
+  type AnyCommentAnchor,
+} from "@artiflow/domain/comment-anchors";
+import { commentAnchorSchema } from "@artiflow/contracts/comments";
 import { MCP_SERVER_INFO, type McpClaims } from "./claims.ts";
 
 export { ARTIFACT_VIEWER_RESOURCE_URI } from "@artiflow/mcp-server/constants";
@@ -80,7 +87,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     setRevisionCas,
     commentDocument,
     findComment: backendFindComment,
-    currentRevisionStorageKey,
+    currentRevision,
     insertComment,
     listComments,
     setCommentResolved,
@@ -590,21 +597,22 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       userId: string,
       artifactId: string,
       lock = false,
-    ): Promise<ToolReply | undefined> => {
+    ): Promise<McpCommentDocument | ToolReply> => {
       if (!UUID_RE.test(artifactId))
         return refusal("invalid_artifact_id", "artifactId must be a canonical lowercase uuid (8-4-4-4-12 hex)");
       const row = await commentDocument(query as unknown as McpExecutor, userId, artifactId, "owner", lock);
       if (!row) return refusal("not_found", "artifact_not_visible_to_owner");
       if (row.deletedAt) return refusal("gone", "artifact_deleted");
-      if (row.kind !== "markdown") return refusal("wrong_kind", "artifact_is_not_a_markdown_document");
+      return row;
     };
     const mutateComment = async (
       userId: string,
       artifactId: string,
-      action: (client: McpExecutor) => Promise<ToolReply>,
+      action: (client: McpExecutor, doc: McpCommentDocument) => Promise<ToolReply>,
     ): Promise<ToolReply> => {
       return commentTransaction(async (tx) => {
-        const result = (await commentGate(tx, userId, artifactId, true)) ?? (await action(tx));
+        const gate = await commentGate(tx, userId, artifactId, true);
+        const result = "content" in gate ? gate : await action(tx, gate);
         if (result.isError) throw new RollbackReply(result);
         return result;
       });
@@ -628,8 +636,8 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       artifactId: string,
       userId: string,
       parentId: string | null,
-      anchor: CommentAnchor,
-      quotedText: string,
+      anchor: AnyCommentAnchor | null,
+      revisionId: string | null,
       body: string,
     ): Promise<ToolReply> => {
       const inserted = await insertComment(client, {
@@ -637,7 +645,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         authorId: userId,
         parentId,
         anchor,
-        quotedText,
+        revisionId,
         body,
       });
       return reply({ id: inserted.id });
@@ -647,16 +655,16 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     server.registerTool(
       "artifact_list_comments",
       {
-        title: "List markdown comment threads",
+        title: "List comment threads",
         annotations: { readOnlyHint: true },
-        description: `List an owned markdown document's roots with ordered nested replies, including source anchors, quotes and resolution timestamps. Requires ${readScope}; comments create no document revisions.`,
+        description: `List an owned document's roots with ordered nested replies, including anchors, bodies and resolution timestamps. Requires ${readScope}; comments create no document revisions. Authors are returned as { id, name, image } and never expose email addresses.`,
         inputSchema: { artifactId: artifactIdSchema },
       },
       async ({ artifactId }) => {
         const access = allow(readScope);
         if (!access.ok) return access.reply;
-        const rejected = await commentGate(undefined, access.userId, artifactId);
-        if (rejected) return rejected;
+        const gate = await commentGate(undefined, access.userId, artifactId);
+        if ("content" in gate) return gate;
         const rows = await listComments(undefined, artifactId, false);
         return reply({
           comments: rows
@@ -665,7 +673,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
               ...serializeComment(row),
               replies: rows
                 .filter((child) => child.parentId === row.id)
-                .map((child) => ({ ...serializeComment(child), replies: [] })),
+                .map((child) => ({ ...serializeComment(child, row.anchor), replies: [] })),
             })),
         });
       },
@@ -673,42 +681,46 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     server.registerTool(
       "artifact_add_comment",
       {
-        title: "Comment on a markdown source selection",
-        description: `Add a root comment to an owned markdown document. Requires ${scope}. Anchor lines and UTF-16 columns are 1-indexed, end-exclusive, and quotedText must match the CURRENT source exactly. Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses invalid anchors with validation and changed quotes with anchor_mismatch.`,
+        title: "Comment on a document anchor",
+        description: `Add a root comment to an owned document at a discriminated anchor. Requires ${scope}. Markdown accepts { kind: 'text-range', startLine, startCol, endLine, endCol, quotedText } with 1-indexed UTF-16 columns, end-exclusive, and quotedText matching the CURRENT source exactly; html accepts { kind: 'element', selector, point: { x, y } in 0..1, textHint (max 120 chars), viewportWidth } and { kind: 'page-point', x in 0..1, y in pixels, viewportWidth }. Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses malformed anchors with validation, an anchor the document kind does not accept with unsupported_anchor_kind, and changed quotes with anchor_mismatch.`,
         inputSchema: {
           artifactId: artifactIdSchema,
-          anchor: z.object({ startLine: z.number(), startCol: z.number(), endLine: z.number(), endCol: z.number() }),
-          quotedText: z.string(),
+          anchor: commentAnchorSchema,
           body: z.string(),
         },
       },
-      async ({ artifactId, anchor, quotedText, body }) => {
+      async ({ artifactId, anchor, body }) => {
         const access = allow(scope);
         if (!access.ok) return access.reply;
-        return mutateComment(access.userId, artifactId, async (client) => {
+        return mutateComment(access.userId, artifactId, async (client, doc) => {
           const rejected = bodyError(body);
           if (rejected) return rejected;
-          if (!quotedText) return refusal("validation", "quote_required");
-          if (Array.from(quotedText).length > MAX_COMMENT_QUOTE)
-            return refusal("too_large", "comment_quote_exceeds_cap", { maxCharacters: MAX_COMMENT_QUOTE });
-          const storageKey = await currentRevisionStorageKey(client, artifactId, true);
-          if (!storageKey) return refusal("not_found", "revision_not_found");
-          const read = await getRevisionBytes({ storageKey, maxBytes: MAX_ARTIFACT_BYTES });
-          if (!read.ok) return refusalOf(read);
-          const decoded = decodeMarkdownText(read.value.bytes);
-          if (!decoded.ok) return refusal("not_valid_utf8_markdown", "stored markdown bytes are not valid UTF-8");
-          const selected = anchorText(decoded.text, anchor);
-          if (selected === null) return refusal("validation", "invalid_anchor");
-          if (selected !== quotedText) return refusal("anchor_mismatch", "anchor_mismatch");
-          return insertStored(client, artifactId, access.userId, null, anchor, quotedText, body);
+          if (!anchorKindAllowed(doc.kind, anchor.kind))
+            return refusal("unsupported_anchor_kind", "unsupported_anchor_kind", {
+              acceptedKinds: anchorKindsForDocument(doc.kind),
+            });
+          const revision = await currentRevision(client, artifactId, true);
+          if (!revision) return refusal("not_found", "revision_not_found");
+          if (anchor.kind === "text-range") {
+            if (Array.from(anchor.quotedText).length > MAX_COMMENT_QUOTE)
+              return refusal("too_large", "comment_quote_exceeds_cap", { maxCharacters: MAX_COMMENT_QUOTE });
+            const read = await getRevisionBytes({ storageKey: revision.storageKey, maxBytes: MAX_ARTIFACT_BYTES });
+            if (!read.ok) return refusalOf(read);
+            const decoded = decodeMarkdownText(read.value.bytes);
+            if (!decoded.ok) return refusal("not_valid_utf8_markdown", "stored markdown bytes are not valid UTF-8");
+            const selected = anchorText(decoded.text, anchor);
+            if (selected === null) return refusal("validation", "invalid_anchor");
+            if (selected !== anchor.quotedText) return refusal("anchor_mismatch", "anchor_mismatch");
+          }
+          return insertStored(client, artifactId, access.userId, null, anchor, revision.id, body);
         });
       },
     );
     server.registerTool(
       "artifact_reply_comment",
       {
-        title: "Reply to a markdown comment thread",
-        description: `Reply to an owned markdown document's root comment with body only (nonblank, at most ${MAX_COMMENT_BODY} Unicode characters). Requires ${scope}. Replies inherit their root's source context, even if outdated; replying to a reply refuses with nested_reply.`,
+        title: "Reply to a comment thread",
+        description: `Reply to an owned document's root comment with body only (nonblank, at most ${MAX_COMMENT_BODY} Unicode characters). Requires ${scope}. Replies carry no anchor and inherit their root's context, even if outdated; replying to a reply refuses with nested_reply.`,
         inputSchema: { artifactId: artifactIdSchema, commentId: commentIdSchema, body: z.string() },
       },
       async ({ artifactId, commentId, body }) => {
@@ -720,15 +732,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           const parent = await findStored(client, artifactId, commentId);
           if (!("id" in parent)) return parent;
           if (parent.parentId !== null) return refusal("nested_reply", "nested_reply", { status: 400 });
-          return insertStored(
-            client,
-            artifactId,
-            access.userId,
-            parent.id,
-            serializeComment(parent).anchor,
-            parent.quotedText,
-            body,
-          );
+          return insertStored(client, artifactId, access.userId, parent.id, null, null, body);
         });
       },
     );
@@ -747,7 +751,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             const row = await findStored(client, artifactId, commentId);
             if (!("id" in row)) return row;
             if (row.parentId !== null) return refusal("reply_is_not_root", "reply_is_not_root", { status: 400 });
-            await setCommentResolved(client, commentId, operation === "resolve");
+            await setCommentResolved(client, commentId, operation === "resolve", access.userId);
             return reply({ id: commentId });
           });
         },
@@ -758,18 +762,16 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
   };
 }
 
-const serializeComment = (row: McpCommentRow) => ({
-  id: row.id,
-  parentId: row.parentId,
-  authorId: row.authorId,
-  anchor: {
-    startLine: row.anchorStartLine,
-    startCol: row.anchorStartCol,
-    endLine: row.anchorEndLine,
-    endCol: row.anchorEndCol,
-  },
-  quotedText: row.quotedText,
-  body: row.body,
-  resolvedAt: row.resolvedAt?.toISOString() ?? null,
-  createdAt: row.createdAt.toISOString(),
-});
+const serializeComment = (row: McpCommentRow, inheritedAnchor?: unknown) => {
+  const anchor = (row.anchor ?? inheritedAnchor ?? null) as AnyCommentAnchor | null;
+  return {
+    id: row.id,
+    parentId: row.parentId,
+    authorId: row.authorId,
+    author: { id: row.authorId, name: row.authorName ?? "", image: row.authorImage ?? null },
+    anchor,
+    body: row.body,
+    resolvedAt: row.resolvedAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+};

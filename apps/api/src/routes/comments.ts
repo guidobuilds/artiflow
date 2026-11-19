@@ -16,9 +16,14 @@ import { getRevisionBytes } from "../adapters/storage/s3.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { cookieMutationGuard, isUuid, Rollback } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
-import type { CommentListResponse, CommentMutationResponse } from "@artiflow/contracts/comments";
+import {
+  commentAnchorSchema,
+  type CommentAnchorWire,
+  type CommentListResponse,
+  type CommentMutationResponse,
+} from "@artiflow/contracts/comments";
 import type { Storage } from "../adapters/storage/client.ts";
-import { anchorText, type CommentAnchor } from "@artiflow/domain/comment-anchors";
+import { anchorKindAllowed, anchorText } from "@artiflow/domain/comment-anchors";
 
 type Options = {
   database: Database;
@@ -54,7 +59,6 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     if (!userId) return c.json({ error: "unauthorized" }, 401);
     const doc = await commentDocument(query, userId, id, "shared", lock);
     if (!doc) return c.json({ error: "not_found" }, 404);
-    if (doc.kind !== "markdown") return c.json({ error: "wrong_kind" }, 409);
     return { doc, userId };
   };
   app.get("/api/artifacts/:id/comments", async (c) => {
@@ -65,14 +69,8 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     const serialize = (row: Row) => ({
       id: row.id,
       authorId: row.authorId,
-      author: { email: row.authorEmail },
-      anchor: {
-        startLine: row.anchorStartLine,
-        startCol: row.anchorStartCol,
-        endLine: row.anchorEndLine,
-        endCol: row.anchorEndCol,
-      },
-      quotedText: row.quotedText,
+      author: { id: row.authorId, name: row.authorName ?? "", image: row.authorImage ?? null },
+      anchor: (row.anchor ?? null) as CommentAnchorWire | null,
       body: row.body,
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
@@ -108,43 +106,58 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     mutate(c, async (client, { doc, userId }) => {
       if (!canComment(doc)) return c.json({ error: "forbidden" }, 403);
       const body = (await c.req.json().catch(() => null)) as {
-        anchor?: CommentAnchor;
-        quotedText?: unknown;
+        anchor?: unknown;
         body?: unknown;
-        parentId?: unknown;
+        parentId?: string | null;
       } | null;
       if (typeof body?.body !== "string" || !body.body.trim()) return c.json({ error: "body_required" }, 400);
-      if (typeof body.quotedText !== "string" || !body.quotedText) return c.json({ error: "quote_required" }, 400);
-      if (Array.from(body.body).length > MAX_COMMENT_BODY || Array.from(body.quotedText).length > MAX_COMMENT_QUOTE)
-        return c.json({ error: "too_large" }, 413);
+      if (Array.from(body.body).length > MAX_COMMENT_BODY) return c.json({ error: "too_large" }, 413);
       const parentId = body.parentId ?? null;
+      if (parentId !== null && !isUuid(parentId)) return c.json({ error: "comment_not_found" }, 404);
+      if (parentId === null && body.anchor === undefined) return c.json({ error: "root_requires_anchor" }, 400);
+      if (parentId !== null && body.anchor !== undefined) return c.json({ error: "reply_has_no_anchor" }, 400);
+      const rawAnchor = body.anchor;
+      const parsedAnchor = rawAnchor === undefined ? null : commentAnchorSchema.safeParse(rawAnchor);
+      if (parsedAnchor && !parsedAnchor.success) {
+        const rawQuote =
+          typeof rawAnchor === "object" && rawAnchor !== null
+            ? (rawAnchor as { quotedText?: unknown }).quotedText
+            : undefined;
+        if (typeof rawQuote === "string" && Array.from(rawQuote).length > MAX_COMMENT_QUOTE)
+          return c.json({ error: "too_large" }, 413);
+        return c.json({ error: "invalid_anchor" }, 400);
+      }
+      if (parsedAnchor && !anchorKindAllowed(doc.kind, parsedAnchor.data.kind))
+        return c.json({ error: "unsupported_anchor_kind" }, 400);
       if (parentId !== null) {
-        if (typeof parentId !== "string" || !isUuid(parentId)) return c.json({ error: "comment_not_found" }, 404);
         const parent = await findComment(client, doc.id, parentId);
         if (!parent) return c.json({ error: "comment_not_found" }, 404);
         if (parent.parentId !== null) return c.json({ error: "nested_reply" }, 400);
       }
       const revision = await currentRevision(client, doc.id);
       if (!revision) return c.json({ error: "no_current_revision" }, 409);
-      const read = await getRevisionBytes({
-        storage,
-        storageKey: revision.storageKey,
-        sha256: revision.sha256,
-        maxBytes: MAX_ARTIFACT_BYTES,
-      });
-      if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const decoded = decodeMarkdownText(read.value.bytes);
-      if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const anchor = body.anchor;
-      const selected = anchor ? anchorText(decoded.text, anchor) : null;
-      if (selected === null) return c.json({ error: "invalid_anchor" }, 400);
-      if (selected !== body.quotedText) return c.json({ error: "anchor_mismatch" }, 400);
+      const anchor = parsedAnchor ? parsedAnchor.data : null;
+      if (anchor?.kind === "text-range") {
+        const read = await getRevisionBytes({
+          storage,
+          storageKey: revision.storageKey,
+          sha256: revision.sha256,
+          maxBytes: MAX_ARTIFACT_BYTES,
+        });
+        if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
+        const decoded = decodeMarkdownText(read.value.bytes);
+        if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
+        const selected = anchorText(decoded.text, anchor);
+        if (selected === null) return c.json({ error: "invalid_anchor" }, 400);
+        if (Array.from(anchor.quotedText).length > MAX_COMMENT_QUOTE) return c.json({ error: "too_large" }, 413);
+        if (selected !== anchor.quotedText) return c.json({ error: "anchor_mismatch" }, 400);
+      }
       const inserted = await insertComment(client, {
         artifactId: doc.id,
         authorId: userId,
-        parentId: parentId as string | null,
-        anchor: anchor!,
-        quotedText: body.quotedText,
+        parentId,
+        anchor,
+        revisionId: parentId === null ? revision.id : null,
         body: body.body,
       });
       return c.json({ id: inserted.id } satisfies CommentMutationResponse, 201);
@@ -152,13 +165,13 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
   );
   for (const operation of ["resolve", "unresolve"] as const) {
     app.post(`/api/artifacts/:id/comments/:commentId/${operation}`, (c) =>
-      mutate(c, async (client, { doc }) => {
+      mutate(c, async (client, { doc, userId }) => {
         if (!canComment(doc)) return c.json({ error: "forbidden" }, 403);
         const id = c.req.param("commentId");
         const row = await findComment(client, doc.id, id);
         if (!row) return c.json({ error: "comment_not_found" }, 404);
         if (row.parentId !== null) return c.json({ error: "root_required" }, 400);
-        await setCommentResolved(client, id, operation === "resolve");
+        await setCommentResolved(client, id, operation === "resolve", userId);
         return c.json({ id } satisfies CommentMutationResponse);
       }),
     );

@@ -135,31 +135,33 @@ grant is refused before insert.
 
 ### `artifactPublicLinks`
 
-| Column          | Type                  | Meaning                                                   |
-| --------------- | --------------------- | --------------------------------------------------------- |
-| `id`            | uuid PK               | Server-generated.                                         |
-| `artifactId`    | text FK               | Cascade.                                                  |
-| `tokenHash`     | text                  | `sha256(token)`, unique and CHECK-enforced lowercase hex. |
-| `revokedAt`     | timestamptz nullable  | Revocation timestamp; row retained for provenance.        |
-| `rotatedFromId` | uuid nullable self-FK | Predecessor in a rotation chain.                          |
-| `createdAt`     | timestamptz           |                                                           |
+| Column          | Type                  | Meaning                                                        |
+| --------------- | --------------------- | -------------------------------------------------------------- |
+| `id`            | uuid PK               | Server-generated.                                              |
+| `artifactId`    | text FK               | Cascade.                                                       |
+| `tokenHash`     | text                  | `sha256(token)`, unique and CHECK-enforced lowercase hex.      |
+| `showComments`  | boolean               | Off by default; the owner opts a link into read-only comments. |
+| `revokedAt`     | timestamptz nullable  | Revocation timestamp; row retained for provenance.             |
+| `rotatedFromId` | uuid nullable self-FK | Predecessor in a rotation chain.                               |
+| `createdAt`     | timestamptz           |                                                                |
 
 No expiry column: links live until revoked, by product decision. The raw token is
 never stored, logged or returned after creation.
 
 ### `artifactComments`
 
-| Column                                                               | Type                  | Meaning                                         |
-| -------------------------------------------------------------------- | --------------------- | ----------------------------------------------- |
-| `id`                                                                 | uuid PK               | Server-generated.                               |
-| `artifactId`                                                         | text FK               | Cascade.                                        |
-| `authorId`                                                           | text FK → user        | Cascade.                                        |
-| `parentId`                                                           | uuid nullable self-FK | `NULL` = root; replies cascade with parent.     |
-| `anchorStartLine`, `anchorStartCol`, `anchorEndLine`, `anchorEndCol` | int                   | 1-indexed source coordinates, end-exclusive.    |
-| `quotedText`                                                         | text                  | Exact source slice at creation (≤ 2,000 chars). |
-| `body`                                                               | text                  | Nonblank comment body (≤ 4,000 chars).          |
-| `resolvedAt`                                                         | timestamptz nullable  | Roots only.                                     |
-| `createdAt`, `updatedAt`                                             | timestamptz           |                                                 |
+| Column                   | Type                    | Meaning                                                                                                                                                                                                                                                                                                                         |
+| ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                     | uuid PK                 | Server-generated.                                                                                                                                                                                                                                                                                                               |
+| `artifactId`             | text FK                 | Cascade.                                                                                                                                                                                                                                                                                                                        |
+| `authorId`               | text FK → user          | Cascade.                                                                                                                                                                                                                                                                                                                        |
+| `parentId`               | uuid nullable self-FK   | `NULL` = root; replies cascade with parent.                                                                                                                                                                                                                                                                                     |
+| `anchor`                 | jsonb nullable          | Discriminated anchor, roots only: `text-range` {`startLine`, `startCol`, `endLine`, `endCol` (1-indexed, end-exclusive), `quotedText` ≤ 2,000 chars}, `element`, `page-point`, `board-point`, `slide-point`. Kind must match the document kind (markdown → `text-range`; html → `element`, `page-point`). Replies carry `NULL`. |
+| `revisionId`             | text nullable FK        | Revision current when the root thread was created.                                                                                                                                                                                                                                                                              |
+| `resolvedBy`             | text nullable FK → user | Who resolved the thread; cleared on unresolve.                                                                                                                                                                                                                                                                                  |
+| `body`                   | text                    | Nonblank comment body (≤ 4,000 chars).                                                                                                                                                                                                                                                                                          |
+| `resolvedAt`             | timestamptz nullable    | Roots only.                                                                                                                                                                                                                                                                                                                     |
+| `createdAt`, `updatedAt` | timestamptz             |                                                                                                                                                                                                                                                                                                                                 |
 
 Anchors are source-based, not DOM-based, so a comment survives formatting
 normalization and degrades visibly to “outdated” instead of silently reattaching.

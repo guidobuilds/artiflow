@@ -12,6 +12,7 @@ import {
   revokeLink,
   revokeShare,
   rotateLink,
+  setLinkShowComments,
   tokenNotice,
   type AuthUser,
   type PublicLinkRow,
@@ -147,6 +148,17 @@ export default function ShareModal({
     });
   };
 
+  const toggleComments = (showComments: boolean) => {
+    if (!activeLink) return;
+    setBusy("link");
+    setError(null);
+    void setLinkShowComments(artifactId, activeLink.id, showComments).then((result) => {
+      setBusy(null);
+      if (!result.ok) setError(result.error);
+      else loadLinks();
+    });
+  };
+
   const copy = (url: string) => {
     void navigator.clipboard?.writeText(url).then(
       () => toast.toast("Link copied"),
@@ -272,6 +284,19 @@ export default function ShareModal({
             >
               <span className="truncate">{window.location.origin}/share/•••••••••••••••</span>
             </div>
+          ) : null}
+
+          {publicOn && activeLink ? (
+            <label className="flex min-h-11 items-center gap-2.5 text-[13px] text-fg-muted">
+              <input
+                type="checkbox"
+                className="size-4"
+                checked={activeLink.showComments}
+                disabled={busy === "link"}
+                onChange={(event) => toggleComments(event.target.checked)}
+              />
+              Show comments
+            </label>
           ) : null}
 
           {notice ? (

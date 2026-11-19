@@ -180,7 +180,7 @@ databaseTest("revocation sets a timestamp and keeps the row, and no link carries
     `select column_name from information_schema.columns where table_name = 'artifactPublicLinks' order by 1`,
   );
   const names = columns.rows.map((row) => row.column_name);
-  assert.deepEqual(names, ["artifactId", "createdAt", "id", "revokedAt", "rotatedFromId", "tokenHash"]);
+  assert.deepEqual(names, ["artifactId", "createdAt", "id", "revokedAt", "rotatedFromId", "showComments", "tokenHash"]);
   assert.equal(
     names.some((name) => /expir/i.test(name)),
     false,

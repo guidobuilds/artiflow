@@ -35,7 +35,7 @@ const ENV_READY = Boolean(DATABASE_URL) && S3_VARS.every((name) => process.env[n
 const SKIP = ENV_READY ? false : "DATABASE_URL or S3 missing; run with --env-file=.env.local";
 const publicOrigin = ENV_READY ? loadConfig(process.env).publicOrigin : "";
 const CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
 const VIEWER_CSP = `${CSP}; connect-src 'self'`;
 const HTML_A = `<!doctype html><html><body><h1>Share A</h1><script>document.title = "pwn"</script><p>quotes "a" 'b' &amp; more</p></body></html>`;
 const HTML_B = `<!doctype html><p>second artifact body</p>`;
@@ -55,10 +55,9 @@ let baselineKeys = new Set<string>();
 
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 const revisionKeyOf = async (revisionId: string): Promise<string> => {
-  const row = await pool.query<{ storageKey: string }>(
-    `select "storageKey" from "artifactRevisions" where "id" = $1`,
-    [revisionId],
-  );
+  const row = await pool.query<{ storageKey: string }>(`select "storageKey" from "artifactRevisions" where "id" = $1`, [
+    revisionId,
+  ]);
   const storageKey = row.rows[0]?.storageKey;
   assert.ok(typeof storageKey === "string", "the revision row names its own storage key");
   return storageKey;
@@ -270,7 +269,11 @@ test(
       [2, true],
       "the wrapper ships its own inline scripts (theme bootstrap, focus toggle); the artifact's script reaches the page only escaped",
     );
-    assert.equal(srcdocOf(reply.text), HTML_A, "the escaped attribute is the stored payload byte for byte");
+    assert.ok(
+      srcdocOf(reply.text).startsWith(HTML_A),
+      "the escaped attribute carries the stored payload byte for byte",
+    );
+    assert.ok(srcdocOf(reply.text).includes("data-artiflow-bridge"), "the comment bridge rides along the payload");
     assert.equal(reply.headers.get("x-robots-tag"), "noindex", "an unlisted link is not indexable");
   },
 );
@@ -315,10 +318,19 @@ test(
     const refreshLine = /const refresh = \{.*\};\n/;
     assert.match(owner.text, /const refresh = \{metaUrl:"\/api\/artifacts\//);
     assert.match(shared.text, /const refresh = \{metaUrl:"\/share\//);
+    const island = /<script type="application\/json" id="viewer-comments-data">[^<]*<\/script>/;
+    const bridgeData = /const PINS = .*;|const NONCE = .*;/g;
+    const normalize = (html: string) =>
+      html
+        .replace(back, "")
+        .replace(name, "")
+        .replace(refreshLine, "const refresh = CONFIG;\n")
+        .replace(island, "DATA")
+        .replace(bridgeData, "BRIDGE_DATA");
     assert.equal(
-      owner.text.replace(back, "").replace(name, "").replace(refreshLine, "const refresh = CONFIG;\n"),
-      shared.text.replace(refreshLine, "const refresh = CONFIG;\n"),
-      "identical body bytes once the owner cells are stripped",
+      normalize(owner.text),
+      normalize(shared.text),
+      "identical body bytes once the owner cells and the per-view data are stripped",
     );
     assert.deepEqual(
       [shared.headers.get("content-security-policy"), shared.headers.get("cache-control")],
@@ -335,9 +347,20 @@ test(
     const link = await createLink(a, doc.id);
     const reply = await read(`/share/${link.token}`);
     assert.equal(reply.status, 200);
-    assert.equal(/allow-scripts/.test(reply.text), false, "the document frame renders without scripts");
-    assert.equal(reply.text.match(/<script>/g)?.length, 1, "the page around the document ships only the poller");
-    assert.ok(/&lt;h1&gt;Notas/.test(reply.text), "the rendered fragment is escaped into the srcdoc");
+    assert.equal(/<iframe/.test(reply.text), false, "the document renders in the page, not in a second frame");
+    assert.equal(
+      [...reply.text.matchAll(/<script\b/gi)].length,
+      [...reply.text.matchAll(/<\/script\s*>/gi)].length,
+      "every script the page opens is closed",
+    );
+    const island = /<script type="application\/json" id="viewer-comments-data">([^]*?)<\/script\s*>/i.exec(
+      reply.text,
+    )?.[1];
+    assert.notEqual(island, undefined, "the margin mounts with an authorized data island");
+    const shared = JSON.parse(island ?? "{}") as { threads?: unknown[]; canComment?: boolean };
+    assert.deepEqual(shared.threads ?? [], [], "a link without the option carries no thread");
+    assert.equal(shared.canComment ?? false, false, "the public reader never writes");
+    assert.ok(/<h1>Notas<\/h1>/.test(reply.text), "the sanitized fragment is inline");
     assert.ok(/&lt;strong&gt;negrita|<strong>negrita|negrita/.test(reply.text), "emphasis survives rendering");
     assert.equal(reply.text.includes('href="/"'), false, "no owner back link on the public page");
     assert.equal(reply.headers.get("x-robots-tag"), "noindex");
@@ -374,8 +397,8 @@ test(
     const oldToken = await read(`/share/${original.token}`);
     const newToken = await read(`/share/${rotated.json?.token as string}`);
     assert.deepEqual(
-      [oldToken.status, oldToken.text, newToken.status, srcdocOf(newToken.text)],
-      [404, NOT_FOUND_PAGE, 200, HTML_A],
+      [oldToken.status, oldToken.text, newToken.status, srcdocOf(newToken.text).startsWith(HTML_A)],
+      [404, NOT_FOUND_PAGE, 200, true],
       "the predecessor is dead, the successor renders",
     );
   },
@@ -487,24 +510,20 @@ test("?meta=1 on a revoked token is the same 404 as bytes mode", { skip: SKIP, t
   );
 });
 
-test(
-  "?meta=1 on a soft-deleted artifact's live link is the same 404",
-  { skip: SKIP, timeout: 60_000 },
-  async () => {
-    const doomed = await seed(a, HTML_B, "Doomed public metadata artifact");
-    const link = await createLink(a, doomed.id);
-    const live = await read(`/share/${link.token}?meta=1`);
-    assert.deepEqual(
-      [live.status, live.headers.get("content-type")],
-      [200, "application/json"],
-      "metadata while the artifact is live",
-    );
-    assert.equal((await markArtifactDeleted(database.db, doomed.id, a.userId)).ok, true);
-    const meta = await read(`/share/${link.token}?meta=1`);
-    const bytes = await read(`/share/${link.token}`);
-    assert.deepEqual([meta.status, meta.text, bytes.status, bytes.text], [404, NOT_FOUND_PAGE, 404, NOT_FOUND_PAGE]);
-  },
-);
+test("?meta=1 on a soft-deleted artifact's live link is the same 404", { skip: SKIP, timeout: 60_000 }, async () => {
+  const doomed = await seed(a, HTML_B, "Doomed public metadata artifact");
+  const link = await createLink(a, doomed.id);
+  const live = await read(`/share/${link.token}?meta=1`);
+  assert.deepEqual(
+    [live.status, live.headers.get("content-type")],
+    [200, "application/json"],
+    "metadata while the artifact is live",
+  );
+  assert.equal((await markArtifactDeleted(database.db, doomed.id, a.userId)).ok, true);
+  const meta = await read(`/share/${link.token}?meta=1`);
+  const bytes = await read(`/share/${link.token}`);
+  assert.deepEqual([meta.status, meta.text, bytes.status, bytes.text], [404, NOT_FOUND_PAGE, 404, NOT_FOUND_PAGE]);
+});
 
 test(
   "?meta=1 never turns a malformed or unknown token into a metadata answer",
@@ -557,9 +576,10 @@ test(
     const link = await createLink(a, gone.id);
     const storageKey = await revisionKeyOf(gone.revisionId);
     await storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: storageKey }));
-    const removed = await storage.client
-      .send(new HeadObjectCommand({ Bucket: storage.bucket, Key: storageKey }))
-      .then(() => false, () => true);
+    const removed = await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: storageKey })).then(
+      () => false,
+      () => true,
+    );
     assert.equal(removed, true, "the revision's own object is gone before either read");
     const revision = await currentRevisionOf(gone.id);
     const meta = await read(`/share/${link.token}?meta=1`);
@@ -597,7 +617,7 @@ test(
       [200, "text/html; charset=UTF-8", "no-store", null],
     );
     assert.deepEqual(
-      [srcdocOf(reply.text) === HTML_A, reply.text.match(/<iframe /g)?.length],
+      [srcdocOf(reply.text).startsWith(HTML_A), reply.text.match(/<iframe /g)?.length],
       [true, 1],
       "the untouched viewer path still delivers the stored payload in one sandboxed frame",
     );
@@ -623,9 +643,9 @@ test(
     );
     assert.deepEqual(
       [
-        srcdocOf(sharedA.text) === HTML_A,
+        srcdocOf(sharedA.text).startsWith(HTML_A),
         sharedA.text.includes("second artifact body"),
-        srcdocOf(publicB.text) === HTML_B,
+        srcdocOf(publicB.text).startsWith(HTML_B),
         publicB.text.includes("Share A"),
       ],
       [true, false, true, false],

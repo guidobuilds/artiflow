@@ -1,3 +1,4 @@
+import type { AnyCommentAnchor } from "@artiflow/domain/comment-anchors";
 import { UUID_RE, HEX_SHA256, BASE64 } from "./constants.ts";
 
 export type McpExecutor = unknown;
@@ -96,12 +97,9 @@ export type McpRenameInput = {
 export type McpCommentRow = {
   id: string;
   authorId: string;
-  authorEmail: string | null;
-  anchorStartLine: number;
-  anchorStartCol: number;
-  anchorEndLine: number;
-  anchorEndCol: number;
-  quotedText: string;
+  authorName: string | null;
+  authorImage: string | null;
+  anchor: unknown;
   body: string;
   parentId: string | null;
   resolvedAt: Date | null;
@@ -118,8 +116,8 @@ export type McpCommentInsert = {
   artifactId: string;
   authorId: string;
   parentId: string | null;
-  anchor: { startLine: number; startCol: number; endLine: number; endCol: number };
-  quotedText: string;
+  anchor: AnyCommentAnchor | null;
+  revisionId: string | null;
   body: string;
 };
 
@@ -169,12 +167,12 @@ export type McpBackend = {
   findComment(executor: McpExecutor, artifactId: string, commentId: string): Promise<McpCommentRow | null>;
   insertComment(executor: McpExecutor, input: McpCommentInsert): Promise<{ id: string }>;
   listComments(executor: McpExecutor, artifactId: string, includeAuthors: boolean): Promise<McpCommentRow[]>;
-  setCommentResolved(executor: McpExecutor, commentId: string, resolved: boolean): Promise<void>;
-  currentRevisionStorageKey(
+  setCommentResolved(executor: McpExecutor, commentId: string, resolved: boolean, resolvedBy?: string): Promise<void>;
+  currentRevision(
     executor: McpExecutor,
     artifactId: string,
     requireMatching: boolean,
-  ): Promise<string | null>;
+  ): Promise<{ id: string; storageKey: string; sha256: string } | null>;
   commentTransaction<T>(run: (executor: McpExecutor) => Promise<T>): Promise<T>;
 };
 

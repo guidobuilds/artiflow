@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Unauthorized } from "@artiflow/sdk/auth";
-import { ArtifactRefusal, createArtifactApi } from "@artiflow/plugin-core/core";
-import type { Refusal } from "@artiflow/plugin-core/core";
+import { ArtifactRefusal, createArtifactApi, type Refusal } from "@artiflow/plugin-core/core";
 
 const base = "https://artifacts.example";
 const token = "access";
@@ -151,7 +150,15 @@ test("edit_lines saves the whole document with its compare-and-set pointer", asy
 
 test("a stale pointer is a concurrent_edit refusal naming the live revision, with no write", async () => {
   const { sent, request } = transport([
-    () => Response.json({ artifactId: "a", title: null, kind: "markdown", revisionId: "r2", revisionNumber: 2, text: "# A" }),
+    () =>
+      Response.json({
+        artifactId: "a",
+        title: null,
+        kind: "markdown",
+        revisionId: "r2",
+        revisionNumber: 2,
+        text: "# A",
+      }),
   ]);
   const refusal = await refusalOf(
     createArtifactApi({ base, token, request }).editLines({
@@ -198,7 +205,15 @@ test("a lost race reports the live revision from a follow-up read instead of a b
 
 test("a line-op mismatch refuses with the live window and writes nothing", async () => {
   const { sent, request } = transport([
-    () => Response.json({ artifactId: "a", title: null, kind: "markdown", revisionId: "r1", revisionNumber: 1, text: "# A" }),
+    () =>
+      Response.json({
+        artifactId: "a",
+        title: null,
+        kind: "markdown",
+        revisionId: "r1",
+        revisionNumber: 1,
+        text: "# A",
+      }),
   ]);
   const refusal = await refusalOf(
     createArtifactApi({ base, token, request }).editLines({
@@ -215,9 +230,8 @@ test("a line-op mismatch refuses with the live window and writes nothing", async
 const comment = (id: string) => ({
   id,
   authorId: "u1",
-  author: { email: "owner@example.com" },
-  anchor: { startLine: 1, startCol: 1, endLine: 1, endCol: 2 },
-  quotedText: "# A",
+  author: { id: "u1", name: "Owner", image: null },
+  anchor: { kind: "text-range", startLine: 1, startCol: 1, endLine: 1, endCol: 2, quotedText: "# A" },
   body: "body",
   resolvedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",

@@ -323,8 +323,7 @@ test("comments write under comments:write, resolve and delete included", async (
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${ownerWide}` },
     body: JSON.stringify({
-      anchor: { startLine: 1, startCol: 1, endLine: 1, endCol: 9 },
-      quotedText: "# Bearer",
+      anchor: { kind: "text-range", startLine: 1, startCol: 1, endLine: 1, endCol: 9, quotedText: "# Bearer" },
       body: "Looks good",
     }),
   });

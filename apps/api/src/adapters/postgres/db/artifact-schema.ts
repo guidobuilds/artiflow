@@ -1,9 +1,11 @@
 import { sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -11,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+import { MAX_COMMENT_BODY, MAX_COMMENT_QUOTE } from "@artiflow/contracts/comments";
 import { user } from "./schema.ts";
 
 export const MAX_ARTIFACT_BYTES = 16_777_216;
@@ -136,8 +139,8 @@ export const artifactShares = pgTable(
   ],
 );
 
-export const MAX_COMMENT_BODY = 4000;
-export const MAX_COMMENT_QUOTE = 2000;
+export { MAX_COMMENT_BODY, MAX_COMMENT_QUOTE };
+export const COMMENT_ANCHOR_KINDS = ["text-range", "element", "page-point", "board-point", "slide-point"] as const;
 export const artifactComments = pgTable(
   "artifactComments",
   {
@@ -147,11 +150,9 @@ export const artifactComments = pgTable(
       .references(() => artifacts.id, { onDelete: "cascade" }),
     authorId: ownerRef("authorId"),
     parentId: uuid("parentId").references((): AnyPgColumn => artifactComments.id, { onDelete: "cascade" }),
-    anchorStartLine: integer("anchorStartLine").notNull(),
-    anchorStartCol: integer("anchorStartCol").notNull(),
-    anchorEndLine: integer("anchorEndLine").notNull(),
-    anchorEndCol: integer("anchorEndCol").notNull(),
-    quotedText: text("quotedText").notNull(),
+    anchor: jsonb("anchor"),
+    revisionId: text("revisionId").references((): AnyPgColumn => artifactRevisions.id, { onDelete: "set null" }),
+    resolvedBy: text("resolvedBy").references(() => user.id, { onDelete: "set null" }),
     body: text("body").notNull(),
     resolvedAt: date("resolvedAt"),
     createdAt: date("createdAt").notNull().defaultNow(),
@@ -160,20 +161,21 @@ export const artifactComments = pgTable(
   (table) => [
     index("artifactComments_artifactId_idx").on(table.artifactId),
     index("artifactComments_parentId_idx").on(table.parentId),
-    check("artifactComments_anchorStartLine_check", sql`${sql.identifier("anchorStartLine")} >= 1`),
-    check("artifactComments_anchorStartCol_check", sql`${sql.identifier("anchorStartCol")} >= 1`),
     check(
-      "artifactComments_anchorEndLine_check",
-      sql`${sql.identifier("anchorEndLine")} >= ${sql.identifier("anchorStartLine")}`,
+      "artifactComments_root_anchor_check",
+      sql`(${sql.identifier("parentId")} is null and ${sql.identifier("anchor")} is not null) or (${sql.identifier("parentId")} is not null and ${sql.identifier("anchor")} is null)`,
     ),
-    check("artifactComments_anchorEndCol_check", sql`${sql.identifier("anchorEndCol")} >= 1`),
+    check(
+      "artifactComments_anchor_kind_check",
+      sql`${sql.identifier("anchor")} is null or ${sql.identifier("anchor")} ->> 'kind' in ('text-range', 'element', 'page-point', 'board-point', 'slide-point')`,
+    ),
     check(
       "artifactComments_body_cap_check",
       sql`char_length(${sql.identifier("body")}) <= ${sql.raw(String(MAX_COMMENT_BODY))}`,
     ),
     check(
       "artifactComments_quote_cap_check",
-      sql`char_length(${sql.identifier("quotedText")}) <= ${sql.raw(String(MAX_COMMENT_QUOTE))}`,
+      sql`${sql.identifier("anchor")} is null or char_length(${sql.identifier("anchor")} ->> 'quotedText') <= ${sql.raw(String(MAX_COMMENT_QUOTE))}`,
     ),
   ],
 );
@@ -190,6 +192,7 @@ export const artifactPublicLinks = pgTable(
     rotatedFromId: uuid("rotatedFromId").references((): AnyPgColumn => artifactPublicLinks.id, {
       onDelete: "set null",
     }),
+    showComments: boolean("showComments").notNull().default(false),
     createdAt: date("createdAt").notNull().defaultNow(),
   },
   (table) => [

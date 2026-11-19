@@ -58,10 +58,15 @@ delete the artifact.
 | Kind     | Public view                                                       |
 | -------- | ----------------------------------------------------------------- |
 | HTML     | The page in the same sandbox as the owner viewer, without the bar |
-| Markdown | The rendered document read-only: no editor, no comments, no bar   |
+| Markdown | The rendered document read-only: no editor, no bar                |
 
 A public link is read-only by construction. Visitors cannot comment, edit, see revision history or
 learn who else has access.
+
+Each link has a **Show comments** option, off by default. When the owner turns it on, the link also
+serves the document's existing comment threads read-only, with authors reduced to
+`{ id, name, image }` and no email addresses; visitors still cannot post, resolve or delete. Turning
+it off hides them again on the same link, immediately.
 
 ## Embedding
 
