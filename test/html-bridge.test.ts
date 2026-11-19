@@ -6,6 +6,8 @@ import {
   BRIDGE_CHANNEL,
   BRIDGE_VERSION,
   createMessageBudget,
+  cssEscape,
+  cssString,
   describeElement,
   encodeCommand,
   parseBridgeMessage,
@@ -85,6 +87,7 @@ const pin = {
   x: 0.5,
   y: 0.5,
   stale: false,
+  stalePixels: false,
 };
 
 test("no command sent to the frame carries comment text", () => {
@@ -205,4 +208,58 @@ test("both HTML viewers pass the bridge and the asset, the public one only with 
   assert.match(library, /bridge: htmlBridgeScript\(\{ nonce, pins: bridgePins\(htmlConfig\.threads\) \}\)/);
   assert.match(sharing, /row\.showComments \? await listComments\(db, row\.artifactId, true\) : \[\]/);
   assert.match(sharing, /bridge: htmlBridgeScript\(\{ nonce, pins: bridgePins\(htmlConfig\.threads\) \}\)/);
+});
+
+test("a selector escapes everything CSS.escape escapes, including backslashes", () => {
+  assert.equal(cssEscape("hero"), "hero");
+  assert.equal(cssEscape("a b"), "a\\ b");
+  assert.equal(cssEscape("a\\b"), "a\\\\b", "a backslash is escaped instead of swallowing the next character");
+  assert.equal(cssEscape('a"b'), 'a\\"b');
+  assert.equal(cssEscape("a[b]"), "a\\[b\\]");
+  assert.equal(cssEscape("1abc"), "\\31 abc", "a leading digit is escaped so the selector is not a number");
+  assert.equal(cssEscape("-1a"), "-\\31 a");
+  assert.equal(cssEscape("a\u0001b"), "a\\1 b");
+  assert.equal(cssEscape("\u007f"), "\\7f ");
+  assert.equal(cssEscape("caf\u00e9"), "caf\u00e9", "non-ascii letters stay readable");
+  assert.equal(cssEscape("\u0000"), "\uFFFD");
+});
+
+test("an attribute value used in a selector escapes quotes, backslashes and control characters", () => {
+  assert.equal(cssString('say "hi"'), 'say \\"hi\\"');
+  assert.equal(cssString("a\\b"), "a\\\\b");
+  assert.equal(cssString("a\nb"), "a\\a b");
+});
+
+test("a picked attribute anchor keeps a value with quotes inside a valid selector", () => {
+  const element = {
+    tagName: "div",
+    textContent: "x",
+    getAttribute: (name: string) => (name === "data-block" ? 'say "hi"' : null),
+  };
+  assert.deepEqual(describeElement(element), { selector: '[data-block="say \\"hi\\""]', textHint: "" });
+  const backslash = {
+    tagName: "div",
+    textContent: "x",
+    getAttribute: (name: string) => (name === "data-block" ? "a\\b" : null),
+  };
+  assert.equal(describeElement(backslash).selector, '[data-block="a\\\\b"]');
+});
+
+test("the message budget refills every window instead of running out for the whole session", () => {
+  let clock = 0;
+  const budget = createMessageBudget(3, 1_000, () => clock);
+  for (let index = 0; index < 3; index++) assert.equal(budget.take(), true);
+  assert.equal(budget.take(), false);
+  clock = 999;
+  assert.equal(budget.take(), false, "the window is not over yet");
+  clock = 1_000;
+  assert.equal(budget.take(), true, "the next window refills the budget");
+  assert.equal(budget.used(), 1);
+});
+
+test("the injected bridge escapes selectors completely and guards pin resolution", () => {
+  const script = htmlBridgeScript({ nonce, pins: [pin] });
+  assert.equal(script.includes("value.replace(/([^\\w-])/g"), false, "the incomplete escape is gone");
+  assert.equal(script.includes('"\\uFFFD"'), true, "a null character is replaced instead of injected");
+  assert.match(script, /catch \(error\) \{\s*return \{ missing: true \};\s*\}/, "a pin selector cannot throw");
 });

@@ -25,34 +25,63 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
     try { window.parent.postMessage({ channel: CHANNEL, version: VERSION, nonce: NONCE, ...message }, "*"); } catch (error) {}
   };
   const box = (element) => element.getBoundingClientRect();
-  const cssEscape = (value) => value.replace(/([^\\w-])/g, "\\\\$1");
+  const cssEscape = (value) => {
+    const characters = Array.from(value);
+    return characters.map((character, index) => {
+      const code = character.codePointAt(0) || 0;
+      const leadingDigit = index === 0 && code >= 48 && code <= 57;
+      const secondDigitAfterDash = index === 1 && code >= 48 && code <= 57 && characters[0] === "-";
+      if (code === 0) return "\\uFFFD";
+      if ((code >= 1 && code <= 31) || code === 127 || leadingDigit || secondDigitAfterDash)
+        return "\\" + code.toString(16) + " ";
+      if (
+        code >= 128 ||
+        code === 45 ||
+        code === 95 ||
+        (code >= 48 && code <= 57) ||
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122)
+      )
+        return character;
+      return "\\" + character;
+    }).join("");
+  };
+  const cssString = (value) =>
+    String(value)
+      .replace(/["\\]/g, (character) => "\\" + character)
+      .replace(/\n/g, "\\a ")
+      .replace(/[\u0000-\u001f\u007f]/g, (character) => "\\" + (character.codePointAt(0) || 0).toString(16) + " ");
   const describe = (element) => {
     if (element.id) return { selector: "#" + cssEscape(element.id), textHint: "" };
     const attributes = ["data-block","data-testid","data-widget","data-section","aria-label"];
     for (const name of attributes) {
       const value = element.getAttribute(name);
-      if (value) return { selector: "[" + name + '="' + value.replace(/"/g, '\\\\"') + '"]', textHint: "" };
+      if (value) return { selector: "[" + name + '="' + cssString(value) + '"]', textHint: "" };
     }
     const text = (element.textContent || "").replace(/\\s+/g, " ").trim().slice(0, HINT_LIMIT);
     return { selector: "", textHint: SKIP.has(element.tagName.toLowerCase()) ? "" : text };
   };
   const resolve = (pin) => {
-    const selector = (pin.selector || "").trim();
-    if (selector.startsWith("#")) {
-      const element = document.getElementById(selector.slice(1));
-      return element ? { element } : { missing: true };
+    try {
+      const selector = (pin.selector || "").trim();
+      if (selector.startsWith("#")) {
+        const element = document.getElementById(selector.slice(1));
+        return element ? { element } : { missing: true };
+      }
+      if (selector.startsWith("[")) {
+        let matches = [];
+        try { matches = Array.from(document.querySelectorAll(selector)); } catch (error) { matches = []; }
+        return matches.length === 1 ? { element: matches[0] } : { missing: true };
+      }
+      const hint = (pin.textHint || "").replace(/\\s+/g, " ").trim();
+      if (!hint) return { missing: true };
+      const candidates = Array.from(document.querySelectorAll(HINTS.join(","))).filter(
+        (element) => (element.textContent || "").replace(/\\s+/g, " ").trim().startsWith(hint),
+      );
+      return candidates.length === 1 ? { element: candidates[0] } : { missing: true };
+    } catch (error) {
+      return { missing: true };
     }
-    if (selector.startsWith("[")) {
-      let matches = [];
-      try { matches = Array.from(document.querySelectorAll(selector)); } catch (error) { matches = []; }
-      return matches.length === 1 ? { element: matches[0] } : { missing: true };
-    }
-    const hint = (pin.textHint || "").replace(/\\s+/g, " ").trim();
-    if (!hint) return { missing: true };
-    const candidates = Array.from(document.querySelectorAll(HINTS.join(","))).filter(
-      (element) => (element.textContent || "").replace(/\\s+/g, " ").trim().startsWith(hint),
-    );
-    return candidates.length === 1 ? { element: candidates[0] } : { missing: true };
   };
   const marks = new Map();
   const place = () => {

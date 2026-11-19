@@ -1,6 +1,7 @@
 export const BRIDGE_CHANNEL = "artiflow-comments";
 export const BRIDGE_VERSION = 1;
 export const MAX_BRIDGE_MESSAGES = 600;
+export const BRIDGE_BUDGET_WINDOW_MS = 1_000;
 
 export type BridgeNonce = string;
 
@@ -98,15 +99,31 @@ export type ValidationFailure =
 
 export type ValidationResult = { ok: true; message: BridgeMessage } | { ok: false; reason: ValidationFailure };
 
-export function createMessageBudget(limit = MAX_BRIDGE_MESSAGES): { take(): boolean; used(): number } {
+export function createMessageBudget(
+  limit = MAX_BRIDGE_MESSAGES,
+  windowMs = BRIDGE_BUDGET_WINDOW_MS,
+  now: () => number = () => Date.now(),
+): { take(): boolean; used(): number } {
   let used = 0;
+  let openedAt = now();
+  const roll = (): void => {
+    const current = now();
+    if (windowMs > 0 && current - openedAt >= windowMs) {
+      openedAt = current;
+      used = 0;
+    }
+  };
   return {
     take: () => {
+      roll();
       if (used >= limit) return false;
       used += 1;
       return true;
     },
-    used: () => used,
+    used: () => {
+      roll();
+      return used;
+    },
   };
 }
 
@@ -175,12 +192,45 @@ export function describeElement(element: ElementLike): PickedAnchor {
     .map((name) => ({ name, value: element.getAttribute?.(name) ?? null }))
     .find((entry) => entry.value !== null && entry.value !== "");
   if (attribute !== undefined && attribute.value !== null)
-    return { selector: `[${attribute.name}="${attribute.value.replace(/"/g, '\\"')}"]`, textHint: "" };
+    return { selector: `[${attribute.name}="${cssString(attribute.value)}"]`, textHint: "" };
   const hint = (element.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, HINT_LIMIT);
   return { selector: "", textHint: isCandidate(element) ? hint : "" };
 }
 
-const cssEscape = (value: string): string => value.replace(/([^\w-])/g, "\\$1");
+export const cssEscape = (value: string): string => {
+  const characters = [...value];
+  return characters
+    .map((character, index) => {
+      const code = character.codePointAt(0) ?? 0;
+      const leadingDigit = index === 0 && code >= 0x30 && code <= 0x39;
+      const secondDigitAfterDash = index === 1 && code >= 0x30 && code <= 0x39 && characters[0] === "-";
+      if (code === 0) return "\uFFFD";
+      if ((code >= 0x01 && code <= 0x1f) || code === 0x7f || leadingDigit || secondDigitAfterDash)
+        return `\\${code.toString(16)} `;
+      if (
+        code >= 0x80 ||
+        code === 0x2d ||
+        code === 0x5f ||
+        (code >= 0x30 && code <= 0x39) ||
+        (code >= 0x41 && code <= 0x5a) ||
+        (code >= 0x61 && code <= 0x7a)
+      )
+        return character;
+      return `\\${character}`;
+    })
+    .join("");
+};
+
+export const cssString = (value: string): string =>
+  [...value]
+    .map((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      if (character === '"' || character === "\\") return `\\${character}`;
+      if (character === "\n") return "\\a ";
+      if (code < 0x20 || code === 0x7f) return `\\${code.toString(16)} `;
+      return character;
+    })
+    .join("");
 
 export type Resolution = { status: "resolved"; element: ElementLike } | { status: "missing" } | { status: "ambiguous" };
 
