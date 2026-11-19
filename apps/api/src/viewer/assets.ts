@@ -48,7 +48,7 @@ export function viewerCommentsAssets(
           styles: collectStyles(manifest, entryKey),
           dev: false,
         }
-      : (env.NODE_ENV ?? "").trim() === "production"
+      : (env.NODE_ENV ?? "").trim() === "production" || (env.ARTIFLOW_REQUIRE_ASSETS ?? "") === "1"
         ? (log(`[viewer] no comment bundle in ${key}; production serves the viewer without comments`),
           { script: "", styles: [], dev: false })
         : { script: devEntry, styles: [], dev: true };
