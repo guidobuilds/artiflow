@@ -9,6 +9,7 @@ import {
   parseBridgeMessage,
   type ParentCommand,
 } from "@artiflow/domain/html-bridge";
+import { attemptMutation } from "@/viewer-mutations.ts";
 
 type ElementAnchor = {
   kind: "element";
@@ -105,13 +106,19 @@ const markThread = (root: HTMLElement, thread: ViewerThread, active: boolean): H
 };
 
 const postJson = async (url: string, body: unknown): Promise<void> => {
-  if (url === "") return;
-  await fetch(url, {
+  if (url === "") throw new Error("Comments are not available on this page.");
+  const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     credentials: "same-origin",
     body: JSON.stringify(body),
   });
+  if (!response.ok) throw new Error(`Could not save the comment (${response.status}).`);
+};
+
+const deleteRequest = async (url: string): Promise<void> => {
+  const response = await fetch(url, { method: "DELETE", credentials: "same-origin" });
+  if (!response.ok) throw new Error(`Could not delete the comment (${response.status}).`);
 };
 
 export function mountViewerComments(): void {
@@ -127,6 +134,21 @@ export function mountViewerComments(): void {
     showResolved: false,
     geometry: {} as Record<string, number>,
     error: null as string | null,
+    retry: null as (() => void) | null,
+  };
+  const mutate = (run: () => Promise<unknown>): void => {
+    state.error = null;
+    render();
+    void attemptMutation(run).then((outcome) => {
+      if (outcome.ok) {
+        state.retry = null;
+        window.location.reload();
+        return;
+      }
+      state.error = outcome.message;
+      state.retry = () => mutate(run);
+      render();
+    });
   };
   const shelfOrigin = (): number => {
     const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
@@ -173,7 +195,6 @@ export function mountViewerComments(): void {
     state.geometry = anchors;
     render();
   };
-  const refresh = (): void => window.location.reload();
   const render = (): void => {
     scheduleOriginCheck();
     host.style.display = state.visible ? "block" : "none";
@@ -189,29 +210,28 @@ export function mountViewerComments(): void {
           measure();
         }}
         onResolve={(thread, resolved) => {
-          void postJson(
-            `${config.endpoints.resolve}/${encodeURIComponent(thread.id)}/${resolved ? "resolve" : "unresolve"}`,
-            {},
-          ).then(refresh);
+          mutate(() =>
+            postJson(
+              `${config.endpoints.resolve}/${encodeURIComponent(thread.id)}/${resolved ? "resolve" : "unresolve"}`,
+              {},
+            ),
+          );
         }}
         onReply={(thread, body) => {
-          void postJson(config.endpoints.comments, { body, parentId: thread.id }).then(refresh);
+          mutate(() => postJson(config.endpoints.comments, { body, parentId: thread.id }));
         }}
         onDelete={(thread, reply) => {
           const target = reply ?? thread;
-          void fetch(`${config.endpoints.deleteComment}/${encodeURIComponent(target.id)}`, {
-            method: "DELETE",
-            credentials: "same-origin",
-          }).then(refresh);
+          mutate(() => deleteRequest(`${config.endpoints.deleteComment}/${encodeURIComponent(target.id)}`));
         }}
         onRetry={() => {
-          void (async () => {
-            const response = await fetch(config.endpoints.comments, { credentials: "same-origin" });
-            state.error = response.ok ? null : "Could not refresh comments.";
-            render();
-          })();
+          if (state.retry !== null) {
+            state.retry();
+            return;
+          }
+          window.location.reload();
         }}
-        status={state.error === null ? (config.threads.length === 0 ? "empty" : "ready") : "error"}
+        status={config.threads.length === 0 ? "empty" : "ready"}
         canComment={config.canComment}
         publishError={state.error}
         visible={state.visible}
@@ -304,6 +324,23 @@ export function mountViewerCommentsInFrame(): void {
     commenting: false,
     draft: null as { anchor: ElementAnchor; top: number } | null,
     busy: false,
+    retry: null as (() => void) | null,
+  };
+  const mutate = (run: () => Promise<unknown>, after: () => void = () => window.location.reload()): void => {
+    state.busy = true;
+    state.error = null;
+    render();
+    void attemptMutation(run).then((outcome) => {
+      state.busy = false;
+      if (outcome.ok) {
+        state.retry = null;
+        after();
+        return;
+      }
+      state.error = outcome.message;
+      state.retry = () => mutate(run, after);
+      render();
+    });
   };
   const send = (command: ParentCommand) => {
     frame.contentWindow?.postMessage(encodeCommand(command, nonce), "*");
@@ -333,23 +370,28 @@ export function mountViewerCommentsInFrame(): void {
           render();
         }}
         onResolve={(thread, resolved) => {
-          void postJson(
-            `${config.endpoints.resolve}/${encodeURIComponent(thread.id)}/${resolved ? "resolve" : "unresolve"}`,
-            {},
-          ).then(() => window.location.reload());
+          mutate(() =>
+            postJson(
+              `${config.endpoints.resolve}/${encodeURIComponent(thread.id)}/${resolved ? "resolve" : "unresolve"}`,
+              {},
+            ),
+          );
         }}
         onReply={(thread, body) => {
-          void postJson(config.endpoints.comments, { body, parentId: thread.id }).then(() => window.location.reload());
+          mutate(() => postJson(config.endpoints.comments, { body, parentId: thread.id }));
         }}
         onDelete={(thread, reply) => {
           const target = reply ?? thread;
-          void fetch(`${config.endpoints.deleteComment}/${encodeURIComponent(target.id)}`, {
-            method: "DELETE",
-            credentials: "same-origin",
-          }).then(() => window.location.reload());
+          mutate(() => deleteRequest(`${config.endpoints.deleteComment}/${encodeURIComponent(target.id)}`));
         }}
-        onRetry={() => window.location.reload()}
-        status={state.error === null ? (config.threads.length === 0 ? "empty" : "ready") : "error"}
+        onRetry={() => {
+          if (state.retry !== null) {
+            state.retry();
+            return;
+          }
+          window.location.reload();
+        }}
+        status={config.threads.length === 0 ? "empty" : "ready"}
         canComment={config.canComment}
         publishError={state.error}
         visible={state.visible}
@@ -376,11 +418,8 @@ export function mountViewerCommentsInFrame(): void {
         draftAnchorTop={state.draft?.top ?? 0}
         onSubmitDraft={(body) => {
           if (state.draft === null) return;
-          state.busy = true;
-          render();
-          void postJson(config.endpoints.comments, { anchor: state.draft.anchor, body }).then(() => {
-            window.location.reload();
-          });
+          const anchor = state.draft.anchor;
+          mutate(() => postJson(config.endpoints.comments, { anchor, body }));
         }}
         onCancelDraft={() => {
           state.draft = null;

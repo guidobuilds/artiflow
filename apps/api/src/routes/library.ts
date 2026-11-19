@@ -28,6 +28,7 @@ import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
+import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
@@ -178,15 +179,18 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (row.kind === "markdown") {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const shared = await commentDocument(db, ownerId, row.id, "shared");
-      const rows = shared === undefined ? [] : await listComments(db, row.id, true);
+      const degraded = await loadViewerComments({
+        document: () => commentDocument(db, ownerId, row.id, "shared"),
+        list: () => listComments(db, row.id, true),
+        onError: (error) => console.error(`[viewer] comments degraded for ${row.id}`, error),
+      });
       const comments = {
         config: viewerCommentsConfig({
           artifactId: row.id,
           source: decoded.text,
-          rows,
+          rows: degraded.rows,
           viewerId: ownerId,
-          canComment: shared !== undefined && shared.access !== "reader",
+          canComment: degraded.canComment,
           canDeleteOwn: true,
           endpoints: {
             comments: `/api/artifacts/${row.id}/comments`,
@@ -210,17 +214,20 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    const htmlShared = await commentDocument(db, ownerId, row.id, "shared");
-    const htmlRows = htmlShared === undefined ? [] : await listComments(db, row.id, true);
+    const htmlShared = await loadViewerComments({
+      document: () => commentDocument(db, ownerId, row.id, "shared"),
+      list: () => listComments(db, row.id, true),
+      onError: (error) => console.error(`[viewer] comments degraded for ${row.id}`, error),
+    });
     const nonce = bridgeNonce(row.id, row.sha256);
     const htmlConfig = viewerCommentsConfig({
       artifactId: row.id,
       mode: "element",
       bridgeNonce: nonce,
       source: "",
-      rows: htmlRows,
+      rows: htmlShared.rows,
       viewerId: ownerId,
-      canComment: htmlShared !== undefined && htmlShared.access !== "reader",
+      canComment: htmlShared.canComment,
       canDeleteOwn: true,
       endpoints: {
         comments: `/api/artifacts/${row.id}/comments`,

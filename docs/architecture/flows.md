@@ -252,6 +252,11 @@ same thread margin from a dedicated `viewer-comments` bundle, receiving an alrea
 island (`apps/api/src/viewer/comments-data.ts`) with each thread's staleness and text occurrence. The
 HTML viewer keeps its sandboxed frame.
 
+A viewer never trades the document for its comments: if the comment store fails while rendering, the
+page is served without threads, writing is disabled and the failure is logged. The frame bridge accepts
+a bounded rate of messages per time window, so a long session does not run out of budget, and a failed
+write keeps the draft and the error visible for a retry.
+
 Agents read a source window with `artifact_get_markdown`, quote or anchor the exact text that
 window returned, and comment on it. A comment never moves: the row keeps the `anchor` recorded at
 creation (for markdown a `text-range` anchor with its coordinates and `quotedText`), while the

@@ -130,9 +130,15 @@ test("a public link builds a read-only config whose endpoints cannot mutate", ()
 
 test("the shared viewer loads comments for a reader but refuses writes", () => {
   const library = read("../apps/api/src/routes/library.ts");
-  assert.match(library, /const shared = await commentDocument\(db, ownerId, row\.id, "shared"\)/);
-  assert.match(library, /canComment: shared !== undefined && shared\.access !== "reader"/);
-  assert.match(library, /rows = shared === undefined \? \[\] : await listComments\(db, row\.id, true\)/);
+  assert.match(library, /document: \(\) => commentDocument\(db, ownerId, row\.id, "shared"\)/);
+  assert.match(library, /list: \(\) => listComments\(db, row\.id, true\)/);
+  assert.match(library, /canComment: degraded\.canComment/);
+  assert.match(library, /canComment: htmlShared\.canComment/);
+  assert.match(
+    library,
+    /import \{ loadViewerComments \} from "\.\.\/viewer\/comments-degrade\.ts"/,
+    "a comment-store failure degrades instead of failing the document",
+  );
 });
 
 test("the public viewer only reads comments while the link option is on", () => {
