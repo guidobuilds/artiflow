@@ -260,7 +260,7 @@ test("the message budget refills every window instead of running out for the who
 
 test("the injected bridge parses and escapes exactly like the domain helper", () => {
   const script = htmlBridgeScript({ nonce, pins: [pin] });
-  const body = script.replace(/^<script[^>]*>/, "").replace(/<\/script>$/, "");
+  const body = script.slice(script.indexOf(">") + 1, script.lastIndexOf("</script>"));
   assert.doesNotThrow(() => new vm.Script(body), "the injected script parses as javascript");
   assert.equal(script.includes("value.replace(/([^\\w-])/g"), false, "the incomplete escape is gone");
   assert.match(body, /catch \(error\) \{\s*return \{ missing: true \};\s*\}/, "a pin selector cannot throw");
