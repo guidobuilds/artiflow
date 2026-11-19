@@ -30,14 +30,27 @@ test("link schemes are validated: javascript urls never reach the fragment as hr
   assert.ok(fragment.includes('href="https://example.com"'), fragment);
 });
 
-test("markdownViewerPage wraps the fragment in a sandboxed, script-free document frame", () => {
+test("markdownViewerPage renders the fragment in the page itself, without a script-free iframe", () => {
   const html = page("<h1>Hola</h1>");
-  assert.equal([...html.matchAll(/<script>/g)].length, 1, "the page ships exactly one script: the freshness poller");
-  assert.equal(/<script>[\s\S]*renderMarkdownFragment/.test(html), false, "and no rendering happens in the browser");
-  assert.ok(html.includes('<iframe sandbox="" referrerpolicy="no-referrer"'), "opaque-origin, script-free frame");
-  assert.equal(html.includes("allow-scripts"), false, "rendered markdown runs no script");
-  assert.ok(html.includes("&lt;h1&gt;Hola&lt;/h1&gt;"), "the fragment is escaped into the srcdoc attribute");
-  assert.ok(html.includes("content-security-policy"), "wrapper CSP");
+  assert.equal(html.includes("<iframe"), false, "the fragment is no longer isolated in a second frame");
+  assert.ok(
+    html.includes('<main class="mdpage" id="document"><h1>Hola</h1></main>'),
+    "the sanitized fragment is inline",
+  );
+  assert.ok(html.includes("content-security-policy"), "the page keeps a CSP");
+  assert.ok(
+    html.includes("script-src 'self' 'unsafe-inline'"),
+    "the bundle is same-origin and the poller stays inline",
+  );
+  assert.equal(/srcdoc="/.test(html), false, "no srcdoc attribute survives");
+});
+
+test("raw HTML in the markdown stays escaped in the rendered page", () => {
+  const fragment = renderMarkdownFragment("<script>alert(1)</script>\n\n<b onclick=x>bold</b>\n");
+  const html = page(fragment);
+  assert.equal(/<script[ >]alert/i.test(html), false, "an injected script never reaches the page");
+  assert.ok(html.includes("&lt;script&gt;"), "it is rendered as text");
+  assert.equal(/<b onclick/i.test(html), false);
 });
 
 test("the owner page carries the back link; the public page has none", () => {
@@ -45,19 +58,65 @@ test("the owner page carries the back link; the public page has none", () => {
   assert.equal(page("<p>x</p>").includes('href="/"'), false);
 });
 
-test("the document's styles travel inside the sandboxed srcdoc", () => {
-  const srcdoc = page().match(/srcdoc="([^"]*)"/)?.[1] ?? "";
-  assert.ok(srcdoc.includes("&lt;style&gt;"), "the iframe cannot inherit the parent stylesheet");
-  assert.ok(srcdoc.includes(".mdpage{"));
+test("the document styles travel with the page instead of inside a frame", () => {
+  const html = page();
+  assert.ok(html.includes(".mdpage{"), "the document stylesheet is inline in the page head");
+  assert.equal(/srcdoc="/.test(html), false);
 });
 
-const decodeSrcdoc = (html: string): string =>
-  (html.match(/srcdoc="([^"]*)"/)?.[1] ?? "")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, "&");
+test("a comments mount adds the data island, the container and the module bundle", () => {
+  const withComments = markdownViewerPage("<p>x</p>", undefined, undefined, false, REFRESH, {
+    config: {
+      artifactId: "a1",
+      mode: "text",
+      canComment: true,
+      canResolve: true,
+      threads: [
+        {
+          id: "t1",
+          author: { id: "u1", name: "Ann", image: null },
+          quotedText: "x",
+          body: "hello",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          resolvedAt: null,
+          stale: false,
+          occurrence: 0,
+          canDelete: true,
+          canResolve: true,
+          replies: [],
+        },
+      ],
+      endpoints: {
+        comments: "/api/artifacts/a1/comments",
+        resolve: "/api/artifacts/a1/comments",
+        deleteComment: "/api/artifacts/a1/comments",
+      },
+    },
+    assets: { script: "/assets/viewer-comments-abc.js", styles: [], dev: false },
+  });
+  assert.ok(withComments.includes('<div id="viewer-comments"'), withComments);
+  assert.ok(withComments.includes('type="application/json" id="viewer-comments-data"'));
+  assert.ok(withComments.includes('type="module" src="/assets/viewer-comments-abc.js"'));
+  assert.ok(withComments.includes("&quot;") === false && withComments.includes("\\u003c") === false);
+  assert.equal(page("<p>x</p>").includes("viewer-comments-data"), false, "no comments island without comments");
+});
+
+test("the comments island escapes markup so the data cannot break out", () => {
+  const html = markdownViewerPage("<p>x</p>", undefined, undefined, false, REFRESH, {
+    config: {
+      artifactId: "a1",
+      mode: "text",
+      canComment: false,
+      canResolve: false,
+      threads: [],
+      endpoints: { comments: "/share/t/comments", resolve: "", deleteComment: "" },
+    },
+    assets: { script: "/assets/viewer-comments-abc.js", styles: [], dev: false },
+  });
+  const island = html.match(/<script type="application\/json" id="viewer-comments-data">([^<]*)<\/script>/)?.[1] ?? "";
+  assert.ok(island.length > 0, "the island exists");
+  assert.equal(island.includes("<"), false, "no raw angle bracket can close the tag early");
+});
 
 const luminance = (hex: string): number => {
   const channels = [0, 2, 4].map((offset) => Number.parseInt(hex.slice(offset + 1, offset + 3), 16) / 255);
@@ -70,7 +129,8 @@ const contrast = (a: string, b: string): number => {
   return (lighter + 0.05) / (darker + 0.05);
 };
 
-const docCss = () => decodeSrcdoc(page("<p>x</p>", "/", { title: "T", version: 1 }));
+const docCss = () =>
+  page("<p>x</p>", "/", { title: "T", version: 1 }).match(/<style id="doc-styles">([^]*?)<\/style>/)?.[1] ?? "";
 
 const tokenValue = (block: string, name: string): string => block.match(new RegExp(`${name}:([^;}]*)`))?.[1] ?? "";
 

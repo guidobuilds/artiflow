@@ -169,7 +169,7 @@ test("listing exposes ids and revocation only, never a token or a hash", { skip:
   assert.deepEqual([list.status, byId.size], [200, 2], "both links are listed");
   assert.deepEqual(
     Object.keys(byId.get(second) ?? {}),
-    ["id", "createdAt", "revokedAt"],
+    ["id", "createdAt", "revokedAt", "showComments"],
     "a link exposes no token, no hash and no artifact id",
   );
   assert.deepEqual(

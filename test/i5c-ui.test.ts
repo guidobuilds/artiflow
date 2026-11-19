@@ -152,8 +152,8 @@ test("the link list shows live and revoked rows without any token", async () => 
   const result = await listLinks("art-1");
   const rows = result.ok ? result.value : [];
   assert.deepEqual(rows, [
-    { id: "link-1", createdLabel: "2026-10-19", revokedLabel: null },
-    { id: "link-2", createdLabel: "2026-10-19", revokedLabel: "2026-10-20" },
+    { id: "link-1", createdLabel: "2026-10-19", revokedLabel: null, showComments: false },
+    { id: "link-2", createdLabel: "2026-10-19", revokedLabel: "2026-10-20", showComments: false },
   ]);
   assert.equal(JSON.stringify(rows).includes("tok"), false);
 });

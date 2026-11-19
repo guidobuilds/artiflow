@@ -286,10 +286,22 @@ undoable for the same reason, and an old revision id that is not this artifact's
 
 ## Comments
 
-Comments exist only on `markdown` artifacts; on any other kind every comment route answers
-`409 wrong_kind`. An anchor is a 1-indexed, end-exclusive line/column range over the Markdown source.
+A comment is a generic entity whose anchor is discriminated by `kind`. Markdown accepts
+`text-range` anchors; `html` accepts `element` and `page-point`. An anchor that does not belong to
+the artifact's kind is refused with `400 unsupported_anchor_kind`. A root comment always carries an
+anchor, a reply never does: a root without one is `400 root_requires_anchor` and a reply that sends
+one is `400 reply_has_no_anchor`.
 
-`GET /artifacts/{artifactId}/comments` returns threads for anyone who can read the artifact:
+| Kind          | Shape                                                                                                     | Document |
+| ------------- | --------------------------------------------------------------------------------------------------------- | -------- |
+| `text-range`  | `{startLine, startCol, endLine, endCol, quotedText}` — 1-indexed, end-exclusive, over the Markdown source | Markdown |
+| `element`     | `{selector, point:{x,y} in 0–1, textHint (≤120 chars), viewportWidth}`                                    | HTML     |
+| `page-point`  | `{x in 0–1, y in pixels, viewportWidth}`                                                                  | HTML     |
+| `board-point` | `{boardId, x, y}` — reserved                                                                              | future   |
+| `slide-point` | `{slideId, x, y}` — reserved                                                                              | future   |
+
+`GET /artifacts/{artifactId}/comments` returns threads for anyone who can read the artifact. The
+author is an entity: `{ id, name, image }`, never an email of another participant.
 
 ```json
 {
@@ -298,9 +310,15 @@ Comments exist only on `markdown` artifacts; on any other kind every comment rou
     {
       "id": "0f2b1c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
       "authorId": "user_owner",
-      "author": { "email": "owner@example.com" },
-      "anchor": { "startLine": 3, "startCol": 1, "endLine": 3, "endCol": 12 },
-      "quotedText": "Step one.",
+      "author": { "id": "user_owner", "name": "Owner", "image": null },
+      "anchor": {
+        "kind": "text-range",
+        "startLine": 3,
+        "startCol": 1,
+        "endLine": 3,
+        "endCol": 9,
+        "quotedText": "Step one."
+      },
       "body": "Is this still accurate?",
       "resolvedAt": null,
       "createdAt": "2025-02-04T10:01:00.000Z",
@@ -312,24 +330,39 @@ Comments exist only on `markdown` artifacts; on any other kind every comment rou
 ```
 
 `POST /artifacts/{artifactId}/comments` accepts
-`{"anchor":{"startLine":3,"startCol":1,"endLine":3,"endCol":12},"quotedText":"Step one.","body":"…","parentId":"…"}`
-and answers `201 {"id":"…"}`. `parentId` is optional and may only name a root comment: replying to a
-reply is `400 nested_reply`.
+`{"anchor":{"kind":"text-range","startLine":3,"startCol":1,"endLine":3,"endCol":9,"quotedText":"Step one."},"body":"…"}`
+for a root, and `{"body":"…","parentId":"…"}` for a reply, answering `201 {"id":"…"}`. `parentId` may
+only name a root comment: replying to a reply is `400 nested_reply`. `text-range` quotes are verified
+against the current revision; `element` and `page-point` anchors are validated for shape only and
+evaluated in the client, so they never report staleness from the server.
 
-| Status | Code                                | Cause                                                                  |
-| ------ | ----------------------------------- | ---------------------------------------------------------------------- |
-| `400`  | `body_required`, `quote_required`   | Empty comment or empty quote                                           |
-| `400`  | `invalid_anchor`, `anchor_mismatch` | The anchor does not select text, or the quote is not the selected text |
-| `400`  | `nested_reply`                      | `parentId` names a reply                                               |
-| `403`  | `forbidden`                         | The caller cannot comment on this artifact                             |
-| `404`  | `comment_not_found`                 | `parentId` is not a comment on this artifact                           |
-| `409`  | `no_current_revision`               | Nothing to anchor against                                              |
-| `413`  | `too_large`                         | `body` over 4000 characters or `quotedText` over 2000                  |
+| Status | Code                                          | Cause                                                                  |
+| ------ | --------------------------------------------- | ---------------------------------------------------------------------- |
+| `400`  | `body_required`                               | Empty comment body                                                     |
+| `400`  | `invalid_anchor`, `anchor_mismatch`           | The anchor is malformed, selects no text, or its quote is not the text |
+| `400`  | `unsupported_anchor_kind`                     | The anchor kind does not belong to the artifact's kind                 |
+| `400`  | `root_requires_anchor`, `reply_has_no_anchor` | A root omitted its anchor, or a reply sent one                         |
+| `400`  | `nested_reply`                                | `parentId` names a reply                                               |
+| `403`  | `forbidden`                                   | The caller cannot comment on this artifact                             |
+| `404`  | `comment_not_found`                           | `parentId` is not a comment on this artifact                           |
+| `409`  | `no_current_revision`                         | Nothing to anchor against                                              |
+| `413`  | `too_large`                                   | `body` over 4000 characters or `quotedText` over 2000                  |
+
+Readers keep read access: they list threads but get `403 forbidden` on every write. A comment root
+stores the revision that was current when the thread was created, and resolving records who did it.
 
 `POST /artifacts/{artifactId}/comments/{commentId}/resolve` and `…/unresolve` answer `200 {"id":"…"}`;
 only a root comment can be resolved (`400 root_required` otherwise). `DELETE
 /artifacts/{artifactId}/comments/{commentId}` answers `200 {"id":"…"}` for the artifact owner or the
 comment's author (`403 forbidden` for anyone else) and drops a root's replies with it.
+
+### Comments on a public link
+
+A public link carries a `showComments` option, off by default. The owner toggles it with
+`PATCH /artifacts/{artifactId}/links/{linkId}` and `{"showComments":true}`; every other caller is
+`404`. When the option is on, `GET /share/{token}/comments` serves the threads read-only, with
+`canDelete: false`, no private data and no email addresses. When it is off that path is `404`, and no
+other public path exposes comments.
 
 ## Invitations and public links
 

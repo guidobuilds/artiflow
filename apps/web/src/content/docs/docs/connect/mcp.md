@@ -113,9 +113,31 @@ consequences worth planning around:
 
 ## What the agent can do
 
-The MCP server exposes artifact creation and reading, Markdown line editing, and Markdown comments. It
-has **no** tool to list, search, share, publish or delete artifacts: those are dashboard actions, so an
-agent cannot widen access on its own.
+The MCP server exposes artifact creation and reading, Markdown line editing, and comments with
+generic anchors. It has **no** tool to list, search, share, publish or delete artifacts: those are
+dashboard actions, so an agent cannot widen access on its own.
+
+## Comments
+
+`artifact_list_comments` returns the roots of a document with their ordered replies. Each comment
+reports its author as `{ id, name, image }` and never an email address.
+
+`artifact_add_comment` adds a root at a discriminated anchor:
+
+| Kind         | Anchor                                                                                | Document |
+| ------------ | ------------------------------------------------------------------------------------- | -------- |
+| `text-range` | `{kind, startLine, startCol, endLine, endCol, quotedText}` — 1-indexed, end-exclusive | Markdown |
+| `element`    | `{kind, selector, point:{x,y} in 0–1, textHint (≤120 chars), viewportWidth}`          | HTML     |
+| `page-point` | `{kind, x in 0–1, y in pixels, viewportWidth}`                                        | HTML     |
+
+A `text-range` quote must match the current source exactly, or the call refuses with
+`anchor_mismatch`; `element` and `page-point` anchors are validated for shape only and positioned by
+the client. An anchor the document kind does not accept refuses with `validation`
+(`unsupported_anchor_kind`). A root without an anchor is refused, and replies carry no anchor at all.
+
+`artifact_reply_comment` takes only a body and inherits its root's context; replying to a reply
+refuses with `nested_reply`. `artifact_resolve_comment` and `artifact_unresolve_comment` act on roots
+only and record who resolved the thread. Comments never create document revisions.
 
 ## Sign-in and tokens
 

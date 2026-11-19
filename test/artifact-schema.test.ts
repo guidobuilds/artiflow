@@ -4,7 +4,12 @@ import { test } from "node:test";
 
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 
-import { artifactDetailSchema, artifactMetadataSchema, artifactSummarySchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
+import {
+  artifactDetailSchema,
+  artifactMetadataSchema,
+  artifactSummarySchema,
+  type ArtifactMetadata,
+} from "@artiflow/contracts/artifacts";
 
 import {
   MAX_ARTIFACT_BYTES,
@@ -93,6 +98,7 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["tokenHash", true],
       ["revokedAt", false],
       ["rotatedFromId", false],
+      ["showComments", true],
       ["createdAt", true],
     ],
     artifactComments: [
@@ -100,11 +106,9 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["artifactId", true],
       ["authorId", true],
       ["parentId", false],
-      ["anchorStartLine", true],
-      ["anchorStartCol", true],
-      ["anchorEndLine", true],
-      ["anchorEndCol", true],
-      ["quotedText", true],
+      ["anchor", false],
+      ["revisionId", false],
+      ["resolvedBy", false],
       ["body", true],
       ["resolvedAt", false],
       ["createdAt", true],

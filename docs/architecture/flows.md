@@ -221,20 +221,46 @@ Modules: `editing.ts`, `artifacts/commits.ts`, `artifacts/s3.ts`, `web/editor-ap
 ## 8. Comments on a source selection
 
 1. The UI maps a TipTap selection to 1-indexed source line/UTF-16 columns and
-   renders the source slice as `quotedText`.
+   renders the source slice as the `quotedText` of a `text-range` anchor.
 2. `POST /api/artifacts/:id/comments` locks the artifact row (`FOR UPDATE OF a`),
-   re-reads the **current** revision after the lock, verifies the anchor and the
-   exact quote, then inserts.
-3. A stale quote → `400 anchor_mismatch`; invalid range → `400 invalid_anchor`.
-4. Replies store only a body and inherit the root's anchor/quote; replies to replies
-   are refused. Resolve/unresolve affects roots only.
+   re-reads the **current** revision after the lock, validates the discriminated
+   anchor against the document kind, verifies the anchor and the exact quote,
+   then inserts with that revision id.
+3. A stale quote → `400 anchor_mismatch`; invalid range or malformed anchor →
+   `400 invalid_anchor`; an anchor kind the document kind does not accept →
+   `400 unsupported_anchor_kind`; a root without an anchor → `400
+root_requires_anchor`; a reply carrying an anchor → `400 reply_has_no_anchor`.
+4. Replies store only a body and inherit their context from the root; replies to
+   replies are refused. Resolve/unresolve affects roots only and records
+   `resolvedBy`.
 5. Deleting a root cascades replies in the database.
 
-Comments never create revisions. Public viewers have no comments.
+Comments never create revisions. A reader sees the threads and is refused every write with
+`403 forbidden`. HTML documents accept `element` and `page-point` anchors, which the server validates
+for shape only and the client positions; Markdown keeps `text-range`. A public link serves its threads
+read-only through `GET /share/:token/comments` only while the link's `showComments` option is on, with
+authors reduced to `{ id, name, image }`.
+
+HTML documents accept `element` anchors, and the bridge injected into the viewer frame resolves them by
+`id`, then a `data-*` attribute, then a unique text hint, falling back to the stored `page-point` and a
+dashed pin labelled "Element changed" when nothing matches uniquely. Pins are drawn inside the frame
+so they follow inner scroll, sticky elements and animations; the parent owns the margin, and no comment
+text ever crosses the bridge.
+
+The shared and public Markdown viewers render the sanitized fragment in the page itself and mount the
+same thread margin from a dedicated `viewer-comments` bundle, receiving an already-authorized JSON data
+island (`apps/api/src/viewer/comments-data.ts`) with each thread's staleness and text occurrence. The
+HTML viewer keeps its sandboxed frame.
+
+A viewer never trades the document for its comments: if the comment store fails while rendering, the
+page is served without threads, writing is disabled and the failure is logged. The frame bridge accepts
+a bounded rate of messages per time window, so a long session does not run out of budget, and a failed
+write keeps the draft and the error visible for a retry.
 
 Agents read a source window with `artifact_get_markdown`, quote or anchor the exact text that
-window returned, and comment on it. A comment never moves: the row keeps the `anchor*` coordinates
-and the `quotedText` recorded at creation, while the document head may have been edited since.
+window returned, and comment on it. A comment never moves: the row keeps the `anchor` recorded at
+creation (for markdown a `text-range` anchor with its coordinates and `quotedText`), while the
+document head may have been edited since.
 Staleness is detected by comparing the current source at those recorded coordinates with the stored
 quote, so an outdated thread stays at its anchor and is labelled outdated instead of being relocated
 to a guessed position, and comments that now look alike (the same rendered quote after an edit, two
@@ -245,7 +271,8 @@ No comment edit, no lifecycle beyond resolve/unresolve, no anchor relocation and
 exist or are implied here.
 
 Modules: `comments.ts`, `artifact-tools.ts`, `web/comment-anchors.ts`,
-`web/CommentSidebar.tsx`.
+`web/components/comments/comment-thread-margin.tsx`, fed by
+`web/components/comments/markdown-comments.tsx`.
 
 ## 9. Delete and garbage collection
 

@@ -31,5 +31,12 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: false,
+    manifest: true,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        "viewer-comments": fileURLToPath(new URL("./src/viewer-comments.tsx", import.meta.url)),
+      },
+    },
   },
 });
