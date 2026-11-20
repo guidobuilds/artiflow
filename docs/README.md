@@ -8,14 +8,15 @@ guides, self-hosting and contributing paths.
 
 ## Start here
 
-| Document                                        | Read it when you want to…                                             |
-| ----------------------------------------------- | --------------------------------------------------------------------- |
-| [Architecture overview](architecture/README.md) | Understand the whole system in one page.                              |
-| [Modules](architecture/modules.md)              | Know where a responsibility lives and what depends on what.           |
-| [Data model](architecture/data-model.md)        | Understand tables, ownership and invariants.                          |
-| [Integrations](architecture/integrations.md)    | Know every external service, protocol and port.                       |
-| [Flows](architecture/flows.md)                  | Follow an upload, a login, a viewer request or a deletion end to end. |
-| [Operations](architecture/operations.md)        | Configure, deploy, probe, migrate and troubleshoot.                   |
+| Document                                                               | Read it when you want to…                                             |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| [Architecture overview](architecture/README.md)                        | Understand the whole system in one page.                              |
+| [Modules](architecture/modules.md)                                     | Know where a responsibility lives and what depends on what.           |
+| [Data model](architecture/data-model.md)                               | Understand tables, ownership and invariants.                          |
+| [Integrations](architecture/integrations.md)                           | Know every external service, protocol and port.                       |
+| [Flows](architecture/flows.md)                                         | Follow an upload, a login, a viewer request or a deletion end to end. |
+| [Operations](architecture/operations.md)                               | Configure, deploy, probe, migrate and troubleshoot.                   |
+| [Authentication and access](architecture/authentication-and-access.md) | Understand administrators, access configuration, sessions and SSO.    |
 
 The user-facing runbook remains [`runbook.md`](runbook.md). It is the operational
 guide for the local deployment; this directory explains the system behind it.
