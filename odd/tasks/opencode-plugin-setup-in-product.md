@@ -12,6 +12,8 @@ User request verbatim: "Debemos realizar todo el proceso para que el plugin de o
 - S5: GUI `main` (`plugins/opencode/src/gui-main.ts`) resolves its config through the same chain, reading the stored URL from the server part via `ctx.client.rpc` instead of `process.env.ARTIFLOW_URL`; the Desktop GUI therefore works without `launchctl setenv ARTIFLOW_URL`.
 - S6: Tests cover the resolution chain (all three sources, precedence, invalid values), the setup command (valid origin persisted, invalid rejected with no storage write), and the GUI RPC-based config read; tests run through public interfaces.
 - S7: `plugins/opencode/README.md` and any docs describing the two env mechanisms are updated to describe the new one-step flow; help text for `/artiflow-setup` explains its behavior.
+- S8: The skills the plugin registers describe the plugin's actual native tool surface (the `artiflow_*` tools exposed by `plugins/opencode/src/tool-definitions.ts`) with no MCP instructions; they are plugin-scoped adaptations, not the canonical root skills. The canonical root skills (`skills/creating-artifacts/SKILL.md`, `skills/using-artiflow/SKILL.md`) keep their MCP-consumer content unchanged — no global `artifact_*` → `artiflow_*` rewrite.
+- S9: The plugin-registered skills contain no instructions for capabilities the plugin does not expose (no staged-upload chunk tools, no MCP-only flows); registration requires no MCP and no manual skill installation.
 
 Non-goals: upstream fixes (drafts in GUI-656), OpenWork UI changes, well-known discovery, GUI Settings page collection UI (follow-up if needed).
 
@@ -22,6 +24,7 @@ Non-goals: upstream fixes (drafts in GUI-656), OpenWork UI changes, well-known d
 - T3: GUI main RPC-based config (S5) — commit feat(plugin)
 - T4: tests (S6) — commit test(plugin) alongside each unit
 - T5: docs/README update (S7) — commit docs(plugin)
+- T6: plugin-scoped skill adaptations + registration + tests (S8, S9) — commit feat(plugin)
 
 ## Log
 
@@ -29,3 +32,5 @@ Non-goals: upstream fixes (drafts in GUI-656), OpenWork UI changes, well-known d
 - L2: Research delivered (docs/research/opencode-plugin-one-step-install.md); recommendation 1 = plugin-owned setup state.
 - L3: User selected "Implementar recomendación 1" via host-captured prompt, then explicitly confirmed in the chat: "Confirmado: implementar la recomendación 1 y crear el issue en Linear".
 - L4: Implementation delivered on Linear GUI-703 (created, In Progress). Commits on feat/opencode-plugin-installer: c2ffb51 (T1+T2: stored-URL source, bootstrap setup-only mode, /artiflow-setup, config.url RPC + tests), 4fddc54 (T3: GUI resolves via config.url RPC + tests), 149cb3f (T5: README + harness-plugins docs), 490dd47 (research + ODD docs). Slice boundary: 854 authored changed lines since origin/main. Verification: 187/187 plugin tests, tsc --noEmit clean, prettier clean on touched files, GUI bundle builds. Native assess: risk medium, reviewDue false (under budget); writer self-verification stands.
+- L5: Post-merge native review approved (lineage review-17769c89c1166aa7, 3 lens reviewers, 9 non-blocking advisory findings).
+- L6: User decision on GUI-703: "Se incorpora al alcance: la instalación del plugin debe registrar automáticamente skills cuyas instrucciones coincidan con las tools nativas disponibles, sin requerir MCP ni instalación manual de skills. Conservar el contenido correcto para consumidores MCP; no reemplazar globalmente artifact_* por artiflow_* en los skills compartidos. Verificar el contenido efectivamente empaquetado y registrado, y eliminar instrucciones contradictorias sobre capacidades no expuestas por el plugin." GUI-665 stays open until implemented and verified. → S8, S9, T6.

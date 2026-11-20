@@ -40,8 +40,7 @@
   "scripts": {
     "build": "vite build",
     "build:server": "node scripts/build-server.mjs",
-    "prepack": "node scripts/pack-plugin.mjs stage",
-    "postpack": "node scripts/pack-plugin.mjs clean",
+    "prepack": "node scripts/pack-plugin.mjs verify",
     "prepublishOnly": "npm run build && npm run build:server"
   },
   "devDependencies": {

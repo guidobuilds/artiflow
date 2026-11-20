@@ -1,7 +1,8 @@
 # Artiflow for OpenCode
 
-The server entry registers six native Artiflow tools, a viewer-link helper, both
-canonical Artiflow skills, and supplementary OpenCode large-artifact guidance.
+The server entry registers six native Artiflow tools, a viewer-link helper, three
+plugin-scoped skills (creation procedure, platform capabilities, and OpenCode
+large-artifact guidance) adapted to those native tools.
 The tools call the instance's bearer-only public API (`/api/v1`) with an OAuth
 token bound to that resource; no MCP connection is configured or required.
 Configure your own instance; no origin is built in.
@@ -102,13 +103,13 @@ Storage security is provided by the host; this plugin does not encrypt storage.
 
 ## Skills
 
-The server entry adds both canonical skills. A published tarball ships them
-under the package (`skills/<name>/SKILL.md`), so the resolver looks there first
-and falls back to the repository-root `skills/` layout used while developing.
-The bundled copies must remain byte-identical to
-`skills/creating-artifacts/SKILL.md` and `skills/using-artiflow/SKILL.md`; the
-tests enforce this, and an unresolvable skill fails with an error naming both
-candidate paths.
+The server entry adds three plugin-scoped skills bundled in the package
+(`plugins/opencode/skills/<name>/SKILL.md`). They describe the plugin's actual
+native tool surface (`artiflow_*` on the instance API) — no MCP instructions, no
+staged-upload flow — and never fall back to the repository-root canonical
+skills, which keep their MCP-consumer content for MCP hosts. Registration needs
+no MCP connection and no manual skill installation; a missing bundled skill
+fails with an error naming its package path.
 
 ## Freshness
 
@@ -269,8 +270,8 @@ the file whose sources changed needs rebuilding; a server-only change leaves
 `dist/gui-experimental.cjs` untouched.
 
 `dist/` is not tracked in git. The package builds at publish time:
-`prepublishOnly` runs both builds before `prepack` stages the skills and npm
-assembles the tarball, so a published package always ships fresh artifacts built
+`prepublishOnly` runs both builds before npm assembles the tarball, so a
+published package always ships fresh artifacts built
 from the sources it was published with. Consuming the plugin from a checkout
 therefore requires a build after cloning; from the repository root run
 `npm run build:plugin` (or the two plugin scripts directly). The focused plugin
@@ -280,17 +281,17 @@ tarball, not git. `npm pack` alone does not build anything (npm only runs
 `prepublishOnly` on `npm publish`); build first or use
 `npm publish --dry-run` to check what a publish would ship.
 
-A standalone tarball comes from the pack flow, which stages the repository
-skills inside the package and removes them again:
+A standalone tarball comes from the pack flow:
 
 ```sh
 (cd plugins/opencode && npm pack)
 ```
 
-`prepack` copies `skills/creating-artifacts` and `skills/using-artiflow` to
-`plugins/opencode/skills`, `postpack` removes them, and
-`plugins/opencode/.gitignore` keeps the copy out of the repository. The tarball
-contains `dist/server.mjs`, `dist/gui-experimental.cjs`, the skill copies, the
+The skill files are tracked package sources; `prepack` verifies they exist and
+stay plugin-scoped (it refuses a tarball with MCP or staged-upload markers).
+The tarball
+contains `dist/server.mjs`, `dist/gui-experimental.cjs`, the plugin-scoped
+skills, the
 sources and the README; a clean install resolves nothing but the host modules
 listed above. Pure association/reducer, RPC-schema, session-matching,
 native-tab reconstruction/refetch, main-process lifecycle, freshness, packaging
