@@ -21,6 +21,16 @@ test("opening a thread never moves the document", () => {
   }
 });
 
+test("card heights are measured and threads without a location form their own group", () => {
+  assert.match(component, /typeof ResizeObserver === "undefined"/);
+  assert.match(component, /new ResizeObserver/);
+  assert.match(component, /heights\[thread\.id\] \?\? measured\[thread\.id\]/);
+  assert.match(component, /partitionPlaced\(shown, anchors\)/);
+  assert.match(component, /role="group"\s+aria-label="No location"/);
+  assert.match(component, /<h3 className="comment-thread-unplaced-title">No location<\/h3>/);
+  assert.match(styles, /\.comment-thread-unplaced \.comment-thread-card \{[^}]*position: relative;/);
+});
+
 test("the bar toggles visibility, counts open threads and hides resolved ones by default", () => {
   assert.match(component, /aria-pressed=\{visible\}/);
   assert.match(component, /aria-controls=\{label\}/);
@@ -46,7 +56,14 @@ test("every card state has a surface", () => {
   assert.match(component, />\s*Resolve\s*<\/Button>/);
   assert.match(component, />\s*Reopen\s*<\/Button>/);
   assert.match(component, />\s*Close\s*<\/Button>/);
-  assert.match(component, /thread\.staleLabel \?\? "Texto cambiado"/);
+  assert.match(component, /thread\.staleLabel \?\? "Text changed"/);
+  assert.match(component, /<p className="comment-thread-flag">Resolved<\/p>/);
+  assert.match(component, /\$\{active \? "Close" : "Open"\} thread by/);
+  assert.equal(/Texto cambiado|Resuelto|Abrir|Cerrar/.test(component), false, "no Spanish labels remain");
+  assert.match(component, /active \? "comment-thread-body" : "comment-thread-body comment-thread-clamp"/);
+  assert.equal(/\.comment-thread-card \{[^}]*overflow: hidden;/.test(styles), false, "cards never clip their content");
+  assert.equal(/height: placement\.height/.test(component), false, "cards size to their content");
+  assert.match(styles, /mark\.viewer-comment-mark-flash \{[^}]*animation: comment-flash/);
   assert.match(component, /comment-thread-draft/);
 });
 

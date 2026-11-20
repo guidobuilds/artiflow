@@ -1,9 +1,15 @@
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { Avatar } from "@/components/ui/avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconAction } from "@/components/ui/icon.tsx";
-import { layoutCommentThreads, marginHeight, placementOf, type ThreadPlacement } from "@/comment-thread-layout.ts";
+import {
+  layoutCommentThreads,
+  marginHeight,
+  partitionPlaced,
+  placementOf,
+  type ThreadPlacement,
+} from "@/comment-thread-layout.ts";
 import {
   browserCommentStorage,
   openThreadCount,
@@ -108,18 +114,33 @@ function ThreadCard({
   onResolve,
   onReply,
   onDelete,
+  onMeasure,
 }: {
   thread: CommentThread;
-  placement: ThreadPlacement;
+  placement: ThreadPlacement | null;
   active: boolean;
   canComment: boolean;
   onActivate: () => void;
+  onMeasure?: (id: string, height: number) => void;
   onResolve?: (thread: CommentThread, resolved: boolean) => void;
   onReply?: (thread: CommentThread, body: string) => void;
   onDelete?: (thread: CommentThread, reply?: ThreadReply) => void;
 }) {
   const [reply, setReply] = useState("");
   const bodyId = useId();
+  const cardRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card || !onMeasure || typeof ResizeObserver === "undefined") return;
+    const report = (height: number) => onMeasure(thread.id, height);
+    report(card.offsetHeight);
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      report(entry?.borderBoxSize?.[0]?.blockSize ?? card.offsetHeight);
+    });
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, [thread.id, onMeasure]);
   const stale = thread.stale === true;
   const resolved = thread.resolvedAt !== null;
   const openThread = useCallback(
@@ -137,6 +158,7 @@ function ThreadCard({
   );
   return (
     <article
+      ref={cardRef}
       data-thread-id={thread.id}
       aria-labelledby={`${bodyId}-label`}
       aria-expanded={active}
@@ -150,28 +172,28 @@ function ThreadCard({
       ]
         .filter(Boolean)
         .join(" ")}
-      style={{ top: placement.top, height: placement.height }}
+      style={placement ? { top: placement.top } : undefined}
     >
       <button
         type="button"
         id={`${bodyId}-label`}
         onClick={() => onActivate()}
         className="comment-thread-header"
-        aria-label={`${active ? "Cerrar" : "Abrir"} hilo de ${thread.author.name || thread.author.id}`}
+        aria-label={`${active ? "Close" : "Open"} thread by ${thread.author.name || thread.author.id}`}
       >
         <Author author={thread.author} />
         <time dateTime={thread.createdAt} className="text-[11px] text-fg-subtle">
           {when(thread.createdAt)}
         </time>
       </button>
-      <p className="comment-thread-body comment-thread-clamp">{thread.body}</p>
+      <p className={active ? "comment-thread-body" : "comment-thread-body comment-thread-clamp"}>{thread.body}</p>
       {stale ? (
         <p className="comment-thread-flag">
-          {thread.staleLabel ?? "Texto cambiado"}
+          {thread.staleLabel ?? "Text changed"}
           <span className="comment-thread-quote">{thread.quotedText}</span>
         </p>
       ) : null}
-      {resolved ? <p className="comment-thread-flag">Resuelto</p> : null}
+      {resolved ? <p className="comment-thread-flag">Resolved</p> : null}
       {active && !resolved ? (
         <div className="comment-thread-full">
           <blockquote className="comment-thread-quote">{thread.quotedText}</blockquote>
@@ -472,18 +494,24 @@ export default function CommentThreadMargin({
     onShowResolvedChange?.(next);
   };
   const toggle = () => setVisible(!visible);
+  const [measured, setMeasured] = useState<Record<string, number>>({});
+  const onMeasure = useCallback((id: string, height: number) => {
+    const rounded = Math.ceil(height);
+    setMeasured((current) => (current[id] === rounded ? current : { ...current, [id]: rounded }));
+  }, []);
   const shown = useMemo(() => visibleThreads(threads, showResolved), [threads, showResolved]);
+  const { placed, unplaced } = useMemo(() => partitionPlaced(shown, anchors), [shown, anchors]);
   const placements = useMemo(
     () =>
       layoutCommentThreads({
-        threads: shown.map((thread) => ({
+        threads: placed.map((thread) => ({
           id: thread.id,
           anchorTop: anchors[thread.id] ?? 0,
-          height: heights[thread.id] ?? (thread.id === activeId ? active : collapsed),
+          height: heights[thread.id] ?? measured[thread.id] ?? (thread.id === activeId ? active : collapsed),
         })),
         activeId,
       }),
-    [shown, anchors, heights, activeId, active, collapsed],
+    [placed, anchors, heights, measured, activeId, active, collapsed],
   );
   const openCount = openThreadCount(threads);
   const sheetThreads = shown.filter((thread) => thread.resolvedAt === null);
@@ -542,7 +570,7 @@ export default function CommentThreadMargin({
             <p className="comment-thread-empty">Select text in the document to start a thread.</p>
           ) : null}
           {status !== "error"
-            ? shown.map((thread) => {
+            ? placed.map((thread) => {
                 const placement = placementOf(placements, thread.id);
                 if (!placement) return null;
                 return (
@@ -556,10 +584,34 @@ export default function CommentThreadMargin({
                     onResolve={onResolve}
                     onReply={onReply}
                     onDelete={onDelete}
+                    onMeasure={onMeasure}
                   />
                 );
               })
             : null}
+          {status !== "error" && unplaced.length > 0 ? (
+            <div
+              role="group"
+              aria-label="No location"
+              className="comment-thread-unplaced"
+              style={{ marginTop: marginHeight(placements) }}
+            >
+              <h3 className="comment-thread-unplaced-title">No location</h3>
+              {unplaced.map((thread) => (
+                <ThreadCard
+                  key={thread.id}
+                  thread={thread}
+                  placement={null}
+                  active={thread.id === activeId}
+                  canComment={canComment}
+                  onActivate={() => onActivate(thread.id === activeId ? null : thread.id)}
+                  onResolve={onResolve}
+                  onReply={onReply}
+                  onDelete={onDelete}
+                />
+              ))}
+            </div>
+          ) : null}
           {draft !== null && draft !== undefined ? (
             <DraftCard
               draft={draft}

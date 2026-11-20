@@ -566,7 +566,6 @@
   position: absolute;
   left: 0;
   right: 0;
-  overflow: hidden;
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -575,6 +574,21 @@
   transition:
     top 160ms var(--ease),
     box-shadow 160ms var(--ease);
+}
+
+.comment-thread-unplaced {
+  display: grid;
+  gap: 8px;
+}
+
+.comment-thread-unplaced-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--fg-muted);
+}
+
+.comment-thread-unplaced .comment-thread-card {
+  position: relative;
 }
 
 .comment-thread-card:focus-visible {
@@ -838,6 +852,10 @@ mark.viewer-comment-mark {
   border-radius: 2px;
   color: inherit;
   padding: 0 1px;
+}
+
+mark.viewer-comment-mark-flash {
+  animation: comment-flash 1.2s var(--ease);
 }
 
 mark.viewer-comment-mark-active {
