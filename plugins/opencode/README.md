@@ -1,11 +1,13 @@
 # Artiflow for OpenCode
 
 The server entry registers six native Artiflow tools, a viewer-link helper, three
-plugin-scoped skills (creation procedure, platform capabilities, and OpenCode
-large-artifact guidance) adapted to those native tools.
-The tools call the instance's bearer-only public API (`/api/v1`) with an OAuth
-token bound to that resource; no MCP connection is configured or required.
-Configure your own instance; no origin is built in.
+plugin-scoped skills adapted to those native tools, and the in-product setup
+command `/artiflow-setup`. See the user-facing guide at
+`apps/web/src/content/docs/docs/connect/opencode.md` for the end-user install
+flow; this README documents the package itself. The tools call the instance's
+bearer-only public API (`/api/v1`) with an OAuth token bound to that resource;
+no MCP connection is configured or required. Configure your own instance; no
+origin is built in.
 
 The package exposes `./server`, the prebuilt standalone bundle a host loads,
 plus `./server-source` for the TypeScript source the repository develops
