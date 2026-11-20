@@ -12,6 +12,7 @@
     "./document": "./src/document.ts",
     "./shares": "./src/shares.ts",
     "./comments": "./src/comments.ts",
+    "./admin": "./src/admin.ts",
     "./errors": "./src/errors.ts"
   },
   "scripts": {

@@ -9,8 +9,13 @@ import { account, user } from "../../apps/api/src/adapters/postgres/db/schema.ts
 const SIGN_IN_PATH = "/api/auth/sign-in/email";
 const REQUEST_TIMEOUT_MS = 10_000;
 
-export type TrustedAccountInit = { email?: string; name?: string; password?: string };
-export type TrustedAccount = { email: string; name: string; password: string; userId: string };
+export type TrustedAccountInit = {
+  email?: string;
+  name?: string;
+  password?: string;
+  role?: "member" | "administrator";
+};
+export type TrustedAccount = { email: string; name: string; password: string; userId: string; role: string };
 export type TrustedSession = TrustedAccount & { cookie: string };
 
 export type TrustedFixture = { database: Database; baseUrl: string; origin: string };
@@ -24,18 +29,21 @@ function sessionCookie(response: Response): string {
   );
 }
 
-export async function seedTrustedAccount(
-  database: Database,
-  init: TrustedAccountInit = {},
-): Promise<TrustedAccount> {
+export async function seedTrustedAccount(database: Database, init: TrustedAccountInit = {}): Promise<TrustedAccount> {
   const userId = randomUUID();
   const email = (init.email ?? `fixture-${userId}@example.test`).trim().toLowerCase();
   const name = init.name ?? "Fixture Owner";
   const password = init.password ?? `fixture-password-${randomUUID()}`;
   const now = new Date();
-  await database.db
-    .insert(user)
-    .values({ id: userId, name, email, emailVerified: false, createdAt: now, updatedAt: now });
+  await database.db.insert(user).values({
+    id: userId,
+    name,
+    email,
+    emailVerified: false,
+    createdAt: now,
+    updatedAt: now,
+    ...(init.role ? { role: init.role } : {}),
+  });
   await database.db.insert(account).values({
     id: randomUUID(),
     userId,
@@ -45,7 +53,7 @@ export async function seedTrustedAccount(
     createdAt: now,
     updatedAt: now,
   });
-  return { email, name, password, userId };
+  return { email, name, password, userId, role: init.role ?? "member" };
 }
 
 export async function signInTrustedAccount(
@@ -72,10 +80,7 @@ export async function signInTrustedAccount(
   return cookie;
 }
 
-export async function trustedSession(
-  fixture: TrustedFixture,
-  init: TrustedAccountInit = {},
-): Promise<TrustedSession> {
+export async function trustedSession(fixture: TrustedFixture, init: TrustedAccountInit = {}): Promise<TrustedSession> {
   const account = await seedTrustedAccount(fixture.database, init);
   return { ...account, cookie: await signInTrustedAccount(fixture.baseUrl, fixture.origin, account) };
 }

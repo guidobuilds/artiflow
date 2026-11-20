@@ -1,5 +1,7 @@
 import { boolean, index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
+import { USER_ROLES } from "../../../identity/roles.ts";
+
 const date = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
 export const user = pgTable("user", {
@@ -8,6 +10,10 @@ export const user = pgTable("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("emailVerified").notNull().default(false),
   image: text("image"),
+  role: text("role", { enum: USER_ROLES }).notNull().default("member"),
+  banned: boolean("banned").notNull().default(false),
+  banReason: text("banReason"),
+  banExpires: date("banExpires"),
   createdAt: date("createdAt").notNull().defaultNow(),
   updatedAt: date("updatedAt").notNull().defaultNow(),
 });
@@ -23,6 +29,7 @@ export const session = pgTable(
     expiresAt: date("expiresAt").notNull(),
     ipAddress: text("ipAddress"),
     userAgent: text("userAgent"),
+    impersonatedBy: text("impersonatedBy"),
     createdAt: date("createdAt").notNull().defaultNow(),
     updatedAt: date("updatedAt").notNull().defaultNow(),
   },
