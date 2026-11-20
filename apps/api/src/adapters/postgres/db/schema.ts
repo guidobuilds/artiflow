@@ -75,3 +75,5 @@ export const verification = pgTable(
 );
 
 export const authSchema = { user, session, account, verification };
+
+export { instanceSecret, instanceSetting } from "./settings-schema.ts";

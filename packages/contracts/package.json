@@ -13,6 +13,7 @@
     "./shares": "./src/shares.ts",
     "./comments": "./src/comments.ts",
     "./admin": "./src/admin.ts",
+    "./settings": "./src/settings.ts",
     "./errors": "./src/errors.ts"
   },
   "scripts": {

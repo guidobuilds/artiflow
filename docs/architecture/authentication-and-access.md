@@ -87,7 +87,7 @@ untrusted.
 ## 4. Configuration store (D2)
 
 **Decision.** A table `instanceSetting(key text primary key, value jsonb not null,
-revision integer not null, updated_at timestamptz, updated_by uuid)` holds one row per
+revision integer not null, updated_at timestamptz, updated_by text)` holds one row per
 setting document:
 
 | Key               | Document                                                    |
@@ -104,9 +104,16 @@ an older process never crashes on a document it does not fully understand. Updat
 conditional on the current `revision` and increment it, which gives optimistic concurrency
 for free and the invalidation signal for D3.
 
+A document never carries a credential. The client secret of a social provider is a row of
+`instanceSecret(name text primary key, ciphertext text not null, updated_at timestamptz,
+updated_by text)`, and the corresponding provider entry in `access.methods` holds only its
+`secretName`. `clientId` stays in the document because it is not secret. Reading or copying a
+setting document therefore can never expose a stored secret.
+
 Rejected: a single JSON document (unrelated settings would share one conflict domain and one
 audit record); explicit columns (every new option would need a migration, which the
-specification forbids as a redesign). Secrets are never stored here — they belong to D5.
+specification forbids as a redesign). Secrets are never stored here — they belong to
+section 7.
 
 ## 5. Applying configuration without a restart (D3)
 
@@ -146,14 +153,23 @@ entirely is the alternative, and it would break those installations for no gain.
 
 **Decision.** Secrets are encrypted at the application layer with AES-256-GCM under a key
 from `ARTIFLOW_SECRET_ENCRYPTION_KEY` (32 bytes, base64). The stored value carries its key
-id: `v1:<keyId>:<iv>:<ciphertext>:<tag>`, base64 for the binary parts. A Drizzle
-`customType` column transform encrypts on write and decrypts on read, so the SSO provider
-row is transparent to the library that consumes it and no plaintext ever reaches disk.
+id: `v1:<keyId>:<iv>:<ciphertext>:<tag>`, base64 for the binary parts. Encryption and
+decryption happen in `apps/api/src/settings/secrets.ts` at the boundary of the secret table,
+so a caller reads a plaintext value or nothing at all and no plaintext ever reaches disk.
+
+The row itself is `instanceSecret(name text primary key, ciphertext text not null,
+updated_at timestamptz, updated_by text)`. A name identifies the secret for the document
+that references it (`access.methods.google.clientSecret`,
+`access.methods.github.clientSecret`, and later the SSO connection's secret), so a secret is
+addressable by the setting that uses it and a rotation can find every stored value. The
+setting document holds only that name; it never holds the plaintext or the ciphertext.
+Presence is answered by whether the row exists, without decrypting it into a returned value.
 
 - **Absent key.** If no secret has ever been stored, the SSO surface reports that
   encryption is unconfigured and refuses to save; the rest of the instance works. If a
   secret exists and the key is missing, startup fails closed rather than silently dropping
-  the connection.
+  the connection. A first-boot seed that finds provider variables but no key refuses to
+  write anything rather than storing them unprotected.
 - **Rotation.** The key id in the ciphertext allows a new key to be introduced and old
   values re-encrypted by a console command later. Rotation is not part of v1's UI; the
   format is chosen so that it does not require a schema change.

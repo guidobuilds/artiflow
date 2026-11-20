@@ -6,6 +6,7 @@ import { emailPasswordEnabled } from "./auth.ts";
 import { createDatabase } from "./adapters/postgres/db/client.ts";
 import { createApiApp } from "./app.ts";
 import { createStorage } from "./adapters/storage/client.ts";
+import { seedAccessMethods } from "./settings/seed.ts";
 
 function readConfig() {
   try {
@@ -20,6 +21,16 @@ function readConfig() {
 const config = readConfig();
 const database = createDatabase(config.databaseUrl);
 const storage = createStorage(config.storage);
+
+await database.check();
+try {
+  await seedAccessMethods({ db: database.db, config });
+} catch (error) {
+  const reason = error instanceof Error ? error.message : "unexpected seed failure";
+  console.error(`[api] access configuration seed failed: ${reason}`);
+  await database.close().catch(() => undefined);
+  process.exit(1);
+}
 
 const app = createApiApp({ config, database, storage });
 
