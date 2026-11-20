@@ -166,7 +166,7 @@ test("config.url is a portable RPC method shaped like the other methods", async 
 
 test("the server entry resolves a persisted URL and exposes it through config.url", async () => {
   await withoutEnvironment(async () => {
-    const { ctx, storage, rpc, commands, calls } = entry({ url: "https://stored.example" });
+    const { ctx, rpc, commands, calls } = entry({ url: "https://stored.example" });
     const cleanup = await plugin.setup(ctx as never);
     assert.equal(typeof cleanup, "function");
     assert.deepEqual(await rpc["config.url"]?.({}, { signal: new AbortController().signal }), {

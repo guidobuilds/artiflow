@@ -232,7 +232,7 @@ export const main: Plugin.MainSetup = (ctx) => {
         const changed = entry.visible !== input.visible;
         entry.visible = input.visible;
         entry.embed.show(input.visible && entry.auth.snapshot(input.id).ready);
-        if (changed) for (const listener of [...entry.watchers]) listener();
+        if (changed) for (const listener of Array.from(entry.watchers)) listener();
       }
     },
     dispose(input, caller) {

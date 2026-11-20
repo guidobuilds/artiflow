@@ -16,7 +16,7 @@ After `npm install` of the published package, today's setup requires:
 - `opencode service set env ARTIFLOW_URL <url>` for the background server process.
 - `launchctl setenv ARTIFLOW_URL <url>` for the OpenCode Desktop GUI process
   (launchd/Finder-launched apps do not inherit shell exports; the CLI `service
-  set env` only reaches the server process).
+set env` only reaches the server process).
 - A manually pasted `client_id` in the OpenWork connect dialog.
 
 Two env mechanisms for two processes plus one manual credential — that is the
@@ -27,8 +27,8 @@ friction this research attacks.
 ### (a) Plugin entry object form — verdict: supported in 2.3.0; the reported failure was a wrong config key
 
 - `packages/schema/src/config/plugin.ts` (v2.3.0): `Entry = {package: String,
-  options?: Record<String, Unknown>}`; `Plugins = Plugin[]` where `Plugin =
-  Union([String, Entry])`.
+options?: Record<String, Unknown>}`; `Plugins = Plugin[]` where `Plugin =
+Union([String, Entry])`.
 - `packages/core/src/config/normalize.ts` (v2.3.0): the legacy singular
   `plugin` key is decoded with the V1 spec (`String | Tuple([String, Options])`
   in `packages/core/src/v1/config/plugin.ts`), the plural `plugins` key with
@@ -85,7 +85,7 @@ friction this research attacks.
 ### (d) Plugin-embedded MCP — verdict: viable but unnecessary
 
 - API (2.3.0): `ctx.mcp.transform((editor) => editor.set(name, {type: "remote",
-  url}) | editor.update | editor.remove | editor.list/get)` plus
+url}) | editor.update | editor.remove | editor.list/get)` plus
   `ctx.mcp.reload()`; host side decodes `ServerConfig`
   (`packages/core/src/plugin/host.ts`).
 - The current plugin deliberately needs no MCP: native `artiflow_*` tools talk
@@ -153,7 +153,7 @@ friction this research attacks.
 ## Upstream drafts worth filing
 
 1. **cli: `opencode plugin add <pkg> --option key=value`** — mirror `mcp add
-   --header/--env`; when any `--option` is given, `writePluginConfig` writes
+--header/--env`; when any `--option` is given, `writePluginConfig` writes
    `{package, options}` instead of the bare string. Makes option-carrying
    plugins installable in one command.
 2. **core/config: accept the V1 `[package, options]` tuple under `plugins`** (or
