@@ -100,7 +100,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
     challengeScopes: [...API_RESOURCE_SCOPES],
   };
 
-  app.route("/", createAdminApp({ database: databaseView, auth, publicOrigin: config.publicOrigin }));
+  app.route("/", createAdminApp({ database: databaseView, auth, publicOrigin: config.publicOrigin, config }));
   app.route("/", createSharingApp({ database: databaseView, auth, publicOrigin: config.publicOrigin }));
   app.route(
     "/",

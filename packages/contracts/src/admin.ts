@@ -22,3 +22,44 @@ export const setUserRoleResponseSchema = z.object({
   changed: z.boolean(),
 });
 export type SetUserRoleResponse = z.infer<typeof setUserRoleResponseSchema>;
+
+export const accessProviderNameSchema = z.enum(["google", "github"]);
+export type AccessProviderName = z.infer<typeof accessProviderNameSchema>;
+
+export const accessProviderViewSchema = z.strictObject({
+  enabled: z.boolean(),
+  clientId: z.string(),
+  credentialConfigured: z.boolean(),
+});
+export type AccessProviderView = z.infer<typeof accessProviderViewSchema>;
+
+export const accessConfigurationSchema = z.strictObject({
+  revision: z.number().int().min(1).nullable(),
+  passwordEnabled: z.boolean(),
+  providers: z.strictObject({
+    google: accessProviderViewSchema,
+    github: accessProviderViewSchema,
+  }),
+  provenance: z.strictObject({
+    source: z.string().min(1),
+    at: z.iso.datetime(),
+  }),
+});
+export type AccessConfiguration = z.infer<typeof accessConfigurationSchema>;
+
+export const accessProviderChangeSchema = z.strictObject({
+  enabled: z.boolean(),
+  clientId: z.string(),
+  clientSecret: z.string().min(1).optional(),
+});
+export type AccessProviderChange = z.infer<typeof accessProviderChangeSchema>;
+
+export const updateAccessConfigurationRequestSchema = z.strictObject({
+  revision: z.number().int().min(1).nullable(),
+  passwordEnabled: z.boolean(),
+  providers: z.strictObject({
+    google: accessProviderChangeSchema,
+    github: accessProviderChangeSchema,
+  }),
+});
+export type UpdateAccessConfigurationRequest = z.infer<typeof updateAccessConfigurationRequestSchema>;

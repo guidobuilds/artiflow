@@ -8,12 +8,11 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { Hono } from "hono";
 import { escapeIdentifier, Pool } from "pg";
 
+import { createApiApp, type ApiAppDeps } from "../../apps/api/src/app.ts";
 import { createDatabase, type Database } from "../../apps/api/src/adapters/postgres/db/client.ts";
-import { createAuth, createAuthApp, type AuthConfig } from "../../apps/api/src/auth.ts";
-import { createAdminApp } from "../../apps/api/src/routes/admin.ts";
+import type { AppConfig } from "../../apps/api/src/config.ts";
 
 const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../..");
 const MIGRATIONS_FOLDER = join(PROJECT_ROOT, "drizzle");
@@ -24,7 +23,7 @@ export type CommandResult = { status: number | null; stdout: string; stderr: str
 
 export type AdminHarness = {
   baseUrl: string;
-  config: AuthConfig;
+  config: AppConfig;
   database: Database;
   command(script: string, args: string[]): CommandResult;
   close(): Promise<void>;
@@ -38,7 +37,16 @@ function bunBinary(): string {
   return found ?? "bun";
 }
 
-export async function startAdminHarness(config: AuthConfig): Promise<AdminHarness> {
+function unusedStorage(): ApiAppDeps["storage"] {
+  return {
+    client: {} as ApiAppDeps["storage"]["client"],
+    bucket: "unused-by-administration-routes",
+    checkBucket: async () => undefined,
+    destroy: () => undefined,
+  };
+}
+
+export async function startAdminHarness(config: AppConfig): Promise<AdminHarness> {
   const raw = process.env.DATABASE_URL ?? "";
   const url = new URL(raw);
   if (!LOOPBACK_HOSTS.has(url.hostname)) throw new Error("the test database must be a loopback PostgreSQL instance");
@@ -56,10 +64,7 @@ export async function startAdminHarness(config: AuthConfig): Promise<AdminHarnes
   const database = createDatabase(testUrl.toString());
   await migrate(drizzle(database.pool), { migrationsFolder: MIGRATIONS_FOLDER });
 
-  const auth = createAuth(config, database);
-  const app = new Hono();
-  app.route("/", createAuthApp(auth, config));
-  app.route("/", createAdminApp({ database, auth, publicOrigin: config.publicOrigin }));
+  const app = createApiApp({ config, database, storage: unusedStorage() });
 
   const started = await new Promise<{ server: ReturnType<typeof serve>; baseUrl: string }>((resolve, reject) => {
     const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 }, (info) =>

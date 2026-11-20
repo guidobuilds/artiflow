@@ -1,17 +1,27 @@
 import type { UserRole } from "../identity/roles.ts";
 
-export const ADMIN_EVENTS = ["role.granted", "role.revoked"] as const;
+export const ADMIN_EVENTS = ["role.granted", "role.revoked", "access.methods.updated"] as const;
 
 export type AdminEventName = (typeof ADMIN_EVENTS)[number];
 
-export type AdminEventInput = {
-  event: AdminEventName;
+type AdminEventBase = {
   actorId: string;
   actorRole: UserRole | "console";
-  subjectId: string;
   outcome: "applied" | "refused";
   requestId?: string;
 };
+
+export type RoleAdminEvent = AdminEventBase & {
+  event: "role.granted" | "role.revoked";
+  subjectId: string;
+};
+
+export type SettingAdminEvent = AdminEventBase & {
+  event: "access.methods.updated";
+  settingKey: string;
+};
+
+export type AdminEventInput = RoleAdminEvent | SettingAdminEvent;
 
 type WriteLine = (line: string) => void;
 
@@ -26,7 +36,7 @@ export function adminEventLine(input: AdminEventInput, at: Date = new Date()): s
     event: input.event,
     actorId: input.actorId,
     actorRole: input.actorRole,
-    subjectId: input.subjectId,
+    ...(input.event === "access.methods.updated" ? { settingKey: input.settingKey } : { subjectId: input.subjectId }),
     outcome: input.outcome,
     ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
   });

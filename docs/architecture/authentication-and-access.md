@@ -115,6 +115,29 @@ audit record); explicit columns (every new option would need a migration, which 
 specification forbids as a redesign). Secrets are never stored here — they belong to
 section 7.
 
+**Administration endpoints.** `access.methods` is written and read through two routes behind
+the administrator guard:
+
+- `GET /api/admin/access` answers `{ revision, passwordEnabled, providers: { google, github },
+  provenance }`, where each provider carries `{ enabled, clientId, credentialConfigured }`.
+  Presence is answered by a row lookup; the credential value and the ciphertext never appear.
+  When the document is absent the answer is the environment-adopted state the first-boot seed
+  would write, with `revision: null`.
+- `PUT /api/admin/access` takes the same shape plus an optional `clientSecret` per provider,
+  requires the public origin like every cookie mutation, and answers the refreshed
+  configuration. A supplied credential is encrypted and stored in the same transaction that
+  writes the document, so a write that loses the revision race leaves no secret behind. A
+  provider may be enabled only with a non-blank `clientId` and either an already stored
+  credential or a supplied one; otherwise the request is refused with
+  `provider_client_id_required` or `provider_credential_required` and nothing is stored.
+  Supplying a credential while `ARTIFLOW_SECRET_ENCRYPTION_KEY` is unset is refused with
+  `secret_encryption_unconfigured`, and a `revision` that no longer matches answers
+  `revision_conflict` (409). The document records `provenance.source = "administrator"` once
+  the administration owns it.
+
+Each applied change emits one `access.methods.updated` event with the actor, the settings key
+and the outcome; a refused change emits nothing.
+
 ## 5. Applying configuration without a restart (D3)
 
 **Decision.** `createAuth(snapshot)` becomes a factory over a frozen configuration snapshot.
