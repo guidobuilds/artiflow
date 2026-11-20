@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { bodyLimit } from "./http/body-limit.ts";
 
 import { createArtifactTools } from "./mcp/artifact-tools.ts";
-import { createAuth, createAuthApp } from "./auth.ts";
+import { createAuthApp } from "./auth.ts";
+import { createAuthHolder, type AuthHolder } from "./auth-holder.ts";
 import { resolveMcpNetwork, type AppConfig } from "./config.ts";
 import { MAX_ARTIFACT_BYTES } from "./adapters/postgres/db/artifact-schema.ts";
 import { createAdminApp } from "./routes/admin.ts";
@@ -40,9 +41,10 @@ export type ApiAppDeps = {
     checkBucket: () => Promise<void>;
     destroy: () => void;
   };
+  auth?: AuthHolder;
 };
 
-export function createApiApp({ config, database, storage }: ApiAppDeps) {
+export function createApiApp({ config, database, storage, auth: suppliedAuth }: ApiAppDeps) {
   const mcpNetwork = resolveMcpNetwork(config);
   const databaseView = database as unknown as Database;
   const storageView = storage as unknown as Storage;
@@ -71,8 +73,9 @@ export function createApiApp({ config, database, storage }: ApiAppDeps) {
     }),
   );
 
-  const auth = createAuth(config, databaseView);
-  app.route("/", createAuthApp(auth, config));
+  const holder = suppliedAuth ?? createAuthHolder({ config, database: databaseView });
+  const auth = holder.auth;
+  app.route("/", createAuthApp(auth, config, holder.snapshot));
 
   app.use("/api/artifacts/*/document", async (c, next) => {
     if (c.req.method !== "PUT") return next();

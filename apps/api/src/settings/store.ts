@@ -89,6 +89,10 @@ async function currentRevision(db: Query, key: string): Promise<number | null> {
   return rows[0]?.revision ?? null;
 }
 
+export async function readSettingRevision(db: Query, key: string): Promise<number | null> {
+  return await currentRevision(db, key);
+}
+
 export async function readSetting<T>(db: Query, definition: SettingDefinition<T>): Promise<StoredSetting<T> | null> {
   const rows = await db.select().from(instanceSetting).where(eq(instanceSetting.key, definition.key));
   const row = rows[0];

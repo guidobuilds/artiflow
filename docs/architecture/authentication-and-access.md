@@ -131,6 +131,27 @@ cookie secret and prefix (`artiflow`, from the environment), the OAuth server's 
 Rejected: requiring a restart (the specification says configuration is modified from the UI),
 and rebuilding per request (JWKS and provider metadata churn, latency on every call).
 
+**Snapshot.** `readAccessSnapshot` turns `access.methods` and the credentials it names into a
+frozen value: password enablement, and one `{ clientId, clientSecret }` entry per provider
+that is enabled, carries a `clientId` and whose named credential decrypts. A provider that
+is enabled but unusable — blank fields, no stored credential, a credential encrypted under an
+unknown key, a credential that fails authentication — is left out of the snapshot and listed
+as degraded; the boot and the request that triggered the rebuild both continue. Nothing in
+the snapshot is logged, and the document is never rewritten with a secret.
+
+**Refresh.** The holder reads the stored revision before each authenticated operation. An
+unchanged revision returns the current instance, so repeated requests cost one indexed row
+and no build; a changed revision builds once, and concurrent requests at that revision share
+the build instead of racing. A build that fails, or a revision that cannot be read at all,
+leaves the last good instance in force. When the document does not exist yet — first boot
+before the compatibility seed, or a process that runs without the settings layer — the
+snapshot derived from the environment (section 6) stays in force.
+
+The environment keeps owning two things the swap must not touch: the cookie secret and
+prefix, and the profile gate that decides whether password login is allowed at all. The
+effective password login is that gate combined with the stored `password.enabled`, so a
+stored enablement never opens a profile the process already closed.
+
 ## 6. Environment configuration (D4)
 
 **Decision.** There is no deployment of this product that configures social providers from the

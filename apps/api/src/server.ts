@@ -3,6 +3,7 @@ import { serve } from "@hono/node-server";
 import { startRevisionGcLoop, startStagingGcLoop } from "./domain/gc.ts";
 import { ConfigError, loadConfig } from "./config.ts";
 import { emailPasswordEnabled } from "./auth.ts";
+import { createAuthHolder } from "./auth-holder.ts";
 import { createDatabase } from "./adapters/postgres/db/client.ts";
 import { createApiApp } from "./app.ts";
 import { createStorage } from "./adapters/storage/client.ts";
@@ -32,7 +33,10 @@ try {
   process.exit(1);
 }
 
-const app = createApiApp({ config, database, storage });
+const holder = createAuthHolder({ config, database });
+const access = await holder.snapshot();
+
+const app = createApiApp({ config, database, storage, auth: holder });
 
 const server = serve(
   {
@@ -44,9 +48,13 @@ const server = serve(
     console.log(`[api] listening on http://${config.apiHost}:${info.port}`);
     console.log(`[api] public origin ${config.publicOrigin}`);
     console.log(
-      emailPasswordEnabled(config)
+      emailPasswordEnabled(config) && access.passwordEnabled
         ? `[api] email/password auth enabled (login at /api/auth/*, public sign-up closed${config.nodeEnv === "production" ? "; production profile" : "; development loopback demo profile"})`
-        : "[api] email/password auth disabled (requires production, or development with ARTIFLOW_DEMO_AUTH=1 and a loopback origin)",
+        : "[api] email/password auth disabled (requires production, or development with ARTIFLOW_DEMO_AUTH=1 on a loopback origin, and password access enabled in the stored configuration)",
+    );
+    const socialProviders = Object.keys(access.providers);
+    console.log(
+      `[api] access methods from the stored configuration: password ${access.passwordEnabled ? "enabled" : "disabled"}, social providers ${socialProviders.length === 0 ? "none" : socialProviders.join(", ")}`,
     );
   },
 );

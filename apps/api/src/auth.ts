@@ -3,7 +3,7 @@ import { betterAuth } from "better-auth";
 import { admin } from "better-auth/plugins";
 import { Hono } from "hono";
 
-import { isLoopbackHostname, type AppConfig, type SocialProviders } from "./config.ts";
+import { isLoopbackHostname, type AppConfig } from "./config.ts";
 import type { Database } from "./adapters/postgres/db/client.ts";
 import { registrationAuthSchema } from "./adapters/postgres/db/auth-schema.ts";
 import { instanceRoles } from "./identity/admin-access.ts";
@@ -11,8 +11,12 @@ import { ADMINISTRATOR_ROLE, MEMBER_ROLE } from "./identity/roles.ts";
 import { registrationInvites } from "./invites/plugin.ts";
 import { passwordReset } from "./password-reset/plugin.ts";
 import { API_RESOURCE_SCOPES, oauthPlugins, publicApiResource, publicIssuer } from "./oauth.ts";
+import { environmentSnapshot, type AccessSnapshot } from "./settings/access-snapshot.ts";
 
-export type AuthConfig = Pick<AppConfig, "nodeEnv" | "demoAuth" | "authSecret" | "publicOrigin" | "authProviders">;
+export type AuthConfig = Pick<
+  AppConfig,
+  "nodeEnv" | "demoAuth" | "authSecret" | "publicOrigin" | "authProviders" | "secretEncryptionKey"
+>;
 
 const AUTH_ROUTE = "/api/auth/*";
 
@@ -58,8 +62,14 @@ export function emailPasswordOptions(config: AuthConfig): { enabled: boolean; di
   return { enabled: emailPasswordEnabled(config), disableSignUp: !PUBLIC_REGISTRATION_OPEN };
 }
 
+export type SocialProviderCredentials = { clientId: string; clientSecret: string };
+
+export function passwordLoginEnabled(config: AuthConfig, snapshot: AccessSnapshot): boolean {
+  return emailPasswordEnabled(config) && snapshot.passwordEnabled;
+}
+
 export function socialProviderOptions(
-  providers: SocialProviders,
+  providers: Readonly<Record<string, SocialProviderCredentials | undefined>>,
 ): Record<string, { clientId: string; clientSecret: string; disableSignUp: true }> {
   const options: Record<string, { clientId: string; clientSecret: string; disableSignUp: true }> = {};
   for (const [name, credentials] of Object.entries(providers)) {
@@ -69,7 +79,13 @@ export function socialProviderOptions(
   return options;
 }
 
-export function createAuth(config: AuthConfig, database: Database) {
+export type AuthInstance = ReturnType<typeof createAuthFromSnapshot>;
+
+export function createAuth(config: AuthConfig, database: Database): AuthInstance {
+  return createAuthFromSnapshot(config, database, environmentSnapshot(config.authProviders));
+}
+
+export function createAuthFromSnapshot(config: AuthConfig, database: Database, snapshot: AccessSnapshot) {
   const origin = publicOriginUrl(config);
   return betterAuth({
     baseURL: config.publicOrigin,
@@ -77,8 +93,11 @@ export function createAuth(config: AuthConfig, database: Database) {
     trustedOrigins: [config.publicOrigin],
     telemetry: { enabled: false },
     logger: { disabled: true },
-    emailAndPassword: emailPasswordOptions(config),
-    socialProviders: socialProviderOptions(config.authProviders),
+    emailAndPassword: {
+      enabled: passwordLoginEnabled(config, snapshot),
+      disableSignUp: !PUBLIC_REGISTRATION_OPEN,
+    },
+    socialProviders: socialProviderOptions(snapshot.providers),
     session: { cookieCache: { enabled: false } },
     plugins: [
       ...oauthPlugins(config),
@@ -113,7 +132,9 @@ export function createAuth(config: AuthConfig, database: Database) {
   });
 }
 
-export function createAuthApp(auth: ReturnType<typeof createAuth>, config: AuthConfig): Hono {
+export type AccessSnapshotSource = () => Promise<AccessSnapshot>;
+
+export function createAuthApp(auth: AuthInstance, config: AuthConfig, access?: AccessSnapshotSource): Hono {
   const app = new Hono();
 
   app.use(AUTH_ROUTE, async (c, next) => {
@@ -149,12 +170,13 @@ export function createAuthApp(auth: ReturnType<typeof createAuth>, config: AuthC
     await next();
   });
 
-  app.get("/api/auth/capabilities", (c) => {
+  app.get("/api/auth/capabilities", async (c) => {
+    const snapshot = access === undefined ? environmentSnapshot(config.authProviders) : await access();
     c.header("cache-control", "no-store");
     return c.json({
-      emailPassword: emailPasswordEnabled(config),
+      emailPassword: passwordLoginEnabled(config, snapshot),
       registration: PUBLIC_REGISTRATION_OPEN,
-      socialProviders: Object.keys(config.authProviders),
+      socialProviders: Object.keys(snapshot.providers),
     });
   });
 
