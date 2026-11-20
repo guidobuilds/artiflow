@@ -178,7 +178,28 @@ open one artifact, run a read and a commit.
 | 502 from Caddy                    | API not ready                        | API healthcheck and `depends_on`                                                                                                                                                                                                                                                         |
 | staging objects accumulate        | GC row-driven or storage failures    | GC log line, `failed` count                                                                                                                                                                                                                                                              |
 
-## 10. Capacity notes
+## 10. Console operator commands
+
+Run from the repository root with `DATABASE_URL` and `ARTIFLOW_PUBLIC_ORIGIN` in the
+environment, in the same `bun run <name>` style as the deployment scripts. They
+print to stdout and exit non-zero on refusal, with the reason on stderr.
+
+| Command                     | Purpose                                                                   |
+| --------------------------- | ------------------------------------------------------------------------- |
+| `admin:grant EMAIL`         | Make an existing account an administrator (first administrator, recovery) |
+| `admin:revoke EMAIL`        | Return an administrator to the member role                                |
+| `admin:list`                | Print one email per administrator, sorted; empty and exit 0 when none     |
+| `user:invite EMAIL`         | Print one single-use registration URL                                     |
+| `user:reset-password EMAIL` | Print one single-use password reset URL                                   |
+
+`admin:grant` never creates an account: an unknown address is refused and the
+message names `user:invite`, because only the invitation path lets the person
+choose a password. Nothing protects the last administrator, so an instance can
+be left with none and recovered with `admin:grant`. Each role change writes one
+structured event line with `actorRole: "console"` and `outcome: "applied"`; the
+event shape carries no secret, token or link.
+
+## 11. Capacity notes
 
 - One API process holds at most 4 PostgreSQL connections.
 - The staging GC and HTTP requests share that pool.

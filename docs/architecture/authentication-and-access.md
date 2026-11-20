@@ -297,11 +297,18 @@ to stdout, and exit non-zero on refusal:
 | Command                                          | Purpose                                                           |
 | ------------------------------------------------ | ----------------------------------------------------------------- |
 | `admin:grant EMAIL`                              | Make an existing account an administrator (first admin, recovery) |
-| `admin:list`                                     | List administrators and the last administrative event             |
+| `admin:revoke EMAIL`                             | Return an administrator to the member role                        |
+| `admin:list`                                     | Print administrator emails in order; exit 0 when there is none    |
 | `user:deactivate EMAIL` / `user:activate EMAIL`  | Same semantics as the UI paths, without the UI                    |
 | `user:purge EMAIL --reassign-to EMAIL`           | Delete the account, reassigning its artifacts                     |
 | `user:purge EMAIL --delete-content`              | Delete the account and its artifacts                              |
 | `user:invite EMAIL`, `user:reset-password EMAIL` | Unchanged                                                         |
+
+`admin:grant` never creates an account: an unknown address is refused with a message that names
+`user:invite` (resolved decision 7). `admin:revoke` refuses an unknown address and an account that
+is not an administrator. `admin:list` prints one email per administrator, sorted by address, and
+exits 0 with no output when the instance has none. Each role change writes one structured event
+with `actorRole: "console"`, so a recovery is traceable without an account (section 12).
 
 `user:purge` requires exactly one of the two content flags and an interactive confirmation
 that repeats the email, plus `--yes` for non-interactive use. It removes identities, sessions,
