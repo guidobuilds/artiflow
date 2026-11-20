@@ -304,3 +304,11 @@ test("the injected bridge replaces pins on command and honours reduced motion", 
   assert.match(body, /post\(\{ type: "scroll"/);
   assert.match(body, /requestAnimationFrame/);
 });
+
+test("the html comments column never scrolls its own content so cards track the frame", () => {
+  const html = readFileSync(new URL("../apps/api/src/viewer/html.ts", import.meta.url), "utf8");
+  const rule = /\.docshell\.comments-visible \.viewer-comments\{([^}]*)\}/.exec(html);
+  assert.ok(rule);
+  assert.match(rule[1]!, /overflow:hidden/);
+  assert.match(rule[1]!, /position:relative/);
+});

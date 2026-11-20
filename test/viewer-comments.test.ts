@@ -10,7 +10,12 @@ import {
   viewerCommentsAssets,
 } from "../apps/api/src/viewer/assets.ts";
 import { viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
-import { parseThreadsResponse, reconcileActive } from "../apps/dashboard/src/viewer-thread-sync.ts";
+import {
+  createSequenceGuard,
+  parseThreadsResponse,
+  reconcileActive,
+  viewportAnchor,
+} from "../apps/dashboard/src/viewer-thread-sync.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -234,4 +239,21 @@ test("the viewers share one coordinate system, refetch in place and reveal the o
   assert.match(viewer, /\(\) => \{\s*state\.draft = null;/, "the draft is cleared only after a successful create");
   assert.match(viewer, /block: "center", behavior: reducedMotion\(\) \? "instant" : "smooth"/);
   assert.match(viewer, /classList\.add\(`\$\{MARK\}-flash`\)/);
+});
+
+test("viewportAnchor places a pin relative to the visible frame, negative above the viewport", () => {
+  assert.equal(viewportAnchor(300, 0, 48, 48), 300);
+  assert.equal(viewportAnchor(300, 0, 60, 12), 348);
+  assert.equal(viewportAnchor(1500, 1400, 48, 48), 100);
+  assert.equal(viewportAnchor(200, 1400, 48, 48), -1200);
+  assert.equal(viewportAnchor(1400.4, 1400, 48.2, 48), 1);
+});
+
+test("the sequence guard only accepts the latest token", () => {
+  const guard = createSequenceGuard();
+  const first = guard.next();
+  assert.equal(guard.isCurrent(first), true);
+  const second = guard.next();
+  assert.equal(guard.isCurrent(first), false);
+  assert.equal(guard.isCurrent(second), true);
 });

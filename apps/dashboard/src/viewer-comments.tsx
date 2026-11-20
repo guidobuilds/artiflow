@@ -11,7 +11,7 @@ import {
 } from "@artiflow/domain/html-bridge";
 import { anchorOffsets } from "@/comment-thread-layout.ts";
 import { attemptMutation } from "@/viewer-mutations.ts";
-import { parseThreadsResponse, reconcileActive } from "@/viewer-thread-sync.ts";
+import { createSequenceGuard, parseThreadsResponse, reconcileActive, viewportAnchor } from "@/viewer-thread-sync.ts";
 
 type ElementAnchor = {
   kind: "element";
@@ -152,11 +152,14 @@ export function mountViewerComments(): void {
     error: null as string | null,
     retry: null as (() => void) | null,
   };
+  const refetchGuard = createSequenceGuard();
   const refetch = async (): Promise<void> => {
     const list = config.endpoints.list;
     if (list === undefined) return;
+    const token = refetchGuard.next();
     try {
       const next = await fetchThreads(list);
+      if (!refetchGuard.isCurrent(token)) return;
       config.threads = next.threads;
       config.canComment = next.canComment;
       state.activeId = reconcileActive(state.activeId, next.threads);
@@ -165,6 +168,7 @@ export function mountViewerComments(): void {
       repaintMarks();
       measure();
     } catch (error) {
+      if (!refetchGuard.isCurrent(token)) return;
       state.error = error instanceof Error ? error.message : "Could not refresh the comments.";
       state.retry = () => void refetch();
       render();
@@ -363,11 +367,14 @@ export function mountViewerCommentsInFrame(): void {
     busy: false,
     retry: null as (() => void) | null,
   };
+  const refetchGuard = createSequenceGuard();
   const refetch = async (): Promise<void> => {
     const list = config.endpoints.list;
     if (list === undefined) return;
+    const token = refetchGuard.next();
     try {
       const next = await fetchThreads(list);
+      if (!refetchGuard.isCurrent(token)) return;
       const known = new Set(next.threads.map((thread) => thread.id));
       config.threads = next.threads;
       config.canComment = next.canComment;
@@ -380,6 +387,7 @@ export function mountViewerCommentsInFrame(): void {
       if (state.activeId !== null) send({ type: "focus", id: state.activeId });
       render();
     } catch (error) {
+      if (!refetchGuard.isCurrent(token)) return;
       state.error = error instanceof Error ? error.message : "Could not refresh the comments.";
       state.retry = () => void refetch();
       render();
@@ -410,10 +418,11 @@ export function mountViewerCommentsInFrame(): void {
     const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
     return Math.round(frame.getBoundingClientRect().top - (shelf?.getBoundingClientRect().top ?? 0));
   };
+  const anchorFor = (docY: number, offset: number): number => viewportAnchor(docY, state.scrollY, offset, 0);
   let renderedOffset: number | null = null;
   const shelfAnchors = (offset: number): Record<string, number> => {
     const anchors: Record<string, number> = {};
-    for (const [id, y] of Object.entries(state.geometry)) anchors[id] = Math.round(y + offset);
+    for (const [id, y] of Object.entries(state.geometry)) anchors[id] = anchorFor(y, offset);
     return anchors;
   };
   const render = (): void => {
@@ -431,6 +440,7 @@ export function mountViewerCommentsInFrame(): void {
           state.staleIds.includes(thread.id) ? { ...thread, stale: true, staleLabel: "Element changed" } : thread,
         )}
         anchors={shelfAnchors(offset)}
+        minTop={Number.NEGATIVE_INFINITY}
         activeId={state.activeId}
         onActivate={(id) => {
           state.activeId = id;
@@ -487,7 +497,7 @@ export function mountViewerCommentsInFrame(): void {
                 error: state.error,
               }
         }
-        draftAnchorTop={state.draft === null ? 0 : state.draft.top + offset}
+        draftAnchorTop={state.draft === null ? 0 : anchorFor(state.draft.top, offset) - 16}
         onSubmitDraft={(body) => {
           if (state.draft === null) return;
           const anchor = state.draft.anchor;
@@ -544,6 +554,14 @@ export function mountViewerCommentsInFrame(): void {
       }
     });
   }
+  let scrollFrame: number | null = null;
+  const scheduleScrollRender = (): void => {
+    if (scrollFrame !== null) return;
+    scrollFrame = window.requestAnimationFrame(() => {
+      scrollFrame = null;
+      render();
+    });
+  };
   const onMessage = (event: MessageEvent) => {
     const parsed = parseBridgeMessage(event.data, {
       nonce,
@@ -569,6 +587,7 @@ export function mountViewerCommentsInFrame(): void {
     }
     if (message.type === "scroll") {
       state.scrollY = message.y;
+      scheduleScrollRender();
       return;
     }
     if (message.type === "pin-click") {
@@ -588,7 +607,7 @@ export function mountViewerCommentsInFrame(): void {
           point: { x: message.x, y: message.y },
           viewportWidth: Math.round(message.viewportWidth),
         },
-        top: Math.max(0, Math.round(message.viewportY + state.scrollY) - 16),
+        top: Math.round(message.viewportY + state.scrollY),
       };
       render();
     }

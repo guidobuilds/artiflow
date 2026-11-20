@@ -71,6 +71,7 @@ export type CommentThreadMarginProps = {
   showResolved?: boolean;
   onShowResolvedChange?: (show: boolean) => void;
   draftAnchorTop?: number;
+  minTop?: number;
   heights?: Record<string, number>;
   measuredHeight?: { collapsed: number; active: number };
   className?: string;
@@ -430,13 +431,19 @@ function MobileSheet({
   );
 }
 
-function draftPlacement(placements: ThreadPlacement[], anchorTop: number, height: number): ThreadPlacement {
+function draftPlacement(
+  placements: ThreadPlacement[],
+  anchorTop: number,
+  height: number,
+  minTop: number,
+): ThreadPlacement {
   const [placed] = layoutCommentThreads({
     threads: [
       ...placements.map(({ id, anchorTop: top, height: size }) => ({ id, anchorTop: top, height: size })),
       { id: "__draft__", anchorTop, height },
     ],
     activeId: "__draft__",
+    minTop,
   }).filter((placement) => placement.id === "__draft__");
   return placed ?? { id: "__draft__", anchorTop, height, top: marginHeight(placements) };
 }
@@ -471,6 +478,7 @@ export default function CommentThreadMargin({
   showResolved: showResolvedProp,
   onShowResolvedChange,
   draftAnchorTop = 0,
+  minTop = 0,
   heights = {},
   measuredHeight,
   className,
@@ -510,8 +518,9 @@ export default function CommentThreadMargin({
           height: heights[thread.id] ?? measured[thread.id] ?? (thread.id === activeId ? active : collapsed),
         })),
         activeId,
+        minTop,
       }),
-    [placed, anchors, heights, measured, activeId, active, collapsed],
+    [placed, anchors, heights, measured, activeId, active, collapsed, minTop],
   );
   const openCount = openThreadCount(threads);
   const sheetThreads = shown.filter((thread) => thread.resolvedAt === null);
@@ -617,7 +626,7 @@ export default function CommentThreadMargin({
               draft={draft}
               onSubmit={onSubmitDraft}
               onCancel={onCancelDraft}
-              placement={draftPlacement(placements, draftAnchorTop, active)}
+              placement={draftPlacement(placements, draftAnchorTop, active, minTop)}
             />
           ) : null}
         </div>
