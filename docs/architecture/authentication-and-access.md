@@ -270,6 +270,18 @@ the login page.
 
 ## 10. Access methods and the SSO login (D10, D11)
 
+**Administration surface.** `access.methods` is edited at `/admin/access`, a fixed
+route with its own header and no entry in the member navigation; it shares the session,
+the deployment and the administrator guard with the rest of the product. The page reads
+`GET /api/admin/access` and writes the whole document through `PUT /api/admin/access`,
+showing password enablement, each provider's enablement, its `clientId`, and whether a
+credential is stored. A stored credential is rendered as presence only: the credential
+field is empty, can replace the stored value, and is never prefilled or displayed.
+Every refusal of section 4 is rendered in its own words, and a `revision_conflict`
+reloads the stored document and asks the administrator to review it before saving again.
+A session whose account is not an administrator receives the refusal as a plain message
+with a way back to the library, never an empty shell.
+
 **Decision.** The single connection is a row managed through `@better-auth/sso` (1.7.x, the
 same release line as `better-auth`), configured to make the library's defaults safe for
 this product:
