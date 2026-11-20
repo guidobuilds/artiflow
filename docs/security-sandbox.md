@@ -333,14 +333,15 @@ artifact bytes, and the parent keeps the margin and the cards.
 
 Protocol, versioned and nonce-scoped:
 
-| Direction      | Message              | Fields                                              |
-| -------------- | -------------------- | --------------------------------------------------- |
-| parent → frame | `pins`               | `{ id, number, selector, textHint, x, y, stale }[]` |
-| parent → frame | `mode`               | `{ on: boolean }`                                   |
-| parent → frame | `focus`              | `{ id: string \| null }`                            |
-| frame → parent | `geometry`           | `{ id, x, y, visible }`                             |
-| frame → parent | `pick`               | `{ selector, textHint, x, y, viewportWidth }`       |
-| frame → parent | `pin-click`, `ready` | `{ id }` / `{}`                                     |
+| Direction      | Message              | Fields                                                   |
+| -------------- | -------------------- | -------------------------------------------------------- |
+| parent → frame | `pins`               | `{ id, number, selector, textHint, x, y, stale }[]`      |
+| parent → frame | `mode`               | `{ on: boolean }`                                        |
+| parent → frame | `focus`              | `{ id: string \| null }`                                 |
+| frame → parent | `geometry`           | `{ id, x, y, visible }`, document-absolute               |
+| frame → parent | `scroll`             | `{ y }`, the frame's `scrollY`                           |
+| frame → parent | `pick`               | `{ selector, textHint, x, y, viewportWidth, viewportY }` |
+| frame → parent | `pin-click`, `ready` | `{ id }` / `{}`                                          |
 
 Every message carries `{ channel, version, nonce }`. The frame's origin is opaque (`null`), so origin
 is never used as identity: the parent requires `event.source === iframe.contentWindow`, the exact
