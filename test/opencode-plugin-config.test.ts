@@ -210,7 +210,7 @@ test("a stored URL written in bootstrap mode is readable through the resolution 
     await plugin.setup(ctx as never);
     const command = commands[0];
     assert.ok(command);
-    await command.execute({ sessionID: "s", prompt: { text: "https://artiflow.example" }, delivery: "steer" });
+    await command.execute({ sessionID: "s", prompt: { text: "https://artiflow.example" } });
     assert.deepEqual([...storage.stored], [["url", "https://artiflow.example"]]);
     assert.equal(await resolvedInstanceUrl({ options: {}, env: undefined, storage }), "https://artiflow.example");
     assert.deepEqual(await rpc["config.url"]?.({}, { signal: new AbortController().signal }), {
@@ -235,7 +235,7 @@ test("bootstrap mode has no fallback when nothing resolves and a configured valu
 test("the setup command persists a normalized origin and reports how to apply it", async () => {
   const storage = memory();
   const command = setupCommand(storage, async () => {});
-  await command.execute({ sessionID: "s", prompt: { text: "https://artiflow.example///" }, delivery: "steer" });
+  await command.execute({ sessionID: "s", prompt: { text: "https://artiflow.example///" } });
   assert.deepEqual([...storage.stored], [["url", "https://artiflow.example"]]);
   const message = await setupMessage("  https://artiflow.example/  ", storage);
   assert.equal(message.ok, true);
@@ -258,7 +258,7 @@ test("the setup command rejects an invalid origin without writing storage", asyn
     const command = setupCommand(storage, async (input) => {
       reports.push(input.text);
     });
-    await command.execute({ sessionID: "s", prompt: { text }, delivery: "steer" });
+    await command.execute({ sessionID: "s", prompt: { text } });
     assert.equal(storage.stored.size, 0);
     assert.equal(reports.length, 1);
     assert.match(reports[0] as string, /not saved/i);
@@ -273,7 +273,7 @@ test("the setup command reports the persisted origin through the session output"
     await plugin.setup(ctx as never);
     const command = commands[0];
     assert.ok(command);
-    await command.execute({ sessionID: "session-1", prompt: { text: "https://artiflow.example" }, delivery: "steer" });
+    await command.execute({ sessionID: "session-1", prompt: { text: "https://artiflow.example" } });
     assert.deepEqual([...storage.stored], [["url", "https://artiflow.example"]]);
     assert.equal(reports.length, 1);
     assert.equal(reports[0]?.sessionID, "session-1");

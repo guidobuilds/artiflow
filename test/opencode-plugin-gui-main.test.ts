@@ -72,6 +72,7 @@ function host(
     "createArtifactWatcher",
   ]);
   type Api = { [key: string]: (...args: unknown[]) => unknown } & {
+    config: () => unknown;
     open: (input: unknown, caller: unknown) => unknown;
     show: (input: unknown, caller: unknown) => unknown;
     state: (id: number) => { views: { authRequired: boolean; tokenUnavailable: boolean }[] };

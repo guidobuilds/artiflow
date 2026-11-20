@@ -86,7 +86,7 @@ async function registeredSkills() {
     ctx.skill.transform = async (callback) => {
       callback({ add: (value) => skills.push(value) });
       captured = skills;
-      return { dispose: async () => {} };
+      return { dispose: async () => {}, events: { emit: async () => {} } };
     };
     await plugin.setup(ctx as never);
   });
