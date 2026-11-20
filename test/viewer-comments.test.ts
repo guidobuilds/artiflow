@@ -10,6 +10,7 @@ import {
   viewerCommentsAssets,
 } from "../apps/api/src/viewer/assets.ts";
 import { viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
+import { parseThreadsResponse, reconcileActive } from "../apps/dashboard/src/viewer-thread-sync.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -130,15 +131,54 @@ test("a public link builds a read-only config whose endpoints cannot mutate", ()
 
 test("the shared viewer loads comments for a reader but refuses writes", () => {
   const library = read("../apps/api/src/routes/library.ts");
-  assert.match(library, /document: \(\) => commentDocument\(db, ownerId, row\.id, "shared"\)/);
-  assert.match(library, /list: \(\) => listComments\(db, row\.id, true\)/);
+  assert.match(library, /document: \(\) => commentDocument\(db, ownerId, artifactId, "shared"\)/);
+  assert.match(library, /list: \(\) => listComments\(db, artifactId, true\)/);
   assert.match(library, /canComment: degraded\.canComment/);
-  assert.match(library, /canComment: htmlShared\.canComment/);
   assert.match(
     library,
     /import \{ loadViewerComments \} from "\.\.\/viewer\/comments-degrade\.ts"/,
     "a comment-store failure degrades instead of failing the document",
   );
+});
+
+test("the owner config advertises the list endpoint and the public config does not", () => {
+  const library = read("../apps/api/src/routes/library.ts");
+  assert.match(library, /list: `\/artifact\/\$\{artifactId\}\/comments`/);
+  const sharing = read("../apps/api/src/routes/sharing.ts");
+  assert.equal(/list:/.test(sharing), false);
+  const config = viewerCommentsConfig({
+    artifactId: "a1",
+    source,
+    rows: [row()],
+    viewerId: null,
+    canComment: false,
+    canDeleteOwn: false,
+    endpoints: { comments: "/share/t/comments", resolve: "", deleteComment: "" },
+  });
+  assert.equal("list" in config.endpoints, false);
+  const owner = viewerCommentsConfig({
+    artifactId: "a1",
+    source,
+    rows: [row()],
+    viewerId: "u1",
+    canComment: true,
+    canDeleteOwn: true,
+    endpoints: { ...endpoints, list: "/artifact/a1/comments" },
+  });
+  assert.equal(owner.endpoints.list, "/artifact/a1/comments");
+});
+
+test("the comments list route is registered before the artifact catch-all and refuses bearer and cookieless callers", () => {
+  const library = read("../apps/api/src/routes/library.ts");
+  const route = library.indexOf('app.get("/artifact/:id/comments"');
+  assert.notEqual(route, -1);
+  assert.ok(route < library.indexOf('app.all("/artifact/*", methodNotAllowed)'));
+  const body = library.slice(route, library.indexOf("if (options.deletion)"));
+  assert.match(body, /headers\.has\("authorization"\)\) return c\.json\(\{ error: "unauthorized" \}, 401\)/);
+  assert.match(body, /if \(!ownerId\) return c\.json\(\{ error: "unauthorized" \}, 401\)/);
+  assert.match(body, /if \(!row\) return c\.json\(\{ error: "not_found" \}, 404\)/);
+  assert.match(body, /c\.header\("cache-control", "no-store"\)/);
+  assert.match(body, /canComment: config\.canComment, threads: config\.threads/);
 });
 
 test("the public viewer only reads comments while the link option is on", () => {
@@ -157,4 +197,41 @@ test("the share dialog offers the show-comments option and persists it with the 
   assert.match(client, /export const setLinkShowComments/);
   assert.match(client, /"PATCH"/);
   assert.match(client, /showComments: value\.showComments === true/, "the row defaults to off");
+});
+
+test("parseThreadsResponse accepts a well-formed list and rejects anything else", () => {
+  const ok = parseThreadsResponse({ canComment: true, threads: [{ id: "a" }, { id: "b" }] });
+  assert.deepEqual(ok, { canComment: true, threads: [{ id: "a" }, { id: "b" }] });
+  assert.deepEqual(parseThreadsResponse({ canComment: false, threads: [] }), { canComment: false, threads: [] });
+  for (const bad of [null, "x", 1, {}, { canComment: "yes", threads: [] }, { canComment: true, threads: {} }]) {
+    assert.equal(parseThreadsResponse(bad), null);
+  }
+  assert.equal(parseThreadsResponse({ canComment: true, threads: [null] }), null);
+  assert.equal(parseThreadsResponse({ canComment: true, threads: [{ id: 3 }] }), null);
+});
+
+test("reconcileActive keeps a thread that still exists and clears the rest", () => {
+  const threads = [{ id: "a" }, { id: "b" }];
+  assert.equal(reconcileActive("a", threads), "a");
+  assert.equal(reconcileActive("gone", threads), null);
+  assert.equal(reconcileActive(null, threads), null);
+  assert.equal(reconcileActive("a", []), null);
+});
+
+test("the viewers share one coordinate system, refetch in place and reveal the opened thread", () => {
+  const viewer = read("../apps/dashboard/src/viewer-comments.tsx");
+  assert.equal(viewer.includes("shell.scrollTop"), false, "the markdown viewer never adds the scroll offset");
+  assert.match(viewer, /anchorOffsets\(entries, origin\)/);
+  assert.equal(viewer.includes("Math.max(0, Math.round(y"), false, "anchors above the margin are not clamped");
+  assert.match(viewer, /frame\.getBoundingClientRect\(\)\.top - \(shelf\?\.getBoundingClientRect\(\)\.top \?\? 0\)/);
+  assert.match(viewer, /message\.type === "scroll"/);
+  assert.match(viewer, /message\.viewportY \+ state\.scrollY/);
+  assert.equal((viewer.match(/window\.location\.reload\(\)/g) ?? []).length, 2, "reload only backs up onRetry");
+  assert.equal((viewer.match(/void refetch\(\);\s*return;/g) ?? []).length >= 2, true);
+  assert.match(viewer, /config\.threads = next\.threads;/);
+  assert.match(viewer, /state\.activeId = reconcileActive\(state\.activeId, next\.threads\);/);
+  assert.match(viewer, /send\(\{ type: "pins", pins: pins\(\) \}\);/);
+  assert.match(viewer, /\(\) => \{\s*state\.draft = null;/, "the draft is cleared only after a successful create");
+  assert.match(viewer, /block: "center", behavior: reducedMotion\(\) \? "instant" : "smooth"/);
+  assert.match(viewer, /classList\.add\(`\$\{MARK\}-flash`\)/);
 });
