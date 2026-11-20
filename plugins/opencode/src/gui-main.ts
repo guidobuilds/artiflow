@@ -1,13 +1,16 @@
 import { WebContentsView } from "electron";
 import type { Embed, Plugin } from "@opencode/plugin/gui/main";
 import { createArtifactApi } from "@artiflow/plugin-core/core";
-import { guiConfig } from "./gui-core.ts";
+import { Associated } from "./associated-rpc.ts";
+import { guiConfigReader } from "./gui-core.ts";
 import { viewerHeaders, ViewerAuth } from "./gui-auth.ts";
 import { Views } from "./gui-ipc.ts";
 import { createArtifactWatcher, type ArtifactWatcher } from "./freshness.ts";
 
 export const main: Plugin.MainSetup = (ctx) => {
-  const config = guiConfig(ctx.options, process.env.ARTIFLOW_URL);
+  const reader = guiConfigReader(ctx.options, process.env.ARTIFLOW_URL, () =>
+    ctx.client.rpc(Associated)["config.url"]({}),
+  );
   type View = {
     key: string;
     window: number;
@@ -46,7 +49,11 @@ export const main: Plugin.MainSetup = (ctx) => {
         .filter(([, entry]) => entry.window === window)
         .map(([id, entry]) => entry.auth.snapshot(id)),
     }),
-    config: () => config,
+    config: () => {
+      const config = reader.current();
+      void reader.refresh();
+      return config;
+    },
     signIn(input, caller) {
       const entry = views.get(input.id);
       if (entry?.window !== caller.window || caller.signal.aborted) return;
@@ -71,8 +78,10 @@ export const main: Plugin.MainSetup = (ctx) => {
         if (input.reload && !caller.signal.aborted) entry?.load(input.token);
         return id;
       }
-      const opening = Promise.resolve().then(() => {
+      const opening = Promise.resolve().then(async () => {
+        const config = await reader.refresh();
         if (!config.base) throw new Error(config.error ?? "Configure Artiflow url.");
+        const base = config.base;
         const window = ctx.windows.get(caller.window);
         if (!window || caller.signal.aborted) throw new Error("Artiflow window unavailable.");
         const existing = [...views.values()].find((entry) => entry.window === caller.window && entry.key === input.key);
@@ -90,7 +99,7 @@ export const main: Plugin.MainSetup = (ctx) => {
         });
         view.setBounds({ x: 0, y: 0, width: 1000, height: 700 });
         const embed = ctx.embeds.create(view, window);
-        const auth = new ViewerAuth(config.base, input.artifactId, input.token);
+        const auth = new ViewerAuth(base, input.artifactId, input.token);
         const entry: View = {
           key: input.key,
           window: caller.window,
@@ -126,7 +135,6 @@ export const main: Plugin.MainSetup = (ctx) => {
             );
           });
         };
-        const base = config.base;
         let freshnessError = "";
         const refresh = (token: string | null) => {
           if (token === null) entry.watcher?.stop();
@@ -165,17 +173,17 @@ export const main: Plugin.MainSetup = (ctx) => {
         });
         view.webContents.on("will-navigate", (event, url) => {
           const current = new URL(url);
-          if (current.origin !== config.base && !auth.isSigningIn()) event.preventDefault();
+          if (current.origin !== base && !auth.isSigningIn()) event.preventDefault();
         });
         view.webContents.on("will-redirect", (event, url) => {
           const current = new URL(url);
-          if (current.origin !== config.base && !auth.isSigningIn()) event.preventDefault();
+          if (current.origin !== base && !auth.isSigningIn()) event.preventDefault();
         });
         view.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
         view.webContents.on("did-start-navigation", (details) => {
           if (!details.isMainFrame || details.isSameDocument) return;
           const current = new URL(details.url);
-          if (current.origin !== config.base && !auth.isSigningIn()) view.webContents.stop();
+          if (current.origin !== base && !auth.isSigningIn()) view.webContents.stop();
           auth.beginNavigation();
           embed.show(false);
           provider.changed(entry.window);
@@ -224,7 +232,7 @@ export const main: Plugin.MainSetup = (ctx) => {
         const changed = entry.visible !== input.visible;
         entry.visible = input.visible;
         entry.embed.show(input.visible && entry.auth.snapshot(input.id).ready);
-        if (changed) for (const listener of [...entry.watchers]) listener();
+        if (changed) for (const listener of Array.from(entry.watchers)) listener();
       }
     },
     dispose(input, caller) {

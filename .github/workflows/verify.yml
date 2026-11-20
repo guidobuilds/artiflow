@@ -89,12 +89,12 @@ jobs:
       - name: Pack smoke
         run: |
           npm run build:plugin
-          node plugins/opencode/scripts/pack-plugin.mjs stage
+          node plugins/opencode/scripts/pack-plugin.mjs verify
           (cd plugins/opencode && npm pack --ignore-scripts=false --pack-destination "$RUNNER_TEMP")
-          node plugins/opencode/scripts/pack-plugin.mjs clean
           mkdir "$RUNNER_TEMP/pack-check"
           tar -xzf "$RUNNER_TEMP"/artiflow-opencode-plugin-*.tgz -C "$RUNNER_TEMP/pack-check"
-          cmp "$RUNNER_TEMP/pack-check/package/skills/creating-artifacts/SKILL.md" skills/creating-artifacts/SKILL.md
-          cmp "$RUNNER_TEMP/pack-check/package/skills/using-artiflow/SKILL.md" skills/using-artiflow/SKILL.md
+          cmp "$RUNNER_TEMP/pack-check/package/skills/creating-artifacts/SKILL.md" plugins/opencode/skills/creating-artifacts/SKILL.md
+          cmp "$RUNNER_TEMP/pack-check/package/skills/using-artiflow/SKILL.md" plugins/opencode/skills/using-artiflow/SKILL.md
+          cmp "$RUNNER_TEMP/pack-check/package/skills/opencode-large-artifacts/SKILL.md" plugins/opencode/skills/opencode-large-artifacts/SKILL.md
           test -f "$RUNNER_TEMP/pack-check/package/dist/server.mjs"
           test -f "$RUNNER_TEMP/pack-check/package/dist/gui-experimental.cjs"
