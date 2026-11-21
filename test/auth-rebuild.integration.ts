@@ -11,7 +11,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Hono } from "hono";
 import { escapeIdentifier, Pool } from "pg";
 
-import type { AccessMethodsDocument } from "@artiflow/contracts/settings";
+import { DEFAULT_PASSWORD_POLICY, type AccessMethodsDocument, type PasswordPolicyDocument } from "@artiflow/contracts/settings";
 
 import { createAuthApp, type AuthConfig } from "../apps/api/src/auth.ts";
 import { createAuthHolder } from "../apps/api/src/auth-holder.ts";
@@ -20,7 +20,12 @@ import { account, user } from "../apps/api/src/adapters/postgres/db/schema.ts";
 import { loadConfig } from "../apps/api/src/config.ts";
 import { decodeSecretKey, writeSecret } from "../apps/api/src/settings/secrets.ts";
 import { providerSecretName } from "../apps/api/src/settings/seed.ts";
-import { accessMethodsSetting, readSetting, writeSetting } from "../apps/api/src/settings/store.ts";
+import {
+  accessMethodsSetting,
+  passwordPolicySetting,
+  readSetting,
+  writeSetting,
+} from "../apps/api/src/settings/store.ts";
 
 const MIGRATIONS_FOLDER = join(dirname(fileURLToPath(import.meta.url)), "../drizzle");
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
@@ -80,6 +85,19 @@ async function storeAccess(value: AccessMethodsDocument): Promise<number> {
     expectedRevision: current?.revision ?? null,
   });
   return written.revision;
+}
+
+async function storePolicy(policy: Partial<PasswordPolicyDocument>): Promise<number> {
+  const current = await readSetting(db().db, passwordPolicySetting);
+  const written = await writeSetting(db().db, passwordPolicySetting, {
+    value: { ...DEFAULT_PASSWORD_POLICY, ...policy },
+    expectedRevision: current?.revision ?? null,
+  });
+  return written.revision;
+}
+
+function libraryFloor(): number {
+  return authHolder().auth.options.emailAndPassword?.minPasswordLength ?? 0;
 }
 
 function startServer(): Promise<void> {
@@ -272,4 +290,32 @@ integration("the holder builds once per revision and rebuilds once when the revi
 
   await capabilities();
   assert.equal(authHolder().builds(), warm + 1, "the rebuilt instance is reused");
+});
+
+integration("a password policy change alone rebuilds the instance and raises the library floor", async () => {
+  await capabilities();
+  const warm = authHolder().builds();
+  assert.equal(libraryFloor(), DEFAULT_PASSWORD_POLICY.minLength, "the instance starts at the default floor");
+
+  await storePolicy({ minLength: 40 });
+
+  await capabilities();
+  assert.equal(authHolder().builds(), warm + 1, "a password policy write alone rebuilds exactly once");
+  assert.equal(libraryFloor(), 40, "the library configuration carries the stored minimum");
+  assert.equal((await authHolder().snapshot()).passwordMinLength, 40, "the snapshot carries the stored minimum");
+
+  await capabilities();
+  assert.equal(authHolder().builds(), warm + 1, "the rebuilt instance is reused");
+});
+
+integration("a loosened policy rebuilds once and lowers the library floor", async () => {
+  await capabilities();
+  const warm = authHolder().builds();
+
+  await storePolicy({ minLength: 8 });
+
+  await capabilities();
+  assert.equal(authHolder().builds(), warm + 1, "the loosening rebuilds exactly once");
+  assert.equal(libraryFloor(), 8, "the library configuration follows the loosened policy");
+  assert.equal((await authHolder().snapshot()).passwordMinLength, 8);
 });

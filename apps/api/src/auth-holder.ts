@@ -6,7 +6,7 @@ import {
   type AuthInstance,
 } from "./auth.ts";
 import { environmentSnapshot, readAccessSnapshot, type AccessSnapshot } from "./settings/access-snapshot.ts";
-import { ACCESS_METHODS_KEY, readSettingRevision } from "./settings/store.ts";
+import { readSettingsRevision } from "./settings/store.ts";
 
 const UNRESOLVED = "unresolved";
 
@@ -72,7 +72,7 @@ export function createAuthHolder(input: { config: AuthConfig; database: Database
 
   async function storedRevision(): Promise<StoredRevision> {
     try {
-      return await readSettingRevision(database.db, ACCESS_METHODS_KEY);
+      return await readSettingsRevision(database.db);
     } catch {
       return UNRESOLVED;
     }

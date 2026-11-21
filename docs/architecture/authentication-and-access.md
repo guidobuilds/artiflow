@@ -154,21 +154,27 @@ cookie secret and prefix (`artiflow`, from the environment), the OAuth server's 
 Rejected: requiring a restart (the specification says configuration is modified from the UI),
 and rebuilding per request (JWKS and provider metadata churn, latency on every call).
 
-**Snapshot.** `readAccessSnapshot` turns `access.methods` and the credentials it names into a
-frozen value: password enablement, and one `{ clientId, clientSecret }` entry per provider
-that is enabled, carries a `clientId` and whose named credential decrypts. A provider that
-is enabled but unusable — blank fields, no stored credential, a credential encrypted under an
-unknown key, a credential that fails authentication — is left out of the snapshot and listed
-as degraded; the boot and the request that triggered the rebuild both continue. Nothing in
-the snapshot is logged, and the document is never rewritten with a secret.
+**Snapshot.** `readAccessSnapshot` turns `access.methods`, the password minimum from
+`password.policy` (section 11) and the credentials the access document names into a frozen
+value: password enablement, `passwordMinLength`, and one `{ clientId, clientSecret }` entry
+per provider that is enabled, carries a `clientId` and whose named credential decrypts. A
+provider that is enabled but unusable — blank fields, no stored credential, a credential
+encrypted under an unknown key, a credential that fails authentication — is left out of the
+snapshot and listed as degraded; the boot and the request that triggered the rebuild both
+continue. Nothing in the snapshot is logged, and the document is never rewritten with a
+secret.
 
-**Refresh.** The holder reads the stored revision before each authenticated operation. An
-unchanged revision returns the current instance, so repeated requests cost one indexed row
-and no build; a changed revision builds once, and concurrent requests at that revision share
-the build instead of racing. A build that fails, or a revision that cannot be read at all,
-leaves the last good instance in force. When the document does not exist yet — first boot
-before the compatibility seed, or a process that runs without the settings layer — the
-snapshot derived from the environment (section 6) stays in force.
+**Refresh.** The holder reads one revision signal for the whole settings table before each
+authenticated operation: `readSettingsRevision` in `apps/api/src/settings/store.ts` answers
+the number of writes applied to `instanceSetting`, which grows by one on every insert and on
+every update, so a change to any settings document is a new revision and nothing has to be
+probed key by key. An unchanged revision returns the current instance, so repeated requests
+cost one aggregate row and no build; a changed revision builds once, and concurrent requests
+at that revision share the build instead of racing. A build that fails, or a revision that
+cannot be read at all, leaves the last good instance in force. When a document does not exist
+yet — first boot before the compatibility seed, or a process that runs without the settings
+layer — the snapshot derived from the environment (section 6) stays in force and the seeded
+default policy supplies the password minimum.
 
 The environment keeps owning two things the swap must not touch: the cookie secret and
 prefix, and the profile gate that decides whether password login is allowed at all. The
@@ -470,10 +476,15 @@ Every entry point that sets a password calls it:
   consumed, so a refused password never spends the link and an unusable link keeps answering
   its own generic refusal whatever the password looks like.
 
-`minPasswordLength` is also mirrored into the library's own password configuration so both
-checks agree: the instance starts at the default, and the hook rewrites the mirrored value from
-the stored document on each password-setting request, which is what keeps the library from
-refusing a password our policy accepts after an administrator loosens it. Failures answer the
+`minPasswordLength` is also set in the library's own password configuration, so the library's
+built-in length check agrees with our validator instead of refusing a password our policy
+accepts. That value comes from the build, not from the request: `readAccessSnapshot` carries
+the stored minimum as `passwordMinLength`, `createAuthFromSnapshot` passes it once, and a
+policy change reaches the library through the rebuild in section 5 — the settings revision
+moves, the next request builds an instance with the new floor, and every following request
+uses that instance. No request writes the library configuration, so two concurrent requests
+cannot mutate shared process state and the mirrored minimum cannot disagree with the policy
+the request was judged against. Failures answer the
 same list the interface renders (`missing` beside `code` and `message`), so a caller that
 bypasses the UI receives exactly what the UI would have said. Changing the policy never touches
 stored hashes: a password that was set under an older policy keeps working and no reset is

@@ -102,6 +102,18 @@ async function signIn(email: string, password: string): Promise<Response> {
   return publicPost(target(), SIGN_IN_PATH, { email, password });
 }
 
+async function changePassword(email: string, currentPassword: string, newPassword: string): Promise<Response> {
+  const signedIn = await signIn(email, currentPassword);
+  assertStatus(signedIn, 200, "the fixture account signs in");
+  const cookie = sessionCookieOf(signedIn);
+  assert.equal(cookie.length > 0, true);
+  return await adminRequest(target(), CHANGE_PASSWORD_PATH, {
+    method: "POST",
+    headers: { cookie, origin: target().config.publicOrigin, "content-type": "application/json" },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
 async function refusalOf(response: Response): Promise<{ status: number; body: RefusalBody; text: string }> {
   const text = await response.text();
   return { status: response.status, body: JSON.parse(text) as RefusalBody, text };
@@ -349,4 +361,52 @@ integration("the policy is stored once and survives a reread of the administrati
   const reread = await readConfiguration();
   assert.equal(reread.revision, stored.revision);
   assert.deepEqual(reread.policy, stored.value);
+});
+
+integration("a tightened policy refuses on the next request and leaves the stored password untouched", async () => {
+  const owner = await seedTrustedAccount(target().database, { password: `tighten-password-${randomUUID()}` });
+  const accepted = `Tightened-Candidate-${randomUUID().slice(0, 8)}`;
+
+  await appliedPolicy(policyOf({ minLength: 16 }));
+  assertStatus(await changePassword(owner.email, owner.password, accepted), 200, "the chosen password meets the policy");
+
+  await appliedPolicy(policyOf({ minLength: 40 }));
+  const refused = await refusalOf(await changePassword(owner.email, accepted, `Second-Candidate-${randomUUID().slice(0, 8)}`));
+  assert.equal(refused.status, 400, "the next request applies the tightened policy");
+  assert.equal(refused.body.code, "INVALID_PASSWORD");
+  assert.deepEqual(requirementsOf(refused.body), ["minLength"], "the refusal names only what is missing");
+  assert.match(refused.body.message ?? "", /at least 40 characters/i);
+  assert.equal((await signIn(owner.email, accepted)).status, 200, "the stored password is unchanged");
+});
+
+integration("a loosened policy reaches the library's own minimum on the next request", async () => {
+  const owner = await seedTrustedAccount(target().database, { password: `loosen-password-${randomUUID()}` });
+  const candidate = "Loosened-1!";
+
+  await appliedPolicy(policyOf({ minLength: 40 }));
+  const refused = await refusalOf(await changePassword(owner.email, owner.password, candidate));
+  assert.equal(refused.status, 400, "a password under the tightened minimum is refused");
+  assert.deepEqual(requirementsOf(refused.body), ["minLength"]);
+
+  await appliedPolicy(policyOf({ minLength: 8 }));
+  assertStatus(
+    await changePassword(owner.email, owner.password, candidate),
+    200,
+    "the library accepts what the loosened policy accepts",
+  );
+  assert.equal((await signIn(owner.email, candidate)).status, 200, "the loosened password is stored");
+});
+
+integration("the guarded paths keep the policy's own wording and requirement order after a change", async () => {
+  const owner = await seedTrustedAccount(target().database, { password: `wording-password-${randomUUID()}` });
+  await appliedPolicy(policyOf({ minLength: 8 }));
+
+  const refused = await refusalOf(await changePassword(owner.email, owner.password, "short"));
+  assert.equal(refused.status, 400);
+  assert.equal(refused.body.code, "INVALID_PASSWORD", "the policy's own refusal answers, not the library's");
+  assert.deepEqual(requirementsOf(refused.body), ["minLength", "uppercase", "number", "symbol"]);
+  assert.equal(
+    refused.body.message,
+    "The password is missing at least 8 characters, an uppercase letter, a number and a symbol.",
+  );
 });

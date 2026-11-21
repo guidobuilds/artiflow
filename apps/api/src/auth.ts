@@ -21,7 +21,7 @@ import {
   readPasswordPolicy,
   type PasswordPolicySource,
 } from "./password-policy/policy.ts";
-import { DEFAULT_PASSWORD_POLICY, type PasswordPolicyView } from "@artiflow/contracts/settings";
+import type { PasswordPolicyView } from "@artiflow/contracts/settings";
 import { environmentSnapshot, type AccessSnapshot } from "./settings/access-snapshot.ts";
 
 export type AuthConfig = Pick<
@@ -108,7 +108,7 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
     emailAndPassword: {
       enabled: passwordLoginEnabled(config, snapshot),
       disableSignUp: !PUBLIC_REGISTRATION_OPEN,
-      minPasswordLength: DEFAULT_PASSWORD_POLICY.minLength,
+      minPasswordLength: snapshot.passwordMinLength,
     },
     socialProviders: socialProviderOptions(snapshot.providers),
     session: { cookieCache: { enabled: false } },

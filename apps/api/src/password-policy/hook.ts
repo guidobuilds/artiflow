@@ -23,8 +23,6 @@ export function passwordPolicyHook(readPolicy: PasswordPolicySource) {
     if (typeof candidate !== "string") return;
 
     const policy = await readPolicy();
-    const config = ctx.context.password.config;
-    if (config.minPasswordLength !== policy.minLength) config.minPasswordLength = policy.minLength;
 
     const missing = validatePassword(candidate, policy);
     if (missing.length === 0) return;

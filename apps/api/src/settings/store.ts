@@ -103,8 +103,10 @@ async function currentRevision(db: Query, key: string): Promise<number | null> {
   return rows[0]?.revision ?? null;
 }
 
-export async function readSettingRevision(db: Query, key: string): Promise<number | null> {
-  return await currentRevision(db, key);
+export async function readSettingsRevision(db: Query): Promise<number | null> {
+  const rows = await db.select({ writes: sql<string | null>`sum(${instanceSetting.revision})` }).from(instanceSetting);
+  const writes = rows[0]?.writes ?? null;
+  return writes === null ? null : Number(writes);
 }
 
 export async function readSetting<T>(db: Query, definition: SettingDefinition<T>): Promise<StoredSetting<T> | null> {
