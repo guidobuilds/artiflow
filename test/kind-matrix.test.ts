@@ -15,11 +15,9 @@ import {
   agentWriteFor,
   anchorKindsFor,
   auditKindMatrix,
-  canCreateInApp,
   canEditInApp,
   capabilitiesFor,
   editsDocumentInApp,
-  exportFormatFor,
   extensionsFor,
   iconFor,
   isArtifactKind,
@@ -46,10 +44,7 @@ const SURFACES: readonly Surface[] = [
   { capability: "anchors", resolve: anchorKindsFor },
   { capability: "agentWrite", resolve: agentWriteFor },
   { capability: "titleSource", resolve: titleSourceFor },
-  { capability: "appCreate", resolve: canCreateInApp },
   { capability: "appEdit", resolve: canEditInApp },
-  { capability: "images", resolve: (kind) => capabilitiesFor(kind)?.images ?? null },
-  { capability: "exportFormat", resolve: exportFormatFor },
   { capability: "extensions", resolve: extensionsFor },
 ];
 
@@ -61,10 +56,7 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
     anchors: ["element", "page-point"],
     agentWrite: "replace-document",
     titleSource: "html-title",
-    appCreate: false,
     appEdit: false,
-    images: false,
-    exportFormat: null,
     extensions: [".html", ".htm"],
   },
   markdown: {
@@ -74,19 +66,13 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
     anchors: ["text-range"],
     agentWrite: "text-operations",
     titleSource: "first-heading",
-    appCreate: true,
     appEdit: true,
-    images: true,
-    exportFormat: ".md",
     extensions: [".md", ".markdown"],
   },
 };
 
-const unresolved = (capability: keyof KindCapabilities, value: unknown): boolean =>
-  value === undefined ||
-  value === "" ||
-  (Array.isArray(value) && value.length === 0) ||
-  (value === null && capability !== "exportFormat");
+const unresolved = (value: unknown): boolean =>
+  value === undefined || value === "" || value === null || (Array.isArray(value) && value.length === 0);
 
 const withoutRow = (kind: ArtifactKind): Record<string, KindCapabilities> => {
   const registry = { ...KIND_CAPABILITIES } as Record<string, KindCapabilities>;
@@ -117,8 +103,7 @@ function matrixGaps(registry: Record<string, KindCapabilities>): string[] {
     }
     for (const surface of SURFACES) {
       const resolved = surface.resolve(kind);
-      if (unresolved(surface.capability, resolved))
-        gaps.push(`${kind}: the ${surface.capability} surface resolves to nothing`);
+      if (unresolved(resolved)) gaps.push(`${kind}: the ${surface.capability} surface resolves to nothing`);
       else if (JSON.stringify(resolved) !== JSON.stringify(declared[surface.capability]))
         gaps.push(`${kind}: the ${surface.capability} surface disagrees with the registry row`);
     }
@@ -168,8 +153,7 @@ test("the surface table covers every declared capability key", () => {
 test("each surface names a known kind rather than the unknown fallback", () => {
   for (const kind of ARTIFACT_KINDS) {
     assert.equal(isArtifactKind(kind), true);
-    for (const surface of SURFACES)
-      assert.equal(unresolved(surface.capability, surface.resolve(kind)), false, surface.capability);
+    for (const surface of SURFACES) assert.equal(unresolved(surface.resolve(kind)), false, surface.capability);
     assert.equal(wireNameFor(kind), kind);
     assert.notEqual(wireNameFor(kind), UNKNOWN_KIND);
   }
@@ -230,6 +214,25 @@ test("deleting a registry row breaks the matrix instead of passing silently", ()
   assert.ok(
     audited.some((gap) => gap.startsWith("html:")),
     "the audit itself names the kind that lost its row",
+  );
+});
+
+test("a row that is present but undefined is a named gap, not a crash", () => {
+  const registry = { ...KIND_CAPABILITIES, html: undefined } as unknown as Record<string, KindCapabilities>;
+  let gaps: string[] = [];
+  assert.doesNotThrow(() => {
+    gaps = auditKindMatrix(registry);
+  }, "a present-but-undefined row is a reported gap, never a dereference");
+  assert.ok(
+    gaps.some((gap) => gap.startsWith("html:")),
+    "the gap names the kind whose row is undefined",
+  );
+  assert.doesNotThrow(() => {
+    gaps = [...matrixGaps(registry), ...declarationGaps(registry)];
+  }, "the whole matrix survives a present-but-undefined row");
+  assert.ok(
+    gaps.some((gap) => gap.startsWith("html:")),
+    "the matrix still names the kind whose row is undefined",
   );
 });
 

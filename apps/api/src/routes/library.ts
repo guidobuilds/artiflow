@@ -30,7 +30,7 @@ import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
-import { rendersInlineMarkdown, wireNameFor } from "@artiflow/domain/kinds";
+import { acceptsTextOperations, rendersInlineMarkdown, wireNameFor } from "@artiflow/domain/kinds";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -291,7 +291,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (gate.kind === "no_current_revision") return c.json({ error: "no_current_revision" }, 409);
     if (gate.kind !== "ok") return c.json({ error: "not_found" }, 404);
     let source: string | null = null;
-    if (gate.artifact.kind === "markdown") {
+    if (acceptsTextOperations(gate.artifact.kind)) {
       const read = await getRevisionBytes({
         storage,
         storageKey: gate.storageKey,

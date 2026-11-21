@@ -8,7 +8,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { escapeIdentifier, Pool } from "pg";
 
-import { commitUpload } from "../apps/api/src/domain/commit-flow.ts";
+import { commitUpload, writeArtifact } from "../apps/api/src/domain/commit-flow.ts";
 import { getCurrentState } from "../apps/api/src/domain/commits.ts";
 import { createUpload, putChunk } from "../apps/api/src/domain/staging.ts";
 import {
@@ -107,6 +107,52 @@ async function revisionObjectCount(): Promise<number> {
 
 const flowTest = (name: string, run: () => Promise<void>) =>
   test(name, { skip: ENV_READY ? false : "DATABASE_URL or S3 missing; run with --env-file=.env.local" }, run);
+
+const stubDatabase = (): { database: Database; reads: () => number } => {
+  let reads = 0;
+  const database = {
+    get db(): never {
+      reads += 1;
+      throw new Error("the domain reached the database before refusing the kind");
+    },
+  } as unknown as Database;
+  return { database, reads: () => reads };
+};
+
+const stubStorage = (): { storage: Storage; requests: () => number } => {
+  let requests = 0;
+  const storage = {
+    client: {
+      send: async (): Promise<never> => {
+        requests += 1;
+        throw new Error("the domain reached storage before refusing the kind");
+      },
+    },
+    bucket: "stub-bucket",
+    checkBucket: async (): Promise<void> => undefined,
+    destroy: (): void => undefined,
+  } as unknown as Storage;
+  return { storage, requests: () => requests };
+};
+
+test("an unknown kind is a validation refusal before any database or storage access", async () => {
+  const bytes = Buffer.from("# Notes\n", "utf8");
+  for (const entry of ["write", "commit"] as const) {
+    const { database, reads } = stubDatabase();
+    const { storage, requests } = stubStorage();
+    const result =
+      entry === "write"
+        ? await writeArtifact({ database, storage, ownerId: "owner-1", bytes, kind: "deck" })
+        : await commitUpload({ database, storage, ownerId: "owner-1", uploadId: "upload-1", bytes, kind: "deck" });
+    assert.deepEqual(
+      result,
+      { ok: false, kind: "validation", reason: "unknown_artifact_kind" },
+      `${entry} refuses a kind the registry does not declare`,
+    );
+    assert.equal(requests(), 0, `${entry} wrote nothing to storage`);
+    assert.equal(reads(), 0, `${entry} read no database row`);
+  }
+});
 
 before(async () => {
   if (!ENV_READY) return;
@@ -272,10 +318,9 @@ flowTest("identical bytes recommitted to one artifact take a second key without 
     }),
   );
   assert.equal(again.revisionNumber, 2);
-  const secondRow = await pool.query<{ sha256: string }>(
-    `select "sha256" from "artifactRevisions" where "id" = $1`,
-    [again.revisionId],
-  );
+  const secondRow = await pool.query<{ sha256: string }>(`select "sha256" from "artifactRevisions" where "id" = $1`, [
+    again.revisionId,
+  ]);
   assert.equal(secondRow.rows[0]?.sha256, digestOf(bytes), "identical bytes carry an identical digest");
   assert.notEqual(again.storageKey, created.storageKey, "a revision never reuses another revision's key");
   for (const [storageKey, sha256] of [

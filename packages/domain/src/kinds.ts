@@ -17,10 +17,7 @@ export type KindCapabilities = {
   anchors: readonly CommentAnchorKind[];
   agentWrite: AgentWriteMode;
   titleSource: TitleSource;
-  appCreate: boolean;
   appEdit: boolean;
-  images: boolean;
-  exportFormat: string | null;
   extensions: readonly string[];
 };
 
@@ -38,10 +35,7 @@ export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
     anchors: ["element", "page-point"],
     agentWrite: "replace-document",
     titleSource: "html-title",
-    appCreate: false,
     appEdit: false,
-    images: false,
-    exportFormat: null,
     extensions: [".html", ".htm"],
   },
   markdown: {
@@ -51,10 +45,7 @@ export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
     anchors: ["text-range"],
     agentWrite: "text-operations",
     titleSource: "first-heading",
-    appCreate: true,
     appEdit: true,
-    images: true,
-    exportFormat: ".md",
     extensions: [".md", ".markdown"],
   },
 };
@@ -77,11 +68,7 @@ export const labelFor = (kind: string): string => capabilitiesFor(kind)?.label ?
 
 export const iconFor = (kind: string): KindIcon => capabilitiesFor(kind)?.icon ?? UNKNOWN_ICON;
 
-export const canCreateInApp = (kind: string): boolean => capabilitiesFor(kind)?.appCreate === true;
-
 export const canEditInApp = (kind: string): boolean => capabilitiesFor(kind)?.appEdit === true;
-
-export const exportFormatFor = (kind: string): string | null => capabilitiesFor(kind)?.exportFormat ?? null;
 
 export const agentWriteFor = (kind: string): AgentWriteMode | null => capabilitiesFor(kind)?.agentWrite ?? null;
 
@@ -117,6 +104,7 @@ export function auditKindMatrix(registry: Record<string, KindCapabilities>): str
   }
   for (const [kind, capabilities] of Object.entries(registry)) {
     if (!isArtifactKind(kind)) gaps.push(`${kind}: not declared in ARTIFACT_KINDS, so no surface resolves it`);
+    if (capabilities === undefined) continue;
     if (blank(capabilities.label)) gaps.push(`${kind}: label is blank`);
     if (!KIND_ICONS.includes(capabilities.icon))
       gaps.push(`${kind}: icon ${String(capabilities.icon)} is not in the registry icon vocabulary`);
@@ -140,8 +128,6 @@ export function auditKindMatrix(registry: Record<string, KindCapabilities>): str
         if (owner !== undefined) gaps.push(`${kind}: extension ${extension} already belongs to ${owner}`);
         else owners.set(extension, kind);
       }
-    if (capabilities.exportFormat !== null && !EXTENSION_SHAPE.test(String(capabilities.exportFormat)))
-      gaps.push(`${kind}: export format ${String(capabilities.exportFormat)} is not a lowercase dotted suffix`);
   }
   return gaps;
 }
