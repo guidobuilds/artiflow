@@ -4,9 +4,12 @@ import type { ZodType } from "zod";
 import {
   accessMethodsDocumentReadSchema,
   accessMethodsDocumentSchema,
+  passwordPolicyDocumentReadSchema,
+  passwordPolicyDocumentSchema,
   sessionPolicyDocumentReadSchema,
   sessionPolicyDocumentSchema,
   type AccessMethodsDocument,
+  type PasswordPolicyDocument,
   type SessionPolicyDocument,
 } from "@artiflow/contracts/settings";
 
@@ -16,6 +19,7 @@ import { instanceSetting } from "../adapters/postgres/db/settings-schema.ts";
 type Query = AppDb | AppTx;
 
 export const ACCESS_METHODS_KEY = "access.methods";
+export const PASSWORD_POLICY_KEY = "password.policy";
 export const SESSIONS_POLICY_KEY = "sessions.policy";
 
 export type SettingDefinition<T> = {
@@ -36,7 +40,17 @@ export const sessionPolicySetting: SettingDefinition<SessionPolicyDocument> = {
   read: sessionPolicyDocumentReadSchema,
 };
 
-export const settingDefinitions = { accessMethods: accessMethodsSetting, sessionPolicy: sessionPolicySetting } as const;
+export const passwordPolicySetting: SettingDefinition<PasswordPolicyDocument> = {
+  key: PASSWORD_POLICY_KEY,
+  write: passwordPolicyDocumentSchema,
+  read: passwordPolicyDocumentReadSchema,
+};
+
+export const settingDefinitions = {
+  accessMethods: accessMethodsSetting,
+  sessionPolicy: sessionPolicySetting,
+  passwordPolicy: passwordPolicySetting,
+} as const;
 
 export type StoredSetting<T> = {
   value: T;

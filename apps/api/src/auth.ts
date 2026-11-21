@@ -15,6 +15,13 @@ import { ADMINISTRATOR_ROLE, MEMBER_ROLE } from "./identity/roles.ts";
 import { registrationInvites } from "./invites/plugin.ts";
 import { passwordReset } from "./password-reset/plugin.ts";
 import { API_RESOURCE_SCOPES, oauthPlugins, publicApiResource, publicIssuer } from "./oauth.ts";
+import { passwordPolicyHook } from "./password-policy/hook.ts";
+import {
+  defaultPasswordPolicyView,
+  readPasswordPolicy,
+  type PasswordPolicySource,
+} from "./password-policy/policy.ts";
+import { DEFAULT_PASSWORD_POLICY, type PasswordPolicyView } from "@artiflow/contracts/settings";
 import { environmentSnapshot, type AccessSnapshot } from "./settings/access-snapshot.ts";
 
 export type AuthConfig = Pick<
@@ -91,6 +98,7 @@ export function createAuth(config: AuthConfig, database: Database): AuthInstance
 
 export function createAuthFromSnapshot(config: AuthConfig, database: Database, snapshot: AccessSnapshot) {
   const origin = publicOriginUrl(config);
+  const policy: PasswordPolicySource = () => readPasswordPolicy(database.db);
   return betterAuth({
     baseURL: config.publicOrigin,
     secret: config.authSecret,
@@ -100,9 +108,11 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
     emailAndPassword: {
       enabled: passwordLoginEnabled(config, snapshot),
       disableSignUp: !PUBLIC_REGISTRATION_OPEN,
+      minPasswordLength: DEFAULT_PASSWORD_POLICY.minLength,
     },
     socialProviders: socialProviderOptions(snapshot.providers),
     session: { cookieCache: { enabled: false } },
+    hooks: { before: passwordPolicyHook(policy) },
     databaseHooks: {
       user: {
         create: {
@@ -124,8 +134,8 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
     },
     plugins: [
       ...oauthPlugins(config),
-      registrationInvites(),
-      passwordReset(),
+      registrationInvites({ policy }),
+      passwordReset({ policy }),
       admin({
         roles: instanceRoles,
         adminRoles: [ADMINISTRATOR_ROLE],
@@ -157,7 +167,14 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
 
 export type AccessSnapshotSource = () => Promise<AccessSnapshot>;
 
-export function createAuthApp(auth: AuthInstance, config: AuthConfig, access?: AccessSnapshotSource): Hono {
+export type PasswordPolicySourceRead = () => Promise<PasswordPolicyView>;
+
+export function createAuthApp(
+  auth: AuthInstance,
+  config: AuthConfig,
+  access?: AccessSnapshotSource,
+  passwordPolicy?: PasswordPolicySourceRead,
+): Hono {
   const app = new Hono();
 
   app.use(AUTH_ROUTE, async (c, next) => {
@@ -201,6 +218,12 @@ export function createAuthApp(auth: AuthInstance, config: AuthConfig, access?: A
       registration: PUBLIC_REGISTRATION_OPEN,
       socialProviders: Object.keys(snapshot.providers),
     });
+  });
+
+  app.get("/api/auth/password-policy", async (c) => {
+    const view = passwordPolicy === undefined ? defaultPasswordPolicyView() : await passwordPolicy();
+    c.header("cache-control", "no-store");
+    return c.json(view);
   });
 
   for (const path of WELL_KNOWN_PATHS) {

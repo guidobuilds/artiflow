@@ -446,17 +446,51 @@ round-trip. This is a test, not an assumption.
 ## 11. Password policy (D8)
 
 **Decision.** `password.policy` holds `{ minLength: 12, requireUppercase: true,
-requireLowercase: true, requireNumber: true, requireSymbol: true }` by default. One module,
-`password-policy.ts`, exposes `validate(password, policy)` returning the list of missing
-requirements, and every entry point calls it:
+requireLowercase: true, requireNumber: true, requireSymbol: true }` by default. The schema and
+that default live in `packages/contracts`, the document in `apps/api/src/settings/store.ts`,
+and the first boot writes it when absent (`apps/api/src/password-policy/seed.ts`, called by
+`apps/api/src/server.ts` beside the access seed, so a stored document always exists once the
+API has served a request).
 
-- the library's `hooks.before` for `/sign-up/email`, `/reset-password`, `/change-password`;
-- the invite-completion and reset-completion endpoints, before hashing.
+One module, `apps/api/src/password-policy/policy.ts`, exposes
+`validatePassword(password, policy)` returning the ordered list of missing requirements with
+one bounded sentence per requirement, plus the same list for a policy read from the store. The
+order is fixed — `minLength`, `maxLength`, `uppercase`, `lowercase`, `number`, `symbol` — so the
+interface can render the answer as it arrives. The ceiling is the library's own 128 and is not
+configurable.
+
+Every entry point that sets a password calls it:
+
+- `apps/api/src/password-policy/hook.ts`, installed as the library's `hooks.before`, for
+  `/sign-up/email`, `/reset-password` and `/change-password`. The `/sign-up/email` branch is
+  skipped while the library's public sign-up is closed, because no password is set there and
+  the refusal stays the library's own `EMAIL_PASSWORD_SIGN_UP_DISABLED`;
+- `apps/api/src/invites/plugin.ts`, before the invitation is consumed and before hashing;
+- `apps/api/src/password-reset/plugin.ts`, after the link is proven usable and before it is
+  consumed, so a refused password never spends the link and an unusable link keeps answering
+  its own generic refusal whatever the password looks like.
 
 `minPasswordLength` is also mirrored into the library's own password configuration so both
-checks agree. Failures return the same list the interface renders, so a caller that bypasses
-the UI receives exactly what the UI would have said. The policy is fetched from a public
-endpoint before a form renders, and changing the policy never touches stored hashes.
+checks agree: the instance starts at the default, and the hook rewrites the mirrored value from
+the stored document on each password-setting request, which is what keeps the library from
+refusing a password our policy accepts after an administrator loosens it. Failures answer the
+same list the interface renders (`missing` beside `code` and `message`), so a caller that
+bypasses the UI receives exactly what the UI would have said. Changing the policy never touches
+stored hashes: a password that was set under an older policy keeps working and no reset is
+forced.
+
+**Endpoints.** `GET /api/auth/password-policy` is the public read a form uses before someone
+chooses a password: the policy fields, the ceiling and one `{ requirement, message }` per
+active rule, with `cache-control: no-store`. It needs no session and carries no credential.
+`GET /api/admin/password-policy` answers `{ revision, policy }` behind the administrator guard,
+with the seeded default and `revision: null` when nothing is stored yet, and
+`PUT /api/admin/password-policy` takes `{ revision, policy }`, requires the public origin like
+every cookie mutation, answers the refreshed document, refuses a stale revision with
+`revision_conflict` (409) and a document outside the schema with `invalid_body` (400), and
+leaves the stored document untouched on either refusal. Each applied change emits one
+`password.policy.updated` event carrying the actor and the settings key; a refused change emits
+nothing. `/admin/password-policy` edits it in the administration shell, renders the revision and
+the rule in effect, and reloads the stored document on a conflict before asking for a retry.
 
 ## 12. Structured logging (D12)
 

@@ -130,7 +130,7 @@ export async function startInvitationHarness(
 }
 
 export function invitationCredential(name = "Invited Person"): Credential {
-  return { name, password: `invited-password-${randomUUID()}` };
+  return { name, password: `Invited-Password-${randomUUID()}` };
 }
 
 export function inviteRequest(

@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { passwordPolicyDocumentSchema } from "./settings.ts";
+
 export const userRoleSchema = z.enum(["member", "administrator"]);
 export type UserRole = z.infer<typeof userRoleSchema>;
 
@@ -92,6 +94,18 @@ export const accessProviderChangeSchema = z.strictObject({
   clientSecret: z.string().min(1).optional(),
 });
 export type AccessProviderChange = z.infer<typeof accessProviderChangeSchema>;
+
+export const passwordPolicyConfigurationSchema = z.strictObject({
+  revision: z.number().int().min(1).nullable(),
+  policy: passwordPolicyDocumentSchema,
+});
+export type PasswordPolicyConfiguration = z.infer<typeof passwordPolicyConfigurationSchema>;
+
+export const updatePasswordPolicyRequestSchema = z.strictObject({
+  revision: z.number().int().min(1).nullable(),
+  policy: passwordPolicyDocumentSchema,
+});
+export type UpdatePasswordPolicyRequest = z.infer<typeof updatePasswordPolicyRequestSchema>;
 
 export const updateAccessConfigurationRequestSchema = z.strictObject({
   revision: z.number().int().min(1).nullable(),

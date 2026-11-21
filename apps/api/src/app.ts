@@ -21,6 +21,7 @@ import { createArtifactBytesV1App } from "./routes/v1/bytes.ts";
 import { createArtifactUpdateV1App } from "./routes/v1/update.ts";
 import { encodePrincipal, PRINCIPAL_HEADER, principalFromClaims } from "./http/principal.ts";
 import { accountIsActive } from "./identity/accounts.ts";
+import { readPasswordPolicyView } from "./password-policy/policy.ts";
 
 import { jsonError } from "./http/index.ts";
 import { createShareViewerApp, createSharingApp } from "./routes/sharing.ts";
@@ -76,7 +77,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
 
   const holder = suppliedAuth ?? createAuthHolder({ config, database: databaseView });
   const auth = holder.auth;
-  app.route("/", createAuthApp(auth, config, holder.snapshot));
+  app.route("/", createAuthApp(auth, config, holder.snapshot, () => readPasswordPolicyView(databaseView.db)));
 
   app.use("/api/artifacts/*/document", async (c, next) => {
     if (c.req.method !== "PUT") return next();

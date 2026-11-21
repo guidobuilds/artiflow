@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import AccountPage from "./AccountPage.tsx";
 import AdminAccessPage from "./AdminAccessPage.tsx";
 import AdminInvitationsPage from "./AdminInvitationsPage.tsx";
+import AdminPasswordPolicyPage from "./AdminPasswordPolicyPage.tsx";
 import AdminUsersPage from "./AdminUsersPage.tsx";
 import ConsentPage from "./ConsentPage.tsx";
 import LibraryPage from "./LibraryPage.tsx";
@@ -41,6 +42,8 @@ const page =
     <AdminUsersPage />
   ) : path === "/admin/access" ? (
     <AdminAccessPage />
+  ) : path === "/admin/password-policy" ? (
+    <AdminPasswordPolicyPage />
   ) : path === "/admin/invitations" ? (
     <AdminInvitationsPage />
   ) : edit ? (

@@ -8,6 +8,7 @@ import { createDatabase } from "./adapters/postgres/db/client.ts";
 import { createApiApp } from "./app.ts";
 import { createStorage } from "./adapters/storage/client.ts";
 import { seedAccessMethods } from "./settings/seed.ts";
+import { seedPasswordPolicy } from "./password-policy/seed.ts";
 
 function readConfig() {
   try {
@@ -29,6 +30,15 @@ try {
 } catch (error) {
   const reason = error instanceof Error ? error.message : "unexpected seed failure";
   console.error(`[api] access configuration seed failed: ${reason}`);
+  await database.close().catch(() => undefined);
+  process.exit(1);
+}
+
+try {
+  await seedPasswordPolicy(database.db);
+} catch (error) {
+  const reason = error instanceof Error ? error.message : "unexpected seed failure";
+  console.error(`[api] password policy seed failed: ${reason}`);
   await database.close().catch(() => undefined);
   process.exit(1);
 }

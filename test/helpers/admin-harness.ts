@@ -152,6 +152,31 @@ export function adminPatch(target: AdminHarness, path: string, body: unknown, co
   });
 }
 
+export function adminPut(target: AdminHarness, path: string, body: unknown, cookie: string): Promise<Response> {
+  return adminRequest(target, path, {
+    method: "PUT",
+    headers: { cookie, origin: target.config.publicOrigin, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function publicPost(target: AdminHarness, path: string, body: unknown): Promise<Response> {
+  return adminRequest(target, path, {
+    method: "POST",
+    headers: { origin: target.config.publicOrigin, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function sessionCookieOf(response: Response): string {
+  return (
+    response.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0] ?? "")
+      .find((value) => value.includes("session_token")) ?? ""
+  );
+}
+
 export type QueryCounter = { count(): number; reset(): void };
 
 export function countDatabaseQueries(target: AdminHarness): QueryCounter {

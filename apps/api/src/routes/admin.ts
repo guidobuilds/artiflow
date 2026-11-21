@@ -16,16 +16,22 @@ import {
   readAccessConfiguration,
   updateAccessConfiguration,
 } from "../settings/access-administration.ts";
-import { SettingRevisionConflictError, ACCESS_METHODS_KEY } from "../settings/store.ts";
+import { SettingRevisionConflictError, ACCESS_METHODS_KEY, PASSWORD_POLICY_KEY } from "../settings/store.ts";
+import {
+  readPasswordPolicyConfiguration,
+  updatePasswordPolicyConfiguration,
+} from "../password-policy/administration.ts";
 import {
   setUserRoleRequestSchema,
   setUserStatusRequestSchema,
   updateAccessConfigurationRequestSchema,
   updateAdminUserRequestSchema,
+  updatePasswordPolicyRequestSchema,
   type AccessConfiguration,
   type AdminUser,
   type AdministratorListResponse,
   type AdminUserListResponse,
+  type PasswordPolicyConfiguration,
   type SetUserRoleResponse,
   type SetUserStatusResponse,
   type UpdateAdminUserResponse,
@@ -207,6 +213,47 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
       requestId: c.get("requestId"),
     });
     return c.json(configuration satisfies AccessConfiguration);
+  });
+
+  app.get("/api/admin/password-policy", async (c) => {
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+    const configuration = await readPasswordPolicyConfiguration({ db: options.database.db });
+    return c.json(configuration satisfies PasswordPolicyConfiguration);
+  });
+
+  app.put("/api/admin/password-policy", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = updatePasswordPolicyRequestSchema.safeParse(body);
+    if (!parsed.success) return jsonError(c, "invalid_body", 400);
+
+    let configuration: PasswordPolicyConfiguration;
+    try {
+      configuration = await updatePasswordPolicyConfiguration({
+        db: options.database.db,
+        change: parsed.data,
+        actorId: guard.actorId,
+      });
+    } catch (error) {
+      if (error instanceof SettingRevisionConflictError) return jsonError(c, "revision_conflict", 409);
+      throw error;
+    }
+
+    recordAdminEvent({
+      event: "password.policy.updated",
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      settingKey: PASSWORD_POLICY_KEY,
+      outcome: "applied",
+      requestId: c.get("requestId"),
+    });
+    return c.json(configuration satisfies PasswordPolicyConfiguration);
   });
 
   return app;

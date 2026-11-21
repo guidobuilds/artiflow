@@ -256,12 +256,13 @@ test("an empty directory says what to do next", () => {
   assert.match(read(USERS_PAGE), /directoryEmptyMessage\(/);
 });
 
-test("the administration shell carries the area, the three routes and the existing refusal", async () => {
+test("the administration shell carries the area, the four routes and the existing refusal", async () => {
   assert.deepEqual(
     ADMIN_SECTIONS.map((section) => [section.label, section.href]),
     [
       ["Users", "/admin/users"],
       ["Access", "/admin/access"],
+      ["Password policy", "/admin/password-policy"],
       ["Invitations", "/admin/invitations"],
     ],
   );

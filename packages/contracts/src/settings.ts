@@ -39,6 +39,49 @@ export const accessMethodsDocumentReadSchema = z.object({
 });
 export type AccessMethodsDocument = z.infer<typeof accessMethodsDocumentSchema>;
 
+export const passwordPolicyFields = {
+  minLength: z.number().int().min(8).max(128),
+  requireUppercase: z.boolean(),
+  requireLowercase: z.boolean(),
+  requireNumber: z.boolean(),
+  requireSymbol: z.boolean(),
+} as const;
+
+export const passwordPolicyDocumentSchema = z.strictObject(passwordPolicyFields);
+export const passwordPolicyDocumentReadSchema = z.object(passwordPolicyFields);
+export type PasswordPolicyDocument = z.infer<typeof passwordPolicyDocumentSchema>;
+
+export const DEFAULT_PASSWORD_POLICY: PasswordPolicyDocument = Object.freeze({
+  minLength: 12,
+  requireUppercase: true,
+  requireLowercase: true,
+  requireNumber: true,
+  requireSymbol: true,
+});
+
+export const passwordRequirementSchema = z.enum([
+  "minLength",
+  "maxLength",
+  "uppercase",
+  "lowercase",
+  "number",
+  "symbol",
+]);
+export type PasswordRequirement = z.infer<typeof passwordRequirementSchema>;
+
+export const passwordRequirementRuleSchema = z.strictObject({
+  requirement: passwordRequirementSchema,
+  message: z.string().min(1),
+});
+export type PasswordRequirementRule = z.infer<typeof passwordRequirementRuleSchema>;
+
+export const passwordPolicyViewSchema = z.strictObject({
+  ...passwordPolicyFields,
+  maxLength: z.number().int().min(1),
+  requirements: z.array(passwordRequirementRuleSchema),
+});
+export type PasswordPolicyView = z.infer<typeof passwordPolicyViewSchema>;
+
 export const sessionPolicyFields = {
   expiresInDays: z.number().int().min(1),
   updateAgeDays: z.number().int().min(1),

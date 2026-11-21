@@ -83,6 +83,19 @@ export async function consumePasswordReset<Options extends BetterAuthOptions>(
   return { kind: "consumed" };
 }
 
+export async function resetTokenIsUsable<Options extends BetterAuthOptions>(
+  context: PasswordResetContext<Options>,
+  token: string,
+): Promise<boolean> {
+  const row = await context.adapter.findOne<{ expiresAt: Date | string; consumedAt: Date | string | null }>({
+    model: PASSWORD_RESET_MODEL,
+    where: [{ field: "tokenHash", value: hashResetToken(token) }],
+  });
+  if (row === null) return false;
+  const expiresAt = row.expiresAt instanceof Date ? row.expiresAt.getTime() : Date.parse(row.expiresAt);
+  return row.consumedAt === null && expiresAt > Date.now();
+}
+
 async function setCredentialPassword<Options extends BetterAuthOptions>(
   context: PasswordResetContext<Options>,
   userId: string,

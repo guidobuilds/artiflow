@@ -1,11 +1,12 @@
 import { getSession, type AuthUser } from "./auth-client.ts";
 
-export type AdminSection = "users" | "access" | "invitations";
+export type AdminSection = "users" | "access" | "password-policy" | "invitations";
 export type AdminSectionLink = { key: AdminSection; label: string; href: string };
 
 export const ADMIN_SECTIONS: AdminSectionLink[] = [
   { key: "users", label: "Users", href: "/admin/users" },
   { key: "access", label: "Access", href: "/admin/access" },
+  { key: "password-policy", label: "Password policy", href: "/admin/password-policy" },
   { key: "invitations", label: "Invitations", href: "/admin/invitations" },
 ];
 

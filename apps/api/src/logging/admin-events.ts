@@ -4,6 +4,7 @@ export const ADMIN_EVENTS = [
   "role.granted",
   "role.revoked",
   "access.methods.updated",
+  "password.policy.updated",
   "user.updated",
   "user.deactivated",
   "user.reactivated",
@@ -24,10 +25,9 @@ export type RoleAdminEvent = AdminEventBase & {
 };
 
 export type SettingAdminEvent = AdminEventBase & {
-  event: "access.methods.updated";
+  event: "access.methods.updated" | "password.policy.updated";
   settingKey: string;
 };
-
 export type UserAdminEvent = AdminEventBase & {
   event: "user.updated";
   subjectId: string;
@@ -48,7 +48,7 @@ const writeLine: WriteLine = (line) => {
 };
 
 function detailsOf(input: AdminEventInput): Record<string, string> {
-  if (input.event === "access.methods.updated") return { settingKey: input.settingKey };
+  if ("settingKey" in input) return { settingKey: input.settingKey };
   if (input.event === "user.updated" && input.emailChange !== undefined) {
     return { subjectId: input.subjectId, emailBefore: input.emailChange.before, emailAfter: input.emailChange.after };
   }
