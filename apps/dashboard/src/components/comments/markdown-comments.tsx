@@ -8,7 +8,8 @@ import {
   type RenderedCandidate,
   type SourceSpan,
 } from "@artiflow/domain/comment-anchors";
-import type { ManageResult } from "@/auth-client.ts";
+import { getSession, type ManageResult } from "@/auth-client.ts";
+import { draftBlockedReason } from "@/comment-draft.ts";
 import {
   createComment as createCommentRequest,
   deleteComment as deleteCommentRequest,
@@ -108,10 +109,23 @@ export default function MarkdownComments({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [authorImage, setAuthorImage] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getSession().then((result) => {
+      if (!cancelled && result.ok && result.value) setAuthorImage(result.value.image);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const run = useRef(0);
   const nextDraft = useRef(0);
   const dataCallback = useRef(onData);
   dataCallback.current = onData;
+  const announcedSelection = useRef<number | null>(null);
+  const activateCallback = useRef(onActivate);
+  activateCallback.current = onActivate;
   const refresh = useCallback(async () => {
     const current = ++run.current;
     setStatus((value) => (value === "ready" || value === "empty" ? value : "loading"));
@@ -154,6 +168,10 @@ export default function MarkdownComments({
   useEffect(() => {
     if (selection === null || !canComment) return;
     begin(selection.text, selection.span, selection.top);
+    if (announcedSelection.current !== selection.serial) {
+      announcedSelection.current = selection.serial;
+      activateCallback.current(null);
+    }
   }, [selection, canComment, begin]);
   useEffect(() => {
     if (readOnly || data?.canComment === false) setDraft(null);
@@ -174,6 +192,7 @@ export default function MarkdownComments({
     setBusy(false);
   };
   const threads = (data?.comments ?? []).map((thread) => toMarginThread(thread, source, "Text changed"));
+  const blockedReason = draftBlockedReason(draft);
   const draftModel: CommentDraft | null =
     draft === null
       ? null
@@ -181,10 +200,15 @@ export default function MarkdownComments({
           quotedText: draft.quotedText,
           body: draft.body,
           busy,
-          error: error || (outdatedDraft ? "The document changed; select the text again." : ""),
+          authorImage,
+          error: error || (outdatedDraft ? "The document changed; select the text again." : "") || blockedReason || "",
         };
   const submitDraft = (body: string) => {
-    if (draft?.anchor === null || draft === null) return;
+    if (draft === null) return;
+    if (blockedReason !== null) {
+      setError(blockedReason);
+      return;
+    }
     if (!saved) {
       setError("Wait for the document to save before commenting.");
       return;

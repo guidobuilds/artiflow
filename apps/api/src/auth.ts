@@ -1,6 +1,7 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
 import { Hono } from "hono";
+import { randomAvatar } from "@artiflow/domain/avatars";
 
 import { isLoopbackHostname, type AppConfig, type SocialProviders } from "./config.ts";
 import type { Database } from "./adapters/postgres/db/client.ts";
@@ -77,6 +78,13 @@ export function createAuth(config: AuthConfig, database: Database) {
     emailAndPassword: emailPasswordOptions(config),
     socialProviders: socialProviderOptions(config.authProviders),
     session: { cookieCache: { enabled: false } },
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => ({ data: { ...user, image: user.image ?? randomAvatar() } }),
+        },
+      },
+    },
     plugins: [...oauthPlugins(config), registrationInvites(), passwordReset()],
     rateLimit: {
       customRules: {
