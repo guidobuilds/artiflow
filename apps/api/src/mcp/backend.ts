@@ -198,7 +198,6 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
           artifactId: input.artifactId,
           seq: applied.value.seq,
           applied: applied.value.applied,
-          operationCount: applied.value.seq,
           replayed: applied.value.replayed,
           published: applied.value.published,
           revisionId: applied.value.revisionId,

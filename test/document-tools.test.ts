@@ -296,7 +296,6 @@ function fakeWorkspace() {
           artifactId: input.artifactId,
           seq: applied.value.seq,
           applied: applied.value.applied,
-          operationCount: applied.value.seq,
           replayed: applied.value.replayed,
           published: applied.value.published,
           revisionId: applied.value.revisionId,
@@ -428,7 +427,6 @@ test("one replace_text on a twenty-thousand-word document appends one operation 
     baseSeq: 0,
     seq: 1,
     applied: 1,
-    operationCount: 1,
     replayed: false,
     published: false,
     revisionId: null,
@@ -598,7 +596,7 @@ test("the six previously registered document tools keep the answers they already
         }),
       ),
     ),
-    ["applied", "artifactId", "baseSeq", "operationCount", "published", "replayed", "revisionId", "seq"],
+    ["applied", "artifactId", "baseSeq", "published", "replayed", "revisionId", "seq"],
     "document_apply keeps its six fields and adds only the freeze report",
   );
 });

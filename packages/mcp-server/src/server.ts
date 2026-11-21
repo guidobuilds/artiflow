@@ -891,7 +891,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       "document_apply",
       {
         title: "Apply operations to a markdown document",
-        description: `Apply a batch of typed operations to one owned markdown document in one atomic call, instead of resending the document. Requires ${scope}. baseSeq is the sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: replace_text (find/replace, optional all and expectedOccurrences), insert_text (at an optional 1-indexed line/column), delete_range (start/end, end exclusive), append_blocks (with an optional blockId to insert after that block) and replace_document. A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged document. The reply carries the new sequence, how many operations this call applied and the resulting operation count. The accepted batch also snapshots the document when 100 operations or ten minutes are due: published reports whether this call froze one, and revisionId names it, so a viewer sees the edit without a second call. Below the threshold nothing is written to storage.`,
+        description: `Apply a batch of typed operations to one owned markdown document in one atomic call, instead of resending the document. Requires ${scope}. baseSeq is the sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: replace_text (find/replace, optional all and expectedOccurrences), insert_text (at an optional 1-indexed line/column), delete_range (start/end, end exclusive), append_blocks (with an optional blockId to insert after that block) and replace_document. A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged document. The reply carries the new sequence and how many operations this call applied. The accepted batch also snapshots the document when 100 operations or ten minutes are due: published reports whether this call froze one, and revisionId names it, so a viewer sees the edit without a second call. Below the threshold nothing is written to storage.`,
         inputSchema: {
           artifactId: documentIdSchema,
           baseSeq: z.number().int().min(0),
@@ -903,7 +903,6 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           baseSeq: z.number().int(),
           seq: z.number().int(),
           applied: z.number().int(),
-          operationCount: z.number().int(),
           replayed: z.boolean(),
           published: z.boolean(),
           revisionId: z.string().nullable(),
@@ -927,7 +926,6 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           baseSeq: input.baseSeq,
           seq: applied.value.seq,
           applied: applied.value.applied,
-          operationCount: applied.value.operationCount,
           replayed: applied.value.replayed,
           published: applied.value.published,
           revisionId: applied.value.revisionId,

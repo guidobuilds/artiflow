@@ -157,7 +157,6 @@ export type McpDocumentApplied = {
   artifactId: string;
   seq: number;
   applied: number;
-  operationCount: number;
   replayed: boolean;
   published: boolean;
   revisionId: string | null;
