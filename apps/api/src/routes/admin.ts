@@ -9,12 +9,8 @@ import { requireAdministrator } from "../http/admin-guard.ts";
 import { cookieMutationGuard, jsonError } from "../http/index.ts";
 import { ADMINISTRATOR_ROLE, isUserRole } from "../identity/roles.ts";
 import { recordAdminEvent } from "../logging/admin-events.ts";
-import {
-  AdminUserEditError,
-  adminUserListQuerySchema,
-  listAdminUsers,
-  updateAdminUser,
-} from "../admin/users.ts";
+import { AdminUserEditError, adminUserListQuerySchema, listAdminUsers, updateAdminUser } from "../admin/users.ts";
+import { deactivateAccount, reactivateAccount } from "../admin/lifecycle.ts";
 import {
   AccessConfigurationError,
   readAccessConfiguration,
@@ -23,6 +19,7 @@ import {
 import { SettingRevisionConflictError, ACCESS_METHODS_KEY } from "../settings/store.ts";
 import {
   setUserRoleRequestSchema,
+  setUserStatusRequestSchema,
   updateAccessConfigurationRequestSchema,
   updateAdminUserRequestSchema,
   type AccessConfiguration,
@@ -30,6 +27,7 @@ import {
   type AdministratorListResponse,
   type AdminUserListResponse,
   type SetUserRoleResponse,
+  type SetUserStatusResponse,
   type UpdateAdminUserResponse,
 } from "@artiflow/contracts/admin";
 
@@ -98,6 +96,31 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
       user: { id: outcome.id, role: outcome.role },
       changed: outcome.kind === "changed",
     } satisfies SetUserRoleResponse);
+  });
+
+  app.post("/api/admin/users/:id/status", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = setUserStatusRequestSchema.safeParse(body);
+    if (!parsed.success) return jsonError(c, "invalid_body", 400);
+
+    const change = {
+      db: options.database.db,
+      userId: c.req.param("id"),
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      ...(c.get("requestId") === undefined ? {} : { requestId: c.get("requestId") }),
+    };
+    const outcome =
+      parsed.data.status === "deactivated" ? await deactivateAccount(change) : await reactivateAccount(change);
+    if (outcome.kind === "missing") return jsonError(c, "user_not_found", 404);
+    if (outcome.kind === "unchanged") return jsonError(c, "status_unchanged", 409);
+    return c.json({ user: outcome.user } satisfies SetUserStatusResponse);
   });
 
   app.get("/api/admin/users", async (c) => {

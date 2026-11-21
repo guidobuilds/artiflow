@@ -271,16 +271,36 @@ which is today's library default made visible and configurable through
 prefix.
 
 Deactivation writes `user.status = 'deactivated'`, `deactivated_at` and `deactivated_by`,
-deletes that user's `session` rows, and revokes their public artifact links, all in one
-transaction. Two guarantees keep it closed:
+deletes that user's `session` rows, revokes the refresh tokens issued to that account, and
+revokes their public artifact links, all in one transaction. `user.status` is a two-value
+column defaulting to `active`, so applying the migration deactivates nobody and every
+existing account keeps working. Three guarantees keep it closed:
 
 - **No new session.** A `databaseHooks.session.create.before` check rejects session creation
   for a non-active user. Credential sign-in, social sign-in, SSO and any future method all
   end in a session creation, so this is the single choke point that no route can bypass.
 - **No live session.** Deleting the rows is sufficient because sessions are database-backed;
   there is no cookie cache (`session.cookieCache.enabled: false` today, and it stays off).
+- **No surviving bearer token.** Access tokens are signed JWTs with a fifteen-minute lifetime
+  that outlive the session, so both bearer surfaces — `/mcp` and `/api/v1` — resolve the
+  token's subject against `user.status` after the signature check and refuse anything but an
+  active account with `401 invalid_token`. The refresh tokens issued to that account are
+  revoked in the same transaction as the status, so no new access token can be minted.
 
-Reactivation clears the status, and restores neither sessions nor revoked public links.
+`requireAdministrator` also refuses a non-active account, so an administrator loses the
+administration namespace at the same moment as everything else.
+
+Reactivation clears the status, `deactivated_at` and `deactivated_by`, and restores neither
+sessions, nor revoked public links, nor revoked tokens.
+
+**Endpoint.** `POST /api/admin/users/:id/status` takes `{ status: "active" | "deactivated" }`,
+requires the public origin like every cookie mutation, and answers `{ user: { id, status } }`.
+A target state the account already holds answers `409 status_unchanged` and changes nothing;
+an unknown subject answers `404 user_not_found` and a body that names no known state
+`400 invalid_body`. Each applied change emits one `user.deactivated` or `user.reactivated`
+event naming the actor and the person; a refusal emits nothing. Nothing on this path deletes
+content: artifacts, revisions, comments and the share grants the person issued keep their
+rows, and the people they shared with keep reading them.
 
 Both session surfaces are listings over the same table: the member's own page uses
 `listSessions`/`revokeSession`/`revokeOtherSessions` and marks the current one by id; the

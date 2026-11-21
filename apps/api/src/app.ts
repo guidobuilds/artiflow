@@ -20,6 +20,7 @@ import { createArtifactsV1App } from "./routes/v1/create.ts";
 import { createArtifactBytesV1App } from "./routes/v1/bytes.ts";
 import { createArtifactUpdateV1App } from "./routes/v1/update.ts";
 import { encodePrincipal, PRINCIPAL_HEADER, principalFromClaims } from "./http/principal.ts";
+import { accountIsActive } from "./identity/accounts.ts";
 
 import { jsonError } from "./http/index.ts";
 import { createShareViewerApp, createSharingApp } from "./routes/sharing.ts";
@@ -92,12 +93,14 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
     resource: publicResource(config),
     issuer: publicIssuer(config),
     challengeScopes: ["artifacts:read", "artifacts:write"],
+    isAccountActive: (userId: string) => accountIsActive(databaseView.db, userId),
   };
   const apiAuthOptions = {
     jwksUrl: mcpNetwork.jwksUrl,
     resource: publicApiResource(config),
     issuer: publicIssuer(config),
     challengeScopes: [...API_RESOURCE_SCOPES],
+    isAccountActive: (userId: string) => accountIsActive(databaseView.db, userId),
   };
 
   app.route("/", createAdminApp({ database: databaseView, auth, publicOrigin: config.publicOrigin, config }));

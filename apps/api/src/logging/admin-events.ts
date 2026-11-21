@@ -1,6 +1,13 @@
 import type { UserRole } from "../identity/roles.ts";
 
-export const ADMIN_EVENTS = ["role.granted", "role.revoked", "access.methods.updated", "user.updated"] as const;
+export const ADMIN_EVENTS = [
+  "role.granted",
+  "role.revoked",
+  "access.methods.updated",
+  "user.updated",
+  "user.deactivated",
+  "user.reactivated",
+] as const;
 
 export type AdminEventName = (typeof ADMIN_EVENTS)[number];
 
@@ -27,7 +34,12 @@ export type UserAdminEvent = AdminEventBase & {
   emailChange?: { before: string; after: string };
 };
 
-export type AdminEventInput = RoleAdminEvent | SettingAdminEvent | UserAdminEvent;
+export type UserLifecycleAdminEvent = AdminEventBase & {
+  event: "user.deactivated" | "user.reactivated";
+  subjectId: string;
+};
+
+export type AdminEventInput = RoleAdminEvent | SettingAdminEvent | UserAdminEvent | UserLifecycleAdminEvent;
 
 type WriteLine = (line: string) => void;
 

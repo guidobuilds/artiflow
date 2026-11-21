@@ -1,12 +1,15 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { betterAuth } from "better-auth";
 import { admin } from "better-auth/plugins";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { randomAvatar } from "@artiflow/domain/avatars";
 
 import { isLoopbackHostname, type AppConfig } from "./config.ts";
 import type { Database } from "./adapters/postgres/db/client.ts";
 import { registrationAuthSchema } from "./adapters/postgres/db/auth-schema.ts";
+import { user } from "./adapters/postgres/db/schema.ts";
+import { isActiveAccount } from "./identity/account-status.ts";
 import { instanceRoles } from "./identity/admin-access.ts";
 import { ADMINISTRATOR_ROLE, MEMBER_ROLE } from "./identity/roles.ts";
 import { registrationInvites } from "./invites/plugin.ts";
@@ -104,6 +107,18 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
       user: {
         create: {
           before: async (user) => ({ data: { ...user, image: user.image ?? randomAvatar() } }),
+        },
+      },
+      session: {
+        create: {
+          before: async (created) => {
+            const rows = await database.db
+              .select({ status: user.status })
+              .from(user)
+              .where(eq(user.id, created.userId))
+              .limit(1);
+            return isActiveAccount(rows[0]?.status) ? undefined : false;
+          },
         },
       },
     },

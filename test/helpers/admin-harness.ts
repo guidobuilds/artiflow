@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import net from "node:net";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,6 +47,18 @@ function unusedStorage(): ApiAppDeps["storage"] {
   };
 }
 
+async function freePort(): Promise<number> {
+  return await new Promise<number>((resolve, reject) => {
+    const probe = net.createServer();
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      const value = address && typeof address === "object" ? address.port : 0;
+      probe.close(() => resolve(value));
+    });
+    probe.once("error", reject);
+  });
+}
+
 export async function startAdminHarness(config: AppConfig): Promise<AdminHarness> {
   const raw = process.env.DATABASE_URL ?? "";
   const url = new URL(raw);
@@ -64,11 +77,17 @@ export async function startAdminHarness(config: AppConfig): Promise<AdminHarness
   const database = createDatabase(testUrl.toString());
   await migrate(drizzle(database.pool), { migrationsFolder: MIGRATIONS_FOLDER });
 
-  const app = createApiApp({ config, database, storage: unusedStorage() });
+  const port = await freePort();
+  const internalOrigin = `http://127.0.0.1:${port}`;
+  const app = createApiApp({
+    config: { ...config, internalOrigin, apiPort: port },
+    database,
+    storage: unusedStorage(),
+  });
 
   const started = await new Promise<{ server: ReturnType<typeof serve>; baseUrl: string }>((resolve, reject) => {
-    const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 }, (info) =>
-      resolve({ server, baseUrl: `http://127.0.0.1:${info.port}` }),
+    const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port }, () =>
+      resolve({ server, baseUrl: internalOrigin }),
     );
     server.once("error", reject);
   });

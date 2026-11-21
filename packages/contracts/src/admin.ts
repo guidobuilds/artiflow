@@ -44,6 +44,17 @@ export type UpdateAdminUserResponse = z.infer<typeof updateAdminUserResponseSche
 export const setUserRoleRequestSchema = z.object({ role: z.string() });
 export type SetUserRoleRequest = z.infer<typeof setUserRoleRequestSchema>;
 
+export const accountStatusSchema = z.enum(["active", "deactivated"]);
+export type AccountStatus = z.infer<typeof accountStatusSchema>;
+
+export const setUserStatusRequestSchema = z.strictObject({ status: accountStatusSchema });
+export type SetUserStatusRequest = z.infer<typeof setUserStatusRequestSchema>;
+
+export const setUserStatusResponseSchema = z.strictObject({
+  user: z.strictObject({ id: z.string().min(1), status: accountStatusSchema }),
+});
+export type SetUserStatusResponse = z.infer<typeof setUserStatusResponseSchema>;
+
 export const setUserRoleResponseSchema = z.object({
   user: z.object({ id: z.string().min(1), role: userRoleSchema }),
   changed: z.boolean(),
