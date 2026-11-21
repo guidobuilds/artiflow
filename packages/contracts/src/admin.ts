@@ -14,6 +14,33 @@ export type Administrator = z.infer<typeof administratorSchema>;
 export const administratorListResponseSchema = z.object({ administrators: z.array(administratorSchema) });
 export type AdministratorListResponse = z.infer<typeof administratorListResponseSchema>;
 
+export const adminUserSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string(),
+  email: z.string(),
+  role: userRoleSchema,
+  accessMethods: z.array(z.string().min(1)),
+  lastActivityAt: z.iso.datetime().nullable(),
+});
+export type AdminUser = z.infer<typeof adminUserSchema>;
+
+export const adminUserListResponseSchema = z.strictObject({
+  users: z.array(adminUserSchema),
+  total: z.number().int().min(0),
+  page: z.number().int().min(1),
+  pageSize: z.number().int().min(1),
+});
+export type AdminUserListResponse = z.infer<typeof adminUserListResponseSchema>;
+
+export const updateAdminUserRequestSchema = z.strictObject({
+  name: z.string(),
+  email: z.string(),
+});
+export type UpdateAdminUserRequest = z.infer<typeof updateAdminUserRequestSchema>;
+
+export const updateAdminUserResponseSchema = z.strictObject({ user: adminUserSchema });
+export type UpdateAdminUserResponse = z.infer<typeof updateAdminUserResponseSchema>;
+
 export const setUserRoleRequestSchema = z.object({ role: z.string() });
 export type SetUserRoleRequest = z.infer<typeof setUserRoleRequestSchema>;
 

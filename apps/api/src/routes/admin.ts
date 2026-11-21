@@ -10,6 +10,12 @@ import { cookieMutationGuard, jsonError } from "../http/index.ts";
 import { ADMINISTRATOR_ROLE, isUserRole } from "../identity/roles.ts";
 import { recordAdminEvent } from "../logging/admin-events.ts";
 import {
+  AdminUserEditError,
+  adminUserListQuerySchema,
+  listAdminUsers,
+  updateAdminUser,
+} from "../admin/users.ts";
+import {
   AccessConfigurationError,
   readAccessConfiguration,
   updateAccessConfiguration,
@@ -18,9 +24,13 @@ import { SettingRevisionConflictError, ACCESS_METHODS_KEY } from "../settings/st
 import {
   setUserRoleRequestSchema,
   updateAccessConfigurationRequestSchema,
+  updateAdminUserRequestSchema,
   type AccessConfiguration,
+  type AdminUser,
   type AdministratorListResponse,
+  type AdminUserListResponse,
   type SetUserRoleResponse,
+  type UpdateAdminUserResponse,
 } from "@artiflow/contracts/admin";
 
 export type AdminOptions = {
@@ -88,6 +98,46 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
       user: { id: outcome.id, role: outcome.role },
       changed: outcome.kind === "changed",
     } satisfies SetUserRoleResponse);
+  });
+
+  app.get("/api/admin/users", async (c) => {
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+    const parsed = adminUserListQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) return jsonError(c, "invalid_query", 400);
+    const page = await listAdminUsers({ db: options.database.db, query: parsed.data });
+    return c.json(page satisfies AdminUserListResponse);
+  });
+
+  app.patch("/api/admin/users/:id", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = updateAdminUserRequestSchema.safeParse(body);
+    if (!parsed.success) return jsonError(c, "invalid_body", 400);
+
+    let updated: AdminUser | null;
+    try {
+      updated = await updateAdminUser({
+        db: options.database.db,
+        userId: c.req.param("id"),
+        name: parsed.data.name,
+        email: parsed.data.email,
+        actorId: guard.actorId,
+        actorRole: guard.actorRole,
+        requestId: c.get("requestId"),
+      });
+    } catch (error) {
+      if (error instanceof AdminUserEditError)
+        return jsonError(c, error.code, error.code === "email_in_use" ? 409 : 400);
+      throw error;
+    }
+    if (updated === null) return jsonError(c, "user_not_found", 404);
+    return c.json({ user: updated } satisfies UpdateAdminUserResponse);
   });
 
   app.get("/api/admin/access", async (c) => {

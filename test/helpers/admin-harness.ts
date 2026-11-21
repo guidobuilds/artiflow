@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
-import { escapeIdentifier, Pool } from "pg";
+import { escapeIdentifier, Pool, type PoolClient } from "pg";
 
 import { createApiApp, type ApiAppDeps } from "../../apps/api/src/app.ts";
 import { createDatabase, type Database } from "../../apps/api/src/adapters/postgres/db/client.ts";
@@ -123,6 +123,36 @@ export function adminPost(target: AdminHarness, path: string, body: unknown, coo
     headers: { cookie, origin: target.config.publicOrigin, "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export function adminPatch(target: AdminHarness, path: string, body: unknown, cookie: string): Promise<Response> {
+  return adminRequest(target, path, {
+    method: "PATCH",
+    headers: { cookie, origin: target.config.publicOrigin, "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export type QueryCounter = { count(): number; reset(): void };
+
+export function countDatabaseQueries(target: AdminHarness): QueryCounter {
+  let counted = 0;
+  const instrumented = new WeakSet<object>();
+  const instrument = (client: PoolClient): void => {
+    if (instrumented.has(client)) return;
+    instrumented.add(client);
+    const patched = client as unknown as { query: (...args: unknown[]) => unknown };
+    const original = patched.query.bind(client);
+    patched.query = (...args: unknown[]) => {
+      counted += 1;
+      return original(...args);
+    };
+  };
+  const emitter = target.database.pool as unknown as {
+    on(event: string, listener: (client: PoolClient) => void): void;
+  };
+  emitter.on("acquire", instrument);
+  return { count: () => counted, reset: () => void (counted = 0) };
 }
 
 export function assertStatus(response: Response, expected: number, detail: string): void {

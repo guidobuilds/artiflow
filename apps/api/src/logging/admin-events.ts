@@ -1,6 +1,6 @@
 import type { UserRole } from "../identity/roles.ts";
 
-export const ADMIN_EVENTS = ["role.granted", "role.revoked", "access.methods.updated"] as const;
+export const ADMIN_EVENTS = ["role.granted", "role.revoked", "access.methods.updated", "user.updated"] as const;
 
 export type AdminEventName = (typeof ADMIN_EVENTS)[number];
 
@@ -21,13 +21,27 @@ export type SettingAdminEvent = AdminEventBase & {
   settingKey: string;
 };
 
-export type AdminEventInput = RoleAdminEvent | SettingAdminEvent;
+export type UserAdminEvent = AdminEventBase & {
+  event: "user.updated";
+  subjectId: string;
+  emailChange?: { before: string; after: string };
+};
+
+export type AdminEventInput = RoleAdminEvent | SettingAdminEvent | UserAdminEvent;
 
 type WriteLine = (line: string) => void;
 
 const writeLine: WriteLine = (line) => {
   process.stdout.write(`${line}\n`);
 };
+
+function detailsOf(input: AdminEventInput): Record<string, string> {
+  if (input.event === "access.methods.updated") return { settingKey: input.settingKey };
+  if (input.event === "user.updated" && input.emailChange !== undefined) {
+    return { subjectId: input.subjectId, emailBefore: input.emailChange.before, emailAfter: input.emailChange.after };
+  }
+  return { subjectId: input.subjectId };
+}
 
 export function adminEventLine(input: AdminEventInput, at: Date = new Date()): string {
   return JSON.stringify({
@@ -36,7 +50,7 @@ export function adminEventLine(input: AdminEventInput, at: Date = new Date()): s
     event: input.event,
     actorId: input.actorId,
     actorRole: input.actorRole,
-    ...(input.event === "access.methods.updated" ? { settingKey: input.settingKey } : { subjectId: input.subjectId }),
+    ...detailsOf(input),
     outcome: input.outcome,
     ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
   });

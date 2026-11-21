@@ -243,6 +243,26 @@ Changing an email does not require verification (functional specification) and d
 touch linked identities: `account` rows are keyed by `(providerId, accountId)`, not by email,
 so the invariant holds by construction. It is written to the audit log with both values.
 
+The user directory is read and edited through two routes behind the administrator guard:
+
+- `GET /api/admin/users?page=&pageSize=&search=&role=` answers `{ users, total, page,
+  pageSize }`. A row carries `id`, `name`, `email`, `role`, `accessMethods` (the
+  `providerId` of every `account` row of that person, credential included) and
+  `lastActivityAt` (the newest `session.updatedAt`, `null` when the person never signed in).
+  Pages default to 20 rows and are capped at 100; `search` is a case-insensitive substring
+  match over name and email, `role` filters on the stored role, and a page past the end
+  answers an empty list with the real total rather than an error. The page and the total are
+  two statements, and the access methods and last activity are aggregated inside the page
+  statement, so the number of queries does not grow with the rows returned.
+- `PATCH /api/admin/users/:id` takes `{ name, email }`, requires the public origin like every
+  cookie mutation, and answers `{ user }` with the updated row. The name is trimmed, the
+  address is canonicalized exactly as the invitation flow does, and `account` rows are never
+  touched. A blank name answers `invalid_name` and a malformed address `invalid_email` (400),
+  an address another account already holds answers `email_in_use` (409), and both refusals
+  leave the stored row untouched. Every applied edit emits one `user.updated` event naming
+  the actor and the affected person, with `emailBefore` and `emailAfter` when the address
+  changed.
+
 ## 9. Sessions, deactivation and revocation (D6, D7)
 
 **Decision.** Session lifetime becomes explicit: `expiresIn` 7 days, `updateAge` 1 day,
