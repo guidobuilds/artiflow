@@ -11,7 +11,13 @@ import {
 } from "@artiflow/domain/html-bridge";
 import { anchorOffsets } from "@/comment-thread-layout.ts";
 import { attemptMutation } from "@/viewer-mutations.ts";
-import { createSequenceGuard, parseThreadsResponse, reconcileActive, viewportAnchor } from "@/viewer-thread-sync.ts";
+import {
+  createSequenceGuard,
+  createThreadsRefetcher,
+  parseThreadsResponse,
+  reconcileActive,
+  viewportAnchor,
+} from "@/viewer-thread-sync.ts";
 
 type ElementAnchor = {
   kind: "element";
@@ -152,14 +158,10 @@ export function mountViewerComments(): void {
     error: null as string | null,
     retry: null as (() => void) | null,
   };
-  const refetchGuard = createSequenceGuard();
-  const refetch = async (): Promise<void> => {
-    const list = config.endpoints.list;
-    if (list === undefined) return;
-    const token = refetchGuard.next();
-    try {
-      const next = await fetchThreads(list);
-      if (!refetchGuard.isCurrent(token)) return;
+  const refresh = createThreadsRefetcher({
+    guard: createSequenceGuard(),
+    load: () => fetchThreads(config.endpoints.list ?? ""),
+    apply: (next) => {
       config.threads = next.threads;
       config.canComment = next.canComment;
       state.activeId = reconcileActive(state.activeId, next.threads);
@@ -167,12 +169,16 @@ export function mountViewerComments(): void {
       state.retry = null;
       repaintMarks();
       measure();
-    } catch (error) {
-      if (!refetchGuard.isCurrent(token)) return;
-      state.error = error instanceof Error ? error.message : "Could not refresh the comments.";
+    },
+    fail: (message) => {
+      state.error = message;
       state.retry = () => void refetch();
       render();
-    }
+    },
+  });
+  const refetch = async (): Promise<void> => {
+    if (config.endpoints.list === undefined) return;
+    await refresh();
   };
   const mutate = (run: () => Promise<unknown>): void => {
     state.error = null;
@@ -367,14 +373,10 @@ export function mountViewerCommentsInFrame(): void {
     busy: false,
     retry: null as (() => void) | null,
   };
-  const refetchGuard = createSequenceGuard();
-  const refetch = async (): Promise<void> => {
-    const list = config.endpoints.list;
-    if (list === undefined) return;
-    const token = refetchGuard.next();
-    try {
-      const next = await fetchThreads(list);
-      if (!refetchGuard.isCurrent(token)) return;
+  const refresh = createThreadsRefetcher({
+    guard: createSequenceGuard(),
+    load: () => fetchThreads(config.endpoints.list ?? ""),
+    apply: (next) => {
       const known = new Set(next.threads.map((thread) => thread.id));
       config.threads = next.threads;
       config.canComment = next.canComment;
@@ -386,12 +388,16 @@ export function mountViewerCommentsInFrame(): void {
       send({ type: "pins", pins: pins() });
       if (state.activeId !== null) send({ type: "focus", id: state.activeId });
       render();
-    } catch (error) {
-      if (!refetchGuard.isCurrent(token)) return;
-      state.error = error instanceof Error ? error.message : "Could not refresh the comments.";
+    },
+    fail: (message) => {
+      state.error = message;
       state.retry = () => void refetch();
       render();
-    }
+    },
+  });
+  const refetch = async (): Promise<void> => {
+    if (config.endpoints.list === undefined) return;
+    await refresh();
   };
   const mutate = (run: () => Promise<unknown>, after: () => void = () => {}): void => {
     state.busy = true;

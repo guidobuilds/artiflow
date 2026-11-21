@@ -3,8 +3,10 @@ import { test } from "node:test";
 
 import {
   DEFAULT_THREAD_GAP,
+  DRAFT_ID,
   anchorOffsets,
   layoutCommentThreads,
+  marginLayout,
   marginHeight,
   overlaps,
   partitionPlaced,
@@ -189,4 +191,26 @@ test("the bar counter and the resolved filter follow the thread state", () => {
   assert.equal(openThreadCount(threads), 2);
   assert.equal(visibleThreads(threads, false).length, 2);
   assert.equal(visibleThreads(threads, true).length, 3);
+});
+
+test("an open draft takes its own slot and never overlaps the cards around it", () => {
+  const threads = [
+    { id: "above", anchorTop: 10, height: 96 },
+    { id: "below", anchorTop: 100, height: 96 },
+  ];
+  const closed = marginLayout({ threads, draft: null, activeId: null, minTop: 0 });
+  assert.equal(placementOf(closed, DRAFT_ID) ?? null, null);
+  const open = marginLayout({
+    threads,
+    draft: { anchorTop: 110, height: 220 },
+    activeId: null,
+    minTop: 0,
+  });
+  const draft = placementOf(open, DRAFT_ID);
+  assert.notEqual(draft ?? null, null);
+  assert.ok(draft!.top >= 110, `the draft never rises above its anchor, got ${draft!.top}`);
+  for (const other of open) {
+    if (other.id === DRAFT_ID) continue;
+    assert.equal(overlaps(draft!, other), false, `the draft must not overlap ${other.id} at ${other.top}`);
+  }
 });

@@ -12,6 +12,22 @@ export type LayoutInput = {
   minTop?: number;
 };
 
+export const DRAFT_ID = "__draft__";
+
+export type MarginLayoutInput = {
+  threads: { id: string; anchorTop: number; height: number }[];
+  draft: { anchorTop: number; height: number } | null;
+  activeId: string | null;
+  minTop: number;
+  gap?: number;
+};
+
+export function marginLayout({ threads, draft, activeId, minTop, gap }: MarginLayoutInput): ThreadPlacement[] {
+  const items =
+    draft === null ? threads : [...threads, { id: DRAFT_ID, anchorTop: draft.anchorTop, height: draft.height }];
+  return layoutCommentThreads({ threads: items, activeId: draft === null ? activeId : DRAFT_ID, minTop, gap });
+}
+
 export const DEFAULT_THREAD_GAP = 12;
 
 const order = (a: { id: string; anchorTop: number }, b: { id: string; anchorTop: number }): number =>

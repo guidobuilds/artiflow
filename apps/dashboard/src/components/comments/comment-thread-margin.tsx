@@ -310,6 +310,7 @@ function DraftPanel({
     <form
       ref={formRef}
       className="comment-thread-dock comment-thread-draft"
+      data-comment-draft={body.trim() === "" ? "empty" : "typed"}
       onSubmit={(event) => {
         event.preventDefault();
         if (draft.busy || !body.trim()) return;

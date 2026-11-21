@@ -174,6 +174,7 @@ const applyRevision = async (revision) => {
   if (refresh.srcdocUrl === null) {
     // A server-rendered document has no byte endpoint to read: reload, asking the browser to keep
     // the reader where they were.
+    if (document.querySelector("[data-comment-draft='typed'], [data-comment-input='typed']") !== null) return;
     try {
       history.scrollRestoration = "auto";
     } catch (error) {

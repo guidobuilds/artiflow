@@ -24,3 +24,31 @@ export const createSequenceGuard = (): { next: () => number; isCurrent: (token: 
     isCurrent: (token) => token === latest,
   };
 };
+
+export type RefetchDeps<T> = {
+  guard: { next: () => number; isCurrent: (token: number) => boolean };
+  load: () => Promise<T>;
+  apply: (value: T) => void;
+  fail: (message: string) => void;
+  describe?: (error: unknown) => string;
+};
+
+export function createThreadsRefetcher<T>({
+  guard,
+  load,
+  apply,
+  fail,
+  describe = (error) => (error instanceof Error ? error.message : "Could not refresh the comments."),
+}: RefetchDeps<T>): () => Promise<void> {
+  return async (): Promise<void> => {
+    const token = guard.next();
+    try {
+      const value = await load();
+      if (!guard.isCurrent(token)) return;
+      apply(value);
+    } catch (error) {
+      if (!guard.isCurrent(token)) return;
+      fail(describe(error));
+    }
+  };
+}
