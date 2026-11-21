@@ -93,7 +93,7 @@ setting document:
 | Key               | Document                                                    |
 | ----------------- | ----------------------------------------------------------- |
 | `access.methods`  | Password and social provider enablement, with provenance    |
-| `access.sso`      | The single connection's non-secret fields and its policy    |
+| `access.sso`      | The single connection: issuer, client id, scopes, policy     |
 | `password.policy` | Minimum length and the four composition requirements        |
 | `sessions.policy` | Session lifetime and idle refresh                           |
 | `bootstrap`       | Adoption markers: environment seed time, admin recovery use |
@@ -210,7 +210,7 @@ so a caller reads a plaintext value or nothing at all and no plaintext ever reac
 The row itself is `instanceSecret(name text primary key, ciphertext text not null,
 updated_at timestamptz, updated_by text)`. A name identifies the secret for the document
 that references it (`access.methods.google.clientSecret`,
-`access.methods.github.clientSecret`, and later the SSO connection's secret), so a secret is
+`access.methods.github.clientSecret` and `access.sso.clientSecret`), so a secret is
 addressable by the setting that uses it and a rotation can find every stored value. The
 setting document holds only that name; it never holds the plaintext or the ciphertext.
 Presence is answered by whether the row exists, without decrypting it into a returned value.
@@ -603,13 +603,75 @@ non-active account, and the agent surfaces of section 9 resolve a bearer token a
 same account row. The SSO callback is deliberately outside both matchers: it is the primary
 path, not the alternative.
 
-**Reading the connection.** Until the connection document is designed in the next deliverable,
-`apps/api/src/settings/sso-connection.ts` reads `access.sso` defensively and nothing else
-depends on its shape: the connection counts as enabled only when the stored document is an
-object whose `enabled` is literally `true`, and the display name is its non-blank
-`displayName` string, answered as `null` otherwise. An absent, malformed or disabled document
-means SSO is off. A connection enabled without a display name still locks the alternative
-methods: the lock fails closed and only the label is missing.
+**The connection document.** `access.sso` holds one document, written only through the
+administration routes of the next subsection and read leniently everywhere else:
+
+| Field               | Meaning                                                                |
+| ------------------- | ---------------------------------------------------------------------- |
+| `enabled`           | Whether the connection is published to the login surface               |
+| `displayName`       | The label the sign-in page shows                                       |
+| `issuer`            | The concrete HTTPS issuer of the application registration              |
+| `clientId`          | The non-secret client id                                               |
+| `clientSecretName`  | The name of the encrypted credential row, `access.sso.clientSecret`    |
+| `scopes`            | Requested scopes; `openid`, `profile` and `email` by default           |
+| `jitProvisioning`   | Whether a first authorized sign-in creates a member account            |
+| `allowedDomains`    | The bare hostnames the domain barrier admits                            |
+| `acceptAnyAccount`  | Explicit acceptance of every account the provider authenticates        |
+| `provenance`        | Which administrator wrote it and when                                   |
+
+The credential itself is a row of `instanceSecret` (section 7) and never appears in the
+document. A read answers `credentialConfigured` from that row's existence, so presence is
+visible and the value never is.
+
+`apps/api/src/settings/sso-connection.ts` owns the lenient read: the connection counts as
+enabled only when the stored document is an object whose `enabled` is literally `true`, the
+display name is its non-blank `displayName` string, and every other field falls back to the
+default of the table above. An absent, malformed or disabled document means SSO is off, and a
+document written before this deliverable keeps working. A connection enabled without a display
+name still locks the alternative methods: the lock fails closed and only the label is missing.
+
+**Save-time validation.** `PUT /api/admin/sso` refuses a document the instance could not
+safely publish, and each refusal is a named code the surface renders in its own words:
+
+| Refusal                                                                                  | Rule                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sso_issuer_insecure`                                                                    | The issuer must be HTTPS.                                                                                                                                                                                                                                                                           |
+| `sso_issuer_invalid`                                                                     | The issuer must be one concrete URL, without template placeholders, query or fragment.                                                                                                                                                                                                              |
+| `sso_issuer_templated`                                                                   | The authority is multi-tenant — `/common`, `/organizations`, `/consumers`, or a discovery document advertising a `{tenantid}` issuer — so it does not name the authorized tenant. The message asks for a single-tenant registration or the tenant-scoped issuer.                                     |
+| `sso_discovery_unreachable`                                                              | Discovery at `<issuer>/.well-known/openid-configuration` failed, timed out or answered an error status. A network failure is a refusal, never a success.                                                                                                                                            |
+| `sso_discovery_invalid`                                                                  | The answer is not JSON or carries no `issuer`.                                                                                                                                                                                                                                                      |
+| `sso_issuer_mismatch`                                                                    | The advertised issuer differs from the address given.                                                                                                                                                                                                                                               |
+| `sso_display_name_required`, `sso_client_id_required`, `sso_credential_required`          | An enabled connection needs its label, its client id and either a stored credential or a supplied one.                                                                                                                                                                                              |
+| `sso_scopes_invalid`                                                                     | At least one requested scope.                                                                                                                                                                                                                                                                        |
+| `sso_domain_required`                                                                    | Just-in-time provisioning needs at least one allowed domain, and the any-account flag does not lift that requirement: the tenant is the first barrier and the domain list narrows it.                                                                                                                |
+| `sso_domain_invalid`                                                                     | Domains are bare hostnames — no scheme, path, wildcard or address — normalized to lower case and de-duplicated.                                                                                                                                                                                     |
+| `secret_encryption_unconfigured`                                                         | A credential cannot be stored without `ARTIFLOW_SECRET_ENCRYPTION_KEY`.                                                                                                                                                                                                                              |
+
+Nothing but the code leaves the server: the discovery body, an advertised metadata field, a
+token and the credential are never logged and never returned. A refused save stores no
+document, no credential and records no event; an applied change stores the credential and the
+document in one transaction and emits exactly one `access.sso.updated` event.
+
+**Readiness rule.** The document may be stored and edited, but it may not be published as
+enabled while this build has no SSO sign-in route: enabling it now would lock every
+non-administrator out of password and social sign-in, the sequencing hazard recorded for this
+work. `SSO_SIGN_IN_AVAILABLE` is `false` in `apps/api/src/settings/sso-connection.ts`, the
+write path refuses `enabled: true` with `sso_sign_in_unavailable` once the field and discovery
+checks have passed, and the read publishes `readiness: { signInAvailable: false }` so the page
+states the reason instead of promising a button it cannot honour. The sign-in deliverable
+flips that one constant and the refusal disappears with it.
+
+**Endpoints and page.** `GET /api/admin/sso` answers the document, `credentialConfigured`,
+the redirect URI the administrator registers at the identity provider
+(`<public origin>/api/auth/sso/callback/artiflow`, derived in one place so the provider
+registration of the sign-in deliverable cannot drift from it) and the readiness state.
+`PUT /api/admin/sso` writes it with the revision check, answering `revision_conflict` (409)
+when another administrator saved first. Both sit behind the administrator guard, the cookie
+mutation guard and the JSON content-type guard. `/admin/sso` renders inside the administration
+shell and is reached from `/admin/access`, so the shell keeps its four sections: every field,
+the readiness statement, the redirect URI with a copy action, each refusal in its own words,
+the any-account warning whenever that flag is on, and the domain list edited row by row
+rather than as free text.
 
 **Agent and MCP continuity.** A login started by an MCP client already carries its pending
 authorization as `oauth_query` through the dashboard sign-in. The SSO redirect must preserve
@@ -724,6 +786,10 @@ for pure logic, `*.integration.ts` for HTTP and database behaviour, helpers in
 | Fake IdP    | One `test/helpers/oidc.ts` serving discovery, JWKS and token responses with switchable `iss`, `tid`, `email_verified`, `email` |
 | UI          | Login rendering with and without SSO, fallback rendering, admin surface gating                                                 |
 | Concurrency | Single-use invitation and reset consumption under two parallel completions                                                     |
+
+The discovery document is answered by a stub installed on the API suite's own event loop, so
+the save-time validation is exercised without reaching a network and a failing discovery is
+reproduced exactly rather than hoped for.
 
 Each acceptance criterion of the functional specification maps to at least one test: sole
 administrator authority and simultaneous administrators; console first-admin and recovery;

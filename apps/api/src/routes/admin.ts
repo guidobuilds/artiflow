@@ -25,7 +25,17 @@ import {
   readAccessConfiguration,
   updateAccessConfiguration,
 } from "../settings/access-administration.ts";
-import { SettingRevisionConflictError, ACCESS_METHODS_KEY, PASSWORD_POLICY_KEY } from "../settings/store.ts";
+import {
+  SsoConfigurationError,
+  readSsoConnectionConfiguration,
+  updateSsoConnectionConfiguration,
+} from "../settings/sso-administration.ts";
+import {
+  SettingRevisionConflictError,
+  ACCESS_METHODS_KEY,
+  PASSWORD_POLICY_KEY,
+  SSO_CONNECTION_KEY,
+} from "../settings/store.ts";
 import {
   readPasswordPolicyConfiguration,
   updatePasswordPolicyConfiguration,
@@ -38,6 +48,7 @@ import {
   updateAccessConfigurationRequestSchema,
   updateAdminUserRequestSchema,
   updatePasswordPolicyRequestSchema,
+  updateSsoConnectionRequestSchema,
   type AccessConfiguration,
   type AdminInvitationListResponse,
   type AdminSessionListResponse,
@@ -53,6 +64,7 @@ import {
   type RevokeAdminSessionsResponse,
   type SetUserRoleResponse,
   type SetUserStatusResponse,
+  type SsoConnectionConfiguration,
   type UpdateAdminUserResponse,
 } from "@artiflow/contracts/admin";
 
@@ -383,6 +395,53 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
       requestId: c.get("requestId"),
     });
     return c.json(configuration satisfies AccessConfiguration);
+  });
+
+  app.get("/api/admin/sso", async (c) => {
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+    const configuration = await readSsoConnectionConfiguration({
+      db: options.database.db,
+      publicOrigin: options.publicOrigin,
+    });
+    return c.json(configuration satisfies SsoConnectionConfiguration);
+  });
+
+  app.put("/api/admin/sso", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = updateSsoConnectionRequestSchema.safeParse(body);
+    if (!parsed.success) return jsonError(c, "invalid_body", 400);
+
+    let configuration: SsoConnectionConfiguration;
+    try {
+      configuration = await updateSsoConnectionConfiguration({
+        db: options.database.db,
+        key: options.config.secretEncryptionKey ?? null,
+        change: parsed.data,
+        publicOrigin: options.publicOrigin,
+        actorId: guard.actorId,
+      });
+    } catch (error) {
+      if (error instanceof SettingRevisionConflictError) return jsonError(c, "revision_conflict", 409);
+      if (error instanceof SsoConfigurationError) return jsonError(c, error.code, 400);
+      throw error;
+    }
+
+    recordAdminEvent({
+      event: "access.sso.updated",
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      settingKey: SSO_CONNECTION_KEY,
+      outcome: "applied",
+      requestId: c.get("requestId"),
+    });
+    return c.json(configuration satisfies SsoConnectionConfiguration);
   });
 
   app.get("/api/admin/password-policy", async (c) => {

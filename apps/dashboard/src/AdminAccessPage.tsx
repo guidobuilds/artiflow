@@ -211,6 +211,7 @@ export default function AdminAccessPage() {
           <Button variant="primary" disabled={busy} onClick={() => void save()}>
             {busy ? "Saving…" : "Save access methods"}
           </Button>
+          <TextLink href="/admin/sso">Enterprise connection</TextLink>
           <TextLink href="/">Back to your library</TextLink>
         </div>
       </section>

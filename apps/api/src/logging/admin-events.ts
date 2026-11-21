@@ -4,6 +4,7 @@ export const ADMIN_EVENTS = [
   "role.granted",
   "role.revoked",
   "access.methods.updated",
+  "access.sso.updated",
   "password.policy.updated",
   "user.updated",
   "user.deactivated",
@@ -31,7 +32,7 @@ export type RoleAdminEvent = AdminEventBase & {
 };
 
 export type SettingAdminEvent = AdminEventBase & {
-  event: "access.methods.updated" | "password.policy.updated";
+  event: "access.methods.updated" | "access.sso.updated" | "password.policy.updated";
   settingKey: string;
 };
 export type UserAdminEvent = AdminEventBase & {

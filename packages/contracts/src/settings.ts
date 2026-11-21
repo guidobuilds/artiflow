@@ -90,3 +90,31 @@ export const sessionPolicyFields = {
 export const sessionPolicyDocumentSchema = z.strictObject(sessionPolicyFields);
 export const sessionPolicyDocumentReadSchema = z.object(sessionPolicyFields);
 export type SessionPolicyDocument = z.infer<typeof sessionPolicyDocumentSchema>;
+
+export const SSO_DEFAULT_SCOPES: readonly string[] = Object.freeze(["openid", "profile", "email"]);
+
+export const ACCEPT_ANY_ACCOUNT_WARNING =
+  "Every account the identity provider authenticates will be able to sign in, not only the allowed domains. " +
+  "An account created this way is always a member, never an administrator.";
+
+export const ssoConnectionFields = {
+  enabled: z.boolean(),
+  displayName: z.string(),
+  issuer: z.string(),
+  clientId: z.string(),
+  clientSecretName: z.string(),
+  scopes: z.array(z.string()),
+  jitProvisioning: z.boolean(),
+  allowedDomains: z.array(z.string()),
+  acceptAnyAccount: z.boolean(),
+} as const;
+
+export const ssoConnectionDocumentSchema = z.strictObject({
+  ...ssoConnectionFields,
+  provenance: accessProvenanceSchema,
+});
+export const ssoConnectionDocumentReadSchema = z.object({
+  ...ssoConnectionFields,
+  provenance: accessProvenanceReadSchema,
+});
+export type SsoConnectionDocument = z.infer<typeof ssoConnectionDocumentSchema>;

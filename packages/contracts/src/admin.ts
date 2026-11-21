@@ -108,6 +108,48 @@ export const updatePasswordPolicyRequestSchema = z.strictObject({
 });
 export type UpdatePasswordPolicyRequest = z.infer<typeof updatePasswordPolicyRequestSchema>;
 
+export const ssoConnectionViewSchema = z.strictObject({
+  enabled: z.boolean(),
+  displayName: z.string(),
+  issuer: z.string(),
+  clientId: z.string(),
+  credentialConfigured: z.boolean(),
+  scopes: z.array(z.string()),
+  jitProvisioning: z.boolean(),
+  allowedDomains: z.array(z.string()),
+  acceptAnyAccount: z.boolean(),
+  acceptAnyAccountWarning: z.string().min(1),
+});
+export type SsoConnectionView = z.infer<typeof ssoConnectionViewSchema>;
+
+export const ssoConnectionConfigurationSchema = z.strictObject({
+  revision: z.number().int().min(1).nullable(),
+  connection: ssoConnectionViewSchema,
+  redirectUri: z.string().min(1),
+  readiness: z.strictObject({ signInAvailable: z.boolean() }),
+  provenance: z
+    .strictObject({
+      source: z.string().min(1),
+      at: z.iso.datetime(),
+    })
+    .nullable(),
+});
+export type SsoConnectionConfiguration = z.infer<typeof ssoConnectionConfigurationSchema>;
+
+export const updateSsoConnectionRequestSchema = z.strictObject({
+  revision: z.number().int().min(1).nullable(),
+  enabled: z.boolean(),
+  displayName: z.string(),
+  issuer: z.string(),
+  clientId: z.string(),
+  clientSecret: z.string().min(1).optional(),
+  scopes: z.array(z.string().min(1)),
+  jitProvisioning: z.boolean(),
+  allowedDomains: z.array(z.string()),
+  acceptAnyAccount: z.boolean(),
+});
+export type UpdateSsoConnectionRequest = z.infer<typeof updateSsoConnectionRequestSchema>;
+
 export const updateAccessConfigurationRequestSchema = z.strictObject({
   revision: z.number().int().min(1).nullable(),
   passwordEnabled: z.boolean(),

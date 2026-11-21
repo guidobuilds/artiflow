@@ -8,9 +8,12 @@ import {
   passwordPolicyDocumentSchema,
   sessionPolicyDocumentReadSchema,
   sessionPolicyDocumentSchema,
+  ssoConnectionDocumentReadSchema,
+  ssoConnectionDocumentSchema,
   type AccessMethodsDocument,
   type PasswordPolicyDocument,
   type SessionPolicyDocument,
+  type SsoConnectionDocument,
 } from "@artiflow/contracts/settings";
 
 import type { AppDb, AppTx } from "../adapters/postgres/db/client.ts";
@@ -47,10 +50,17 @@ export const passwordPolicySetting: SettingDefinition<PasswordPolicyDocument> = 
   read: passwordPolicyDocumentReadSchema,
 };
 
+export const ssoConnectionSetting: SettingDefinition<SsoConnectionDocument> = {
+  key: SSO_CONNECTION_KEY,
+  write: ssoConnectionDocumentSchema,
+  read: ssoConnectionDocumentReadSchema,
+};
+
 export const settingDefinitions = {
   accessMethods: accessMethodsSetting,
   sessionPolicy: sessionPolicySetting,
   passwordPolicy: passwordPolicySetting,
+  ssoConnection: ssoConnectionSetting,
 } as const;
 
 export type StoredSetting<T> = {
@@ -123,6 +133,16 @@ export async function readRawSettingValue(db: Query, key: string): Promise<unkno
   const rows = await db.select({ value: instanceSetting.value }).from(instanceSetting).where(eq(instanceSetting.key, key));
   const row = rows[0];
   return row === undefined ? null : row.value;
+}
+
+export type StoredRawSetting = { value: unknown; revision: number };
+
+export async function readRawSetting(db: Query, key: string): Promise<StoredRawSetting | null> {
+  const rows = await db
+    .select({ value: instanceSetting.value, revision: instanceSetting.revision })
+    .from(instanceSetting)
+    .where(eq(instanceSetting.key, key));
+  return rows[0] ?? null;
 }
 
 export type SettingWrite = {
