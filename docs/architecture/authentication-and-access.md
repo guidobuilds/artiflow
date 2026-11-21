@@ -409,6 +409,19 @@ like every cookie mutation:
 An anonymous caller answers `401 sign_in_required`. Self-service closures are not administrative
 operations and record no event. Closing the current session returns the member to the login page.
 
+**Account surface.** `/account` lists the sessions of the person who is signed in, under a Sessions
+heading: each row shows when it started, when it was last used, the address and the browser when the
+server recorded them, and the row behind this browser is marked as the current one. The address is
+shown as stored and the browser is described from the recorded agent, never echoed raw; no row, no
+answer and nothing the page keeps carries a session token. Closing one session asks first, in a
+dialog that names what it does: for another session, that the browser holding it has to sign in again
+while this one stays signed in; for the current one, that this browser is signed out and returned to
+`/login`. Closing every other session states how many rows it closed and leaves this browser signed
+in. The page then reads the list again, because the stored rows are what it shows. A session that
+vanished between the read and the action answers `session_not_found`; the page reports it plainly and
+reads the list again instead of guessing, and a read that fails after a list has loaded keeps that
+list on screen under the failure.
+
 ## 10. Access methods and the SSO login (D10, D11)
 
 **Administration surface.** The administration routes sit under one shell: a header that
@@ -494,6 +507,15 @@ sets its password, so the reactivation the server performed is never silent.
 an active account can receive one. `user_not_found`, `account_deactivated`,
 `invalid_email` and the guard's refusals render in their own words, so a deactivated
 account is never reported as a missing one.
+
+The sessions of that account open from the same panel, through `Open sessions`, which reads
+`GET /api/admin/users/:id/sessions` and renders the rows of section 9: started, last used, address,
+browser, and `current` marked as the administrator's own session when the account being read is the
+caller's. Closing one row and closing all of them each ask first, in a dialog that states what it
+does — the browser holding that session needs a new sign-in, the account, its password and everything
+it owns stay as they are, and, for the caller's own session, this browser returns to the login screen.
+The panel reads the list again after every closure, reports a session that vanished plainly and then
+refreshes, and never renders a session token or writes one to storage.
 
 **Decision.** The single connection is a row managed through `@better-auth/sso` (1.7.x, the
 same release line as `better-auth`), configured to make the library's defaults safe for

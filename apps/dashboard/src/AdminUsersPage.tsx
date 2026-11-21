@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
+import { AccountSessionsPanel } from "@/components/app/account-sessions.tsx";
 import { PageHeader } from "@/components/app/app-shell.tsx";
 import { OneTimeLink } from "@/components/app/one-time-link.tsx";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
@@ -89,6 +90,7 @@ export default function AdminUsersPage() {
   const [resetError, setResetError] = useState("");
   const [resetNotice, setResetNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sessionsOpen, setSessionsOpen] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -117,6 +119,7 @@ export default function AdminUsersPage() {
     setEditError("");
     setNotice("");
     setConfirming(null);
+    setSessionsOpen(false);
     setResetReveal(dismissLink());
     setResetError("");
     setResetNotice("");
@@ -126,6 +129,7 @@ export default function AdminUsersPage() {
     setDraft(null);
     setEditError("");
     setConfirming(null);
+    setSessionsOpen(false);
     setResetReveal(dismissLink());
     setResetError("");
     setResetNotice("");
@@ -439,6 +443,19 @@ export default function AdminUsersPage() {
                 Issue reset link
               </Button>
             </Row>
+            <Row label="Sessions">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => setSessionsOpen((open) => !open)}
+              >
+                {sessionsOpen ? "Hide sessions" : "Open sessions"}
+              </Button>
+            </Row>
+            {sessionsOpen ? (
+              <AccountSessionsPanel userId={subject.id} who={subject.name.trim() || subject.email} />
+            ) : null}
             <p className="text-[13px] text-fg-muted">{RESET_LINK_ACTIVE_ACCOUNT}</p>
             {resetError ? (
               <p role="alert" className="text-[13px] text-danger-text">
