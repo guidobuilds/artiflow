@@ -1,5 +1,7 @@
 import type { ComponentProps } from "react";
 
+import { avatarSource } from "@artiflow/domain/avatars";
+
 import { cn } from "@/lib/utils.ts";
 
 export function Avatar({ size = "sm", className, ...props }: ComponentProps<"span"> & { size?: "sm" | "lg" }) {
@@ -12,6 +14,19 @@ export function Avatar({ size = "sm", className, ...props }: ComponentProps<"spa
       )}
       {...props}
     />
+  );
+}
+
+export function UserAvatar({
+  image,
+  size = "sm",
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Avatar>, "children"> & { image: string | null | undefined }) {
+  return (
+    <Avatar size={size} className={cn("overflow-hidden", className)} {...props}>
+      <img src={avatarSource(image)} alt="" draggable={false} className="size-full object-cover" />
+    </Avatar>
   );
 }
 

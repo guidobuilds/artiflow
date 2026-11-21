@@ -13,7 +13,7 @@ import {
 } from "./auth-client.ts";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { AgentLogo, type AgentMarkName } from "@/components/ui/agent-logo.tsx";
-import { Avatar } from "@/components/ui/avatar.tsx";
+import { UserAvatar } from "@/components/ui/avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Icon } from "@/components/ui/icon.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
@@ -165,14 +165,7 @@ export default function ConsentPage({ search }: { search: string }) {
 
           {user ? (
             <div className="flex items-center gap-2.5 rounded-md bg-surface px-3 py-2.5 text-[13.5px]">
-              <Avatar className="ring-0">
-                {(user.name.trim() || user.email)
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((part) => part[0])
-                  .join("")
-                  .toUpperCase()}
-              </Avatar>
+              <UserAvatar image={user.image} className="ring-0" />
               <span className="min-w-0 flex-1 truncate text-fg">{user.email}</span>
               <button
                 type="button"

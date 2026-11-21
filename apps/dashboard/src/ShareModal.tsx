@@ -20,7 +20,7 @@ import {
   type TokenReveal,
 } from "./auth-client.ts";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
-import { Avatar } from "@/components/ui/avatar.tsx";
+import { Avatar, UserAvatar } from "@/components/ui/avatar.tsx";
 import { Dialog, DialogContent, DialogHead, DialogSection, DialogTitle } from "@/components/ui/dialog.tsx";
 import { Icon } from "@/components/ui/icon.tsx";
 import { Input } from "@/components/ui/input.tsx";
@@ -167,11 +167,6 @@ export default function ShareModal({
   };
 
   const notice = tokenNotice(reveal);
-  const ownerSource = owner ? owner.name.trim() || owner.email : "";
-  const ownerParts = ownerSource.split(/\s+/).filter(Boolean);
-  const ownerInitials = (
-    (ownerParts[0]?.[0] ?? "") + (ownerParts.length >= 2 ? (ownerParts[1]?.[0] ?? "") : (ownerSource[1] ?? ""))
-  ).toUpperCase();
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -229,7 +224,7 @@ export default function ShareModal({
               </p>
               <ul className="m-0 list-none p-0" aria-labelledby="share-people">
                 <li className="flex min-h-[44px] items-center gap-2.5 border-t border-line py-2">
-                  <Avatar aria-label="Your initials">{ownerInitials || "?"}</Avatar>
+                  <UserAvatar image={owner?.image} aria-label="Your avatar" />
                   <span className="min-w-0 flex-1 truncate text-[14px] text-fg">You</span>
                   <span className="text-[12.5px] text-fg-subtle">Owner</span>
                 </li>

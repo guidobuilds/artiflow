@@ -362,6 +362,10 @@ Why this is safe to widen with:
 4. **The artifact still cannot reach the viewer.** It cannot read `parent.document`, navigate the top
    window or fetch the network (`default-src 'none'`).
 
-The CSP does not change: the wrapper already allows `script-src 'unsafe-inline'`, which is what the
-inline bridge needs, and the parent bundle is the same same-origin `viewer-comments` asset used by the
+The only CSP change is `img-src 'self'`, added to the comments-enabled viewer policy and to the
+Markdown viewer policy so the bundled user avatars (`/avatars/*`) can render in the comments column.
+The HTML artifact is a `srcdoc` frame and inherits that list, so it can now load same-origin images
+but still no other host, script source or network (`connect-src 'self'` and `default-src 'none'`
+are unchanged). The wrapper already allows `script-src 'unsafe-inline'`, which is what the inline
+bridge needs, and the parent bundle is the same same-origin `viewer-comments` asset used by the
 Markdown viewer.
