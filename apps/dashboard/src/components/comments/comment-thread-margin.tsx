@@ -4,8 +4,9 @@ import { Avatar } from "@/components/ui/avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { IconAction } from "@/components/ui/icon.tsx";
 import {
-  layoutCommentThreads,
+  DRAFT_ID,
   marginHeight,
+  marginLayout,
   partitionPlaced,
   placementOf,
   type ThreadPlacement,
@@ -285,14 +286,14 @@ function DraftCard({
   draft: CommentDraft;
   onSubmit?: (body: string) => void;
   onCancel?: () => void;
-  placement: ThreadPlacement;
+  placement: ThreadPlacement | null;
 }) {
   const [body, setBody] = useState(draft.body);
   const inputId = useId();
   return (
     <form
       className="comment-thread-card comment-thread-card-active comment-thread-draft"
-      style={{ top: placement.top }}
+      style={placement ? { top: placement.top } : undefined}
       onSubmit={(event) => {
         event.preventDefault();
         if (draft.busy || !body.trim()) return;
@@ -431,23 +432,6 @@ function MobileSheet({
   );
 }
 
-function draftPlacement(
-  placements: ThreadPlacement[],
-  anchorTop: number,
-  height: number,
-  minTop: number,
-): ThreadPlacement {
-  const [placed] = layoutCommentThreads({
-    threads: [
-      ...placements.map(({ id, anchorTop: top, height: size }) => ({ id, anchorTop: top, height: size })),
-      { id: "__draft__", anchorTop, height },
-    ],
-    activeId: "__draft__",
-    minTop,
-  }).filter((placement) => placement.id === "__draft__");
-  return placed ?? { id: "__draft__", anchorTop, height, top: marginHeight(placements) };
-}
-
 function Skeleton() {
   return (
     <div className="comment-thread-skeletons" aria-hidden="true">
@@ -509,18 +493,20 @@ export default function CommentThreadMargin({
   }, []);
   const shown = useMemo(() => visibleThreads(threads, showResolved), [threads, showResolved]);
   const { placed, unplaced } = useMemo(() => partitionPlaced(shown, anchors), [shown, anchors]);
+  const draftOpen = draft !== null && draft !== undefined;
   const placements = useMemo(
     () =>
-      layoutCommentThreads({
+      marginLayout({
         threads: placed.map((thread) => ({
           id: thread.id,
           anchorTop: anchors[thread.id] ?? 0,
           height: heights[thread.id] ?? measured[thread.id] ?? (thread.id === activeId ? active : collapsed),
         })),
+        draft: draftOpen ? { anchorTop: draftAnchorTop, height: active } : null,
         activeId,
         minTop,
       }),
-    [placed, anchors, heights, measured, activeId, active, collapsed, minTop],
+    [placed, anchors, heights, measured, activeId, active, collapsed, minTop, draftOpen, draftAnchorTop],
   );
   const openCount = openThreadCount(threads);
   const sheetThreads = shown.filter((thread) => thread.resolvedAt === null);
@@ -626,7 +612,7 @@ export default function CommentThreadMargin({
               draft={draft}
               onSubmit={onSubmitDraft}
               onCancel={onCancelDraft}
-              placement={draftPlacement(placements, draftAnchorTop, active, minTop)}
+              placement={placementOf(placements, DRAFT_ID) ?? null}
             />
           ) : null}
         </div>

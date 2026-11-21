@@ -107,3 +107,10 @@ test("the component is not wired into a view yet", () => {
     assert.equal(component.includes(view), false, `the margin stays independent of ${view}`);
   }
 });
+
+test("the draft shares the one layout pass that positions the cards", () => {
+  assert.match(component, /marginLayout\(\{/);
+  assert.match(component, /draft: draftOpen \? \{ anchorTop: draftAnchorTop, height: active \} : null/);
+  assert.match(component, /placement=\{placementOf\(placements, DRAFT_ID\) \?\? null\}/);
+  assert.doesNotMatch(component, /draftPlacement\(/);
+});
