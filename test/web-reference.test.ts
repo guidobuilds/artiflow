@@ -177,6 +177,6 @@ test("the real configuration source matches the published configuration referenc
   const result = run(["--root", repoRoot]);
 
   assert.equal(result.status, 0);
-  assert.equal(result.stdout, `check-reference: 19 configuration variables match ${reference}\n`);
+  assert.equal(result.stdout, `check-reference: 20 configuration variables match ${reference}\n`);
   assert.equal(result.stderr, "");
 });
