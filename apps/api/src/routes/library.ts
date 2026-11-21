@@ -94,11 +94,11 @@ export type CommentsListGate<A extends ReadableArtifactRow> =
   | { kind: "no_current_revision" };
 
 export function commentsListGate<A extends ReadableArtifactRow>(input: {
-  authorizationHeader: boolean;
+  bearerPresent: boolean;
   sessionUserId: string | null;
   artifact: A | null | undefined;
 }): CommentsListGate<A> {
-  if (input.authorizationHeader) return { kind: "unauthorized" };
+  if (input.bearerPresent) return { kind: "unauthorized" };
   if (input.sessionUserId === null) return { kind: "unauthorized" };
   if (input.artifact === null || input.artifact === undefined) return { kind: "not_found" };
   const { storageKey, sha256, revisionNumber } = input.artifact;
@@ -283,10 +283,10 @@ export function createLibraryApp(options: LibraryOptions): Hono {
   });
 
   app.get("/artifact/:id/comments", async (c) => {
-    const authorizationHeader = c.req.raw.headers.has("authorization");
-    const ownerId = authorizationHeader ? null : await sessionUserId(auth, c.req.raw.headers);
+    const bearerPresent = c.req.raw.headers.has("authorization");
+    const ownerId = bearerPresent ? null : await sessionUserId(auth, c.req.raw.headers);
     const row = ownerId === null ? null : await readableArtifact(db, c.req.param("id"), ownerId);
-    const gate = commentsListGate({ authorizationHeader, sessionUserId: ownerId, artifact: row });
+    const gate = commentsListGate({ bearerPresent, sessionUserId: ownerId, artifact: row });
     if (gate.kind === "unauthorized") return c.json({ error: "unauthorized" }, 401);
     if (gate.kind === "not_found") return c.json({ error: "not_found" }, 404);
     if (gate.kind === "no_current_revision") return c.json({ error: "no_current_revision" }, 409);

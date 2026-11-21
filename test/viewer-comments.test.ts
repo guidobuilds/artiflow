@@ -179,7 +179,7 @@ test("the comments list route is registered before the artifact catch-all and ga
   assert.notEqual(route, -1);
   assert.ok(route < library.indexOf('app.all("/artifact/*", methodNotAllowed)'), "the route precedes the catch-all");
   const body = library.slice(route, library.indexOf("if (options.deletion)"));
-  assert.match(body, /commentsListGate\(\{ authorizationHeader, sessionUserId: ownerId, artifact: row \}\)/);
+  assert.match(body, /commentsListGate\(\{ bearerPresent, sessionUserId: ownerId, artifact: row \}\)/);
   assert.match(body, /if \(gate\.kind === "unauthorized"\) return c\.json\(\{ error: "unauthorized" \}, 401\)/);
   assert.match(body, /if \(gate\.kind === "not_found"\) return c\.json\(\{ error: "not_found" \}, 404\)/);
   assert.match(body, /c\.header\("cache-control", "no-store"\)/);
