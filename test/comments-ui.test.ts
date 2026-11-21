@@ -48,9 +48,6 @@ test("every editor chrome, selection and comment action uses the shared noninter
     ["x", '"Close thread"'],
     ["trash", "{`Delete reply by ${authorName(entry.author)}"],
     ["x", '"Cancel comment"'],
-    ["left", '"Previous thread"'],
-    ["right", '"Next thread"'],
-    ["x", '"Close thread"'],
   ]);
   assert.equal(
     [...page.matchAll(/<button\b/g)].length,

@@ -261,7 +261,7 @@ body.focus .vbar-exit{display:block}
 .viewer-comments{display:none}
 .docshell.comments-visible .viewer-comments{display:block;position:relative;overflow:hidden;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
 .docshell.comments-visible .viewer-comments .comment-thread-unplaced{position:absolute;top:12px}
-@media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
+@media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}.docshell.comments-visible .viewer-comments{grid-column:1;grid-row:2;padding:4px 12px;border-left:0;border-top:1px solid var(--line-strong)}.docshell.comments-visible .viewer-comments .comment-thread-margin-root{height:auto}}
 iframe{height:100%;min-height:0;width:100%;border:0;background:white}
 </style>
 ${comments === undefined ? "" : assetsHead(comments.assets)}</head>
