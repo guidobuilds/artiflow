@@ -37,6 +37,7 @@ type UserRow = {
   name: string;
   email: string;
   role: string;
+  status: string;
   accessMethods: string[];
   lastActivityAt: string | null;
 };
@@ -404,6 +405,21 @@ integration("the status filter combines with the role filter", async () => {
   const activeAdministrators = await listDirectory({ status: "active", role: "administrator" });
   assert.deepEqual(activeAdministrators.users, [], "a deactivated administrator is not active");
   assert.equal(activeAdministrators.total, 0);
+});
+
+integration("a row answers the status the account holds", async () => {
+  const subject = entry(160);
+  const before = await listDirectory({ search: subject.email });
+  assert.equal(before.users[0]?.status, "active", "an account that was never deactivated answers active");
+
+  assertStatus(await setStatus(subject.userId, "deactivated"), 200, "the administrator deactivates the account");
+
+  const after = await listDirectory({ search: subject.email });
+  assert.equal(after.users[0]?.status, "deactivated", "a deactivated account answers deactivated");
+
+  assertStatus(await setStatus(subject.userId, "active"), 200, "the account returns to active");
+  const restored = await listDirectory({ search: subject.email });
+  assert.equal(restored.users[0]?.status, "active", "a reactivated account answers active again");
 });
 
 integration("an unknown status value is refused and leaves the stored rows untouched", async () => {

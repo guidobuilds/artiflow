@@ -5,17 +5,30 @@ import { afterEach, test } from "node:test";
 import { ADMIN_SECTIONS, administrationEntryVisible, readAdminGate } from "../apps/dashboard/src/admin-entry.ts";
 import {
   ADMIN_USERS_PAGE_SIZE,
+  EMPTY_DIRECTORY,
   accessMethodsLabel,
   adminUserRefusalMessage,
+  applyDirectoryRead,
   buildAdminUserEdit,
   buildAdminUserSearch,
   changeAdminUserRole,
   directoryEmptyMessage,
   directorySummary,
   lastActivityLabel,
+  nextStatus,
+  parseAdminStatusChange,
   parseAdminUserPage,
   readAdminUserPage,
+  replaceAdminUserRole,
+  replaceAdminUserRow,
   saveAdminUser,
+  setAdminUserStatus,
+  statusActionLabel,
+  statusConfirmation,
+  statusConfirmationTitle,
+  statusLabel,
+  type AdminUserList,
+  type AdminUserRow,
 } from "../apps/dashboard/src/admin-users-client.ts";
 import { getSession } from "../apps/dashboard/src/auth-client.ts";
 
@@ -52,19 +65,21 @@ const json = (body: unknown, status = 200): Response =>
 const headers = (call: Call | undefined): Record<string, string> =>
   (call?.init.headers ?? {}) as Record<string, string>;
 
-const ADA = {
+const ADA: AdminUserRow = {
   id: "user-1",
   name: "Ada Lovelace",
   email: "ada@example.test",
   role: "administrator",
+  status: "active",
   accessMethods: ["credential", "github"],
   lastActivityAt: "2026-11-20T10:00:00.000Z",
 };
-const GRACE = {
+const GRACE: AdminUserRow = {
   id: "user-2",
   name: "Grace Hopper",
   email: "grace@example.test",
   role: "member",
+  status: "deactivated",
   accessMethods: [],
   lastActivityAt: null,
 };
@@ -110,13 +125,16 @@ test("the entry point is present for an administrator and absent for a member", 
 test("the listing asks the server for one page filtered by search, role and page", async () => {
   assert.equal(ADMIN_USERS_PAGE_SIZE, 20);
   assert.equal(
-    buildAdminUserSearch({ page: 2, search: "  ada lovelace ", role: "administrator" }),
+    buildAdminUserSearch({ page: 2, search: "  ada lovelace ", role: "administrator", status: null }),
     "/api/admin/users?page=2&pageSize=20&search=ada+lovelace&role=administrator",
   );
-  assert.equal(buildAdminUserSearch({ page: 1, search: "   ", role: null }), "/api/admin/users?page=1&pageSize=20");
+  assert.equal(
+    buildAdminUserSearch({ page: 1, search: "   ", role: null, status: null }),
+    "/api/admin/users?page=1&pageSize=20",
+  );
 
   const calls = useFetch(() => json(directoryBody()));
-  const result = await readAdminUserPage({ page: 2, search: "ada lovelace", role: "administrator" });
+  const result = await readAdminUserPage({ page: 2, search: "ada lovelace", role: "administrator", status: null });
   assert.equal(result.ok, true);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, "/api/admin/users?page=2&pageSize=20&search=ada+lovelace&role=administrator");
@@ -136,13 +154,13 @@ test("the listing asks the server for one page filtered by search, role and page
 
 test("the directory refuses a member and an unreadable answer without showing rows", async () => {
   useFetch(() => json({ error: "administrator_required" }, 403));
-  const refused = await readAdminUserPage({ page: 1, search: "", role: null });
+  const refused = await readAdminUserPage({ page: 1, search: "", role: null, status: null });
   assert.equal(refused.ok, false);
   assert.equal(refused.ok === false && refused.code, "administrator_required");
   assert.match(refused.ok === false ? refused.error : "", /administrator/i);
 
   useFetch(() => json({ users: [{ id: "user-1" }], total: 1, page: 1, pageSize: 20 }));
-  const unreadable = await readAdminUserPage({ page: 1, search: "", role: null });
+  const unreadable = await readAdminUserPage({ page: 1, search: "", role: null, status: null });
   assert.equal(unreadable.ok === false && unreadable.code, "unreadable_answer");
   assert.equal(parseAdminUserPage({ users: [], total: -1, page: 1, pageSize: 20 }), null);
 });
@@ -161,7 +179,9 @@ test("the table renders the access methods and the last activity of every row", 
   const page = read(USERS_PAGE);
   assert.match(page, /accessMethodsLabel\(row\.accessMethods\)/);
   assert.match(page, /lastActivityLabel\(row\.lastActivityAt\)/);
-  for (const heading of ["Name", "Email", "Role", "Access methods", "Last activity"]) {
+  assert.match(page, /\{statusLabel\(row\.status\)\}/, "the table renders the stored status of every row");
+  assert.match(page, /<Tag on=\{row\.status === "active"\}>/);
+  for (const heading of ["Name", "Email", "Role", "Status", "Access methods", "Last activity"]) {
     assert.match(page, new RegExp(`>\\s*${heading}\\s*<`), `the table names the ${heading} column`);
   }
 });
@@ -184,7 +204,7 @@ test("the edit sends the name and the email that were typed", async () => {
   const page = read(USERS_PAGE);
   assert.match(page, /No verification/);
   assert.match(page, /saveAdminUser\(/);
-  assert.match(page, /setRows\(/);
+  assert.match(page, /replaceAdminUserRow\(/);
   assert.doesNotMatch(page, /location\.reload/);
 });
 
@@ -292,4 +312,236 @@ test("the invitations entry states the console path instead of a dead form", () 
   const users = main.indexOf("<AdminUsersPage />");
   const notFound = main.indexOf("<NotFoundPage />");
   assert.ok(users > 0 && notFound > users, "the administration routes precede the not-found fallback");
+});
+
+test("the status filter travels to the server next to the role and the search", async () => {
+  assert.equal(
+    buildAdminUserSearch({ page: 1, search: "", role: null, status: "deactivated" }),
+    "/api/admin/users?page=1&pageSize=20&status=deactivated",
+  );
+  assert.equal(
+    buildAdminUserSearch({ page: 3, search: "ada", role: "administrator", status: "active" }),
+    "/api/admin/users?page=3&pageSize=20&search=ada&role=administrator&status=active",
+  );
+  assert.equal(
+    buildAdminUserSearch({ page: 1, search: "", role: null, status: null }),
+    "/api/admin/users?page=1&pageSize=20",
+  );
+
+  const calls = useFetch(() => json(directoryBody()));
+  const result = await readAdminUserPage({ page: 1, search: "", role: null, status: "deactivated" });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, "/api/admin/users?page=1&pageSize=20&status=deactivated");
+  assert.equal(calls[0]?.init.method, "GET");
+
+  assert.match(directoryEmptyMessage({ search: "", role: null, status: "active" }), /clear the status filter/i);
+  assert.equal(directoryEmptyMessage({ search: "", role: null, status: null }), directoryEmptyMessage({ search: "", role: null }));
+
+  const page = read(USERS_PAGE);
+  assert.match(page, /<Segmented label="Status filter">/);
+  for (const label of ["Any status", "Active", "Deactivated"]) {
+    assert.match(page, new RegExp(`>\\s*${label}\\s*<`), `the status filter offers ${label}`);
+  }
+  assert.match(page, /status: "deactivated"/);
+  assert.match(page, /status: "active"/);
+  assert.match(page, /setFilter\(\(current\) => \(\{ \.\.\.current, page: 1, status:/);
+});
+
+test("deactivating asks for the consequences first and then sends the deactivated status", async () => {
+  const calls = useFetch(() => json({ user: { id: "user-2", status: "deactivated" } }));
+  const saved = await setAdminUserStatus("user-2", "deactivated");
+  assert.equal(saved.ok, true);
+  assert.deepEqual(saved.ok ? saved.value : null, { id: "user-2", status: "deactivated" });
+  assert.equal(calls[0]?.url, "/api/admin/users/user-2/status");
+  assert.equal(calls[0]?.init.method, "POST");
+  assert.equal(headers(calls[0])["origin"], MUTATION_ORIGIN);
+  assert.equal(headers(calls[0])["content-type"], "application/json");
+  assert.deepEqual(calls[0] && JSON.parse(String(calls[0].init.body)), { status: "deactivated" });
+  assert.equal(parseAdminStatusChange({ user: { id: "user-2", status: "suspended" } }), null);
+  assert.equal(parseAdminStatusChange({ user: { id: "", status: "active" } }), null);
+  assert.equal(parseAdminStatusChange({ user: { id: "user-2", status: "deactivated" } })?.status, "deactivated");
+
+  assert.equal(nextStatus("active"), "deactivated");
+  assert.equal(statusActionLabel(nextStatus("active")), "Deactivate account");
+
+  const copy = statusConfirmation("deactivated");
+  assert.match(copy, /no longer sign in by any method/i);
+  assert.match(copy, /session/i);
+  assert.match(copy, /public links/i);
+  assert.match(copy, /revoked/i);
+  assert.match(copy, /nothing is deleted/i);
+  assert.match(copy, /shared with/i, "the confirmation states that shared content keeps working");
+  assert.equal(statusActionLabel("deactivated"), "Deactivate account");
+  assert.equal(statusConfirmationTitle("Grace Hopper", "deactivated"), "Deactivate Grace Hopper?");
+
+  const page = read(USERS_PAGE);
+  assert.match(page, /<Dialog/);
+  assert.match(page, /\{statusConfirmation\(confirming\)\}/);
+  assert.match(page, /void applyStatus\(confirming\)/);
+  assert.match(page, /setAdminUserStatus\(subject\.id, status\)/);
+});
+
+test("reactivating sends the active status and states what it does not restore", async () => {
+  const calls = useFetch(() => json({ user: { id: "user-2", status: "active" } }));
+  const saved = await setAdminUserStatus("user-2", "active");
+  assert.equal(saved.ok, true);
+  assert.equal(saved.ok ? saved.value.status : "", "active");
+  assert.equal(calls[0]?.url, "/api/admin/users/user-2/status");
+  assert.equal(calls[0]?.init.method, "POST");
+  assert.equal(headers(calls[0])["origin"], MUTATION_ORIGIN);
+  assert.deepEqual(calls[0] && JSON.parse(String(calls[0].init.body)), { status: "active" });
+
+  assert.equal(nextStatus("deactivated"), "active");
+  assert.equal(statusActionLabel(nextStatus("deactivated")), "Reactivate account");
+
+  const copy = statusConfirmation("active");
+  assert.match(copy, /restores the account's access/i);
+  assert.match(copy, /neither the sessions/i);
+  assert.match(copy, /public links/i);
+  assert.doesNotMatch(copy, /nothing is deleted/i, "reactivating promises no deletion of anything");
+  assert.equal(statusActionLabel("active"), "Reactivate account");
+  assert.equal(statusConfirmationTitle("Grace Hopper", "active"), "Reactivate Grace Hopper?");
+
+  const page = read(USERS_PAGE);
+  assert.match(page, /statusActionLabel\(nextStatus\(subject\.status\)\)/);
+});
+
+test("the lifecycle control is one toggle that offers only the status the account does not hold", () => {
+  assert.equal(statusLabel("active"), "Active");
+  assert.equal(statusLabel("deactivated"), "Deactivated");
+
+  const parsed = parseAdminUserPage(directoryBody());
+  assert.deepEqual(
+    parsed?.users.map((row) => [row.id, row.status]),
+    [
+      ["user-1", "active"],
+      ["user-2", "deactivated"],
+    ],
+  );
+
+  const withoutStatus: Record<string, unknown> = { ...ADA };
+  delete withoutStatus.status;
+  assert.equal(
+    parseAdminUserPage({ users: [withoutStatus], total: 1, page: 1, pageSize: 20 }),
+    null,
+    "a row that does not carry a status is unreadable",
+  );
+  assert.equal(parseAdminUserPage({ users: [{ ...ADA, status: "suspended" }], total: 1, page: 1, pageSize: 20 }), null);
+
+  const page = read(USERS_PAGE);
+  assert.equal((page.match(/chooseStatus\(/g) ?? []).length, 1, "the page holds one lifecycle control");
+  assert.match(page, /chooseStatus\(nextStatus\(subject\.status\)\)/, "it offers only the other status");
+  assert.match(page, /\{statusActionLabel\(nextStatus\(subject\.status\)\)\}/);
+  assert.doesNotMatch(page, /chooseStatus\("deactivated"\)/);
+  assert.doesNotMatch(page, /chooseStatus\("active"\)/);
+});
+
+test("every named refusal of the status change renders as itself", async () => {
+  const cases: [number, string, RegExp][] = [
+    [409, "status_unchanged", /already has that status/i],
+    [404, "user_not_found", /no longer exists/i],
+    [400, "invalid_body", /refused/i],
+    [403, "administrator_required", /administrator/i],
+    [401, "unauthorized", /no signed-in account/i],
+  ];
+  for (const [status, code, message] of cases) {
+    useFetch(() => json({ error: code }, status));
+    const result = await setAdminUserStatus("user-2", "deactivated");
+    assert.equal(result.ok, false, `a ${code} answer is a refusal`);
+    assert.equal(result.ok === false && result.code, code);
+    assert.match(result.ok === false ? result.error : "", message);
+    assert.equal(result.ok === false && result.error.includes(code), false, `the ${code} code is not shown raw`);
+    assert.equal(adminUserRefusalMessage(code).includes(code), false);
+  }
+  assert.match(adminUserRefusalMessage("sign_in_required"), /no signed-in account/i);
+
+  useFetch(() => json({ user: { id: "user-2", status: "suspended" } }));
+  const unreadable = await setAdminUserStatus("user-2", "active");
+  assert.equal(unreadable.ok === false && unreadable.code, "unreadable_answer");
+
+  const page = read(USERS_PAGE);
+  assert.match(page, /role="alert"/);
+  assert.match(page, /\{editError\}/);
+  assert.match(page, /setEditError\(result\.error\)/);
+});
+
+test("a failed refresh keeps the rows on screen and reports the failure", () => {
+  const loaded = parseAdminUserPage(directoryBody());
+  assert.ok(loaded);
+  const first = applyDirectoryRead(EMPTY_DIRECTORY, { ok: true, value: loaded });
+  assert.deepEqual(first, { page: loaded, failure: "", signInRequired: false });
+
+  const lapsed: AdminUserList = {
+    ok: false,
+    code: "administrator_required",
+    error: adminUserRefusalMessage("administrator_required"),
+    signInRequired: false,
+  };
+  const after = applyDirectoryRead(first, lapsed);
+  assert.deepEqual(after.page, loaded, "the last good page stays on screen");
+  assert.match(after.failure, /administrator/i);
+  assert.equal(after.signInRequired, false);
+
+  const signedOut = applyDirectoryRead(first, {
+    ok: false,
+    code: "unauthorized",
+    error: adminUserRefusalMessage("unauthorized"),
+    signInRequired: true,
+  });
+  assert.deepEqual(signedOut.page, loaded, "losing the session keeps the rows too");
+  assert.equal(signedOut.signInRequired, true);
+
+  const recovered = applyDirectoryRead(after, { ok: true, value: loaded });
+  assert.equal(recovered.failure, "", "a later answer clears the failure");
+  assert.deepEqual(recovered.page, loaded);
+
+  const beforeAnyPage = applyDirectoryRead(EMPTY_DIRECTORY, lapsed);
+  assert.equal(beforeAnyPage.page, null, "a refusal before the first page has no rows to keep");
+
+  const page = read(USERS_PAGE);
+  assert.match(page, /applyDirectoryRead\(current, result\)/);
+  assert.match(page, /role="alert"/);
+  assert.match(page, /directory\.failure/);
+  assert.doesNotMatch(page, /setGate\(/, "the page no longer swaps the table for the refusal screen");
+  assert.doesNotMatch(page, /setRows\(/);
+});
+
+test("the edit panel keeps no copy of the committed role", async () => {
+  const loaded = parseAdminUserPage(directoryBody());
+  assert.ok(loaded);
+  const changed = replaceAdminUserRole(loaded, "user-2", "administrator");
+  assert.deepEqual(
+    changed.users.map((row) => [row.id, row.role]),
+    [
+      ["user-1", "administrator"],
+      ["user-2", "administrator"],
+    ],
+  );
+  assert.equal(changed.total, loaded.total);
+  assert.equal(changed.page, loaded.page);
+  assert.equal(loaded.users[1]?.role, "member", "the previous page is left alone");
+  assert.deepEqual(
+    replaceAdminUserRole(loaded, "absent", "administrator").users.map((row) => row.role),
+    ["administrator", "member"],
+    "an unknown row changes nothing",
+  );
+
+  const saved = replaceAdminUserRow(loaded, { ...ADA, role: "administrator", name: "Ada L" });
+  assert.deepEqual(saved.users[0], { ...ADA, role: "administrator", name: "Ada L" });
+  assert.deepEqual(saved.users[1], GRACE);
+
+  useFetch(() => json({ user: { id: "user-2", role: "administrator" }, changed: true }));
+  const role = await changeAdminUserRole("user-2", "administrator");
+  assert.equal(role.ok, true);
+
+  const page = read(USERS_PAGE);
+  const declared = /type Draft = \{([^}]*)\}/.exec(page);
+  assert.ok(declared, "the page declares the draft it edits");
+  assert.equal(/\brole\b/.test(declared[1] ?? ""), false, "the draft keeps no role of its own");
+  assert.match(page, /rows\.users\.find\(\(row\) => row\.id === draft\.id\)/, "the committed role is read from the row");
+  assert.match(page, /pressed=\{subject\.role === "member"\}/);
+  assert.match(page, /pressed=\{subject\.role === "administrator"\}/);
+  assert.match(page, /replaceAdminUserRole\(current\.page, id, stored\)/);
+  assert.doesNotMatch(page, /setDraft\(\(current\) =>/, "no draft field survives the save");
 });

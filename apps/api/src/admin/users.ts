@@ -1,7 +1,7 @@
 import { and, asc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { accountStatusSchema, userRoleSchema, type AdminUser, type UpdateAdminUserRequest } from "@artiflow/contracts/admin";
+import { accountStatusSchema, userRoleSchema, type AccountStatus, type AdminUser, type UpdateAdminUserRequest } from "@artiflow/contracts/admin";
 
 import { account, session, user } from "../adapters/postgres/db/schema.ts";
 import type { AppDb, AppTx } from "../adapters/postgres/db/client.ts";
@@ -43,6 +43,7 @@ type AdminUserRecord = {
   name: string;
   email: string;
   role: UserRole;
+  status: AccountStatus;
   accessMethods: string[];
   lastActivityAt: Date | string | null;
 };
@@ -55,6 +56,7 @@ const adminUserColumns = {
   name: user.name,
   email: user.email,
   role: user.role,
+  status: user.status,
   accessMethods,
   lastActivityAt,
 };
@@ -65,7 +67,7 @@ function adminUserRows(db: Query) {
     .from(user)
     .leftJoin(account, eq(account.userId, user.id))
     .leftJoin(session, eq(session.userId, user.id))
-    .groupBy(user.id, user.name, user.email, user.role);
+    .groupBy(user.id, user.name, user.email, user.role, user.status);
 }
 
 function isoTimestamp(value: Date | string | null): string | null {
@@ -79,6 +81,7 @@ function toAdminUser(record: AdminUserRecord): AdminUser {
     name: record.name,
     email: record.email,
     role: record.role,
+    status: record.status,
     accessMethods: record.accessMethods,
     lastActivityAt: isoTimestamp(record.lastActivityAt),
   };

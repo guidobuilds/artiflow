@@ -246,7 +246,8 @@ so the invariant holds by construction. It is written to the audit log with both
 The user directory is read and edited through two routes behind the administrator guard:
 
 - `GET /api/admin/users?page=&pageSize=&search=&role=&status=` answers `{ users, total, page,
-  pageSize }`. A row carries `id`, `name`, `email`, `role`, `accessMethods` (the
+  pageSize }`. A row carries `id`, `name`, `email`, `role`, `status` (the stored account status,
+  `active` or `deactivated`), `accessMethods` (the
   `providerId` of every `account` row of that person, credential included) and
   `lastActivityAt` (the newest `session.updatedAt`, `null` when the person never signed in).
   Pages default to 20 rows and are capped at 100; `search` is a case-insensitive substring
@@ -344,10 +345,11 @@ field is empty, can replace the stored value, and is never prefilled or displaye
 Every refusal of section 4 is rendered in its own words, and a `revision_conflict`
 reloads the stored document and asks the administrator to review it before saving again.
 
-`/admin/users` is the directory of section 8. Search, the role filter and the page are
-server-side: the page sends `page`, `pageSize`, `search` and `role` to
-`GET /api/admin/users` and never loads the whole directory to filter it locally. A row
-shows name, email, role, access methods and last activity, and the footer shows the total
+`/admin/users` is the directory of section 8. Search, the role filter, the status filter
+and the page are server-side: the page sends `page`, `pageSize`, `search`, `role` and
+`status` to `GET /api/admin/users` and never loads the whole directory to filter it
+locally. A row
+shows name, email, role, status, access methods and last activity, and the footer shows the total
 with the page it belongs to. An empty answer names the next step instead of showing a
 blank table: the console command that issues the first invitation, or the filter to
 clear. Editing sends `PATCH /api/admin/users/:id` with the name and the email, states
@@ -357,6 +359,36 @@ answered row instead of reloading the page. The role toggle uses
 named refusal of the edit and of the role change — `invalid_name`, `invalid_email`,
 `email_in_use`, `user_not_found` — is rendered in its own words, and the raw code is
 never shown.
+
+The edit panel holds one source of truth per row: the draft keeps the name and the email
+being typed and nothing else, and the committed role is read from the row itself, so a
+save cannot leave a second, stale copy of the role in the form.
+
+Lifecycle controls sit in the same panel. Deactivating is confirmed before it happens, in
+a dialog that states the consequences rather than asking a bare yes: no sign-in by any
+method, the open sessions end, the public links to that person's artifacts are revoked,
+and nothing is deleted, so the artifacts, comments and shares keep their rows and the
+people they were shared with keep reading them. Reactivating says the opposite is not
+true either: it restores access, not the sessions that ended and not the links that were
+revoked. Each control sends the status the administrator chose to
+`POST /api/admin/users/:id/status` and renders `status_unchanged`, `user_not_found`,
+`invalid_body` and the guard's own refusals in their own words, never as a raw code. The
+directory is then read again, because the stored state, not the button, is what the page
+shows.
+
+A read that fails after a page has already loaded keeps that page on screen and reports
+the failure above it, naming the table as the last page that loaded. It never swaps a
+table the administrator is reading for the refusal screen, and it never shows the refusal
+screen with the rows still behind it: the refusal screen belongs to the state before the
+first successful read.
+
+`GET /api/admin/users` answers the stored status on every row, so the table carries a
+status column beside the role and the edit panel shows the same value it acts on. That
+column and the status filter read the same field, and the lifecycle control is one toggle
+driven by the row: it offers only the status the account does not hold, so an
+administrator cannot ask for a transition the account already stands in and cannot reach
+the `status_unchanged` refusal from the interface. Both directions keep the confirmation
+that states the consequences before anything is sent.
 
 `/admin/invitations` names the current path instead of a dead form: invitations are
 issued from the console (`bun run user:invite`) until the interface for issuing, listing

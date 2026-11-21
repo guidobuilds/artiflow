@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { PageHeader } from "@/components/app/app-shell.tsx";
-import { Button } from "@/components/ui/button.tsx";
+import { Button, ButtonGroup } from "@/components/ui/button.tsx";
+import { Dialog, DialogContent, DialogFoot, DialogHead, DialogSection, DialogTitle } from "@/components/ui/dialog.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { Tag } from "@/components/ui/tag.tsx";
@@ -10,25 +11,36 @@ import { TextLink } from "@/components/ui/text-link.tsx";
 import type { AdminGate } from "./admin-entry.ts";
 import {
   ADMIN_USERS_PAGE_SIZE,
+  EMPTY_DIRECTORY,
   accessMethodsLabel,
+  applyDirectoryRead,
   changeAdminUserRole,
   directoryEmptyMessage,
   directorySummary,
   lastActivityLabel,
+  nextStatus,
   readAdminUserPage,
+  replaceAdminUserRole,
+  replaceAdminUserRow,
   roleLabel,
   saveAdminUser,
+  setAdminUserStatus,
+  statusActionLabel,
+  statusConfirmation,
+  statusConfirmationTitle,
+  statusLabel,
   type AdminRole,
   type AdminUserFilter,
-  type AdminUserPage,
   type AdminUserRow,
+  type AdminUserStatus,
+  type DirectoryRead,
 } from "./admin-users-client.ts";
 
-const FIRST_PAGE: AdminUserFilter = { page: 1, search: "", role: null };
+const FIRST_PAGE: AdminUserFilter = { page: 1, search: "", role: null, status: null };
 const EMAIL_NOTICE =
   "No verification is required in this version: the new address takes effect immediately and the person keeps their linked sign-in methods.";
 
-type Draft = { id: string; name: string; email: string; role: AdminRole };
+type Draft = { id: string; name: string; email: string };
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -48,31 +60,37 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+function gateOf(directory: DirectoryRead): AdminGate {
+  if (directory.page !== null) return { kind: "ready" };
+  if (directory.failure !== "") return { kind: "refused", message: directory.failure, signInRequired: directory.signInRequired };
+  return { kind: "loading" };
+}
+
 export default function AdminUsersPage() {
-  const [gate, setGate] = useState<AdminGate>({ kind: "loading" });
+  const [directory, setDirectory] = useState<DirectoryRead>(EMPTY_DIRECTORY);
   const [filter, setFilter] = useState<AdminUserFilter>(FIRST_PAGE);
+  const [revision, setRevision] = useState(0);
   const [search, setSearch] = useState("");
-  const [rows, setRows] = useState<AdminUserPage | null>(null);
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editError, setEditError] = useState("");
+  const [confirming, setConfirming] = useState<AdminUserStatus | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let live = true;
     void readAdminUserPage(filter).then((result) => {
       if (!live) return;
-      if (!result.ok) {
-        setGate({ kind: "refused", message: result.error, signInRequired: result.signInRequired });
-        return;
-      }
-      setRows(result.value);
-      setGate({ kind: "ready" });
+      setDirectory((current) => applyDirectoryRead(current, result));
     });
     return () => {
       live = false;
     };
-  }, [filter]);
+  }, [filter, revision]);
+
+  const rows = directory.page;
+  const gate = gateOf(directory);
+  const subject = draft === null || rows === null ? null : (rows.users.find((row) => row.id === draft.id) ?? null);
 
   const applySearch = () => setFilter((current) => ({ ...current, page: 1, search }));
 
@@ -82,15 +100,17 @@ export default function AdminUsersPage() {
   };
 
   const openEditor = (row: AdminUserRow) => {
-    setDraft({ id: row.id, name: row.name, email: row.email, role: row.role });
+    setDraft({ id: row.id, name: row.name, email: row.email });
     setEditError("");
     setNotice("");
+    setConfirming(null);
   };
 
-  const replaceRow = (row: AdminUserRow) =>
-    setRows((current) =>
-      current === null ? current : { ...current, users: current.users.map((entry) => (entry.id === row.id ? row : entry)) },
-    );
+  const closeEditor = () => {
+    setDraft(null);
+    setEditError("");
+    setConfirming(null);
+  };
 
   const save = async () => {
     if (draft === null || busy) return;
@@ -103,38 +123,62 @@ export default function AdminUsersPage() {
       setEditError(result.error);
       return;
     }
-    replaceRow(result.value);
+    setDirectory((current) =>
+      current.page === null ? current : { ...current, page: replaceAdminUserRow(current.page, result.value) },
+    );
     setDraft(null);
     setNotice(`Saved ${result.value.name.trim() || result.value.email}. The row above shows the stored values.`);
   };
 
   const changeRole = async (role: AdminRole) => {
-    if (draft === null || busy || draft.role === role) return;
+    if (subject === null || busy || subject.role === role) return;
     setBusy(true);
     setEditError("");
     setNotice("");
-    const result = await changeAdminUserRole(draft.id, role);
+    const result = await changeAdminUserRole(subject.id, role);
     setBusy(false);
     if (!result.ok) {
       setEditError(result.error);
       return;
     }
     const { id, role: stored, changed } = result.value;
-    setDraft((current) => (current === null ? current : { ...current, role: stored }));
-    setRows((current) =>
-      current === null
-        ? current
-        : {
-            ...current,
-            users: current.users.map((entry) => (entry.id === id ? { ...entry, role: stored } : entry)),
-          },
+    setDirectory((current) =>
+      current.page === null ? current : { ...current, page: replaceAdminUserRole(current.page, id, stored) },
     );
     setNotice(changed ? `Role changed to ${roleLabel(stored)}.` : `That account already had the ${roleLabel(stored)} role.`);
+  };
+
+  const chooseStatus = (status: AdminUserStatus) => {
+    setConfirming(status);
+    setEditError("");
+    setNotice("");
+  };
+
+  const applyStatus = async (status: AdminUserStatus) => {
+    if (subject === null || busy) return;
+    setBusy(true);
+    setEditError("");
+    setNotice("");
+    const who = subject.name.trim() || subject.email;
+    const result = await setAdminUserStatus(subject.id, status);
+    setBusy(false);
+    setConfirming(null);
+    if (!result.ok) {
+      setEditError(result.error);
+      return;
+    }
+    setNotice(
+      status === "deactivated"
+        ? `Deactivated ${who}. Sign-in is closed, the open sessions ended and the public links are revoked. Nothing was deleted.`
+        : `Reactivated ${who}. Sign-in works again; the sessions that ended and the revoked public links stay as they are.`,
+    );
+    setRevision((current) => current + 1);
   };
 
   const total = rows?.total ?? 0;
   const page = rows?.page ?? 1;
   const pageSize = rows?.pageSize ?? ADMIN_USERS_PAGE_SIZE;
+  const filtered = filter.search.trim() !== "" || filter.role !== null || filter.status !== null;
 
   return (
     <AdminShell section="users" gate={gate}>
@@ -177,6 +221,26 @@ export default function AdminUsersPage() {
               Administrators
             </SegmentedItem>
           </Segmented>
+          <Segmented label="Status filter">
+            <SegmentedItem
+              pressed={filter.status === null}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, status: null }))}
+            >
+              Any status
+            </SegmentedItem>
+            <SegmentedItem
+              pressed={filter.status === "active"}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, status: "active" }))}
+            >
+              Active
+            </SegmentedItem>
+            <SegmentedItem
+              pressed={filter.status === "deactivated"}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, status: "deactivated" }))}
+            >
+              Deactivated
+            </SegmentedItem>
+          </Segmented>
           <Button onClick={applySearch}>Search</Button>
         </div>
         {notice ? (
@@ -184,10 +248,16 @@ export default function AdminUsersPage() {
             {notice}
           </p>
         ) : null}
+        {rows !== null && directory.failure !== "" ? (
+          <div role="alert" className="grid gap-1 text-[13px] text-danger-text">
+            <span>{directory.failure}</span>
+            <span>The table below is the last page that loaded, so it may no longer match the server.</span>
+          </div>
+        ) : null}
         {rows === null ? null : rows.users.length === 0 ? (
           <Panel title="No accounts on this page">
-            <p className="text-[14px] text-fg-muted">{directoryEmptyMessage({ search: filter.search, role: filter.role })}</p>
-            {filter.search.trim() !== "" || filter.role !== null ? (
+            <p className="text-[14px] text-fg-muted">{directoryEmptyMessage(filter)}</p>
+            {filtered ? (
               <div className="flex flex-wrap items-center gap-3">
                 <Button size="sm" onClick={clearFilters}>
                   Clear search and filters
@@ -210,6 +280,9 @@ export default function AdminUsersPage() {
                     Role
                   </th>
                   <th scope="col" className="px-4 py-2.5 font-normal">
+                    Status
+                  </th>
+                  <th scope="col" className="px-4 py-2.5 font-normal">
                     Access methods
                   </th>
                   <th scope="col" className="px-4 py-2.5 font-normal">
@@ -227,6 +300,9 @@ export default function AdminUsersPage() {
                     <td className="px-4 py-3 text-fg-muted [overflow-wrap:anywhere]">{row.email}</td>
                     <td className="px-4 py-3">
                       <Tag on={row.role === "administrator"}>{roleLabel(row.role)}</Tag>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Tag on={row.status === "active"}>{statusLabel(row.status)}</Tag>
                     </td>
                     <td className="px-4 py-3 text-fg-muted">{accessMethodsLabel(row.accessMethods)}</td>
                     <td className="px-4 py-3 text-fg-muted">{lastActivityLabel(row.lastActivityAt)}</td>
@@ -264,8 +340,8 @@ export default function AdminUsersPage() {
             </div>
           </div>
         ) : null}
-        {draft === null ? null : (
-          <Panel title={`Edit ${draft.name.trim() || draft.email}`}>
+        {draft === null || subject === null ? null : (
+          <Panel title={`Edit ${subject.name.trim() || subject.email}`}>
             {editError ? (
               <p role="alert" className="text-[13px] text-danger-text">
                 {editError}
@@ -294,11 +370,15 @@ export default function AdminUsersPage() {
             </Field>
             <Row label="Role">
               <Segmented label="Role">
-                <SegmentedItem pressed={draft.role === "member"} disabled={busy} onClick={() => void changeRole("member")}>
+                <SegmentedItem
+                  pressed={subject.role === "member"}
+                  disabled={busy}
+                  onClick={() => void changeRole("member")}
+                >
                   Member
                 </SegmentedItem>
                 <SegmentedItem
-                  pressed={draft.role === "administrator"}
+                  pressed={subject.role === "administrator"}
                   disabled={busy}
                   onClick={() => void changeRole("administrator")}
                 >
@@ -306,22 +386,53 @@ export default function AdminUsersPage() {
                 </SegmentedItem>
               </Segmented>
             </Row>
+            <Row label="Lifecycle">
+              <ButtonGroup>
+                <Tag on={subject.status === "active"}>{statusLabel(subject.status)}</Tag>
+                <Button
+                  size="sm"
+                  variant={subject.status === "active" ? "danger" : "secondary"}
+                  disabled={busy}
+                  onClick={() => chooseStatus(nextStatus(subject.status))}
+                >
+                  {statusActionLabel(nextStatus(subject.status))}
+                </Button>
+              </ButtonGroup>
+            </Row>
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="primary" disabled={busy} onClick={() => void save()}>
                 {busy ? "Saving…" : "Save changes"}
               </Button>
-              <Button
-                variant="ghost"
-                disabled={busy}
-                onClick={() => {
-                  setDraft(null);
-                  setEditError("");
-                }}
-              >
+              <Button variant="ghost" disabled={busy} onClick={closeEditor}>
                 Cancel
               </Button>
             </div>
           </Panel>
+        )}
+        {confirming === null || subject === null ? null : (
+          <Dialog open onOpenChange={(open) => !open && setConfirming(null)}>
+            <DialogContent size="sm" aria-describedby={undefined}>
+              <DialogHead />
+              <DialogTitle>{statusConfirmationTitle(subject.name.trim() || subject.email, confirming)}</DialogTitle>
+              <DialogSection className="border-t-0">
+                <p className="m-0 text-[14px] text-fg-muted">{statusConfirmation(confirming)}</p>
+              </DialogSection>
+              <DialogFoot className="justify-end">
+                <ButtonGroup>
+                  <Button variant="ghost" disabled={busy} onClick={() => setConfirming(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant={confirming === "deactivated" ? "danger" : "primary"}
+                    disabled={busy}
+                    onClick={() => void applyStatus(confirming)}
+                  >
+                    {busy ? "Saving…" : statusActionLabel(confirming)}
+                  </Button>
+                </ButtonGroup>
+              </DialogFoot>
+            </DialogContent>
+          </Dialog>
         )}
         <TextLink href="/admin/access">Go to access methods</TextLink>
       </section>

@@ -14,11 +14,15 @@ export type Administrator = z.infer<typeof administratorSchema>;
 export const administratorListResponseSchema = z.object({ administrators: z.array(administratorSchema) });
 export type AdministratorListResponse = z.infer<typeof administratorListResponseSchema>;
 
+export const accountStatusSchema = z.enum(["active", "deactivated"]);
+export type AccountStatus = z.infer<typeof accountStatusSchema>;
+
 export const adminUserSchema = z.strictObject({
   id: z.string().min(1),
   name: z.string(),
   email: z.string(),
   role: userRoleSchema,
+  status: accountStatusSchema,
   accessMethods: z.array(z.string().min(1)),
   lastActivityAt: z.iso.datetime().nullable(),
 });
@@ -43,9 +47,6 @@ export type UpdateAdminUserResponse = z.infer<typeof updateAdminUserResponseSche
 
 export const setUserRoleRequestSchema = z.object({ role: z.string() });
 export type SetUserRoleRequest = z.infer<typeof setUserRoleRequestSchema>;
-
-export const accountStatusSchema = z.enum(["active", "deactivated"]);
-export type AccountStatus = z.infer<typeof accountStatusSchema>;
 
 export const setUserStatusRequestSchema = z.strictObject({ status: accountStatusSchema });
 export type SetUserStatusRequest = z.infer<typeof setUserStatusRequestSchema>;
