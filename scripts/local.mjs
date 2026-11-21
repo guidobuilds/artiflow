@@ -139,8 +139,8 @@ async function check() {
   }
 
   const { loadConfig, ConfigError } = await import("../apps/api/src/config.ts");
-  const { createDatabase } = await import("../apps/api/src/db/client.ts");
-  const { createStorage } = await import("../apps/api/src/storage/client.ts");
+  const { createDatabase } = await import("../apps/api/src/adapters/postgres/db/client.ts");
+  const { createStorage } = await import("../apps/api/src/adapters/storage/client.ts");
 
   let config;
   try {
