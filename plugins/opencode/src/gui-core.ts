@@ -18,10 +18,12 @@ export function relativeTime(at: string, now = Date.now()): string {
   return `${Math.floor(minutes / 1440)}d ago`;
 }
 
-export function guiConfig(
-  options: { url?: unknown },
-  env: string | undefined,
-): { base: string | null; error: string | null } {
+export interface GuiConfig {
+  base: string | null;
+  error: string | null;
+}
+
+export function guiConfig(options: { url?: unknown }, env: string | undefined): GuiConfig {
   try {
     return { base: instanceUrl(options, env), error: null };
   } catch (error) {
@@ -29,10 +31,39 @@ export function guiConfig(
       base: null,
       error:
         options.url == null && env === undefined
-          ? 'Configure "url" in the Artiflow plugin options, or set ARTIFLOW_URL in the Desktop environment.'
+          ? 'Run /artiflow-setup <origin> in OpenCode, or configure "url" in the Artiflow plugin options or ARTIFLOW_URL in the Desktop environment.'
           : error instanceof Error
             ? error.message
             : "Invalid Artiflow configuration.",
     };
   }
+}
+
+export function guiConfigReader(
+  options: { url?: unknown },
+  env: string | undefined,
+  read: () => Promise<{ url: string | null }>,
+): { current: () => GuiConfig; refresh: () => Promise<GuiConfig> } {
+  let config = guiConfig(options, env);
+  let pending: Promise<GuiConfig> | null = null;
+  const readOnce = async () => {
+    let server: string | null;
+    try {
+      server = (await read()).url;
+    } catch {
+      return config;
+    }
+    config = server === null ? guiConfig(options, env) : guiConfig({ url: server }, undefined);
+    return config;
+  };
+  return {
+    current: () => config,
+    refresh() {
+      if (pending === null)
+        pending = readOnce().finally(() => {
+          pending = null;
+        });
+      return pending;
+    },
+  };
 }

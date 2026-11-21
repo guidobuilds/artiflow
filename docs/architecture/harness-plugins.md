@@ -106,8 +106,11 @@ OpenWork as a separate target (inherits OpenCode), generic OpenCode Web UI integ
    origin).
 4. OpenCode plugin: server tools + skills and an experimental prebuilt Desktop GUI
    (`./gui-experimental`) with `/artiflow`, library and explicit artifact-ID viewer
-   embeds. Accepts plugin `options.url` or `ARTIFLOW_URL`; real Desktop validation
-   remains pending. The server-only/CLI entry does not provide `/artiflow`.
+   embeds. Accepts plugin `options.url`, a URL persisted via `/artiflow-setup <origin>` (per-plugin
+   storage, works without any environment variable), or `ARTIFLOW_URL` as last fallback; the GUI
+   resolves the origin through the server part's `config.url` RPC, so Desktop needs no
+   `launchctl setenv`. Real Desktop validation remains pending. The server-only/CLI entry does not
+   provide `/artiflow`.
 5. Claude Desktop MCPB: package a local stdio proxy + skill bundle with the instance URL
    as user configuration.
 6. Cursor VSIX with a `createWebviewPanel` preview, only if MCP Apps in 2.6 falls short of
