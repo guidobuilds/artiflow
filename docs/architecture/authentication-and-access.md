@@ -245,13 +245,15 @@ so the invariant holds by construction. It is written to the audit log with both
 
 The user directory is read and edited through two routes behind the administrator guard:
 
-- `GET /api/admin/users?page=&pageSize=&search=&role=` answers `{ users, total, page,
+- `GET /api/admin/users?page=&pageSize=&search=&role=&status=` answers `{ users, total, page,
   pageSize }`. A row carries `id`, `name`, `email`, `role`, `accessMethods` (the
   `providerId` of every `account` row of that person, credential included) and
   `lastActivityAt` (the newest `session.updatedAt`, `null` when the person never signed in).
   Pages default to 20 rows and are capped at 100; `search` is a case-insensitive substring
-  match over name and email, `role` filters on the stored role, and a page past the end
-  answers an empty list with the real total rather than an error. The page and the total are
+  match over name and email, `role` filters on the stored role, `status` filters on the stored
+  account status (`active` or `deactivated`), both filters combine with each other and with
+  `search`, and a page past the end answers an empty list with the real total rather than an
+  error. The page and the total are
   two statements, and the access methods and last activity are aggregated inside the page
   statement, so the number of queries does not grow with the rows returned.
 - `PATCH /api/admin/users/:id` takes `{ name, email }`, requires the public origin like every
@@ -308,6 +310,13 @@ body that names no known state `400 invalid_body`. Each applied change emits one
 emits nothing. Nothing on this path deletes content: artifacts, revisions, comments and the
 share grants the person issued keep their rows, and the people they shared with keep reading
 them.
+
+A deactivated account is not an available recipient: resolving an address for a new share only
+answers an active account, so sharing with a deactivated person is refused exactly like an
+address that holds no account, with `recipient_not_found`. The rule bounds who a new grant may
+name and nothing else — a grant made before the deactivation keeps its row and keeps reading the
+artifact, so a reactivated account returns to the artifacts it was already given without a new
+share.
 
 Both session surfaces are listings over the same table: the member's own page uses
 `listSessions`/`revokeSession`/`revokeOtherSessions` and marks the current one by id; the

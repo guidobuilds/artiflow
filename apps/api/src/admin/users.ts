@@ -1,7 +1,7 @@
 import { and, asc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { userRoleSchema, type AdminUser, type UpdateAdminUserRequest } from "@artiflow/contracts/admin";
+import { accountStatusSchema, userRoleSchema, type AdminUser, type UpdateAdminUserRequest } from "@artiflow/contracts/admin";
 
 import { account, session, user } from "../adapters/postgres/db/schema.ts";
 import type { AppDb, AppTx } from "../adapters/postgres/db/client.ts";
@@ -19,6 +19,7 @@ export const adminUserListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(ADMIN_USER_MAX_PAGE_SIZE).default(ADMIN_USER_DEFAULT_PAGE_SIZE),
   search: z.string().default(""),
   role: userRoleSchema.optional(),
+  status: accountStatusSchema.optional(),
 });
 
 export type AdminUserListQuery = z.infer<typeof adminUserListQuerySchema>;
@@ -97,6 +98,7 @@ function conditionsOf(query: AdminUserListQuery): SQL[] {
     if (matched !== undefined) conditions.push(matched);
   }
   if (query.role !== undefined) conditions.push(eq(user.role, query.role));
+  if (query.status !== undefined) conditions.push(eq(user.status, query.status));
   return conditions;
 }
 

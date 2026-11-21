@@ -16,6 +16,7 @@ import {
 import {
   adminGet,
   adminPatch,
+  adminPost,
   assertStatus,
   countDatabaseQueries,
   startAdminHarness,
@@ -73,6 +74,15 @@ function entry(index: number): SeededDirectoryEntry {
   const seeded = directory[index];
   assert.ok(seeded, `directory entry ${index} exists`);
   return seeded;
+}
+
+function setStatus(userId: string, status: "active" | "deactivated"): Promise<Response> {
+  return adminPost(
+    target(),
+    `${USERS_PATH}/${userId}/status`,
+    { status },
+    actor(administrator).cookie,
+  );
 }
 
 function listPath(query: Record<string, string> = {}): string {
@@ -342,6 +352,72 @@ integration("the list costs the same number of queries for any page", async () =
   assert.equal(small.users.length, 5);
   assert.equal(large.users.length, 100);
   assert.equal(largeCount, smallCount, "a larger page issues no extra query per row");
+});
+
+integration("the status filter narrows the list", async () => {
+  const deactivatedEntries = [entry(150), entry(151)];
+  for (const subject of deactivatedEntries) {
+    assertStatus(await setStatus(subject.userId, "deactivated"), 200, "the administrator deactivates the account");
+  }
+
+  const deactivated = await listDirectory({ status: "deactivated", pageSize: "100" });
+  assert.deepEqual(
+    deactivated.users.map((row) => row.id).sort(),
+    deactivatedEntries.map((subject) => subject.userId).sort(),
+    "only the deactivated accounts match the filter",
+  );
+  assert.equal(deactivated.total, deactivatedEntries.length, "the total counts the filtered accounts");
+
+  const active = await listDirectory({ status: "active", pageSize: "100" });
+  assert.equal(active.total, directory.length - deactivatedEntries.length, "the active filter excludes the deactivated");
+  assert.equal(
+    active.users.some((row) => deactivatedEntries.some((subject) => subject.userId === row.id)),
+    false,
+    "no deactivated account appears on an active page",
+  );
+});
+
+integration("the status filter combines with the role filter", async () => {
+  const deactivatedAdministrator = entry(2);
+  assertStatus(
+    await setStatus(deactivatedAdministrator.userId, "deactivated"),
+    200,
+    "the administrator deactivates another administrator",
+  );
+
+  const deactivatedAdministrators = await listDirectory({ status: "deactivated", role: "administrator" });
+  assert.deepEqual(
+    deactivatedAdministrators.users.map((row) => row.id),
+    [deactivatedAdministrator.userId],
+    "both filters apply to the same page",
+  );
+  assert.equal(deactivatedAdministrators.total, 1);
+
+  const deactivatedMembers = await listDirectory({ status: "deactivated", role: "member", pageSize: "100" });
+  assert.deepEqual(
+    deactivatedMembers.users.map((row) => row.id).sort(),
+    [entry(150).userId, entry(151).userId].sort(),
+    "the role filter narrows the deactivated accounts",
+  );
+  assert.equal(deactivatedMembers.total, 2);
+
+  const activeAdministrators = await listDirectory({ status: "active", role: "administrator" });
+  assert.deepEqual(activeAdministrators.users, [], "a deactivated administrator is not active");
+  assert.equal(activeAdministrators.total, 0);
+});
+
+integration("an unknown status value is refused and leaves the stored rows untouched", async () => {
+  const response = await adminGet(target(), listPath({ status: "suspended" }), actor(administrator).cookie);
+  assertStatus(response, 400, "an unknown status is a malformed query");
+  assert.deepEqual(await response.json(), { error: "invalid_query" });
+
+  const stillDeactivated = await listDirectory({ status: "deactivated", pageSize: "100" });
+  assert.deepEqual(
+    stillDeactivated.users.map((row) => row.id).sort(),
+    [entry(2).userId, entry(150).userId, entry(151).userId].sort(),
+    "the refusal changed no stored state",
+  );
+  assert.deepEqual(await storedUser(entry(2).userId), { name: entry(2).name, email: entry(2).email });
 });
 
 integration("the edit records one event with the actor, the person and both addresses", async () => {
