@@ -9,6 +9,7 @@ export type ShortcutInput = {
   defaultPrevented?: boolean;
   editable: boolean;
   insideComments?: boolean;
+  composing?: boolean;
 };
 
 const KEY_ACTIONS: Record<string, ShortcutAction> = {
@@ -18,6 +19,7 @@ const KEY_ACTIONS: Record<string, ShortcutAction> = {
 };
 
 export function shortcutFor(input: ShortcutInput): ShortcutAction | null {
+  if (input.composing === true) return null;
   if (input.defaultPrevented === true) return null;
   if (input.altKey === true || input.ctrlKey === true || input.metaKey === true || input.shiftKey === true) return null;
   if (input.key === "Escape") return input.editable && input.insideComments !== true ? null : "close";
@@ -64,6 +66,9 @@ export function parseThreadHash(hash: string): string | null {
 }
 
 export const formatThreadHash = (id: string): string => `#c-${encodeURIComponent(id)}`;
+
+export const revealCommentsForHash = (storedVisible: boolean, hash: string): boolean =>
+  storedVisible || parseThreadHash(hash) !== null;
 
 export function threadHashUrl(href: string, id: string | null): string {
   const hashAt = href.indexOf("#");

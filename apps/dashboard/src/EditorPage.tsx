@@ -35,6 +35,7 @@ import {
 import { Autosave, type SaveState } from "./editor-autosave.ts";
 import { blockTypes, currentBlockType, toolbarGroups, markdownExtensions } from "./editor-markdown.ts";
 import MarkdownComments, { type CommentSelection } from "./components/comments/markdown-comments.tsx";
+import { revealCommentsForHash } from "./comment-thread-navigation.ts";
 import { browserCommentStorage, readCommentsVisible, writeCommentsVisible } from "./comment-visibility.ts";
 
 const labels = {
@@ -130,7 +131,9 @@ function DocumentEditor({ initial }: { initial: Document }) {
   const [pendingVersion, setPendingVersion] = useState<number | null>(null);
   const freshness = useRef<EditorFreshness | null>(null);
   const commentStorage = useRef(browserCommentStorage());
-  const [commentsVisible, setCommentsVisible] = useState(() => readCommentsVisible(commentStorage.current));
+  const [commentsVisible, setCommentsVisible] = useState(() =>
+    revealCommentsForHash(readCommentsVisible(commentStorage.current), window.location.hash),
+  );
   const [showResolved, setShowResolved] = useState(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [anchorTops, setAnchorTops] = useState<Record<string, number>>({});
@@ -405,6 +408,13 @@ function DocumentEditor({ initial }: { initial: Document }) {
   useEffect(() => {
     if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(markerKey, true));
   }, [editor, comments, state.text, commentsVisible, showResolved, activeThread]);
+  useEffect(() => {
+    const reveal = () => {
+      if (revealCommentsForHash(false, window.location.hash)) setCommentsVisible(true);
+    };
+    window.addEventListener("hashchange", reveal);
+    return () => window.removeEventListener("hashchange", reveal);
+  }, []);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {

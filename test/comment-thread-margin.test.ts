@@ -82,7 +82,8 @@ test("every pill state has a surface and the dock has header, body and footer", 
   assert.match(component, /label="Close thread" onClick=\{onClose\}/);
   assert.match(component, /key=\{`\$\{thread\.id\}-body`\}/);
   assert.match(component, /<footer key=\{`\$\{thread\.id\}-footer`\} className="comment-thread-dock-foot">/);
-  assert.match(component, /\{resolved \? "Reopen" : "Resolve"\}/);
+  assert.match(component, /onResolve\(thread, nextResolvedState\(thread\)\)/);
+  assert.match(component, /\{nextResolvedState\(thread\) \? "Resolve" : "Reopen"\}/);
   assert.match(component, />\s*Delete\s*<\/Button>/);
   assert.match(component, /thread\.staleLabel \?\? "Text changed"/);
   assert.match(component, /<p className="comment-thread-flag">Resolved<\/p>/);
@@ -120,7 +121,7 @@ test("narrow screens hide the pills and open the dock content in a bottom sheet"
   assert.match(component, /Previous thread/);
   assert.match(component, /Next thread/);
   assert.match(component, /Close thread/);
-  assert.match(component, /resolved \? "Reopen" : "Resolve"/);
+  assert.match(component, /comment-thread-dock comment-thread-dock-sheet/);
   assert.match(component, /Delete reply by/);
 });
 

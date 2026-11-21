@@ -6,6 +6,7 @@ import {
   isEditableTarget,
   parseThreadHash,
   resolveDeepLink,
+  revealCommentsForHash,
   shortcutFor,
   stepThread,
   threadHashUrl,
@@ -69,4 +70,17 @@ test("the hash url keeps the path and query, replaces a thread hash and spares o
   assert.equal(threadHashUrl("https://x.test/p#c-t1", null), "https://x.test/p");
   assert.equal(threadHashUrl("https://x.test/p#intro", null), "https://x.test/p#intro");
   assert.equal(threadHashUrl("https://x.test/p", null), "https://x.test/p");
+});
+
+test("an IME composition never triggers a thread shortcut", () => {
+  assert.equal(shortcutFor({ key: "j", editable: false, composing: true }), null);
+  assert.equal(shortcutFor({ key: "Escape", editable: true, insideComments: true, composing: true }), null);
+  assert.equal(shortcutFor({ key: "r", editable: false, composing: false }), "reply");
+});
+
+test("a thread link reveals the comments column even when the reader hid it", () => {
+  assert.equal(revealCommentsForHash(true, ""), true);
+  assert.equal(revealCommentsForHash(false, ""), false);
+  assert.equal(revealCommentsForHash(false, "#c-abc123"), true);
+  assert.equal(revealCommentsForHash(false, "#elsewhere"), false);
 });

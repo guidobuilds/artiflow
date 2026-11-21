@@ -31,6 +31,7 @@ import {
 } from "@/comment-thread-navigation.ts";
 import {
   browserCommentStorage,
+  nextResolvedState,
   openThreadCount,
   readCommentsVisible,
   visibleThreads,
@@ -282,8 +283,8 @@ function ThreadPanel({
         ) : null}
         <div className="comment-thread-actions">
           {canComment && onResolve ? (
-            <Button size="sm" onClick={() => onResolve(thread, resolved)}>
-              {resolved ? "Reopen" : "Resolve"}
+            <Button size="sm" onClick={() => onResolve(thread, nextResolvedState(thread))}>
+              {nextResolvedState(thread) ? "Resolve" : "Reopen"}
             </Button>
           ) : null}
           {canComment && thread.canDelete && onDelete ? (
@@ -374,7 +375,20 @@ function DraftPanel({
   );
 }
 
+type Focusable = { focus: () => void };
+const FOCUSABLE = 'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])';
+
 function MobileSheet({ onBackdrop, children }: { onBackdrop: () => void; children: ReactNode }) {
+  const sheetRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const previous = document.activeElement as { focus?: () => void; isConnected?: boolean } | null;
+    sheetRef.current?.focus();
+    return () => {
+      if (previous !== null && previous.isConnected !== false && typeof previous.focus === "function") {
+        previous.focus();
+      }
+    };
+  }, []);
   return (
     <div
       className="comment-thread-sheet comment-thread-sheet-open"
@@ -382,7 +396,26 @@ function MobileSheet({ onBackdrop, children }: { onBackdrop: () => void; childre
         if (event.target === event.currentTarget) onBackdrop();
       }}
     >
-      <div role="dialog" aria-modal="true" aria-label="Comment thread">
+      <div
+        ref={sheetRef}
+        tabIndex={-1}
+        role="dialog" aria-modal="true" aria-label="Comment thread"
+        onKeyDown={(event) => {
+          if (event.key !== "Tab") return;
+          const focusable = Array.from(event.currentTarget.querySelectorAll(FOCUSABLE)) as unknown as Focusable[];
+          const first = focusable[0];
+          const last = focusable[focusable.length - 1];
+          if (first === undefined || last === undefined) return;
+          const active: unknown = document.activeElement;
+          if (event.shiftKey && (active === first || active === event.currentTarget)) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && active === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }}
+      >
         {children}
       </div>
     </div>
@@ -547,6 +580,7 @@ export default function CommentThreadMargin({
         metaKey: event.metaKey,
         shiftKey: event.shiftKey,
         defaultPrevented: event.defaultPrevented,
+        composing: event.isComposing,
         editable: isEditableTarget(target),
         insideComments: target instanceof Node && rootRef.current?.contains(target) === true,
       });
