@@ -576,6 +576,18 @@ const INVITE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 export const INVITE_REFUSED = "This invitation is invalid, expired or already used. Ask the operator for a new one.";
 export const INVITE_NAME = "Enter your name before creating the account.";
 export const INVITE_PASSWORD = "Passwords have at least 8 characters and at most 128.";
+const PASSWORD_POLICY_REFUSED = "That password does not meet the policy.";
+
+function refusedPasswordMessage(body: unknown, fallback: string): string {
+  const missing = isRecord(body) ? body.missing : undefined;
+  if (!Array.isArray(missing) || missing.length === 0) return fallback;
+  const named: string[] = [];
+  for (const rule of missing) {
+    if (!isRecord(rule) || typeof rule.message !== "string" || rule.message === "") return fallback;
+    named.push(rule.message);
+  }
+  return `${PASSWORD_POLICY_REFUSED} ${named.join(" ")}`;
+}
 
 export function tokenFromFragment(hash: string): string | null {
   if (!hash.startsWith("#")) return null;
@@ -602,7 +614,7 @@ export async function completeInvitation(input: InvitationInput): Promise<AuthRe
     const body = await readJson(response);
     const code = isRecord(body) && typeof body.code === "string" ? body.code : "";
     if (code === "INVALID_NAME") return { ok: false, error: INVITE_NAME };
-    if (code === "INVALID_PASSWORD") return { ok: false, error: INVITE_PASSWORD };
+    if (code === "INVALID_PASSWORD") return { ok: false, error: refusedPasswordMessage(body, INVITE_PASSWORD) };
     return { ok: false, error: INVITE_REFUSED };
   }
   if (!response.ok) return { ok: false, error: UNEXPECTED };
@@ -641,7 +653,8 @@ export async function completePasswordReset(token: string, newPassword: string):
   if (response.status === 400) {
     const body = await readJson(response);
     const code = isRecord(body) && typeof body.code === "string" ? body.code : "";
-    return { ok: false, error: code === "PASSWORD_INVALID" ? RESET_PASSWORD : RESET_REFUSED };
+    if (code === "PASSWORD_INVALID") return { ok: false, error: refusedPasswordMessage(body, RESET_PASSWORD) };
+    return { ok: false, error: RESET_REFUSED };
   }
   if (!response.ok) return { ok: false, error: UNEXPECTED };
   const body = await readJson(response);

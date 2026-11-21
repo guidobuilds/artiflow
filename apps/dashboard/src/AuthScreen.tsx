@@ -5,6 +5,7 @@ import { safeInternalPath } from "./lib/utils.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
+import { PasswordPolicyNotice, type PasswordPolicyReading } from "@/components/ui/password-policy-notice.tsx";
 import { Terminal, TerminalOutput, TerminalPrompt, TerminalTool } from "@/components/ui/terminal.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 
@@ -30,6 +31,7 @@ function HowItWorks() {
 export type InvitationMode = {
   email: string;
   created?: boolean;
+  policy: PasswordPolicyReading;
   submit: (name: string, password: string) => Promise<{ error: string } | null>;
 };
 
@@ -72,7 +74,7 @@ export default function AuthScreen({
       setError("Enter an email address like name@company.com.");
       return;
     }
-    if (newAccount && values.password.length < 8) {
+    if (newAccount && invitation === undefined && values.password.length < 8) {
       setError("Passwords have at least 8 characters.");
       return;
     }
@@ -195,12 +197,13 @@ export default function AuthScreen({
                   required
                 />
               </Field>
+              {invitation !== undefined ? <PasswordPolicyNotice reading={invitation.policy} /> : null}
               <Field label="Password" htmlFor="auth-password">
                 <Input
                   id="auth-password"
                   name="password"
                   type="password"
-                  placeholder="At least 8 characters"
+                  placeholder={invitation === undefined ? "At least 8 characters" : undefined}
                   autoComplete={newAccount ? "new-password" : "current-password"}
                   value={values.password}
                   onChange={(event) => setValues({ ...values, password: event.target.value })}
