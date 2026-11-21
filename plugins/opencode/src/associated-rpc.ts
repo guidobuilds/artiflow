@@ -2,10 +2,7 @@ import type { Rpc } from "@opencode/schema/rpc";
 import { Schema } from "effect";
 
 const Action = Schema.Literals(["created", "updated"]);
-const Consent = Schema.Union([
-  Schema.Struct({ token: Schema.String }),
-  Schema.Struct({ error: Schema.String }),
-]);
+const Consent = Schema.Union([Schema.Struct({ token: Schema.String }), Schema.Struct({ error: Schema.String })]);
 const Entry = Schema.Struct({
   artifactId: Schema.String,
   title: Schema.optional(Schema.String),
@@ -28,6 +25,10 @@ export const Associated = {
     "associated.list": {
       input: Schema.toStandardSchemaV1(Schema.Struct({ sessionID: Schema.String })),
       output: Schema.toStandardSchemaV1(Schema.Array(Entry)),
+    },
+    "config.url": {
+      input: Schema.toStandardSchemaV1(Schema.Struct({})),
+      output: Schema.toStandardSchemaV1(Schema.Struct({ url: Schema.NullOr(Schema.String) })),
     },
   },
   events: {

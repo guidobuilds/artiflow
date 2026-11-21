@@ -1,10 +1,13 @@
 # Artiflow for OpenCode
 
-The server entry registers six native Artiflow tools, a viewer-link helper, both
-canonical Artiflow skills, and supplementary OpenCode large-artifact guidance.
-The tools call the instance's bearer-only public API (`/api/v1`) with an OAuth
-token bound to that resource; no MCP connection is configured or required.
-Configure your own instance; no origin is built in.
+The server entry registers six native Artiflow tools, a viewer-link helper, three
+plugin-scoped skills adapted to those native tools, and the in-product setup
+command `/artiflow-setup`. See the user-facing guide at
+`apps/web/src/content/docs/docs/connect/opencode.md` for the end-user install
+flow; this README documents the package itself. The tools call the instance's
+bearer-only public API (`/api/v1`) with an OAuth token bound to that resource;
+no MCP connection is configured or required. Configure your own instance; no
+origin is built in.
 
 The package exposes `./server`, the prebuilt standalone bundle a host loads,
 plus `./server-source` for the TypeScript source the repository develops
@@ -29,18 +32,10 @@ with zero environment variables set (the plugin loads, the `/artiflow` tab is vi
 ```
 
 `options.url` configures both the server and GUI parts, so no `ARTIFLOW_URL` is needed when the
-options object is used. Two fallbacks stay documented for hosts that cannot carry options:
-
-- **String-form entry plus the environment.** The singular `plugin` key of older CLIs accepts only
-  a package string or a `[package, options]` tuple — its object form is dropped by config
-  normalization, so it cannot carry `options.url`. Load the plugin by string and set
-  `ARTIFLOW_URL` in the OpenCode server environment instead; the GUI part needs it to reach the
-  Desktop main process, and restart Desktop after changing it.
-- **Service definition.** When OpenCode runs as its own service or daemon, declare `ARTIFLOW_URL`
-  in that unit's environment (`Environment=` for systemd, `environment:` for Compose) so the server
-  process and the Desktop main process inherit one origin.
-
-`options.url` takes precedence over the environment variable. The URL must be an HTTP(S) origin:
+options object is used. Alternatively, run `/artiflow-setup <origin>` once in any OpenCode
+session: it validates the origin and persists it per plugin, so the server and the Desktop GUI
+pick it up without any environment variable. Install, run the command, restart/reload the server
+and open `/artiflow`. `options.url` still wins when present. The URL must be an HTTP(S) origin:
 credentials, path prefixes, queries and fragments are rejected.
 
 ## Tools and authentication
@@ -101,21 +96,22 @@ Storage security is provided by the host; this plugin does not encrypt storage.
   tokens are not read, so the old `token:<sha256(origin)>` storage entry stays
   orphaned and harmless, and may be deleted.
 - **Configuration.** With the plural `plugins` form and `options.url`, no
-  environment variable is needed on Desktop 2.2.6/2.3.0. String-form installs
-  that rely on `ARTIFLOW_URL` keep working unchanged.
+  environment variable is needed on Desktop 2.2.6/2.3.0. `/artiflow-setup <origin>` persists a
+  URL per plugin and works on any install, including fresh string-form installs. String-form
+  installs that rely on `ARTIFLOW_URL` keep working unchanged.
 - **Tool names and schemas are unchanged** (`artiflow_get`, `artiflow_write`, …).
   Only the transport changed: the tools call the instance's `/api/v1` API instead
   of `/mcp`.
 
 ## Skills
 
-The server entry adds both canonical skills. A published tarball ships them
-under the package (`skills/<name>/SKILL.md`), so the resolver looks there first
-and falls back to the repository-root `skills/` layout used while developing.
-The bundled copies must remain byte-identical to
-`skills/creating-artifacts/SKILL.md` and `skills/using-artiflow/SKILL.md`; the
-tests enforce this, and an unresolvable skill fails with an error naming both
-candidate paths.
+The server entry adds three plugin-scoped skills bundled in the package
+(`plugins/opencode/skills/<name>/SKILL.md`). They describe the plugin's actual
+native tool surface (`artiflow_*` on the instance API) — no MCP instructions, no
+staged-upload flow — and never fall back to the repository-root canonical
+skills, which keep their MCP-consumer content for MCP hosts. Registration needs
+no MCP connection and no manual skill installation; a missing bundled skill
+fails with an error naming its package path.
 
 ## Freshness
 
@@ -177,9 +173,10 @@ server plugin identity. It is not a standalone browser or CLI extension.
 - Settings → Artiflow documents `url`; configuration guidance stays there,
   not in the conversation panel. No origin is supplied by default.
 
-Both parts reuse the same origin validation and options precedence. For the GUI,
-`ARTIFLOW_URL` must be available to the Desktop main process (not just a remote
-OpenCode server). Restart Desktop after changing configuration. Embeds use the
+Both parts reuse the same origin validation and options precedence, and the GUI resolves the
+origin through the server part's `config.url` RPC (options → persisted URL → local fallback), so
+`ARTIFLOW_URL` no longer needs to reach the Desktop main process. Restart the OpenCode server
+after changing configuration so dependent tools reload. Embeds use the
 persistent browser partition `persist:artiflow`: cookies survive artifact changes
 and Desktop restarts. The panel obtains the current OAuth access token through
 the `viewer.token` RPC, proves it with a read of `/api/v1/artifacts`, and refreshes
@@ -275,8 +272,8 @@ the file whose sources changed needs rebuilding; a server-only change leaves
 `dist/gui-experimental.cjs` untouched.
 
 `dist/` is not tracked in git. The package builds at publish time:
-`prepublishOnly` runs both builds before `prepack` stages the skills and npm
-assembles the tarball, so a published package always ships fresh artifacts built
+`prepublishOnly` runs both builds before npm assembles the tarball, so a
+published package always ships fresh artifacts built
 from the sources it was published with. Consuming the plugin from a checkout
 therefore requires a build after cloning; from the repository root run
 `npm run build:plugin` (or the two plugin scripts directly). The focused plugin
@@ -286,17 +283,17 @@ tarball, not git. `npm pack` alone does not build anything (npm only runs
 `prepublishOnly` on `npm publish`); build first or use
 `npm publish --dry-run` to check what a publish would ship.
 
-A standalone tarball comes from the pack flow, which stages the repository
-skills inside the package and removes them again:
+A standalone tarball comes from the pack flow:
 
 ```sh
 (cd plugins/opencode && npm pack)
 ```
 
-`prepack` copies `skills/creating-artifacts` and `skills/using-artiflow` to
-`plugins/opencode/skills`, `postpack` removes them, and
-`plugins/opencode/.gitignore` keeps the copy out of the repository. The tarball
-contains `dist/server.mjs`, `dist/gui-experimental.cjs`, the skill copies, the
+The skill files are tracked package sources; `prepack` verifies they exist and
+stay plugin-scoped (it refuses a tarball with MCP or staged-upload markers).
+The tarball
+contains `dist/server.mjs`, `dist/gui-experimental.cjs`, the plugin-scoped
+skills, the
 sources and the README; a clean install resolves nothing but the host modules
 listed above. Pure association/reducer, RPC-schema, session-matching,
 native-tab reconstruction/refetch, main-process lifecycle, freshness, packaging
