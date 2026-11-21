@@ -14,14 +14,14 @@ import {
 } from "drizzle-orm/pg-core";
 
 import { MAX_COMMENT_BODY, MAX_COMMENT_QUOTE } from "@artiflow/contracts/comments";
+import { ARTIFACT_KINDS, DEFAULT_ARTIFACT_KIND } from "@artiflow/domain/kinds";
 import { user } from "./schema.ts";
 
 export const MAX_ARTIFACT_BYTES = 16_777_216;
 export const MAX_CHUNK_BYTES = 1_048_576;
 export const STAGING_TTL_MINUTES = 60;
 
-export const ARTIFACT_KINDS = ["html", "markdown"] as const;
-export const DEFAULT_ARTIFACT_KIND = "html";
+export { ARTIFACT_KINDS, DEFAULT_ARTIFACT_KIND };
 export const SHARE_ROLES = ["reader", "editor", "commenter"] as const;
 export const DEFAULT_SHARE_ROLE = "reader";
 

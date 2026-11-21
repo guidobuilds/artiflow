@@ -10,6 +10,7 @@
   "exports": {
     "./comment-anchors": "./src/comment-anchors.ts",
     "./html-bridge": "./src/html-bridge.ts",
+    "./kinds": "./src/kinds.ts",
     "./freshness": "./src/freshness.ts",
     "./markdown": "./src/markdown.ts"
   },

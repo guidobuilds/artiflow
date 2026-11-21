@@ -365,6 +365,7 @@ const json = (body: unknown, status = 200): Response =>
 const row = {
   id: "art-1",
   title: "Shared artifact",
+  kind: "html",
   createdAt: "2026-10-19T08:30:00.000Z",
   observedSizeBytes: 1536,
   revisionCount: 2,

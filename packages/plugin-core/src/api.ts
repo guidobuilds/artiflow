@@ -15,6 +15,7 @@ import {
   type SavedRevision,
 } from "@artiflow/contracts/document";
 import { commentListResponseSchema, type CommentListResponse } from "@artiflow/contracts/comments";
+import { capabilitiesFor } from "@artiflow/domain/kinds";
 import { applyLineOps, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
 
 export type Refusal = { error: string; message: string; [key: string]: unknown };
@@ -118,11 +119,7 @@ export function createArtifactApi(options: ArtifactApiOptions) {
     return parsed.success ? parsed.data : refusal("unreadable_response", extra);
   };
 
-  const read = async <T>(
-    schema: Schema<T>,
-    path: string,
-    extra: Record<string, unknown>,
-  ): Promise<T> => {
+  const read = async <T>(schema: Schema<T>, path: string, extra: Record<string, unknown>): Promise<T> => {
     const response = await send(path);
     if (!response.ok) return failure(response.payload, response.status);
     return parse(schema, response.payload, extra);
@@ -140,11 +137,9 @@ export function createArtifactApi(options: ArtifactApiOptions) {
   };
 
   const kindOf = async (artifactId: string): Promise<string> => {
-    const detail = await read<ArtifactDetail>(
-      artifactDetailSchema,
-      `/artifacts/${encodeURIComponent(artifactId)}`,
-      { artifactId },
-    );
+    const detail = await read<ArtifactDetail>(artifactDetailSchema, `/artifacts/${encodeURIComponent(artifactId)}`, {
+      artifactId,
+    });
     if (detail.kind === "unknown") return refusal("wrong_kind", { artifactId });
     return detail.kind;
   };
@@ -156,9 +151,13 @@ export function createArtifactApi(options: ArtifactApiOptions) {
     },
 
     async metadata(input: { artifactId: string }): Promise<ArtifactMetadata> {
-      const detail = await read<ArtifactDetail>(artifactDetailSchema, `/artifacts/${encodeURIComponent(input.artifactId)}`, {
-        artifactId: input.artifactId,
-      });
+      const detail = await read<ArtifactDetail>(
+        artifactDetailSchema,
+        `/artifacts/${encodeURIComponent(input.artifactId)}`,
+        {
+          artifactId: input.artifactId,
+        },
+      );
       const { revision } = detail;
       if (revision === null) return refusal("no_current_revision", { artifactId: input.artifactId });
       if (detail.kind === "unknown") return refusal("wrong_kind", { artifactId: input.artifactId });
@@ -222,7 +221,10 @@ export function createArtifactApi(options: ArtifactApiOptions) {
       });
       if (!response.ok) {
         if (object(response.payload).error === "concurrent_edit")
-          return refusal("concurrent_edit", { artifactId: input.artifactId, ...(await currentRevision(input.artifactId)) });
+          return refusal("concurrent_edit", {
+            artifactId: input.artifactId,
+            ...(await currentRevision(input.artifactId)),
+          });
         return failure(response.payload, response.status);
       }
       const saved = parse<SavedRevision>(savedRevisionSchema, response.payload, { artifactId: input.artifactId });
@@ -259,7 +261,9 @@ export function createArtifactApi(options: ArtifactApiOptions) {
       }
       if (artifactId === undefined) return refusal("artifact_id_required_for_expected_revision", {});
       const target = kind ?? (await kindOf(artifactId));
-      if (target === "markdown") {
+      const capabilities = capabilitiesFor(target);
+      if (capabilities === null) return refusal("wrong_kind", { artifactId });
+      if (capabilities.agentWrite === "text-operations") {
         const response = await send(`/artifacts/${encodeURIComponent(artifactId)}/document`, {
           method: "PUT",
           body: JSON.stringify({ text, expectedRevisionId }),
@@ -280,7 +284,7 @@ export function createArtifactApi(options: ArtifactApiOptions) {
       }
       const response = await send(`/artifacts/${encodeURIComponent(artifactId)}`, {
         method: "PUT",
-        body: JSON.stringify({ text, kind: "html", expectedRevisionId, ...titleField }),
+        body: JSON.stringify({ text, kind: target, expectedRevisionId, ...titleField }),
       });
       if (!response.ok) return failure(response.payload, response.status);
       return parse<CreateArtifactResponse>(v1ArtifactUpdateResponseSchema, response.payload, { artifactId });

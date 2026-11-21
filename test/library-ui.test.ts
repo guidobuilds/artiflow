@@ -11,6 +11,7 @@ import {
   parseArtifactList,
   startLibraryPolling,
 } from "../apps/dashboard/src/auth-client.ts";
+import { labelFor } from "@artiflow/domain/kinds";
 import { safeInternalPath } from "../apps/dashboard/src/lib/utils.ts";
 
 type Call = { url: string; init: RequestInit };
@@ -113,7 +114,12 @@ test("library and sign-in omit development copy while polling remains wired", ()
 test("authorization section labels use sentence case and preserve technical acronyms", () => {
   assert.match(source("../apps/dashboard/src/LoginPage.tsx"), />\s*Sign in to continue\s*</);
   assert.match(source("../apps/dashboard/src/ConsentPage.tsx"), />\s*It will be able to\s*</);
-  assert.match(source("../apps/dashboard/src/LibraryPage.tsx"), /label: "Page"/);
+  assert.match(
+    source("../apps/dashboard/src/LibraryPage.tsx"),
+    /label: labelFor\(/,
+    "the page takes its kind labels from the registry instead of naming them itself",
+  );
+  assert.equal(labelFor("html"), "Page");
 });
 
 test("the list payload maps to only what the page renders, in same-origin links", async (t) => {
@@ -121,7 +127,7 @@ test("the list payload maps to only what the page renders, in same-origin links"
   useFetch(() =>
     json({
       artifacts: [
-        artifact("art-1"),
+        artifact("art-1", { kind: "html" }),
         artifact("art-2", { title: "  ", observedSizeBytes: null, revisionCount: 1 }),
         artifact("art-3", { observedSizeBytes: 0, revisionCount: 0, revisionNumber: null }),
       ],
@@ -154,13 +160,19 @@ test("the list payload maps to only what the page renders, in same-origin links"
   );
 });
 
-test("kind rides the summary: markdown stays markdown, everything else defaults to html", () => {
+test("kind rides the summary: a known kind stays itself and an unrecognised one degrades to unknown", () => {
   const rows = parseArtifactList({
-    artifacts: [artifact("doc", { kind: "markdown" }), artifact("page", { kind: "html" }), artifact("legacy", {})],
+    artifacts: [
+      artifact("doc", { kind: "markdown" }),
+      artifact("page", { kind: "html" }),
+      artifact("legacy", {}),
+      artifact("foreign", { kind: "deck" }),
+    ],
   });
   assert.deepEqual(
     rows?.map(({ kind }) => kind),
-    ["markdown", "html", "html"],
+    ["markdown", "html", "unknown", "unknown"],
+    "a kind this build cannot explain is reported as unknown instead of being claimed as html",
   );
 });
 

@@ -1,10 +1,12 @@
+import { editsDocumentInApp, isArtifactKind, type ArtifactKind } from "@artiflow/domain/kinds";
+
 import { manageRequest, type LocationTarget } from "./auth-client.ts";
 import type { DetailWire } from "./lib/editor-freshness.ts";
 
 export type Document = {
   artifactId: string;
   title: string;
-  kind: "markdown";
+  kind: ArtifactKind;
   revisionId: string;
   revisionNumber: number;
   text: string;
@@ -19,18 +21,24 @@ const saved = (body: unknown): SavedRevision | null =>
     : null;
 const path = (id: string) => `/api/artifacts/${encodeURIComponent(id)}`;
 
+const editableKind = (value: unknown): ArtifactKind | null => {
+  const kind = typeof value === "string" ? value : "";
+  return isArtifactKind(kind) && editsDocumentInApp(kind) ? kind : null;
+};
+
 export const getDocument = (id: string) =>
   manageRequest<Document>(`${path(id)}/document`, "GET", (body) => {
     const revision = saved(body);
+    const kind = record(body) ? editableKind(body.kind) : null;
     return record(body) &&
       revision &&
-      body.kind === "markdown" &&
+      kind !== null &&
       typeof body.artifactId === "string" &&
       (body.title === null || typeof body.title === "string") &&
       typeof body.text === "string"
       ? {
           ...revision,
-          kind: "markdown",
+          kind,
           artifactId: body.artifactId,
           title: body.title || "Untitled document",
           text: body.text,

@@ -1,5 +1,7 @@
 import MarkdownIt from "markdown-it";
 
+import { KIND_CAPABILITIES, anchorKindsFor, type ArtifactKind } from "./kinds.ts";
+
 const quoteMarkdown = new MarkdownIt({ html: true });
 
 export type CommentAnchor = { startLine: number; startCol: number; endLine: number; endCol: number };
@@ -17,12 +19,14 @@ export type SlidePointAnchor = { kind: "slide-point"; slideId: string; x: number
 export type AnyCommentAnchor = TextRangeAnchor | ElementAnchor | PagePointAnchor | BoardPointAnchor | SlidePointAnchor;
 export type CommentAnchorKind = AnyCommentAnchor["kind"];
 
-export const ANCHOR_KINDS_BY_DOCUMENT: Record<"markdown" | "html", readonly CommentAnchorKind[]> = {
-  markdown: ["text-range"],
-  html: ["element", "page-point"],
+const anchorsOf = (kind: ArtifactKind): readonly CommentAnchorKind[] => KIND_CAPABILITIES[kind]?.anchors ?? [];
+
+export const ANCHOR_KINDS_BY_DOCUMENT: Record<ArtifactKind, readonly CommentAnchorKind[]> = {
+  markdown: anchorsOf("markdown"),
+  html: anchorsOf("html"),
 };
 export const anchorKindsForDocument = (documentKind: string): readonly CommentAnchorKind[] =>
-  ANCHOR_KINDS_BY_DOCUMENT[documentKind as "markdown" | "html"] ?? [];
+  anchorKindsFor(documentKind);
 export const anchorKindAllowed = (documentKind: string, kind: CommentAnchorKind): boolean =>
   anchorKindsForDocument(documentKind).includes(kind);
 export function anchorText(source: string, anchor: CommentAnchor): string | null {

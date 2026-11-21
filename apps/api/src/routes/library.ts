@@ -30,6 +30,7 @@ import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { viewerFor, wireNameFor } from "@artiflow/domain/kinds";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -101,8 +102,6 @@ export function createLibraryApp(options: LibraryOptions): Hono {
   const { database, auth, storage } = options;
   const db = database.db;
   const maxBytes = Math.min(options.maxArtifactBytes ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
-  const wireKind = (kind: string): ArtifactSummary["kind"] =>
-    kind === "html" || kind === "markdown" ? kind : "unknown";
   const app = new Hono();
 
   app.get("/api/artifacts", async (c) => {
@@ -112,7 +111,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     const artifacts: ArtifactSummary[] = rows.map((row) => ({
       id: row.id,
       title: row.title,
-      kind: wireKind(row.kind),
+      kind: wireNameFor(row.kind),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       observedSizeBytes: row.observedSizeBytes,
@@ -136,7 +135,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       revisionCount: row.revisionCount,
       currentRevisionId: row.currentRevisionId,
       sha256: row.sha256,
-      kind: wireKind(row.kind),
+      kind: wireNameFor(row.kind),
       sharedBy: { email: row.sharedBy },
     }));
     return c.json({ artifacts } satisfies SharedArtifactListResponse);
@@ -155,7 +154,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     return c.json({
       id: row.id,
       title: row.title,
-      kind: wireKind(row.kind),
+      kind: wireNameFor(row.kind),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       observedSizeBytes: row.observedSizeBytes,
@@ -176,7 +175,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
     const refresh = { metaUrl: `/api/artifacts/${row.id}`, revisionNumber: row.revisionNumber, sha256: row.sha256 };
-    if (row.kind === "markdown") {
+    if (viewerFor(row.kind) === "inline-markdown") {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const degraded = await loadViewerComments({

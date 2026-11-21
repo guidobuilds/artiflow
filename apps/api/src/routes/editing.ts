@@ -8,6 +8,7 @@ import type { AppDb, Database } from "../adapters/postgres/db/client.ts";
 import { getRevisionBytes, putRevisionBytes, newRevisionStorageKey } from "../adapters/storage/s3.ts";
 import { copyRevisionBytes } from "../domain/commit-flow.ts";
 import { setRevisionCas, type RevisionInput } from "../domain/commits.ts";
+import { editsDocumentInApp } from "@artiflow/domain/kinds";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { isJsonContentType, isUuid } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
@@ -140,7 +141,7 @@ export function createEditingApp(options: EditingOptions) {
     return { userId, row };
   };
   const requireMarkdown = (c: Context, row: DocRow): Response | null =>
-    row.kind === "markdown" ? null : c.json({ error: "wrong_kind" }, 409);
+    editsDocumentInApp(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
   const requireCurrent = (c: Context, row: DocRow): Response | null =>
     row.revisionId && row.storageKey && row.sha256 ? null : c.json({ error: "no_current_revision" }, 409);
   const requireEditor = (c: Context, row: DocRow): Response | null =>
@@ -166,7 +167,7 @@ export function createEditingApp(options: EditingOptions) {
     return c.json({
       artifactId: row.id,
       title: row.title,
-      kind: "markdown",
+      kind: row.kind as DocumentResponse["kind"],
       revisionId: row.revisionId as string,
       revisionNumber: row.revisionNumber as number,
       text: decoded.text,

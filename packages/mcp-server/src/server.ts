@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+import { ARTIFACT_KINDS, agentWriteFor } from "@artiflow/domain/kinds";
 import { applyLineOps, decodeMarkdownText, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
 import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
 import {
@@ -209,7 +210,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           artifactId: z.string().min(1).max(100).optional(),
           title: z.string().min(1).max(200).optional(),
           expectedRevisionId: z.string().min(1).max(100).optional(),
-          kind: z.enum(["html", "markdown"]).optional(),
+          kind: z.enum(ARTIFACT_KINDS).optional(),
         },
         _meta: VIEWER_TOOL_META,
         outputSchema: {
@@ -303,7 +304,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         description: `Create a new artifact (or, with artifactId plus expectedRevisionId, a compare-and-set revision) from content you already hold as text: pass the full UTF-8 document — "html" (default) for a self-contained HTML page, "markdown" for a markdown document readable with artifact_get_markdown and editable with artifact_edit_lines. One call, no staging: the server computes the sha256 itself. Content over ${Math.floor(MAX_CHUNK_BYTES / 1024)} KiB decoded, or any binary artifact, goes through artifact_start_upload / artifact_put_chunk / artifact_commit instead (requires disk access).`,
         inputSchema: {
           text: z.string().min(1),
-          kind: z.enum(["html", "markdown"]).optional(),
+          kind: z.enum(ARTIFACT_KINDS).optional(),
           artifactId: z.string().min(1).max(100).optional(),
           title: z.string().min(1).max(200).optional(),
           expectedRevisionId: z.string().min(1).max(100).optional(),
@@ -454,7 +455,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       if (row.deletedAt) return { ok: false, reply: refusal("gone", "artifact_deleted", { artifactId }) };
       if (!row.id || !row.sha256 || !row.storageKey)
         return { ok: false, reply: refusal("not_found", "revision_not_found", { artifactId }) };
-      if (row.kind !== "markdown")
+      if (agentWriteFor(row.kind) !== "text-operations")
         return {
           ok: false,
           reply: refusal("wrong_kind", "artifact_is_not_a_markdown_document", { artifactId, kind: row.kind }),

@@ -1,3 +1,15 @@
+import { KIND_CAPABILITIES } from "@artiflow/domain/kinds";
+
+const scriptJson = (value: unknown): string =>
+  JSON.stringify(value).replace(
+    /[<>&\u2028\u2029]/g,
+    (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+
+const VIEWERS_BY_KIND = scriptJson(
+  Object.fromEntries(Object.entries(KIND_CAPABILITIES).map(([kind, capabilities]) => [kind, capabilities.viewer])),
+);
+
 export const VIEWER_DOCUMENT_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
 
@@ -151,10 +163,13 @@ function cspDocument(html) {
   return html.slice(0, close + 1) + meta + html.slice(close + 1);
 }
 
-// Fail closed: only an explicit "html" kind may render bytes as a document. Any other or
-// missing kind stays inert text, so an unknown kind never inherits the frame by default.
+// Fail closed: only a kind whose registered viewer is the sandboxed document may render
+// bytes as a document. Any other or missing kind stays inert text, so an unknown kind
+// never inherits the frame by default.
+var KIND_VIEWERS = ${VIEWERS_BY_KIND};
+
 function rendersAsFrame(kind) {
-  return kind === "html";
+  return KIND_VIEWERS[kind] === "sandboxed-html";
 }
 
 function showText(text) {

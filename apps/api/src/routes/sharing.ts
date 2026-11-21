@@ -22,6 +22,7 @@ import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { viewerFor } from "@artiflow/domain/kinds";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 import type { LinkListResponse, LinkReveal, ShareListResponse } from "@artiflow/contracts/shares";
@@ -459,7 +460,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       revisionNumber: row.revisionNumber,
       sha256: row.sha256,
     };
-    if (row.kind === "markdown") {
+    if (viewerFor(row.kind) === "inline-markdown") {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
       const visible = row.showComments ? await listComments(db, row.artifactId, true) : [];

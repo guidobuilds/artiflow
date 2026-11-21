@@ -1,3 +1,5 @@
+import { capabilitiesFor } from "@artiflow/domain/kinds";
+
 import { fileKind } from "./write-kind.ts";
 
 export interface Association {
@@ -25,8 +27,10 @@ export function displayName(input: unknown): string | undefined {
   const title = normalize(args.title);
   if (title) return title;
   if (typeof args.text !== "string") return;
-  if (args.kind === "html") return normalize(args.text.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i)?.[1]);
-  if (args.kind === "markdown") {
+  const capabilities = typeof args.kind === "string" ? capabilitiesFor(args.kind) : null;
+  if (capabilities?.viewer === "sandboxed-html")
+    return normalize(args.text.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i)?.[1]);
+  if (capabilities?.viewer === "inline-markdown") {
     let fenced: string | undefined;
     for (const line of args.text.split(/\r?\n/)) {
       const fence = line.match(/^ {0,3}(`{3,}|~{3,})/);

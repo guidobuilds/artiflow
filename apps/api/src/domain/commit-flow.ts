@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { Database } from "../adapters/postgres/db/client.ts";
 import { MAX_ARTIFACT_BYTES, ARTIFACT_KINDS } from "../adapters/postgres/db/artifact-schema.ts";
+import { agentWriteFor } from "@artiflow/domain/kinds";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import type { Storage } from "../adapters/storage/client.ts";
 import { createArtifactWithRevision, getCurrentState, setRevisionCas, type RevisionInput } from "./commits.ts";
@@ -127,12 +128,15 @@ export async function copyRevisionBytes(input: CopyRevisionInput): Promise<Stora
   return { ok: true, value: { storageKey: stored.value.storageKey, sha256, sizeBytes: stored.value.sizeBytes } };
 }
 
+const storesText = (kind: string | undefined): boolean =>
+  kind !== undefined && agentWriteFor(kind) === "text-operations";
+
 export async function commitUpload(input: CommitUploadInput): Promise<CommitFlowResult> {
   const { database, storage, ownerId, uploadId, bytes, artifactId, title, expectedRevisionId, kind } = input;
   const now = input.now ?? new Date();
   if (kind !== undefined && !(ARTIFACT_KINDS as readonly string[]).includes(kind))
     return fail("validation", "unknown_artifact_kind");
-  if (kind === "markdown" && !decodeMarkdownText(bytes).ok) return fail("validation", "not_valid_utf8_markdown");
+  if (storesText(kind) && !decodeMarkdownText(bytes).ok) return fail("validation", "not_valid_utf8_markdown");
   const upload = await getUpload(database.db, uploadId, ownerId);
   if (!upload.ok) return fail(upload.kind, upload.reason);
   if (upload.value.status !== "open") return fail("conflict", `upload_status_${upload.value.status}`);
@@ -171,7 +175,7 @@ export async function writeArtifact(input: WriteArtifactInput): Promise<CommitFl
   const { database, storage, ownerId, bytes, artifactId, title, expectedRevisionId, kind } = input;
   if (kind !== undefined && !(ARTIFACT_KINDS as readonly string[]).includes(kind))
     return fail("validation", "unknown_artifact_kind");
-  if (kind === "markdown" && !decodeMarkdownText(bytes).ok) return fail("validation", "not_valid_utf8_markdown");
+  if (storesText(kind) && !decodeMarkdownText(bytes).ok) return fail("validation", "not_valid_utf8_markdown");
   if (!(bytes instanceof Uint8Array) || bytes.length === 0) return fail("validation", "bytes_required");
   if (bytes.length > MAX_ARTIFACT_BYTES) return fail("too_large", "payload_exceeds_artifact_cap");
   const sha256 = createHash("sha256").update(bytes).digest("hex");

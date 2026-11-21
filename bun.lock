@@ -128,6 +128,9 @@
     "packages/mcp-apps": {
       "name": "@artiflow/mcp-apps",
       "version": "0.1.0",
+      "dependencies": {
+        "@artiflow/domain": "*",
+      },
       "devDependencies": {
         "typescript": "5.9.3",
       },

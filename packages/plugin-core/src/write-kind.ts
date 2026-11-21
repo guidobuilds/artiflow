@@ -1,4 +1,5 @@
 import { extname } from "node:path";
 
-export const fileKind = (path: string): "markdown" | "html" =>
-  [".md", ".markdown"].includes(extname(path).toLowerCase()) ? "markdown" : "html";
+import { DEFAULT_ARTIFACT_KIND, kindForExtension, type ArtifactKind } from "@artiflow/domain/kinds";
+
+export const fileKind = (path: string): ArtifactKind => kindForExtension(extname(path)) ?? DEFAULT_ARTIFACT_KIND;

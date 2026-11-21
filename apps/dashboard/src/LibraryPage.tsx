@@ -11,7 +11,7 @@ import { AppShell, PageHeader, type LibraryFilter } from "@/components/app/app-s
 import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import { Icon } from "@/components/ui/icon.tsx";
+import { Icon, type IconName } from "@/components/ui/icon.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import {
   ArtifactRow,
@@ -27,6 +27,7 @@ import {
 import { Card, CardGrid, FileTile } from "@/components/ui/card.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { cn } from "@/lib/utils.ts";
+import { ARTIFACT_KINDS, glyphFor, labelFor, type ArtifactKind } from "@artiflow/domain/kinds";
 import { openArtifact } from "./editor-api.ts";
 import ShareModal from "./ShareModal.tsx";
 import DeleteModal from "./DeleteModal.tsx";
@@ -40,11 +41,10 @@ type State =
   | { kind: "error"; detail: string };
 type Row = { artifact: ArtifactSummary; owner?: string };
 type Layout = "list" | "grid";
-type Kind = "all" | "html" | "markdown";
+type Kind = "all" | ArtifactKind;
 const KINDS: { value: Kind; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "html", label: "Pages" },
-  { value: "markdown", label: "Docs" },
+  ...ARTIFACT_KINDS.map((kind) => ({ value: kind, label: `${labelFor(kind)}s` })),
 ];
 type Sort = "updated" | "created" | "name";
 const SORTS: { value: Sort; label: string }[] = [
@@ -133,14 +133,12 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
   useEffect(() => {
     try {
       localStorage.setItem("artiflow-library-layout", layout);
-    } catch {
-    }
+    } catch {}
   }, [layout]);
   useEffect(() => {
     try {
       localStorage.setItem("artiflow-library-sort", sort);
-    } catch {
-    }
+    } catch {}
   }, [sort]);
 
   const didDelete = (id: string) => {
@@ -159,7 +157,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
   const rows = allRows.filter(
     (row) =>
       (filter === "all" || (filter === "mine" ? row.owner === undefined : row.owner !== undefined)) &&
-      (kind === "all" || (row.artifact.kind === "markdown" ? "markdown" : "html") === kind),
+      (kind === "all" || row.artifact.kind === kind),
   );
   rows.sort((a, b) =>
     sort === "name"
@@ -246,10 +244,10 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
   if (state.kind === "loading" || state.kind === "redirecting") return null;
 
   const counts = { all: allRows.length, mine: artifacts.length, shared: sharedRows.length };
-  const kindOf = (artifact: ArtifactSummary) =>
-    artifact.kind === "markdown"
-      ? { icon: "markdown" as const, label: "Doc" }
-      : { icon: "html" as const, label: "Page" };
+  const kindOf = (artifact: ArtifactSummary) => ({
+    icon: glyphFor(artifact.kind) as IconName,
+    label: labelFor(artifact.kind),
+  });
   const recent = [...allRows]
     .sort((a, b) => timestamp(b.artifact, "updated") - timestamp(a.artifact, "updated"))
     .slice(0, 4)

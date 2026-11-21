@@ -1,4 +1,5 @@
 import { ARTIFACT_TOOL_NAMES } from "@artiflow/contracts/artifacts";
+import { ARTIFACT_KINDS, UNKNOWN_KIND } from "@artiflow/domain/kinds";
 
 export type PluginManifest = {
   id: string;
@@ -52,8 +53,8 @@ export function runConformance(input: ConformanceInput): ConformanceReport {
     }
   }
 
-  for (const kind of ["html", "markdown", "unknown"]) {
-    if (kind === "unknown" && openBehavior.byKind(kind) === "apps") {
+  for (const kind of [...ARTIFACT_KINDS, UNKNOWN_KIND]) {
+    if (kind === UNKNOWN_KIND && openBehavior.byKind(kind) === "apps") {
       issues.push({ check: "open", detail: "unknown kind must not open the apps frame (least-privileged branch)" });
     }
   }
