@@ -400,7 +400,9 @@ function MobileSheet({ onBackdrop, children }: { onBackdrop: () => void; childre
       <div
         ref={sheetRef}
         tabIndex={-1}
-        role="dialog" aria-modal="true" aria-label="Comment thread"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Comment thread"
         onKeyDown={(event) => {
           if (event.key !== "Tab") return;
           const focusable = Array.from(event.currentTarget.querySelectorAll(FOCUSABLE)) as unknown as Focusable[];

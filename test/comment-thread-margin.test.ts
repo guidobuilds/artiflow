@@ -114,7 +114,7 @@ test("narrow screens hide the pills and open the dock content in a bottom sheet"
   assert.match(styles, /\.comment-thread-sheet-open \{[\s\S]*align-items: flex-end;/);
   assert.match(styles, /\.comment-thread-dock-sheet \.comment-thread-dock-foot \{[\s\S]*position: sticky;/);
   assert.match(styles, /\.comment-thread-dock-sheet button \{[\s\S]*min-height: 44px;/);
-  assert.match(component, /role="dialog" aria-modal="true"/);
+  assert.match(component.replace(/\s+/g, " "), /role="dialog" aria-modal="true"/);
   assert.match(component, /<ThreadPanel\s+sheet/);
   assert.match(component, /<DraftPanel sheet/);
   assert.match(component, /Open threads/);

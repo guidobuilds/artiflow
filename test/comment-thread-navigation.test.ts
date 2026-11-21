@@ -101,6 +101,9 @@ test("chrome controls and other surfaces keep their own keys", () => {
   assert.equal(shortcutFor({ key: "Escape", editable: false, inChrome: true }), null);
   assert.equal(shortcutFor({ key: "Escape", editable: false }), "close");
   assert.equal(shortcutFor({ key: "Escape", editable: true, insideComments: true, inChrome: true }), "close");
-  assert.equal(isChromeTarget({ tagName: "BUTTON", closest: (selector: string) => (selector.includes("button") ? {} : null) }), true);
+  assert.equal(
+    isChromeTarget({ tagName: "BUTTON", closest: (selector: string) => (selector.includes("button") ? {} : null) }),
+    true,
+  );
   assert.equal(isChromeTarget({ tagName: "P", closest: () => null }), false);
 });
