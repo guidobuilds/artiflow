@@ -94,8 +94,11 @@ PostgreSQL and the bucket stay outside the stack, so the containers hold no appl
 
    Optional entries in the same file: `ARTIFLOW_ALLOWED_HOSTS` (extra `host[:port]` authorities the
    MCP endpoint trusts), `ARTIFLOW_INTERNAL_ORIGIN` (origin the API uses for its own JWKS fetch), and
-   a complete `ARTIFLOW_AUTH_GITHUB_*` or `ARTIFLOW_AUTH_GOOGLE_*` pair to add a social sign-in
-   provider. `ARTIFLOW_PROD_ENV_FILE` selects a different env file name instead of `.env.prod`.
+   a complete `ARTIFLOW_AUTH_GITHUB_*` or `ARTIFLOW_AUTH_GOOGLE_*` pair. The pair is adopted on the
+   first boot of an instance with no stored access configuration; after that the variables are
+   ignored and the providers are managed on `/admin/access`. Add a credential pair before the first
+   start, or from the interface afterwards. `ARTIFLOW_PROD_ENV_FILE` selects a different env file name
+   instead of `.env.prod`.
 
 5. Deploy:
 
@@ -151,8 +154,13 @@ consent screen, and publish one artifact with [the quickstart](/docs/start/quick
 
 ## Sign-in on a self-hosted instance
 
-Production always enables the email/password form, so an existing account can sign in without an
-external identity provider. Public account creation is closed in every profile: the API refuses
+Password authentication exists in production, so an existing account can sign in without an external
+identity provider. What the sign-in page offers is stored configuration, though: an administrator can
+switch the password method off, add Google or GitHub, and publish a single enterprise connection. See
+[Administer accounts and sign-in](/docs/self-hosting/administration/#access-methods) and
+[Identity providers](/docs/self-hosting/identity-providers/).
+
+Public account creation is closed in every profile: the API refuses
 `POST /api/auth/sign-up/email`, and a configured social provider will not create a new account,
 while signing in to an existing account — email/password or a linked social account — keeps
 working. The dashboard also stops offering its "Create an account" entry, but the refusal does not

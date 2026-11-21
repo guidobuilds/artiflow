@@ -42,6 +42,13 @@ never raced. Each run examines at most 2,000 keys in pages of 200 and keeps no c
 touches the database. `listFailed=true` means a listing page could not be read, so the run stopped
 early and retried nothing: check bucket permissions and storage availability.
 
+Administration writes one JSON object per line to standard output, and the console commands that print
+a link write theirs to standard error so standard output stays the link alone. The event set is closed
+in code, every line carries no credential, token, link or request body, and the events are described
+for operators in
+[Administer accounts and sign-in](/docs/self-hosting/administration/#the-administration-log). Nothing
+writes these lines to a file: retention is whatever your container logging keeps.
+
 ## Invitation-only registration
 
 Public self-service sign-up is closed, so an account is created only from an invitation the operator
@@ -164,8 +171,13 @@ production data: `test:integration`, `test:auth` and `test:oauth` write to the s
   sessions and refresh tokens issued under the old value stop verifying, so plan for everyone to sign
   in again. `bun run setup:local` and `bun run setup:auth` manage the local file; production keeps the
   value in `.env.prod` (mode `0600`).
-- Social providers are optional. A provider appears only when both its variables are set, and a
-  half-configured pair fails startup naming the variables.
+- `ARTIFLOW_SECRET_ENCRYPTION_KEY` protects the client secrets stored from the interface. Without it a
+  credential cannot be saved; with a different one, a stored credential cannot be decrypted, the
+  provider or connection it belongs to stops being offered and the credential has to be re-entered.
+  Keep it stable and in the same backup as the database.
+- Social providers are optional and the environment is only a seed: the pairs are adopted on the first
+  boot of an instance with no stored access configuration, and are ignored afterwards. A half-configured
+  pair still fails startup naming the variables. Manage providers on `/admin/access`.
 - `.env.prod` is never committed. `bun run setup:local` refuses to read or modify an env file it does
   not own, and the API's configuration errors name variables, never values.
 
@@ -173,9 +185,10 @@ production data: `test:integration`, `test:auth` and `test:oauth` write to the s
 
 - There is no rate limiting on `/share`, and public links never expire. Rotate or revoke a link from
   the dashboard when it should stop working.
-- Access tokens are 900-second JWTs and cannot be revoked before they expire; refresh tokens rotate and
-  a replay revokes the family.
-- There is no built-in monitoring, alerting, metrics endpoint or audit log beyond process logs.
+- Access tokens are 900-second JWTs. One cannot be revoked in isolation, but deactivating an account
+  revokes every token issued to it and both bearer surfaces refuse it from the next request.
+- There is no built-in monitoring, alerting or metrics endpoint. The structured administration lines
+  are the audit record, and they are as durable as your process logging.
 - The production stack does not publish the documentation site, and a fresh-machine production
   bootstrap has not been verified end to end.
 
@@ -193,4 +206,7 @@ production data: `test:integration`, `test:auth` and `test:oauth` write to the s
 ## Next
 
 If the instance is healthy but an agent cannot publish, continue with
-[Connect an agent](/docs/connect/mcp/) and [Share and publish](/docs/guides/sharing/).
+[Connect an agent](/docs/connect/mcp/) and [Share and publish](/docs/guides/sharing/). For people
+rather than agents, continue with [Administer accounts and sign-in](/docs/self-hosting/administration/),
+[Identity providers](/docs/self-hosting/identity-providers/) and
+[Recover access and remove a person](/docs/self-hosting/recovery/).

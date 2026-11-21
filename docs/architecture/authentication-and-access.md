@@ -3,8 +3,8 @@
 Preimplementation design for instance-level user administration and authentication:
 administrator role, administrable access methods, user lifecycle, invitations, sessions,
 password policy and one enterprise OIDC connection. It states what we build and why, and
-what we deliberately do not build. Status: proposed, awaiting approval; no part of it is
-implemented yet.
+what we deliberately do not build. Status: implemented, except where a section records that
+the shipped build does something narrower than the design.
 
 The approved functional specification lives outside this repository (Linear, project
 Artiflow). This document answers its preimplementation gate and is subordinate to it: where
@@ -95,7 +95,7 @@ setting document:
 | `access.methods`  | Password and social provider enablement, with provenance    |
 | `access.sso`      | The single connection: issuer, client id, scopes, policy     |
 | `password.policy` | Minimum length and the four composition requirements        |
-| `sessions.policy` | Session lifetime and idle refresh                           |
+| `sessions.policy` | Session lifetime and idle refresh, declared in the store but not read or written by any endpoint in this build |
 | `bootstrap`       | Adoption markers: environment seed time, admin recovery use |
 
 Each document has a Zod schema in `packages/contracts`. Writers reject unknown keys, readers
@@ -217,9 +217,12 @@ Presence is answered by whether the row exists, without decrypting it into a ret
 
 - **Absent key.** If no secret has ever been stored, the SSO surface reports that
   encryption is unconfigured and refuses to save; the rest of the instance works. If a
-  secret exists and the key is missing, startup fails closed rather than silently dropping
-  the connection. A first-boot seed that finds provider variables but no key refuses to
-  write anything rather than storing them unprotected.
+  stored secret can no longer be decrypted — no key, or a different one — the provider or
+  connection that names it is left out of the sign-in snapshot and the rest of the instance
+  keeps serving, so sign-in through it stops while the document still reads enabled; the
+  credential has to be entered again under the key in force. A first-boot seed that finds
+  provider variables but no key refuses to write anything rather than storing them
+  unprotected, and startup fails with the reason.
 - **Rotation.** The key id in the ciphertext allows a new key to be introduced and old
   values re-encrypted by a console command later. Rotation is not part of v1's UI; the
   format is chosen so that it does not require a schema change.
@@ -318,10 +321,10 @@ The user directory is read and edited through two routes behind the administrato
 
 ## 9. Sessions, deactivation and revocation (D6, D7)
 
-**Decision.** Session lifetime becomes explicit: `expiresIn` 7 days, `updateAge` 1 day,
-which is today's library default made visible and configurable through
-`sessions.policy`. The session cookie keeps `httpOnly`, `sameSite=lax` and the `artiflow`
-prefix.
+**Decision.** Session lifetime is the library's own, 7 days with a 1-day activity refresh. The
+session cookie keeps `httpOnly`, `sameSite=lax` and the `artiflow` prefix. `sessions.policy` is
+declared in the store for the later configurable version, but no endpoint or page reads or
+writes it in this build, so the lifetime is fixed in code.
 
 Deactivation writes `user.status = 'deactivated'`, `deactivated_at` and `deactivated_by`,
 deletes that user's `session` rows, revokes the refresh tokens issued to that account, and
@@ -860,7 +863,8 @@ address that holds no account is recorded with `actorId` and `subjectId` `unattr
 recorded by an after-hook that reads the freshly created session before the lock destroys it,
 so an admitted and a refused social attempt are the same closed line as the password ones.
 
-There is no `body`, `token`, `link`, `address` or secret field in the shape, and every line is
+There is no `body`, `token`, `link` or secret field in the shape, the only address it ever carries
+is the pair on a `user.updated` line that moved one, and every line is
 built from a typed object rather than from a request, which is what makes redaction structural
 instead of a filter that can be forgotten: the invitation and reset issuance lines carry the
 invitation or account identifier, never the link that was answered once, and the registration
@@ -887,10 +891,12 @@ to stdout, and exit non-zero on refusal:
 | `admin:grant EMAIL`                              | Make an existing account an administrator (first admin, recovery) |
 | `admin:revoke EMAIL`                             | Return an administrator to the member role                        |
 | `admin:list`                                     | Print administrator emails in order; exit 0 when there is none    |
-| `user:deactivate EMAIL` / `user:activate EMAIL`  | Same semantics as the UI paths, without the UI                    |
 | `user:purge EMAIL --reassign-to EMAIL`           | Delete the account, reassigning its artifacts                     |
 | `user:purge EMAIL --delete-content`              | Delete the account and its artifacts                              |
 | `user:invite EMAIL`, `user:reset-password EMAIL` | Unchanged; one event on stderr                                    |
+
+Deactivation and reactivation are not console commands in this build: both live only in the users
+directory, and the only console operation that ends access is the purge below.
 
 `admin:grant` never creates an account: an unknown address is refused with a message that names
 `user:invite` (resolved decision 7). `admin:revoke` refuses an unknown address and an account that
@@ -926,7 +932,10 @@ schema's cascades and `on delete set null` rules; a comment they resolved keeps 
   the people they were shared with. Nothing is deleted on this path except the account and what
   belongs to it alone.
 - **`--delete-content`** deletes the `artifacts` rows of the person, which cascades to
-  `artifactRevisions`, `artifactComments`, `artifactShares` and `artifactPublicLinks`. The revision
+  `artifactRevisions`, `artifactComments`, `artifactShares` and `artifactPublicLinks`. It also
+  takes the comments the person wrote on other people's artifacts and the grants they issued
+  there, because `artifactComments.authorId` and `artifactShares.grantedByUserId` are
+  `on delete cascade` and only the reassignment path moves them. The revision
   rows carry the storage keys, so the bytes become unreferenced and the revision-orphan sweep of
   section 4 removes them; nothing reads them in the meantime.
 
@@ -972,9 +981,9 @@ product owner; the rest are technical calls recorded here with their reason.
    the same row for the later SAML work. Pinned and upgraded deliberately; a hand-written OIDC
    client was rejected because the trust matrix is the part we must own and the protocol
    plumbing is not.
-2. **Session lifetime — 7 days with a 1-day activity refresh**, today's library default made
-   explicit and configurable through `sessions.policy`. Shorter and longer options stay
-   available per instance without code changes.
+2. **Session lifetime — 7 days with a 1-day activity refresh**, today's library default. A
+   `sessions.policy` document is declared for a later release; this build does not read it, so
+   the lifetime is not yet configurable.
 3. **Fallback parameter — `?fallback=1`** on `/login`. It only affects rendering; the
    server-side guard of section 10 is what decides whether an alternative method is allowed.
 4. **Environment configuration — no migration flow**, because no deployment configures
