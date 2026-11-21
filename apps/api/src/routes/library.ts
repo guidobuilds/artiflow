@@ -30,7 +30,7 @@ import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
-import { viewerFor, wireNameFor } from "@artiflow/domain/kinds";
+import { rendersInlineMarkdown, wireNameFor } from "@artiflow/domain/kinds";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -219,7 +219,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
     const refresh = { metaUrl: `/api/artifacts/${row.id}`, revisionNumber: row.revisionNumber, sha256: row.sha256 };
-    if (viewerFor(row.kind) === "inline-markdown") {
+    if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const comments = {

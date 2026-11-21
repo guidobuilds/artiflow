@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { ARTIFACT_KINDS, agentWriteFor } from "@artiflow/domain/kinds";
+import { ARTIFACT_KINDS, acceptsTextOperations } from "@artiflow/domain/kinds";
 import { applyLineOps, decodeMarkdownText, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
 import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
 import {
@@ -455,7 +455,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       if (row.deletedAt) return { ok: false, reply: refusal("gone", "artifact_deleted", { artifactId }) };
       if (!row.id || !row.sha256 || !row.storageKey)
         return { ok: false, reply: refusal("not_found", "revision_not_found", { artifactId }) };
-      if (agentWriteFor(row.kind) !== "text-operations")
+      if (!acceptsTextOperations(row.kind))
         return {
           ok: false,
           reply: refusal("wrong_kind", "artifact_is_not_a_markdown_document", { artifactId, kind: row.kind }),

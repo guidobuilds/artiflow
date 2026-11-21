@@ -27,7 +27,7 @@ import {
 import { Card, CardGrid, FileTile } from "@/components/ui/card.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { cn } from "@/lib/utils.ts";
-import { ARTIFACT_KINDS, glyphFor, labelFor, type ArtifactKind } from "@artiflow/domain/kinds";
+import { ARTIFACT_KINDS, iconFor, labelFor, type ArtifactKind, type KindIcon } from "@artiflow/domain/kinds";
 import { openArtifact } from "./editor-api.ts";
 import ShareModal from "./ShareModal.tsx";
 import DeleteModal from "./DeleteModal.tsx";
@@ -42,6 +42,11 @@ type State =
 type Row = { artifact: ArtifactSummary; owner?: string };
 type Layout = "list" | "grid";
 type Kind = "all" | ArtifactKind;
+const DASHBOARD_ICONS: Record<KindIcon, IconName> = {
+  page: "html",
+  document: "markdown",
+  unknown: "doc",
+};
 const KINDS: { value: Kind; label: string }[] = [
   { value: "all", label: "All" },
   ...ARTIFACT_KINDS.map((kind) => ({ value: kind, label: `${labelFor(kind)}s` })),
@@ -245,7 +250,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
 
   const counts = { all: allRows.length, mine: artifacts.length, shared: sharedRows.length };
   const kindOf = (artifact: ArtifactSummary) => ({
-    icon: glyphFor(artifact.kind) as IconName,
+    icon: DASHBOARD_ICONS[iconFor(artifact.kind)],
     label: labelFor(artifact.kind),
   });
   const recent = [...allRows]

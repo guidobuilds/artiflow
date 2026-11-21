@@ -15,7 +15,7 @@ import {
   type SavedRevision,
 } from "@artiflow/contracts/document";
 import { commentListResponseSchema, type CommentListResponse } from "@artiflow/contracts/comments";
-import { capabilitiesFor } from "@artiflow/domain/kinds";
+import { acceptsTextOperations, capabilitiesFor } from "@artiflow/domain/kinds";
 import { applyLineOps, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
 
 export type Refusal = { error: string; message: string; [key: string]: unknown };
@@ -263,7 +263,7 @@ export function createArtifactApi(options: ArtifactApiOptions) {
       const target = kind ?? (await kindOf(artifactId));
       const capabilities = capabilitiesFor(target);
       if (capabilities === null) return refusal("wrong_kind", { artifactId });
-      if (capabilities.agentWrite === "text-operations") {
+      if (acceptsTextOperations(target)) {
         const response = await send(`/artifacts/${encodeURIComponent(artifactId)}/document`, {
           method: "PUT",
           body: JSON.stringify({ text, expectedRevisionId }),

@@ -1,4 +1,4 @@
-import { capabilitiesFor } from "@artiflow/domain/kinds";
+import { rendersSandboxedHtml } from "@artiflow/domain/kinds";
 import { MCP_SERVER_INFO } from "@artiflow/mcp-server/claims";
 import { ARTIFACT_VIEWER_RESOURCE_URI, VIEWER_RESOURCE_MIME } from "@artiflow/mcp-server/constants";
 
@@ -15,5 +15,5 @@ export function deliveryMode(input: { supportsAppsMeta?: boolean }): FallbackMod
 }
 
 export function canRenderAppsFrame(input: { kind?: string }): boolean {
-  return capabilitiesFor(input.kind ?? "")?.viewer === "sandboxed-html";
+  return rendersSandboxedHtml(input.kind ?? "");
 }

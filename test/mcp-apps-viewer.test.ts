@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
-import { runInNewContext } from "node:vm";
+import { runInNewContext, Script } from "node:vm";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -12,6 +12,7 @@ import { createMcpBackend } from "../apps/api/src/mcp/backend.ts";
 import type { Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import { MCP_SERVER_INFO } from "../apps/api/src/mcp/mount.ts";
 import { WRAPPER_CSP } from "../apps/api/src/viewer/html.ts";
+import { mcpAppsViewerHtml } from "@artiflow/mcp-apps/viewer";
 
 const noopDb = {} as never;
 const noopDatabase = { db: noopDb } as unknown as Database;
@@ -572,4 +573,20 @@ test("a doctype artifact keeps its doctype first and the CSP element right after
   const meta = `<meta http-equiv="Content-Security-Policy" content="${WRAPPER_CSP}">`;
   assert.equal(blob.body, doctype + meta + page.slice(doctype.length), "the artifact keeps its doctype first");
   assert.ok(blob.body.indexOf(meta) < blob.body.indexOf("<html>"), "the policy still precedes every artifact element");
+});
+
+test("a hostile capability map cannot break out of the inline script", () => {
+  const html = mcpAppsViewerHtml({
+    "</script><script>alert(1)</script>": { viewer: "sandboxed-html" },
+    "line\u2028separator\u2029and<b>&amp;": { viewer: "inline-markdown" },
+  });
+  assert.equal([...html.matchAll(/<script\b/g)].length, 1, "a hostile key never adds a script tag");
+  const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1] ?? "";
+  assert.ok(script.length > 0, "the inline script is still extractable");
+  assert.equal(script.includes("</script"), false, "no closing tag ever lands inside the script");
+  assert.doesNotThrow(() => new Script(script), "the escaped map keeps the script parseable");
+  const map = script.match(/var KIND_VIEWERS = (.*);/)?.[1] ?? "";
+  assert.ok(map.length > 0, "the emitted map is present");
+  for (const char of ["<", ">", "&", "\u2028", "\u2029"])
+    assert.equal(map.includes(char), false, `the emitted map carries no raw ${JSON.stringify(char)}`);
 });

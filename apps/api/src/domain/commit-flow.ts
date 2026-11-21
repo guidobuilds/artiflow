@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { Database } from "../adapters/postgres/db/client.ts";
 import { MAX_ARTIFACT_BYTES, ARTIFACT_KINDS } from "../adapters/postgres/db/artifact-schema.ts";
-import { agentWriteFor } from "@artiflow/domain/kinds";
+import { acceptsTextOperations } from "@artiflow/domain/kinds";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import type { Storage } from "../adapters/storage/client.ts";
 import { createArtifactWithRevision, getCurrentState, setRevisionCas, type RevisionInput } from "./commits.ts";
@@ -128,8 +128,7 @@ export async function copyRevisionBytes(input: CopyRevisionInput): Promise<Stora
   return { ok: true, value: { storageKey: stored.value.storageKey, sha256, sizeBytes: stored.value.sizeBytes } };
 }
 
-const storesText = (kind: string | undefined): boolean =>
-  kind !== undefined && agentWriteFor(kind) === "text-operations";
+const storesText = (kind: string | undefined): boolean => kind !== undefined && acceptsTextOperations(kind);
 
 export async function commitUpload(input: CommitUploadInput): Promise<CommitFlowResult> {
   const { database, storage, ownerId, uploadId, bytes, artifactId, title, expectedRevisionId, kind } = input;
