@@ -2,7 +2,13 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { test } from "node:test";
 
-import { AVATAR_PATHS, DEFAULT_AVATAR, avatarSource, initialsOf, randomAvatar } from "../packages/domain/src/avatars.ts";
+import {
+  AVATAR_PATHS,
+  DEFAULT_AVATAR,
+  avatarSource,
+  initialsOf,
+  randomAvatar,
+} from "../packages/domain/src/avatars.ts";
 
 test("every bundled avatar exists in the dashboard public folder", () => {
   assert.equal(AVATAR_PATHS.length, 4);

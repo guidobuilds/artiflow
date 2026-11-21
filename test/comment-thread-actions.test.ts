@@ -11,10 +11,7 @@ test("resolving an open thread targets resolved and reopening targets unresolved
 
 test("a draft with an anchor is never blocked", () => {
   assert.equal(draftBlockedReason(null), null);
-  assert.equal(
-    draftBlockedReason({ anchor: { kind: "text-range" }, candidates: [] }),
-    null,
-  );
+  assert.equal(draftBlockedReason({ anchor: { kind: "text-range" }, candidates: [] }), null);
 });
 
 test("a selection that matched several places blocks submission with a reason", () => {

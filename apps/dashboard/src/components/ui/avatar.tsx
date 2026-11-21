@@ -28,7 +28,9 @@ export function UserAvatar({
   return (
     <Avatar size={size} className={cn("overflow-hidden", className)} {...props}>
       {failed ? (
-        name ? <span aria-hidden="true">{initialsOf(name)}</span> : null
+        name ? (
+          <span aria-hidden="true">{initialsOf(name)}</span>
+        ) : null
       ) : (
         <img
           src={avatarSource(image)}
