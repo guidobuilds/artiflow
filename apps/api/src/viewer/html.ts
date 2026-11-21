@@ -2,7 +2,7 @@ import { assetsHead, assetsScripts, type viewerCommentsAssets } from "./assets.t
 
 export const WRAPPER_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
-export const VIEWER_CSP: string = `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'`;
+export const VIEWER_CSP: string = `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'`;
 export const VIEWER_HEADERS = {
   "content-security-policy": VIEWER_CSP,
   "x-content-type-options": "nosniff",
@@ -174,6 +174,7 @@ const applyRevision = async (revision) => {
   if (refresh.srcdocUrl === null) {
     // A server-rendered document has no byte endpoint to read: reload, asking the browser to keep
     // the reader where they were.
+    if (document.querySelector("[data-comment-draft='typed'], [data-comment-input='typed']") !== null) return;
     try {
       history.scrollRestoration = "auto";
     } catch (error) {
@@ -256,10 +257,11 @@ ${VIEWER_CHROME_CSS}
 body.focus .vbar{display:none}
 body.focus .vbar-exit{display:block}
 .docshell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;overflow:hidden}
-.docshell.comments-visible{grid-template-columns:minmax(0,1fr) 320px}
+.docshell.comments-visible{grid-template-columns:minmax(0,1fr) 360px}
 .viewer-comments{display:none}
-.docshell.comments-visible .viewer-comments{display:block;overflow:auto;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
-@media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
+.docshell.comments-visible .viewer-comments{display:block;position:relative;overflow:hidden;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
+.docshell.comments-visible .viewer-comments .comment-thread-unplaced{position:absolute;top:12px}
+@media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}.docshell.comments-visible .viewer-comments{grid-column:1;grid-row:2;padding:4px 12px;border-left:0;border-top:1px solid var(--line-strong)}.docshell.comments-visible .viewer-comments .comment-thread-margin-root{height:auto}}
 iframe{height:100%;min-height:0;width:100%;border:0;background:white}
 </style>
 ${comments === undefined ? "" : assetsHead(comments.assets)}</head>

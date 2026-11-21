@@ -14,17 +14,20 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
   const CHANNEL = ${literal(BRIDGE_CHANNEL)};
   const VERSION = ${literal(BRIDGE_VERSION)};
   const NONCE = ${literal(nonce)};
-  const PINS = ${literal(pins)};
+  let PINS = ${literal(pins)};
   const HINT_LIMIT = 120;
   const HINTS = ["h1","h2","h3","h4","p","li","td","th","figcaption","blockquote","button","a","span","div"];
   const SKIP = new Set(["html","head","body","script","style","meta","link","title"]);
   const layer = document.createElement("div");
   layer.setAttribute("data-artiflow-pin-layer", "");
-  layer.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483647";
+  layer.style.cssText = "position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;z-index:2147483647";
   const post = (message) => {
     try { window.parent.postMessage({ channel: CHANNEL, version: VERSION, nonce: NONCE, ...message }, "*"); } catch (error) {}
   };
   const box = (element) => element.getBoundingClientRect();
+  const reducedMotion = () => {
+    try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches === true; } catch (error) { return false; }
+  };
   const cssEscape = (value) => {
     const characters = Array.from(value);
     return characters.map((character, index) => {
@@ -90,13 +93,15 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       if (!mark) continue;
       const found = resolve(pin);
       const previous = mark.dataset.at ? mark.dataset.at.split(",").map(Number) : null;
+      const scrollX = window.scrollX || 0;
+      const scrollY = window.scrollY || 0;
       let left = 0;
       let top = 0;
       let visible = false;
       if (found.element) {
         const rect = box(found.element);
-        left = rect.left + pin.x * rect.width;
-        top = rect.top + pin.y * rect.height;
+        left = rect.left + scrollX + pin.x * rect.width;
+        top = rect.top + scrollY + pin.y * rect.height;
         visible = true;
         mark.classList.remove("artiflow-pin-stale");
         mark.style.borderStyle = "solid";
@@ -116,13 +121,18 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
           top = Math.max(24, Math.round(pin.y * (window.innerHeight || 1)));
         }
       }
+      const rounded = Math.round(left) + "," + Math.round(top) + "," + visible;
       mark.style.transform = "translate(" + Math.round(left) + "px," + Math.round(top) + "px)";
       if (visible) mark.dataset.at = Math.round(left) + "," + Math.round(top);
+      if (mark.dataset.sent === rounded) continue;
+      mark.dataset.sent = rounded;
       post({ type: "geometry", id: pin.id, x: Math.round(left), y: Math.round(top), visible });
     }
   };
   const mount = () => {
     if (!layer.isConnected) document.documentElement.appendChild(layer);
+    marks.clear();
+    layer.textContent = "";
     for (const pin of PINS) {
       const mark = document.createElement("button");
       mark.type = "button";
@@ -156,7 +166,8 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
     if (!element) { highlight.style.display = "none"; return; }
     const rect = box(element);
     highlight.style.display = "block";
-    highlight.style.transform = "translate(" + Math.round(rect.left) + "px," + Math.round(rect.top) + "px)";
+    highlight.style.transform =
+      "translate(" + Math.round(rect.left + (window.scrollX || 0)) + "px," + Math.round(rect.top + (window.scrollY || 0)) + "px)";
     highlight.style.width = Math.round(rect.width) + "px";
     highlight.style.height = Math.round(rect.height) + "px";
   };
@@ -195,11 +206,51 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       if (!mode) { showHighlight(null); hovered = null; }
       return;
     }
+    if (data.type === "pins" && Array.isArray(data.pins)) {
+      PINS = data.pins.map((pin) => ({ ...pin, stalePixels: pin.stale === true }));
+      mount();
+      return;
+    }
     if (data.type === "focus") {
       const mark = data.id ? marks.get(data.id) : null;
       for (const other of marks.values()) other.classList.toggle("artiflow-pin-active", other === mark);
+      if (!mark) return;
+      const pin = PINS.find((candidate) => candidate.id === data.id);
+      const found = pin ? resolve(pin) : { missing: true };
+      const target = found.element || mark;
+      const rect = box(target);
+      if (rect.bottom < 0 || rect.top > (window.innerHeight || 0)) {
+        const reduced = reducedMotion();
+        try { target.scrollIntoView({ block: "center", behavior: reduced ? "instant" : "smooth" }); } catch (error) {}
+      }
+      if (!reducedMotion() && typeof mark.animate === "function") {
+        try {
+          mark.animate(
+            [{ boxShadow: "0 0 0 0 rgba(255,106,43,.7)" }, { boxShadow: "0 0 0 14px rgba(255,106,43,0)" }],
+            { duration: 600, easing: "ease-out" },
+          );
+        } catch (error) {}
+      }
     }
   });
+  let frame = 0;
+  let scrolled = false;
+  const flush = () => {
+    frame = 0;
+    place();
+    if (scrolled) {
+      scrolled = false;
+      post({ type: "scroll", y: Math.round(window.scrollY || 0) });
+    }
+  };
+  const schedule = () => {
+    if (frame !== 0) return;
+    frame = window.requestAnimationFrame(flush);
+  };
+  const announceScroll = () => {
+    scrolled = true;
+    schedule();
+  };
   const start = () => {
     if (!document.documentElement) return;
     document.documentElement.appendChild(highlight);
@@ -207,12 +258,14 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
     document.addEventListener("mousemove", onMove, true);
     document.addEventListener("click", onClick, true);
     window.addEventListener("load", place);
+    window.addEventListener("load", announceScroll);
     setTimeout(place, 120);
     document.addEventListener("DOMContentLoaded", place);
-    window.addEventListener("scroll", place, true);
-    window.addEventListener("resize", place, true);
-    if (typeof ResizeObserver === "function") new ResizeObserver(place).observe(document.documentElement);
+    window.addEventListener("scroll", announceScroll, true);
+    window.addEventListener("resize", schedule, true);
+    if (typeof ResizeObserver === "function") new ResizeObserver(schedule).observe(document.documentElement);
     post({ type: "ready" });
+    announceScroll();
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();

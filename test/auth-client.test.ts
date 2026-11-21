@@ -78,7 +78,7 @@ test("a session rejects incomplete users and exposes only id, name and email", a
     }),
   );
   const result = await getSession();
-  assert.deepEqual(result, { ok: true, value: { id: "u1", name: "Ada", email: "ada@example.test" } });
+  assert.deepEqual(result, { ok: true, value: { id: "u1", name: "Ada", email: "ada@example.test", image: null } });
   assert.equal(JSON.stringify(result).includes("session-token-value"), false);
 });
 
@@ -112,7 +112,7 @@ test("sign-in confirms identity from get-session and drops the returned token", 
   const result = await signIn({ email: "owner@example.test", password: "local-password" });
   assert.deepEqual(result, {
     ok: true,
-    value: { id: "real", name: "Real Owner", email: "owner@example.test" },
+    value: { id: "real", name: "Real Owner", email: "owner@example.test", image: null },
   });
   assert.equal(calls.length, 2);
   assert.equal(calls[1]?.url, "/api/auth/get-session");

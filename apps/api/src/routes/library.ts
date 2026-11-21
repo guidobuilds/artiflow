@@ -85,6 +85,27 @@ async function listSharedArtifacts(db: AppDb, userId: string) {
     .limit(SHARED_LIMIT);
 }
 
+type ReadableArtifactRow = { storageKey: string | null; sha256: string | null; revisionNumber: number | null };
+
+export type CommentsListGate<A extends ReadableArtifactRow> =
+  | { kind: "ok"; ownerId: string; artifact: A; storageKey: string; sha256: string; revisionNumber: number }
+  | { kind: "unauthorized" }
+  | { kind: "not_found" }
+  | { kind: "no_current_revision" };
+
+export function commentsListGate<A extends ReadableArtifactRow>(input: {
+  bearerPresent: boolean;
+  sessionUserId: string | null;
+  artifact: A | null | undefined;
+}): CommentsListGate<A> {
+  if (input.bearerPresent) return { kind: "unauthorized" };
+  if (input.sessionUserId === null) return { kind: "unauthorized" };
+  if (input.artifact === null || input.artifact === undefined) return { kind: "not_found" };
+  const { storageKey, sha256, revisionNumber } = input.artifact;
+  if (!storageKey || !sha256 || revisionNumber === null) return { kind: "no_current_revision" };
+  return { kind: "ok", ownerId: input.sessionUserId, artifact: input.artifact, storageKey, sha256, revisionNumber };
+}
+
 const methodNotAllowed = (c: Context) => jsonError(c, "method_not_allowed", 405);
 
 async function readableArtifact(db: AppDb, artifactId: string, userId: string) {
@@ -163,6 +184,29 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     } satisfies ArtifactDetail);
   });
 
+  const ownerCommentsConfig = async (artifactId: string, sha256: string, ownerId: string, source: string | null) => {
+    const degraded = await loadViewerComments({
+      document: () => commentDocument(db, ownerId, artifactId, "shared"),
+      list: () => listComments(db, artifactId, true),
+      onError: (error) => console.error(`[viewer] comments degraded for ${artifactId}`, error),
+    });
+    return viewerCommentsConfig({
+      artifactId,
+      ...(source === null ? { mode: "element" as const, bridgeNonce: bridgeNonce(artifactId, sha256) } : {}),
+      source: source ?? "",
+      rows: degraded.rows,
+      viewerId: ownerId,
+      canComment: degraded.canComment,
+      canDeleteOwn: true,
+      endpoints: {
+        comments: `/api/artifacts/${artifactId}/comments`,
+        resolve: `/api/artifacts/${artifactId}/comments`,
+        deleteComment: `/api/artifacts/${artifactId}/comments`,
+        list: `/artifact/${artifactId}/comments`,
+      },
+    });
+  };
+
   const viewerPage = async (c: Context, artifactId: string, ownerId: string, embed: boolean) => {
     const row = await readableArtifact(db, artifactId, ownerId);
     if (!row) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
@@ -179,25 +223,8 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (row.kind === "markdown") {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const degraded = await loadViewerComments({
-        document: () => commentDocument(db, ownerId, row.id, "shared"),
-        list: () => listComments(db, row.id, true),
-        onError: (error) => console.error(`[viewer] comments degraded for ${row.id}`, error),
-      });
       const comments = {
-        config: viewerCommentsConfig({
-          artifactId: row.id,
-          source: decoded.text,
-          rows: degraded.rows,
-          viewerId: ownerId,
-          canComment: degraded.canComment,
-          canDeleteOwn: true,
-          endpoints: {
-            comments: `/api/artifacts/${row.id}/comments`,
-            resolve: `/api/artifacts/${row.id}/comments`,
-            deleteComment: `/api/artifacts/${row.id}/comments`,
-          },
-        }),
+        config: await ownerCommentsConfig(row.id, row.sha256, ownerId, decoded.text),
         assets: viewerCommentsAssets(),
       };
       return c.html(
@@ -214,27 +241,8 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    const htmlShared = await loadViewerComments({
-      document: () => commentDocument(db, ownerId, row.id, "shared"),
-      list: () => listComments(db, row.id, true),
-      onError: (error) => console.error(`[viewer] comments degraded for ${row.id}`, error),
-    });
+    const htmlConfig = await ownerCommentsConfig(row.id, row.sha256, ownerId, null);
     const nonce = bridgeNonce(row.id, row.sha256);
-    const htmlConfig = viewerCommentsConfig({
-      artifactId: row.id,
-      mode: "element",
-      bridgeNonce: nonce,
-      source: "",
-      rows: htmlShared.rows,
-      viewerId: ownerId,
-      canComment: htmlShared.canComment,
-      canDeleteOwn: true,
-      endpoints: {
-        comments: `/api/artifacts/${row.id}/comments`,
-        resolve: `/api/artifacts/${row.id}/comments`,
-        deleteComment: `/api/artifacts/${row.id}/comments`,
-      },
-    });
     return c.html(
       wrapperPage(
         escaped,
@@ -272,6 +280,33 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     const ownerId = await sessionUserId(auth, c.req.raw.headers);
     if (!ownerId) return c.json({ error: "unauthorized" }, 401);
     return viewerPage(c, c.req.param("id"), ownerId, c.req.query("embed") === "1");
+  });
+
+  app.get("/artifact/:id/comments", async (c) => {
+    const bearerPresent = c.req.raw.headers.has("authorization");
+    const ownerId = bearerPresent ? null : await sessionUserId(auth, c.req.raw.headers);
+    const row = ownerId === null ? null : await readableArtifact(db, c.req.param("id"), ownerId);
+    const gate = commentsListGate({ bearerPresent, sessionUserId: ownerId, artifact: row });
+    if (gate.kind === "unauthorized") return c.json({ error: "unauthorized" }, 401);
+    if (gate.kind === "not_found") return c.json({ error: "not_found" }, 404);
+    if (gate.kind === "no_current_revision") return c.json({ error: "no_current_revision" }, 409);
+    if (gate.kind !== "ok") return c.json({ error: "not_found" }, 404);
+    let source: string | null = null;
+    if (gate.artifact.kind === "markdown") {
+      const read = await getRevisionBytes({
+        storage,
+        storageKey: gate.storageKey,
+        sha256: gate.sha256,
+        maxBytes,
+      });
+      if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      const decoded = decodeMarkdownText(read.value.bytes);
+      if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      source = decoded.text;
+    }
+    const config = await ownerCommentsConfig(gate.artifact.id, gate.sha256, gate.ownerId, source);
+    c.header("cache-control", "no-store");
+    return c.json({ canComment: config.canComment, threads: config.threads });
   });
 
   if (options.deletion) {

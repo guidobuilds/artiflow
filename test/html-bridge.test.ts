@@ -274,3 +274,50 @@ test("the injected bridge parses and escapes exactly like the domain helper", ()
   for (const sample of ['say "hi"', "a\\b", "a\nb", "a\u0001b"])
     assert.equal(run.cssString(sample), cssString(sample), `string escape agrees on ${JSON.stringify(sample)}`);
 });
+
+test("a scroll message needs a finite y", () => {
+  assert.equal(validate({ ...envelope, type: "scroll", y: 320 }).ok, true);
+  assert.equal(validate({ ...envelope, type: "scroll", y: 0 }).ok, true);
+  for (const y of ["320", Number.NaN, Number.POSITIVE_INFINITY, null, undefined])
+    assert.deepEqual(validate({ ...envelope, type: "scroll", y }), { ok: false, reason: "schema" });
+});
+
+test("version 2 refuses version 1 messages", () => {
+  assert.equal(BRIDGE_VERSION, 2);
+  assert.deepEqual(validate({ ...envelope, version: 1, type: "scroll", y: 1 }), { ok: false, reason: "wrong-version" });
+  assert.deepEqual(validate({ ...envelope, version: 1, type: "geometry", id: "c1", x: 1, y: 1, visible: true }), {
+    ok: false,
+    reason: "wrong-version",
+  });
+});
+
+test("the injected bridge replaces pins on command and honours reduced motion", () => {
+  const script = htmlBridgeScript({ nonce, pins: [pin] });
+  const body = script.slice(script.indexOf(">") + 1, script.lastIndexOf("</script>"));
+  assert.doesNotThrow(() => new vm.Script(body));
+  assert.match(body, /data\.type === "pins"/);
+  assert.match(body, /stalePixels: pin\.stale === true/);
+  assert.match(body, /prefers-reduced-motion: reduce/);
+  assert.match(body, /behavior: reduced \? "instant" : "smooth"/);
+  assert.match(body, /if \(!reducedMotion\(\) && typeof mark\.animate === "function"\)/);
+  assert.match(body, /position:absolute;top:0;left:0;width:0;height:0/);
+  assert.match(body, /post\(\{ type: "scroll"/);
+  assert.match(body, /requestAnimationFrame/);
+});
+
+test("the bridge announces the initial scroll position after ready and on load", () => {
+  const script = htmlBridgeScript({ nonce, pins: [pin] });
+  const body = script.slice(script.indexOf(">") + 1, script.lastIndexOf("</script>"));
+  assert.match(body, /post\(\{ type: "ready" \}\);\s*announceScroll\(\);/);
+  assert.match(body, /window\.addEventListener\("load", announceScroll\)/);
+  assert.match(body, /window\.addEventListener\("scroll", announceScroll, true\)/);
+  assert.match(body, /post\(\{ type: "scroll", y: Math\.round\(window\.scrollY \|\| 0\) \}\)/);
+});
+
+test("the html comments column never scrolls its own content so cards track the frame", () => {
+  const html = readFileSync(new URL("../apps/api/src/viewer/html.ts", import.meta.url), "utf8");
+  const rule = /\.docshell\.comments-visible \.viewer-comments\{([^}]*)\}/.exec(html);
+  assert.ok(rule);
+  assert.match(rule[1]!, /overflow:hidden/);
+  assert.match(rule[1]!, /position:relative/);
+});

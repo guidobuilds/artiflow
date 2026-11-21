@@ -247,6 +247,30 @@ dashed pin labelled "Element changed" when nothing matches uniquely. Pins are dr
 so they follow inner scroll, sticky elements and animations; the parent owns the margin, and no comment
 text ever crosses the bridge.
 
+The thread margin is a 360px column on the editor and both viewers. Closed threads are compact pills
+aligned with their anchors (author avatar and reply count, or a check mark once resolved); opening one
+shows a dock beside the pills, sticky 12px from the top of the visible area, with a `Thread i of n`
+header and previous/next/close, a scrollable body and an always-visible footer with the reply form and
+Resolve or Reopen and Delete. A new selection or picked element opens its draft in the dock and shows
+a ghost pill at the anchor. Threads without a location are listed in the dock area while no thread is
+open, so they stay reachable in the HTML viewer, whose column cannot scroll. The bridge posts the
+frame's scroll position once on ready and on load, so a frame that opens already scrolled places the
+pills correctly.
+
+Below 800px the pills hide and the same dock content opens as a bottom sheet (thread header with
+previous/next/close, replies, Resolve or Reopen, Delete, and a reply form kept in a sticky footer; new
+drafts open there too), reached from an `Open threads` button in the comments bar, which stays visible as
+a collapsed row. In the editor and both Markdown surfaces `J` and `K` move to the next or previous
+thread in document order (without wrapping), `R` focuses the open thread's reply box and `Esc` closes the
+open thread or draft. Keystrokes inside the sandboxed artifact frame belong to the artifact and never
+reach the page, so the HTML viewer is navigated from its pills and the `Open threads` control. Shortcuts
+are ignored while typing (including in the editor), with modifier keys held, during an IME composition,
+while comments are hidden, and while focus sits on a control that owns the key (toolbar buttons, links,
+menu items), where `Esc` also belongs to that control. A `#c-<threadId>` link opens that thread on load
+and on `hashchange`, revealing the comments column if the reader had hidden it, and scrolling the anchor
+into view (instantly under reduced motion; the HTML viewer uses the bridge `focus` command); opening a
+thread rewrites the hash with `replaceState` and closing it clears it. Unknown ids are ignored.
+
 The shared and public Markdown viewers render the sanitized fragment in the page itself and mount the
 same thread margin from a dedicated `viewer-comments` bundle, receiving an already-authorized JSON data
 island (`apps/api/src/viewer/comments-data.ts`) with each thread's staleness and text occurrence. The

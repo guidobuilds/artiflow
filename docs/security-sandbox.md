@@ -333,14 +333,15 @@ artifact bytes, and the parent keeps the margin and the cards.
 
 Protocol, versioned and nonce-scoped:
 
-| Direction      | Message              | Fields                                              |
-| -------------- | -------------------- | --------------------------------------------------- |
-| parent → frame | `pins`               | `{ id, number, selector, textHint, x, y, stale }[]` |
-| parent → frame | `mode`               | `{ on: boolean }`                                   |
-| parent → frame | `focus`              | `{ id: string \| null }`                            |
-| frame → parent | `geometry`           | `{ id, x, y, visible }`                             |
-| frame → parent | `pick`               | `{ selector, textHint, x, y, viewportWidth }`       |
-| frame → parent | `pin-click`, `ready` | `{ id }` / `{}`                                     |
+| Direction      | Message              | Fields                                                   |
+| -------------- | -------------------- | -------------------------------------------------------- |
+| parent → frame | `pins`               | `{ id, number, selector, textHint, x, y, stale }[]`      |
+| parent → frame | `mode`               | `{ on: boolean }`                                        |
+| parent → frame | `focus`              | `{ id: string \| null }`                                 |
+| frame → parent | `geometry`           | `{ id, x, y, visible }`, document-absolute               |
+| frame → parent | `scroll`             | `{ y }`, the frame's `scrollY`                           |
+| frame → parent | `pick`               | `{ selector, textHint, x, y, viewportWidth, viewportY }` |
+| frame → parent | `pin-click`, `ready` | `{ id }` / `{}`                                          |
 
 Every message carries `{ channel, version, nonce }`. The frame's origin is opaque (`null`), so origin
 is never used as identity: the parent requires `event.source === iframe.contentWindow`, the exact
@@ -361,6 +362,21 @@ Why this is safe to widen with:
 4. **The artifact still cannot reach the viewer.** It cannot read `parent.document`, navigate the top
    window or fetch the network (`default-src 'none'`).
 
-The CSP does not change: the wrapper already allows `script-src 'unsafe-inline'`, which is what the
-inline bridge needs, and the parent bundle is the same same-origin `viewer-comments` asset used by the
+The only CSP change is `img-src 'self'`, added to the comments-enabled viewer policy and to the
+Markdown viewer policy so the bundled user avatars (`/avatars/*`) can render in the comments column.
+No other host, script source or network channel is opened: `connect-src 'self'` and
+`default-src 'none'` are unchanged.
+
+The artifact frame does **not** gain image loading. It is a `srcdoc` frame with
+`sandbox="allow-scripts"` and no `allow-same-origin`, so its origin is opaque and `'self'` matches
+nothing inside it. Avatars load in the parent viewer page, which is same-origin with them. Adding
+`allow-same-origin` to the sandbox would make `'self'` meaningful there and turn author-controlled
+markdown or artifact markup into a credentialed same-origin request channel, so that attribute must
+stay out.
+
+The Markdown viewer page itself is same-origin and now allows `img-src 'self'`, so author-written
+markdown image syntax can make an authenticated reader's browser fetch a same-origin URL. Those GET
+routes are read-only and send no credentials beyond the session cookie the page already carries;
+documents that need to say otherwise must not rely on image syntax being inert. The wrapper already allows `script-src 'unsafe-inline'`, which is what the inline
+bridge needs, and the parent bundle is the same same-origin `viewer-comments` asset used by the
 Markdown viewer.

@@ -35,6 +35,7 @@ import {
 import { Autosave, type SaveState } from "./editor-autosave.ts";
 import { blockTypes, currentBlockType, toolbarGroups, markdownExtensions } from "./editor-markdown.ts";
 import MarkdownComments, { type CommentSelection } from "./components/comments/markdown-comments.tsx";
+import { revealCommentsForHash } from "./comment-thread-navigation.ts";
 import { browserCommentStorage, readCommentsVisible, writeCommentsVisible } from "./comment-visibility.ts";
 
 const labels = {
@@ -130,7 +131,9 @@ function DocumentEditor({ initial }: { initial: Document }) {
   const [pendingVersion, setPendingVersion] = useState<number | null>(null);
   const freshness = useRef<EditorFreshness | null>(null);
   const commentStorage = useRef(browserCommentStorage());
-  const [commentsVisible, setCommentsVisible] = useState(() => readCommentsVisible(commentStorage.current));
+  const [commentsVisible, setCommentsVisible] = useState(() =>
+    revealCommentsForHash(readCommentsVisible(commentStorage.current), window.location.hash),
+  );
   const [showResolved, setShowResolved] = useState(false);
   const [activeThread, setActiveThread] = useState<string | null>(null);
   const [anchorTops, setAnchorTops] = useState<Record<string, number>>({});
@@ -406,6 +409,13 @@ function DocumentEditor({ initial }: { initial: Document }) {
     if (editor && !editor.isDestroyed) editor.view.dispatch(editor.state.tr.setMeta(markerKey, true));
   }, [editor, comments, state.text, commentsVisible, showResolved, activeThread]);
   useEffect(() => {
+    const reveal = () => {
+      if (revealCommentsForHash(false, window.location.hash)) setCommentsVisible(true);
+    };
+    window.addEventListener("hashchange", reveal);
+    return () => window.removeEventListener("hashchange", reveal);
+  }, []);
+  useEffect(() => {
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         dismissed.current = true;
@@ -428,14 +438,12 @@ function DocumentEditor({ initial }: { initial: Document }) {
   const markAnchor = (id: string) => {
     const nodes = editor?.view.dom.querySelectorAll<HTMLElement>("[data-comment-id]");
     const matches = Array.from(nodes ?? []).filter((node) => node.dataset.commentId === id);
-    const canvas = canvasRef.current;
     const first = matches[0];
-    if (canvas && first) {
+    if (first) {
       const box = first.getBoundingClientRect();
-      const view = canvas.getBoundingClientRect();
-      if (box.top < view.top || box.bottom > view.bottom)
+      if (box.top < 0 || box.bottom > window.innerHeight)
         first.scrollIntoView({
-          block: "nearest",
+          block: "center",
           behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
         });
     }
@@ -444,6 +452,11 @@ function DocumentEditor({ initial }: { initial: Document }) {
       void node.offsetWidth;
       node.classList.add("comment-marker-flash");
     });
+  };
+  const commentShelfTop = () => {
+    const canvas = canvasRef.current;
+    const shelf = canvas?.parentElement?.querySelector<HTMLElement>(".comment-thread-margin") ?? canvas;
+    return shelf?.getBoundingClientRect().top ?? 0;
   };
   const measureAnchors = useCallback(() => {
     const view = editor?.view;
@@ -736,7 +749,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
                         text: editor.state.doc.textBetween(from, to, "\n"),
                         span,
                         serial: (previous?.serial ?? 0) + 1,
-                        top: Math.max(0, position.top - (canvasRef.current?.getBoundingClientRect().top ?? 0) - 8),
+                        top: Math.max(0, position.top - commentShelfTop()),
                       }));
                       dismissed.current = true;
                       editor.commands.setMeta("bubbleMenu", "hide");

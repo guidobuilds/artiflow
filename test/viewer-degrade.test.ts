@@ -79,6 +79,7 @@ test("the viewers refuse to report success on a rejected response and keep the d
   assert.match(source, /if \(!response\.ok\) throw new Error\(`Could not delete the comment/);
   assert.match(source, /state\.busy = false;/);
   assert.match(source, /state\.retry = \(\) => mutate\(run, after\);/);
+  assert.match(source, /state\.retry = \(\) => mutate\(run\);/);
   assert.equal(
     /onSubmitDraft=\{\(body\) => \{[^}]*state\.draft = null/.test(source),
     false,

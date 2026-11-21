@@ -1,4 +1,6 @@
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
+
+import { avatarSource, initialsOf } from "@artiflow/domain/avatars";
 
 import { cn } from "@/lib/utils.ts";
 
@@ -12,6 +14,33 @@ export function Avatar({ size = "sm", className, ...props }: ComponentProps<"spa
       )}
       {...props}
     />
+  );
+}
+
+export function UserAvatar({
+  image,
+  name,
+  size = "sm",
+  className,
+  ...props
+}: Omit<ComponentProps<typeof Avatar>, "children"> & { image: string | null | undefined; name?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <Avatar size={size} className={cn("overflow-hidden", className)} {...props}>
+      {failed ? (
+        name ? (
+          <span aria-hidden="true">{initialsOf(name)}</span>
+        ) : null
+      ) : (
+        <img
+          src={avatarSource(image)}
+          alt=""
+          draggable={false}
+          className="size-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </Avatar>
   );
 }
 

@@ -3,10 +3,15 @@ import { test } from "node:test";
 
 import {
   DEFAULT_THREAD_GAP,
+  DRAFT_ID,
+  anchorOffsets,
   layoutCommentThreads,
+  marginLayout,
   marginHeight,
   overlaps,
+  partitionPlaced,
   placementOf,
+  threadOrder,
 } from "../apps/dashboard/src/comment-thread-layout.ts";
 import {
   COMMENTS_VISIBLE_KEY,
@@ -66,6 +71,64 @@ test("the upward pass clamps at the top and shifts the whole block down", () => 
   assert.ok(placementOf(placed, "b")!.top >= placementOf(placed, "a")!.top + 100 + DEFAULT_THREAD_GAP - 0.001);
   assert.ok(placementOf(placed, "c")!.top >= placementOf(placed, "b")!.top + 100 + DEFAULT_THREAD_GAP - 0.001);
   for (let index = 1; index < placed.length; index++) assert.equal(overlaps(placed[index - 1]!, placed[index]!), false);
+});
+
+test("a block shifted down by the top clamp never overlaps the threads below the active one", () => {
+  const threads = Array.from({ length: 8 }, (_, index) => ({
+    id: `t${index + 1}`,
+    anchorTop: 200 + index * 10,
+    height: index === 3 ? 220 : 96,
+  }));
+  const placed = layoutCommentThreads({ threads, activeId: "t4" });
+  for (let first = 0; first < placed.length; first++)
+    for (let second = first + 1; second < placed.length; second++)
+      assert.equal(overlaps(placed[first]!, placed[second]!), false, `${placed[first]!.id} vs ${placed[second]!.id}`);
+  assert.ok(placementOf(placed, "t5")!.top >= placementOf(placed, "t4")!.top + 220 + DEFAULT_THREAD_GAP);
+});
+
+test("partitionPlaced separates threads without an anchor and stale threads", () => {
+  const threads = [
+    { id: "a", createdAt: "2026-01-01" },
+    { id: "b", createdAt: "2026-01-02" },
+    { id: "c", createdAt: "2026-01-03", stale: true },
+    { id: "d", createdAt: "2026-01-04", stale: false },
+  ];
+  const { placed, unplaced } = partitionPlaced(threads, { a: 10, c: 20, d: 0 });
+  assert.deepEqual(
+    placed.map((thread) => thread.id),
+    ["a", "d"],
+  );
+  assert.deepEqual(
+    unplaced.map((thread) => thread.id),
+    ["b", "c"],
+  );
+});
+
+test("threadOrder lists placed threads by anchor then id and unplaced ones by creation", () => {
+  const threads = [
+    { id: "z", createdAt: "2026-01-05" },
+    { id: "y", createdAt: "2026-01-01" },
+    { id: "b", createdAt: "2026-01-02" },
+    { id: "a", createdAt: "2026-01-03" },
+    { id: "m", createdAt: "2026-01-04", stale: true },
+  ];
+  assert.deepEqual(threadOrder(threads, { a: 50, b: 50, m: 5 }), ["a", "b", "y", "m", "z"]);
+  assert.deepEqual(threadOrder([], {}), []);
+});
+
+test("anchorOffsets keeps the rounded minimum offset per id relative to the origin", () => {
+  assert.deepEqual(
+    anchorOffsets(
+      [
+        { id: "a", top: 340.6 },
+        { id: "a", top: 300.2 },
+        { id: "b", top: 90 },
+      ],
+      100,
+    ),
+    { a: 200, b: -10 },
+  );
+  assert.deepEqual(anchorOffsets([], 10), {});
 });
 
 test("layout ignores input order and keeps anchors monotonic", () => {
@@ -128,4 +191,26 @@ test("the bar counter and the resolved filter follow the thread state", () => {
   assert.equal(openThreadCount(threads), 2);
   assert.equal(visibleThreads(threads, false).length, 2);
   assert.equal(visibleThreads(threads, true).length, 3);
+});
+
+test("an open draft takes its own slot and never overlaps the cards around it", () => {
+  const threads = [
+    { id: "above", anchorTop: 10, height: 96 },
+    { id: "below", anchorTop: 100, height: 96 },
+  ];
+  const closed = marginLayout({ threads, draft: null, activeId: null, minTop: 0 });
+  assert.equal(placementOf(closed, DRAFT_ID) ?? null, null);
+  const open = marginLayout({
+    threads,
+    draft: { anchorTop: 110, height: 220 },
+    activeId: null,
+    minTop: 0,
+  });
+  const draft = placementOf(open, DRAFT_ID);
+  assert.notEqual(draft ?? null, null);
+  assert.ok(draft!.top >= 110, `the draft never rises above its anchor, got ${draft!.top}`);
+  for (const other of open) {
+    if (other.id === DRAFT_ID) continue;
+    assert.equal(overlaps(draft!, other), false, `the draft must not overlap ${other.id} at ${other.top}`);
+  }
 });
