@@ -441,9 +441,26 @@ administrator cannot ask for a transition the account already stands in and cann
 the `status_unchanged` refusal from the interface. Both directions keep the confirmation
 that states the consequences before anything is sent.
 
-`/admin/invitations` names the current path instead of a dead form: invitations are
-issued from the console (`bun run user:invite`) until the interface for issuing, listing
-and revoking them ships in a later step, and the page says so with the command it names.
+`/admin/invitations` is the surface for section 8: an address field issues through
+`POST /api/admin/invitations`, and the pending list shows each row's email, its issuer
+(`issuedBy`, or the console when the row carries none), the day it was issued and the day
+it expires. Every row carries revoke and regenerate, sent to
+`POST /api/admin/invitations/:id/revoke` and `.../regenerate`; the page then reads the
+list again instead of editing it locally, because the stored rows are what it shows.
+
+A link is a bearer credential, so the page keeps it in component state only, for the
+moment of the call that created it: the answer to issuing or regenerating renders once
+with a copy action and the statement that it cannot be seen again, and dismissing it, or
+reloading at any point, leaves nothing behind. No link, hash or cookie is written to
+`localStorage`, `sessionStorage`, the URL or the console. Issuing for an address that held
+a deactivated account states that the account is active again and that this invitation
+sets its password, so the reactivation the server performed is never silent.
+
+`/admin/users` also issues reset links for the account open in the edit panel, through
+`POST /api/admin/reset-links`, with the same one-time reveal and the statement that only
+an active account can receive one. `user_not_found`, `account_deactivated`,
+`invalid_email` and the guard's refusals render in their own words, so a deactivated
+account is never reported as a missing one.
 
 **Decision.** The single connection is a row managed through `@better-auth/sso` (1.7.x, the
 same release line as `better-auth`), configured to make the library's defaults safe for

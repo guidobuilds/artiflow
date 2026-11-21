@@ -298,13 +298,13 @@ test("the administration shell carries the area, the four routes and the existin
   assert.equal((await readAdminGate()).kind, "ready");
 });
 
-test("the invitations entry states the console path instead of a dead form", () => {
+test("the invitations entry reaches the shipped surface instead of the console placeholder", () => {
   const page = read(INVITATIONS_PAGE);
-  assert.match(page, /bun run user:invite/);
-  assert.match(page, /console/i);
-  assert.match(page, /later\s+step/i);
-  assert.doesNotMatch(page, /<form|<Input|type="email"|<Button/);
-  assert.doesNotMatch(page, /\/api\/admin\/invitations|fetch\(/);
+  assert.match(page, /readPendingInvitations\(\)/, "the page reads the pending list from the server");
+  assert.match(page, /issueInvitation\(/, "the page issues through the administration endpoint");
+  assert.match(page, /<AdminShell section="invitations"/);
+  assert.doesNotMatch(page, /location\.reload/, "the list is read again without reloading the document");
+  assert.doesNotMatch(page, /later\s+step/i, "the page no longer defers the surface to a later step");
 
   const main = read(MAIN);
   for (const route of ["/admin/users", "/admin/access", "/admin/invitations"]) {

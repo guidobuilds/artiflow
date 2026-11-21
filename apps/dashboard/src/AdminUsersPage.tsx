@@ -2,12 +2,22 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { PageHeader } from "@/components/app/app-shell.tsx";
+import { OneTimeLink } from "@/components/app/one-time-link.tsx";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogFoot, DialogHead, DialogSection, DialogTitle } from "@/components/ui/dialog.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { Tag } from "@/components/ui/tag.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
+import {
+  HIDDEN_LINK,
+  RESET_LINK_ACTIVE_ACCOUNT,
+  dismissLink,
+  issueResetLink,
+  resetIssuedNotice,
+  revealResetLink,
+  type LinkReveal,
+} from "./admin-invitations-client.ts";
 import type { AdminGate } from "./admin-entry.ts";
 import {
   ADMIN_USERS_PAGE_SIZE,
@@ -75,6 +85,9 @@ export default function AdminUsersPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editError, setEditError] = useState("");
   const [confirming, setConfirming] = useState<AdminUserStatus | null>(null);
+  const [resetReveal, setResetReveal] = useState<LinkReveal>(HIDDEN_LINK);
+  const [resetError, setResetError] = useState("");
+  const [resetNotice, setResetNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -104,12 +117,34 @@ export default function AdminUsersPage() {
     setEditError("");
     setNotice("");
     setConfirming(null);
+    setResetReveal(dismissLink());
+    setResetError("");
+    setResetNotice("");
   };
 
   const closeEditor = () => {
     setDraft(null);
     setEditError("");
     setConfirming(null);
+    setResetReveal(dismissLink());
+    setResetError("");
+    setResetNotice("");
+  };
+
+  const issueReset = async () => {
+    if (subject === null || busy) return;
+    setBusy(true);
+    setResetError("");
+    setResetNotice("");
+    const result = await issueResetLink(subject.email);
+    setBusy(false);
+    if (!result.ok) {
+      setResetReveal(dismissLink());
+      setResetError(result.error);
+      return;
+    }
+    setResetReveal(revealResetLink(result.value.link));
+    setResetNotice(resetIssuedNotice(subject.email, result.value.expiresAt));
   };
 
   const save = async () => {
@@ -399,6 +434,23 @@ export default function AdminUsersPage() {
                 </Button>
               </ButtonGroup>
             </Row>
+            <Row label="Password reset">
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => void issueReset()}>
+                Issue reset link
+              </Button>
+            </Row>
+            <p className="text-[13px] text-fg-muted">{RESET_LINK_ACTIVE_ACCOUNT}</p>
+            {resetError ? (
+              <p role="alert" className="text-[13px] text-danger-text">
+                {resetError}
+              </p>
+            ) : null}
+            {resetNotice ? (
+              <p role="status" className="text-[13px] text-fg-muted">
+                {resetNotice}
+              </p>
+            ) : null}
+            <OneTimeLink state={resetReveal} onDismiss={() => setResetReveal(dismissLink())} />
             <div className="flex flex-wrap items-center gap-3">
               <Button variant="primary" disabled={busy} onClick={() => void save()}>
                 {busy ? "Saving…" : "Save changes"}
