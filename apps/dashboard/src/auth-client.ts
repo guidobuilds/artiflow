@@ -1,6 +1,12 @@
 export type AuthRole = "member" | "administrator";
 export type AuthUser = { id: string; name: string; email: string; image: string | null; role?: AuthRole };
-export type Capabilities = { emailPassword: boolean; registration: boolean; socialProviders: string[] };
+export type SsoAccess = { displayName: string | null; fallbackAvailable: boolean };
+export type Capabilities = {
+  emailPassword: boolean;
+  registration: boolean;
+  socialProviders: string[];
+  sso?: SsoAccess;
+};
 export type Credentials = { email: string; password: string };
 export type SignUpInput = Credentials & { name: string };
 export type AuthResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -64,6 +70,12 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+function toSsoAccess(value: unknown): SsoAccess | null {
+  if (!isRecord(value) || typeof value.fallbackAvailable !== "boolean") return null;
+  const name = typeof value.displayName === "string" ? value.displayName.trim() : "";
+  return { displayName: name === "" ? null : name, fallbackAvailable: value.fallbackAvailable };
+}
+
 export async function getCapabilities(): Promise<AuthResult<Capabilities>> {
   const response = await read("/capabilities");
   if (!response) return { ok: false, error: NETWORK };
@@ -78,12 +90,15 @@ export async function getCapabilities(): Promise<AuthResult<Capabilities>> {
   ) {
     return { ok: false, error: UNEXPECTED };
   }
+  const sso = body.sso === undefined ? null : toSsoAccess(body.sso);
+  if (body.sso !== undefined && sso === null) return { ok: false, error: UNEXPECTED };
   return {
     ok: true,
     value: {
       emailPassword: body.emailPassword,
       registration: body.registration === true,
       socialProviders: body.socialProviders,
+      ...(sso === null ? {} : { sso }),
     },
   };
 }

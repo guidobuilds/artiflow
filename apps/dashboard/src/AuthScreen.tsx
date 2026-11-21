@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { getCapabilities, signIn, signUp, socialSignIn } from "./auth-client.ts";
+import { getCapabilities, signIn, signUp, socialSignIn, type Capabilities } from "./auth-client.ts";
+import {
+  EMERGENCY_TITLE,
+  FALLBACK_PATH,
+  METHODS_UNAVAILABLE,
+  loginSurface,
+  type ConnectionNotice,
+  type EmergencyNotice,
+} from "./login-methods.ts";
 import { safeInternalPath } from "./lib/utils.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
@@ -28,6 +36,28 @@ function HowItWorks() {
   );
 }
 
+function ConnectionPanel({ notice, fallback }: { notice: ConnectionNotice; fallback: boolean }) {
+  return (
+    <div className="grid gap-2 border border-line px-3 py-2.5">
+      <p className="text-[15px] font-medium">Sign in with {notice.label}</p>
+      <p role="status" className="text-[13px] text-fg-muted">
+        {notice.statement}
+      </p>
+      {notice.access === null ? null : <p className="text-[13px] text-fg-muted">{notice.access}</p>}
+      {fallback ? <TextLink href={FALLBACK_PATH}>{EMERGENCY_TITLE}</TextLink> : null}
+    </div>
+  );
+}
+
+function EmergencyPanel({ notice }: { notice: EmergencyNotice }) {
+  return (
+    <div className="grid gap-1 border border-line px-3 py-2.5">
+      <p className="text-[13px] font-medium">{notice.title}</p>
+      <p className="text-[13px] text-fg-muted">{notice.copy}</p>
+    </div>
+  );
+}
+
 export type InvitationMode = {
   email: string;
   created?: boolean;
@@ -40,8 +70,9 @@ export default function AuthScreen({
   invitation,
 }: { search?: string; invitation?: InvitationMode } = {}) {
   const returnPath = safeInternalPath(new URLSearchParams(search).get("return") ?? "") ?? "/";
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [registrationAvailable, setRegistrationAvailable] = useState(false);
-  const [socialProviders, setSocialProviders] = useState<string[]>([]);
+  const [readError, setReadError] = useState("");
   const [signup, setSignup] = useState(false);
   const [values, setValues] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState("");
@@ -49,14 +80,22 @@ export default function AuthScreen({
   const submitting = useRef(false);
   const newAccount = signup || invitation !== undefined;
   const created = invitation !== undefined && invitation.created === true;
+  const surface = loginSurface(capabilities, search);
+  const socialProviders = surface.providers;
+  const signInForm = surface.password || newAccount;
 
   useEffect(() => {
     let live = true;
     void getCapabilities()
       .then((result) => {
         if (!live) return;
-        setRegistrationAvailable(result.ok && result.value.registration === true);
-        setSocialProviders(result.ok ? result.value.socialProviders : []);
+        if (!result.ok) {
+          setReadError(METHODS_UNAVAILABLE);
+          return;
+        }
+        setReadError("");
+        setCapabilities(result.value);
+        setRegistrationAvailable(result.value.registration === true);
       })
       .catch(() => {
       });
@@ -134,6 +173,13 @@ export default function AuthScreen({
                   : `Welcome back to ${window.location.host}.`}
             </p>
           </div>
+          {readError ? (
+            <p role="alert" className="text-[13px] text-danger-text">
+              {readError}
+            </p>
+          ) : null}
+          {surface.connection ? <ConnectionPanel notice={surface.connection} fallback={surface.fallbackLink} /> : null}
+          {surface.emergency ? <EmergencyPanel notice={surface.emergency} /> : null}
           {invitation === undefined && socialProviders.length > 0 ? (
             <>
               <div className="grid gap-2.5">
@@ -162,7 +208,7 @@ export default function AuthScreen({
               </p>
               <TextLink href="/login">Go to sign in</TextLink>
             </div>
-          ) : (
+          ) : signInForm ? (
             <form
               className="grid gap-4"
               onSubmit={submit}
@@ -220,7 +266,7 @@ export default function AuthScreen({
                 {label}
               </Button>
             </form>
-          )}
+          ) : null}
           {registrationAvailable && invitation === undefined ? (
             <p className="text-[13px] text-fg-muted">
               {signup ? "Already have an account?" : "New here?"}{" "}

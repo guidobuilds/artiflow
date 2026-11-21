@@ -553,12 +553,27 @@ more:
 
 A created account is never an administrator.
 
-**SSO-only login and the fallback.** When the connection is enabled, `/login` renders a
-single button labelled with the administrator's display name and no email field; the page
-itself is the next slice, and this one publishes what it needs. A URL parameter
-(`?fallback=1`, resolved in section 15) makes the page render the conventional methods; the
-server does not trust it, and nothing on the server authorizes an action from a query
-parameter. Knowing the parameter therefore reveals buttons and grants nothing.
+**SSO-only login and the fallback.** `/login` renders what
+`GET /api/auth/capabilities` answers and nothing else: the password form only when password login
+is enabled, and one action per enabled social provider. While the connection is enabled the page
+renders one primary area labelled with the administrator's display name and asks for no email
+first, and the conventional methods are not rendered at all. A URL parameter (`?fallback=1`,
+resolved in section 15) reveals them, under copy that states the alternative is emergency access
+for administrators and that opening the page grants nothing by itself. The server does not trust
+the parameter, and nothing on the server authorizes an action from a query parameter, so knowing
+it reveals buttons and grants nothing: a refused administrator-only sign-in is answered and
+rendered as an ordinary rejected credential, in the same words every other failed password check
+receives, and the copy never suggests otherwise. A connection published with
+`fallbackAvailable: false` promises no alternative and renders none.
+
+Signing in through the connection arrives with its own slice, so this build cannot start one. The
+page degrades honestly rather than offering a button that does nothing: the primary area states
+that the connection is configured and that signing in through it is not available yet, and it
+links to `/login?fallback=1`, which keeps the administrator-only alternative reachable. The rules
+sit in one pure function, `apps/dashboard/src/login-methods.ts`, over the answered capabilities
+and the query, so the page holds no second copy of them: until the read answers no method is
+rendered, and a failed read states that the methods could not be loaded instead of falling back
+to the conventional form the instance may have locked.
 
 The server decides in two places, both inside the auth instance built from the snapshot, so a
 configuration change reaches them through the rebuild of section 5:
