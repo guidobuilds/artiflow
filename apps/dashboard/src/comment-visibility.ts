@@ -30,6 +30,8 @@ export function browserCommentStorage(): CommentStorage | null {
   }
 }
 
+export const nextResolvedState = (thread: { resolvedAt: string | null }): boolean => thread.resolvedAt === null;
+
 export const openThreadCount = (threads: { resolvedAt: string | null }[]): number =>
   threads.filter((thread) => thread.resolvedAt === null).length;
 

@@ -181,6 +181,14 @@ test("whole table and unmatched selections fall back to the containing block spa
   }
 });
 
+test("a selection inside one table cell anchors on the exact cell text", () => {
+  const source = "Before\n\n| Campo | Valor |\n| --- | --- |\n| Origen | markdown |\n\nAfter";
+  const result = mapRenderedSelection(source, "Origen", sourceBlockSpan(source, 1, 1));
+  assert.equal(result.kind, "anchor");
+  assert.equal(result.quotedText, "Origen");
+  assert.equal(anchorText(source, result.anchor!), "Origen");
+});
+
 test("thread quotes render inline markdown as safe plain fragments, never HTML or syntax", () => {
   assert.equal(renderedQuote("**OCR** (*Optical* `code`) &amp; [link](https://host)"), "OCR (Optical code) & link");
   assert.equal(renderedQuote("<script>alert(1)</script> **safe**"), "alert(1) safe");

@@ -83,7 +83,7 @@ test("an already-signed-in visitor resumes authorize without posting credentials
       : json({ redirect: true, url: CONSENT_URL }),
   );
   const session = await getSession();
-  assert.deepEqual(session, { ok: true, value: { id: "u1", name: "Ada", email: "ada@example.test" } });
+  assert.deepEqual(session, { ok: true, value: { id: "u1", name: "Ada", email: "ada@example.test", image: null } });
   const resumed = await continueAuthorization(`?${SIGNED}`);
   assert.deepEqual(resumed, { ok: true, url: CONSENT_URL });
   assert.equal(calls[1]?.url, authorizeUrlFromQuery(`?${SIGNED}`));

@@ -9,16 +9,44 @@ const component = readFileSync(
 const styles = readFileSync(new URL("../apps/dashboard/src/styles/globals.css", import.meta.url), "utf8");
 const layout = readFileSync(new URL("../apps/dashboard/src/comment-thread-layout.ts", import.meta.url), "utf8");
 
-test("the margin is three hundred pixels wide and cards are absolutely positioned", () => {
-  assert.match(styles, /\.comment-thread-margin \{[^}]*width: 300px;/);
-  assert.match(styles, /\.comment-thread-card \{[^}]*position: absolute;/);
+test("the margin fills the column; pills sit in a layer and the dock rail beside it", () => {
+  assert.match(styles, /\.comment-thread-margin \{[^}]*width: 100%;/);
   assert.match(styles, /\.comment-thread-margin \{[^}]*position: relative;/);
+  assert.match(styles, /\.comment-thread-pill \{[^}]*position: absolute;/);
+  assert.match(styles, /\.comment-thread-pills \{[^}]*position: absolute;[^}]*width: 60px;/);
+  assert.match(styles, /\.comment-thread-dock-rail \{[^}]*position: absolute;[^}]*right: 0;/);
+  for (const declaration of [
+    "width: 280px;",
+    "max-height: calc(100dvh - 24px);",
+    "grid-template-rows: auto minmax(0, 1fr) auto;",
+  ])
+    assert.equal(
+      styles.match(/\.comment-thread-dock \{[^}]*\}/)?.[0].includes(declaration),
+      true,
+      `the dock declares ${declaration}`,
+    );
+  assert.match(styles, /\.comment-thread-dock-slot \{[^}]*position: absolute;/);
+  assert.doesNotMatch(styles.match(/\.comment-thread-dock \{[^}]*\}/)?.[0] ?? "", /sticky/);
+  assert.match(component, /<DockSlot top=\{draftTop \+ layerOffset\}>/);
+  assert.match(styles, /\.comment-thread-dock-body \{[^}]*overflow: auto;/);
+  assert.match(component, /transform: `translateY\(\$\{layerOffset\}px\)`/);
 });
 
 test("opening a thread never moves the document", () => {
   for (const mover of ["scrollIntoView", "scrollTo", "scrollTop =", "window.scrollBy"]) {
     assert.equal(component.includes(mover) || layout.includes(mover), false, `the component never calls ${mover}`);
   }
+});
+
+test("pill heights are measured and threads without a location form their own group", () => {
+  assert.match(component, /typeof ResizeObserver === "undefined"/);
+  assert.match(component, /new ResizeObserver/);
+  assert.match(component, /heights\[thread\.id\] \?\? measured\[thread\.id\]/);
+  assert.match(component, /partitionPlaced\(shown, anchors\)/);
+  assert.match(component, /role="group" aria-label="No location"/);
+  assert.match(component, /<h3 className="comment-thread-unplaced-title">No location<\/h3>/);
+  assert.match(styles, /\.comment-thread-unplaced \.comment-thread-pill \{[^}]*position: relative;/);
+  assert.match(styles, /\.comment-thread-unplaced \{[^}]*overflow: auto;/);
 });
 
 test("the bar toggles visibility, counts open threads and hides resolved ones by default", () => {
@@ -33,21 +61,40 @@ test("the bar toggles visibility, counts open threads and hides resolved ones by
   assert.equal(component.includes("writeCommentsVisible(store, next)"), true);
 });
 
-test("every card state has a surface", () => {
+test("every pill state has a surface and the dock has header, body and footer", () => {
   for (const marker of [
-    "comment-thread-card-active",
-    "comment-thread-card-resolved",
-    "comment-thread-card-stale",
-    "comment-thread-clamp",
-    "comment-thread-count",
+    "comment-thread-pill-active",
+    "comment-thread-pill-resolved",
+    "comment-thread-pill-stale",
+    "comment-thread-pill-draft",
+    "comment-thread-pill-check",
   ])
     assert.equal(styles.includes(marker), true, `${marker} is styled`);
-  assert.match(component, /thread\.replies\.length === 1 \? "reply" : "replies"/);
-  assert.match(component, />\s*Resolve\s*<\/Button>/);
-  assert.match(component, />\s*Reopen\s*<\/Button>/);
-  assert.match(component, />\s*Close\s*<\/Button>/);
-  assert.match(component, /thread\.staleLabel \?\? "Texto cambiado"/);
-  assert.match(component, /comment-thread-draft/);
+  assert.match(
+    component,
+    /aria-label=\{`Open thread by \$\{authorName\(thread\.author\)\}, \$\{resolved \? "resolved"/,
+  );
+  assert.match(component, /replies === 1 \? "reply" : "replies"/);
+  assert.match(component, /<Icon name="check"/);
+  assert.match(component, /Thread \{index \+ 1\} of \{total\}/);
+  assert.match(component, /label="Previous thread" disabled=\{index === 0\}/);
+  assert.match(component, /label="Next thread" disabled=\{index === total - 1\}/);
+  assert.match(component, /label="Close thread" onClick=\{onClose\}/);
+  assert.match(component, /key=\{`\$\{thread\.id\}-body`\}/);
+  assert.match(component, /<footer key=\{`\$\{thread\.id\}-footer`\} className="comment-thread-dock-foot">/);
+  assert.match(component, /onResolve\(thread, nextResolvedState\(thread\)\)/);
+  assert.match(component, /\{nextResolvedState\(thread\) \? "Resolve" : "Reopen"\}/);
+  assert.match(component, />\s*Delete\s*<\/Button>/);
+  assert.match(component, /thread\.staleLabel \?\? "Text changed"/);
+  assert.match(component, /<p className="comment-thread-flag">Resolved<\/p>/);
+  assert.match(component, /label=\{`Delete reply by/);
+  assert.match(component, /threadOrder\(shown, anchors\)/);
+  assert.match(component, /<DraftPanel/);
+  assert.match(component, /comment-thread-pill comment-thread-pill-solo comment-thread-pill-draft/);
+  assert.equal(/Texto cambiado|Resuelto|Abrir|Cerrar/.test(component), false, "no Spanish labels remain");
+  assert.equal(/\.comment-thread-pill \{[^}]*overflow: hidden;/.test(styles), false, "pills never clip their content");
+  assert.match(styles, /mark\.viewer-comment-mark-flash \{[^}]*animation: comment-flash/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{\s*\.comment-thread-pill \{\s*transition: none;/);
 });
 
 test("view states cover loading, empty, load errors, publish errors and hidden", () => {
@@ -62,25 +109,43 @@ test("view states cover loading, empty, load errors, publish errors and hidden",
   assert.match(styles, /\.comment-thread-skeleton/);
 });
 
-test("narrow screens drop the margin and open a bottom sheet with navigation", () => {
+test("narrow screens hide the pills and open the dock content in a bottom sheet", () => {
   assert.match(styles, /@media \(max-width: 800px\) \{[\s\S]*\.comment-thread-margin \{[\s\S]*display: none;/);
   assert.match(styles, /\.comment-thread-sheet-open \{[\s\S]*align-items: flex-end;/);
-  assert.match(styles, /\.comment-thread-sheet-reply \{[\s\S]*position: sticky;/);
-  assert.match(component, /role="dialog" aria-modal="true"/);
+  assert.match(styles, /\.comment-thread-dock-sheet \.comment-thread-dock-foot \{[\s\S]*position: sticky;/);
+  assert.match(styles, /\.comment-thread-dock-sheet button \{[\s\S]*min-height: 44px;/);
+  assert.match(component.replace(/\s+/g, " "), /role="dialog" aria-modal="true"/);
+  assert.match(component, /<ThreadPanel\s+sheet/);
+  assert.match(component, /<DraftPanel sheet/);
+  assert.match(component, /Open threads/);
   assert.match(component, /Previous thread/);
   assert.match(component, /Next thread/);
   assert.match(component, /Close thread/);
-  assert.match(component, /thread\.resolvedAt === null \? "Resolve" : "Reopen"/);
+  assert.match(component, /comment-thread-dock comment-thread-dock-sheet/);
+  assert.match(component, /Delete reply by/);
 });
 
-test("cards and anchors stay keyboard reachable with forty-four pixel targets", () => {
-  assert.match(component, /tabIndex=\{0\}/);
-  assert.match(component, /event\.key === "Enter"/);
-  assert.match(component, /event\.key === "Escape"/);
+test("the margin owns the J, K, R and Escape shortcuts and the deep link hash once", () => {
+  assert.match(component, /shortcutFor\(/);
+  assert.match(component, /stepThread\(/);
+  assert.match(component, /\[data-reply-input\]/);
+  assert.match(component, /addEventListener\("hashchange"/);
+  assert.match(component, /replaceState\(/);
+  assert.equal(component.match(/event\.key === "Escape"/g), null);
+  assert.equal(component.match(/addEventListener\("keydown"/g)?.length, 1);
+});
+
+test("pills and the dock stay keyboard reachable with forty-four pixel targets", () => {
+  assert.match(component, /<button\s+ref=\{pillRef\}\s+type="button"/);
   assert.match(component, /aria-expanded=\{active\}/);
-  assert.match(component, /aria-labelledby=/);
+  assert.match(component, /shortcutFor\(/);
   assert.match(component, /className="sr-only"[^>]*\n?\s*(?:htmlFor|children)/);
-  assert.match(styles, /\.comment-thread-header \{[^}]*min-height: 44px;/);
+  assert.match(styles, /\.comment-thread-pill:focus-visible \{[^}]*outline: 2px solid/);
+  const pillHeight = Number(/\.comment-thread-pill \{[^}]*height: (\d+)px/.exec(styles)?.[1] ?? "0");
+  const inset = Number(/\.comment-thread-pill::after \{[^}]*inset: -(\d+)px/.exec(styles)?.[1] ?? "0");
+  assert.ok(pillHeight > 0 && inset > 0, "the pill declares a height and an expanded hit area");
+  assert.ok(pillHeight + 2 * inset >= 44, `the pill hit area is ${pillHeight + 2 * inset}px, under the 44px floor`);
+  assert.match(styles, /\.comment-thread-pill \{[^}]*min-width: 36px;[^}]*height: 32px;/);
   assert.match(styles, /\.comment-thread-input \{[^}]*min-height: 44px;/);
   assert.match(component, /className="min-h-11"/);
 });
@@ -89,4 +154,19 @@ test("the component is not wired into a view yet", () => {
   for (const view of ["../EditorPage.tsx", "./EditorPage.tsx", "LibraryPage", "AuthScreen"]) {
     assert.equal(component.includes(view), false, `the margin stays independent of ${view}`);
   }
+});
+
+test("an empty draft is dismissed by a pointer press outside its form and a typed one is kept", () => {
+  assert.match(component, /formRef\.current\?\.contains\(event\.target\)/);
+  assert.match(component, /if \(!empty\) return;/);
+  assert.match(component, /document\.addEventListener\("pointerdown", dismiss\)/);
+});
+
+test("with history and comments both open, narrow screens stack them in one column", () => {
+  const narrow = styles.slice(styles.lastIndexOf("@media (max-width: 800px)"));
+  assert.match(
+    narrow,
+    /\.editor-workspace\.editor-panel-open\.editor-margin-open \{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
+  );
+  assert.match(narrow, /\.editor-comments-column \{[^}]*grid-column: 1;[^}]*grid-row: 3;/);
 });

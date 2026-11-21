@@ -2,17 +2,9 @@ import { useState } from "react";
 
 import { signOut, type AuthUser } from "../../auth-client.ts";
 import { useTheme } from "@/components/app/theme-provider.tsx";
-import { Avatar } from "@/components/ui/avatar.tsx";
+import { Avatar, UserAvatar } from "@/components/ui/avatar.tsx";
 import { cn } from "@/lib/utils.ts";
 import { Menu, MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-
-function initialsOf(user: AuthUser): string {
-  const source = user.name.trim() || user.email;
-  const parts = source.split(/\s+/).filter(Boolean);
-  const first = parts[0]?.[0] ?? "";
-  const second = parts.length >= 2 ? (parts[1]?.[0] ?? "") : (source[1] ?? "");
-  return (first + second).toUpperCase();
-}
 
 export function AccountMenu({ user, active }: { user: AuthUser | null; active?: boolean }) {
   const { theme, setTheme } = useTheme();
@@ -33,7 +25,11 @@ export function AccountMenu({ user, active }: { user: AuthUser | null; active?: 
             active ? "bg-surface-2 shadow-[inset_0_0_0_1px_var(--line)]" : "hover:bg-surface",
           )}
         >
-          <Avatar className="ring-0">{user ? initialsOf(user) : "?"}</Avatar>
+          {user ? (
+            <UserAvatar image={user.image} name={user.name} className="ring-0" />
+          ) : (
+            <Avatar className="ring-0">?</Avatar>
+          )}
           <span className="grid min-w-0 leading-tight max-[760px]:hidden">
             <span className="truncate text-[13px] text-fg">{user ? user.name.trim() || user.email : "Account"}</span>
             {user && user.name.trim() ? (

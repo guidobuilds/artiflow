@@ -30,7 +30,7 @@ export type ViewerCommentsConfig = {
   canComment: boolean;
   canResolve: boolean;
   threads: ViewerCommentThread[];
-  endpoints: { comments: string; resolve: string; deleteComment: string };
+  endpoints: { comments: string; resolve: string; deleteComment: string; list?: string };
 };
 
 type Row = {

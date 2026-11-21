@@ -8,6 +8,7 @@
     "node": ">=24.0.0"
   },
   "exports": {
+    "./avatars": "./src/avatars.ts",
     "./comment-anchors": "./src/comment-anchors.ts",
     "./html-bridge": "./src/html-bridge.ts",
     "./kinds": "./src/kinds.ts",

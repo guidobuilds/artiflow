@@ -174,7 +174,19 @@ export function mapRenderedSelection(source: string, selectedText: string, span:
   });
   const raw = source.slice(span.start, span.end);
   const tokens = quoteMarkdown.parse(raw, {});
-  if (tokens.some((token) => token.type === "table_open")) return fallback();
+  if (tokens.some((token) => token.type === "table_open")) {
+    const text = selectedText.trim();
+    const matches: number[] = [];
+    for (let at = text ? raw.indexOf(text) : -1; at >= 0; at = raw.indexOf(text, at + 1)) matches.push(at);
+    const cells = matches.map((at) => {
+      const anchor = anchorFromOffsets(source, span.start + at, span.start + at + text.length);
+      return anchor ? { anchor, snippet: raw.slice(Math.max(0, at - 32), at + text.length + 32).trim() } : null;
+    });
+    const found = cells.filter((cell) => cell !== null);
+    if (found.length === 1) return { kind: "anchor", anchor: found[0]!.anchor, quotedText: text, candidates: [] };
+    if (found.length > 1) return { kind: "candidates", anchor: null, quotedText: text, candidates: found };
+    return fallback();
+  }
   let decoded = "";
   const starts: number[] = [],
     ends: number[] = [];
