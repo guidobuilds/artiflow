@@ -12,7 +12,7 @@ export type AccountLifecycleChange = {
   db: AppDb;
   userId: string;
   actorId: string;
-  actorRole: UserRole;
+  actorRole: UserRole | "console";
   requestId?: string;
   at?: Date;
 };

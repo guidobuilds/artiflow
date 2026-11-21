@@ -212,6 +212,8 @@ behaviour itself is defined in section 13 of
 | `user:reset-password EMAIL` | Print one single-use password reset URL                                   |
 | `user:purge EMAIL --reassign-to EMAIL` | Delete an account, handing its content to another existing account |
 | `user:purge EMAIL --delete-content`    | Delete an account together with its content                        |
+| `user:deactivate EMAIL`     | Cut the access of an account without deleting anything                    |
+| `user:activate EMAIL`       | Clear the deactivated state of an account                                 |
 
 `admin:grant` never creates an account: an unknown address is refused and the
 message names `user:invite`, because only the invitation path lets the person
@@ -219,6 +221,17 @@ choose a password. Nothing protects the last administrator, so an instance can
 be left with none and recovered with `admin:grant`. Each role change writes one
 structured event line with `actorRole: "console"` and `outcome: "applied"`; the
 event shape carries no secret, token or link, and `admin:list` records nothing.
+
+`user:deactivate` and `user:activate` call the same lifecycle functions as
+`POST /api/admin/users/:id/status`, so the console applies the whole transaction of
+section 9: the status, the deletion of the account's sessions, the revocation of the
+tokens issued to it and the revocation of the public links of the artifacts it owns,
+with one `user.deactivated` line; activation clears the status with one
+`user.reactivated` line and restores neither sessions nor links. Both refuse an
+unknown address and a transition to the state the account already holds, with one
+line on stderr and exit status 1, changing nothing and recording nothing. Nothing on
+either path deletes content: the artifacts, revisions, comments and share grants keep
+their rows, and `user:purge` is the only console operation that removes a person.
 
 `user:purge` takes the address and exactly one content choice, and asks for the
 address to be typed again unless `--yes` is passed. It refuses an unknown

@@ -893,10 +893,24 @@ to stdout, and exit non-zero on refusal:
 | `admin:list`                                     | Print administrator emails in order; exit 0 when there is none    |
 | `user:purge EMAIL --reassign-to EMAIL`           | Delete the account, reassigning its artifacts                     |
 | `user:purge EMAIL --delete-content`              | Delete the account and its artifacts                              |
+| `user:deactivate EMAIL`                          | Cut the access of an account without deleting anything            |
+| `user:activate EMAIL`                            | Bring a deactivated account back                                  |
 | `user:invite EMAIL`, `user:reset-password EMAIL` | Unchanged; one event on stderr                                    |
 
-Deactivation and reactivation are not console commands in this build: both live only in the users
-directory, and the only console operation that ends access is the purge below.
+`user:deactivate` and `user:activate` call the same lifecycle functions as
+`POST /api/admin/users/:id/status`, so the console applies the transaction of section 9 and not a
+weaker version of it: one transaction that writes the status, deletes the sessions of the account,
+revokes the tokens issued to it and revokes the public links of the artifacts it owns, with one
+`user.deactivated` line; `user:activate` clears the status, `deactivated_at` and `deactivated_by` in
+one transaction with one `user.reactivated` line and restores neither sessions nor links. Both
+resolve the address first and refuse an unknown one with `no account exists for that address`; a
+transition to the state the account already holds is refused with its own message (`already
+deactivated`, `already active`). Every refusal writes one line to stderr, nothing to stdout, changes
+nothing and records nothing. The applied line names the console as the actor and carries
+`actorRole: "console"`, like the role changes, and never names a token or a link.
+
+Nothing on either path deletes content: artifacts, revisions, comments and share grants keep their
+rows, and the only console operation that removes a person is the purge below.
 
 `admin:grant` never creates an account: an unknown address is refused with a message that names
 `user:invite` (resolved decision 7). `admin:revoke` refuses an unknown address and an account that

@@ -26,6 +26,8 @@ standard error on refusal, never a stack trace. `--help` on any of them prints i
 | `admin:list`                | Lists every administrator                                      | One email per line, sorted; nothing at all |
 | `admin:grant EMAIL`         | Makes an existing account an administrator                     | One log line                              |
 | `admin:revoke EMAIL`        | Returns an administrator to the member role                    | One log line                              |
+| `user:deactivate EMAIL`     | Cuts the access of an account                                  | One log line                              |
+| `user:activate EMAIL`       | Brings a deactivated account back                              | One log line                              |
 | `user:invite EMAIL`         | Prints a single-use registration link, valid 24 hours          | The link                                  |
 | `user:reset-password EMAIL` | Prints a single-use password reset link, valid 1 hour          | The link                                  |
 | `user:purge EMAIL …`        | Deletes an account, with or without its content                | One log line                              |
@@ -77,7 +79,15 @@ without losing their own artifacts.
 ## A person who must lose access today
 
 Deactivate the account from `/admin/users`: open the row, press **Deactivate account** and confirm the
-dialog that states the consequences. It takes effect immediately and in one transaction:
+dialog that states the consequences. The same change is one console command when the interface is not
+an option:
+
+```sh
+bun run user:deactivate person@example.com
+```
+
+Both paths run the same operation, so the console is not a weaker version of the interface. It takes
+effect immediately and in one transaction:
 
 - Every sign-in is blocked — password, social and the enterprise connection.
 - Every open browser session is deleted, so the next request from any of those browsers is signed out.
@@ -91,12 +101,32 @@ as the recipient of a new share; the share dialog refuses it exactly like an add
 account. See [Administer accounts and sign-in](/docs/self-hosting/administration/#deactivate-and-reactivate)
 for the dialog and its wording.
 
+`user:deactivate` takes an address and nothing else. An unknown address is refused with
+`no account exists for that address`, and an account that is already deactivated with
+`that account is already deactivated; nothing changed`. Either way the refusal writes one line to
+standard error, nothing to standard output, and exits `1`, and it changes nothing and records nothing
+in the administration log. The applied change writes one `user.deactivated` line naming the console as
+the actor and the account as the subject, exactly as the interface does.
+
 If that person is the only administrator, granting the role to someone else first keeps the instance
 administrable — or accept that you are recovering from the console afterwards, as above.
 
-There is **no console command to deactivate or reactivate** in this build. When the interface is not an
-option and access has to end today, the only supported console operation that does it is `user:purge`
-below, which deletes the account rather than suspending it. Weigh that before reaching for it.
+### Bring a deactivated account back
+
+```sh
+bun run user:activate person@example.com
+```
+
+This clears the deactivated state and lets the person sign in again with the methods the instance
+allows. It restores neither the sessions that ended nor the public links that were revoked, and it
+does not restore the revoked agent tokens: the person signs in again, and a public link that is still
+needed has to be published again. Their artifacts and the grants on them were never touched, so a
+reactivated account returns to everything it was already given.
+
+An unknown address and an account that is already active are refused — the second with
+`that account is already active; nothing changed` — with one line on standard error, exit status `1`,
+and nothing written to the database or to the log. The applied change writes one `user.reactivated`
+line.
 
 ## Deactivate or purge
 
@@ -109,7 +139,7 @@ below, which deletes the account rather than suspending it. Weigh that before re
 | Artifacts, revisions, comments     | Kept                          | Reassigned to another account, or deleted    |
 | Pending invitations and reset links | Kept                         | Deleted                                      |
 | Reversible                         | Yes, by reactivating          | No                                           |
-| Where                              | `/admin/users`                | Console only                                 |
+| Where                              | `/admin/users`, `user:deactivate` | Console only                             |
 
 Reactivating restores sign-in and nothing else: the sessions that ended stay ended, the revoked public
 links stay revoked, and the person needs a new link if one is still in use. Their artifacts and the
@@ -173,11 +203,12 @@ not exist on the instance any more is a purge.
 - Change access methods, the password policy or the enterprise connection. Those are interface
   settings, and no command writes them; an instance whose last enabled method was disabled cannot be
   recovered from the console.
-- Deactivate or reactivate an account.
-- Close a single session, or all sessions of one account.
+- Close a single session, or all sessions of one account. Deactivating an account closes every session
+  it holds, and no command closes one without the others.
 - Rotate the secret-encryption key. Keep it stable and backed up alongside the database: a
   credential that can no longer be decrypted stops working, and re-entering it is the only way back.
-- Recover a deleted account, restore a revoked link or restore ended sessions.
+- Recover a deleted account, restore a revoked link or restore ended sessions. Activating an account
+  is not a rollback: it restores sign-in and nothing else.
 
 ## Next
 

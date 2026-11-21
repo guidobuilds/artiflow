@@ -92,8 +92,16 @@ restore the agent tokens: the person signs in again, and a public link that is s
 published again. A reactivated account returns to the artifacts it was already granted, because those
 rows were never removed.
 
-The console has no equivalent command for either direction in this build; the [Recover access](/docs/self-hosting/recovery/)
-page explains what to do when the interface is not an option.
+Both directions are also console commands, for when the interface is not an option:
+
+```sh
+bun run user:deactivate person@example.com
+bun run user:activate person@example.com
+```
+
+They run the same operation this dialog runs, in the same single transaction, and they refuse an
+unknown address and a transition to the state the account already holds. The [Recover access](/docs/self-hosting/recovery/)
+page has the refusals and the exit statuses.
 
 ### Issue a reset link
 
@@ -283,7 +291,6 @@ and no export: the record is whatever your container or process logging already 
 - **No delete or purge from the interface.** No administrative route deletes an account. Deleting is a
   console operation with a content choice; see [Recover access](/docs/self-hosting/recovery/).
 - **No session-lifetime setting.** Seven days with a daily refresh, in code.
-- **No console command to deactivate or reactivate.** Both exist only here.
 - **No impersonation.** An administrator cannot act as another account.
 - **No account creation.** Invitations and just-in-time provisioning are the only ways in.
 - **No audit page, export or retention setting.** The log is a stream.
