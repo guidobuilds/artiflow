@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign as signWithKey } from "node:crypto";
+import { createServer } from "node:http";
 import { after, before, test } from "node:test";
 
 import { and, eq } from "drizzle-orm";
@@ -13,8 +14,11 @@ import {
 } from "../apps/api/src/adapters/postgres/db/artifact-schema.ts";
 import { oauthAccessToken, oauthRefreshToken } from "../apps/api/src/adapters/postgres/db/oauth-schema.ts";
 import { account, session, user } from "../apps/api/src/adapters/postgres/db/schema.ts";
+import { createAuthHolder } from "../apps/api/src/auth-holder.ts";
 import { loadConfig } from "../apps/api/src/config.ts";
-import { publicApiResource } from "../apps/api/src/oauth.ts";
+import { accountIsActive } from "../apps/api/src/identity/accounts.ts";
+import { createMcpBearerVerifier, createMultiAudienceBearerVerifier } from "../apps/api/src/mcp/mount.ts";
+import { API_RESOURCE_SCOPES, publicApiResource, publicIssuer, publicResource } from "../apps/api/src/oauth.ts";
 import { hashLinkToken } from "../apps/api/src/routes/sharing.ts";
 import { createPkce } from "./helpers/oauth.ts";
 import { trustedSession, type TrustedFixture, type TrustedSession } from "./helpers/trusted-accounts.ts";
@@ -316,6 +320,53 @@ async function withAuditCapture<T>(run: () => Promise<T>): Promise<{ result: T; 
   }
 }
 
+type TokenSigner = { jwksUrl: string; sign(claims: Record<string, unknown>): string; close(): Promise<void> };
+
+async function startTokenSigner(): Promise<TokenSigner> {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const kid = `lifecycle-${randomUUID()}`;
+  const document = JSON.stringify({
+    keys: [{ ...publicKey.export({ format: "jwk" }), kid, alg: "EdDSA", use: "sig" }],
+  });
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(document);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  const port = address !== null && typeof address === "object" ? address.port : 0;
+  return {
+    jwksUrl: `http://127.0.0.1:${port}/jwks`,
+    sign(claims) {
+      const header = Buffer.from(JSON.stringify({ alg: "EdDSA", kid, typ: "at+jwt" })).toString("base64url");
+      const payload = Buffer.from(JSON.stringify(claims)).toString("base64url");
+      const signature = signWithKey(null, Buffer.from(`${header}.${payload}`), privateKey).toString("base64url");
+      return `${header}.${payload}.${signature}`;
+    },
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      }),
+  };
+}
+
+async function waitForLockedWriters(pool: AdminHarness["database"]["pool"], expected: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const counted = await pool.query<{ blocked: string }>(
+      "select count(*)::text as blocked from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'",
+    );
+    const blocked = Number(counted.rows[0]?.blocked ?? "0");
+    if (blocked >= expected) return;
+    if (Date.now() > deadline)
+      throw new Error(`only ${blocked} of ${expected} writers reached the account row before the deadline`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 before(async () => {
   harness = await startAdminHarness(loadConfig(process.env));
   fixture = { database: harness.database, baseUrl: harness.baseUrl, origin: harness.config.publicOrigin };
@@ -587,4 +638,179 @@ integration("the response names the account and its new state", async () => {
   assert.deepEqual(await response.json(), { user: { id: victim.userId, status: "deactivated" } });
   assert.equal((await storedStatus(victim.userId)).status, "deactivated");
   assert.equal((await storedStatus(victim.userId)).deactivatedBy, actor().userId);
+});
+
+integration("deactivation revokes only the tokens issued to the account it deactivates", async () => {
+  const victim = await trustedSession(fixtureOf(), { name: "Token Scope Victim" });
+  const bystander = await trustedSession(fixtureOf(), { name: "Token Scope Bystander" });
+  const resource = publicApiResource(target().config);
+  const victimToken = await earnToken(victim.cookie, "artifacts:read offline_access", resource);
+  const bystanderToken = await earnToken(bystander.cookie, "artifacts:read offline_access", resource);
+
+  const issuedAt = new Date();
+  const storedToken = (userId: string | null) => ({
+    id: randomUUID(),
+    token: `lifecycle-${randomUUID()}`,
+    clientId: victimToken.clientId,
+    userId,
+    expiresAt: new Date(issuedAt.getTime() + 900_000),
+    createdAt: issuedAt,
+    scopes: ["artifacts:read"],
+  });
+  const victimAccess = storedToken(victim.userId);
+  const bystanderAccess = storedToken(bystander.userId);
+  const subjectlessAccess = storedToken(null);
+  await target().database.db.insert(oauthAccessToken).values([victimAccess, bystanderAccess, subjectlessAccess]);
+
+  assertStatus(await setStatus(victim.userId, "deactivated"), 200, "the administrator deactivates the account");
+
+  const revokedOf = async (id: string): Promise<Date | null> => {
+    const rows = await target()
+      .database.db.select({ revoked: oauthAccessToken.revoked })
+      .from(oauthAccessToken)
+      .where(eq(oauthAccessToken.id, id));
+    assert.ok(rows[0], "the stored token row survives");
+    return rows[0].revoked;
+  };
+  assert.notEqual(await revokedOf(victimAccess.id), null, "the access token of the deactivated account is revoked");
+  assert.equal(await revokedOf(bystanderAccess.id), null, "another account's access token is not revoked");
+  assert.equal(
+    await revokedOf(subjectlessAccess.id),
+    null,
+    "an access token that belongs to no account is not revoked",
+  );
+
+  const victimRefresh = await target()
+    .database.db.select({ revoked: oauthRefreshToken.revoked })
+    .from(oauthRefreshToken)
+    .where(eq(oauthRefreshToken.userId, victim.userId));
+  assert.equal(victimRefresh.length > 0, true, "the victim holds issued refresh tokens");
+  assert.equal(
+    victimRefresh.every((row) => row.revoked !== null),
+    true,
+    "no refresh token of the deactivated account stays usable",
+  );
+
+  const bystanderRefresh = await target()
+    .database.db.select({ revoked: oauthRefreshToken.revoked })
+    .from(oauthRefreshToken)
+    .where(eq(oauthRefreshToken.userId, bystander.userId));
+  assert.equal(bystanderRefresh.length > 0, true, "another account holds issued refresh tokens");
+  assert.equal(
+    bystanderRefresh.every((row) => row.revoked === null),
+    true,
+    "another account's refresh tokens are not revoked",
+  );
+  assertStatus(
+    await refreshTokenRequest(bystanderToken.refreshToken ?? "", bystanderToken.clientId, resource),
+    200,
+    "another account still mints a token from its refresh token",
+  );
+});
+
+integration("a bearer token without a subject is refused on both audiences", async () => {
+  const signer = await startTokenSigner();
+  try {
+    const config = target().config;
+    const auth = createAuthHolder({ config, database: target().database }).auth;
+    const isAccountActive = (userId: string) => accountIsActive(target().database.db, userId);
+    const mcpOptions = {
+      jwksUrl: signer.jwksUrl,
+      resource: publicResource(config),
+      issuer: publicIssuer(config),
+      challengeScopes: ["artifacts:read", "artifacts:write"],
+      isAccountActive,
+    };
+    const apiOptions = {
+      ...mcpOptions,
+      resource: publicApiResource(config),
+      challengeScopes: [...API_RESOURCE_SCOPES],
+    };
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const claimsFor = (audience: string) => ({
+      iss: publicIssuer(config),
+      aud: audience,
+      azp: `lifecycle-${randomUUID()}`,
+      scope: "artifacts:read",
+      iat: issuedAt,
+      exp: issuedAt + 900,
+    });
+    const requestFor = (token: string) =>
+      new Request(`${config.publicOrigin}/mcp`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      });
+    let reached = 0;
+    const accepted = () => {
+      reached += 1;
+      return new Response("accepted", { status: 200 });
+    };
+
+    const mcpAnswer = await createMcpBearerVerifier(auth, mcpOptions)(
+      requestFor(signer.sign(claimsFor(publicResource(config)))),
+      accepted,
+    );
+    assert.equal(reached, 0, "an MCP token without a subject never reaches the server");
+    assertStatus(mcpAnswer, 401, "the MCP audience refuses a token without a subject");
+    assert.deepEqual(await mcpAnswer.json(), { error: "invalid_token" });
+
+    const apiAnswer = await createMcpBearerVerifier(auth, apiOptions)(
+      requestFor(signer.sign(claimsFor(publicApiResource(config)))),
+      accepted,
+    );
+    assert.equal(reached, 0, "an API token without a subject never reaches the handler");
+    assertStatus(apiAnswer, 401, "the API audience refuses a token without a subject");
+    assert.deepEqual(await apiAnswer.json(), { error: "invalid_token" });
+
+    const bothAnswer = await createMultiAudienceBearerVerifier(auth, [mcpOptions, apiOptions])(
+      requestFor(signer.sign(claimsFor(publicApiResource(config)))),
+      accepted,
+    );
+    assert.equal(reached, 0, "no audience of the shared verifier accepts a token without a subject");
+    assertStatus(bothAnswer, 401, "the shared verifier refuses a token without a subject");
+  } finally {
+    await signer.close();
+  }
+});
+
+integration("two concurrent deactivations apply one change and record one event", async () => {
+  const victim = await trustedSession(fixtureOf(), { name: "Concurrent Victim" });
+  const pool = target().database.pool;
+  const holder = await pool.connect();
+  try {
+    await holder.query("begin");
+    await holder.query(`select 1 from "user" where id = $1 for update`, [victim.userId]);
+    const captured = await withAuditCapture(async () => {
+      const pending = Promise.all([setStatus(victim.userId, "deactivated"), setStatus(victim.userId, "deactivated")]);
+      try {
+        await waitForLockedWriters(pool, 2);
+      } finally {
+        await holder.query("rollback");
+      }
+      return await pending;
+    });
+
+    const answers = captured.result;
+    const applied = answers.filter((response) => response.status === 200);
+    const refused = answers.filter((response) => response.status === 409);
+    assert.equal(
+      applied.length,
+      1,
+      `exactly one concurrent deactivation applies (statuses ${answers.map((response) => response.status).join(",")})`,
+    );
+    assert.equal(refused.length, 1, "the losing writer is refused as unchanged");
+    assert.deepEqual(await refused[0]?.json(), { error: "status_unchanged" });
+    assert.deepEqual(await applied[0]?.json(), { user: { id: victim.userId, status: "deactivated" } });
+
+    const events = captured.lines.filter((line) => line.event === "user.deactivated");
+    assert.equal(events.length, 1, "one applied change records exactly one event");
+    assert.equal(events[0]?.subjectId, victim.userId);
+    assert.equal(events[0]?.actorId, actor().userId);
+
+    const stored = await storedStatus(victim.userId);
+    assert.equal(stored.status, "deactivated", "the stored state is the one both requests asked for");
+    assert.equal(stored.deactivatedBy, actor().userId);
+  } finally {
+    holder.release();
+  }
 });

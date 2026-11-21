@@ -37,7 +37,7 @@ export function createMcpBearerVerifier(auth: McpAuth, options: McpBearerOptions
       auth,
       async (verifiedRequest, claims) => {
         const resolved = toMcpClaims(claims);
-        if (isAccountActive !== undefined && resolved.userId !== null && !(await isAccountActive(resolved.userId)))
+        if (isAccountActive !== undefined && (resolved.userId === null || !(await isAccountActive(resolved.userId))))
           return invalidTokenResponse();
         return handler(verifiedRequest, resolved);
       },

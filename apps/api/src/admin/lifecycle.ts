@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { artifactPublicLinks, artifacts } from "../adapters/postgres/db/artifact-schema.ts";
 import { oauthAccessToken, oauthRefreshToken } from "../adapters/postgres/db/oauth-schema.ts";
@@ -25,11 +25,18 @@ async function currentStatus(db: AppDb | AppTx, userId: string): Promise<Account
   return rows[0]?.status ?? null;
 }
 
+async function refusalFor(db: AppDb | AppTx, userId: string): Promise<AccountLifecycleOutcome> {
+  const status = await currentStatus(db, userId);
+  return status === null ? { kind: "missing" as const } : { kind: "unchanged" as const };
+}
+
 async function revokeIssuedTokens(tx: AppTx, userId: string, at: Date): Promise<void> {
   await tx
     .update(oauthAccessToken)
     .set({ revoked: at })
-    .where(and(eq(oauthAccessToken.userId, userId), isNull(oauthAccessToken.revoked)));
+    .where(
+      and(eq(oauthAccessToken.userId, userId), isNotNull(oauthAccessToken.userId), isNull(oauthAccessToken.revoked)),
+    );
   await tx
     .update(oauthRefreshToken)
     .set({ revoked: at })
@@ -46,14 +53,13 @@ async function revokeOwnedPublicLinks(tx: AppTx, userId: string, at: Date): Prom
 
 export async function deactivateAccount(change: AccountLifecycleChange): Promise<AccountLifecycleOutcome> {
   return change.db.transaction(async (tx) => {
-    const status = await currentStatus(tx, change.userId);
-    if (status === null) return { kind: "missing" as const };
-    if (status === DEACTIVATED_ACCOUNT_STATUS) return { kind: "unchanged" as const };
     const at = change.at ?? new Date();
-    await tx
+    const applied = await tx
       .update(user)
       .set({ status: DEACTIVATED_ACCOUNT_STATUS, deactivatedAt: at, deactivatedBy: change.actorId, updatedAt: at })
-      .where(eq(user.id, change.userId));
+      .where(and(eq(user.id, change.userId), eq(user.status, ACTIVE_ACCOUNT_STATUS)))
+      .returning({ id: user.id, status: user.status });
+    if (applied.length === 0) return refusalFor(tx, change.userId);
     await tx.delete(session).where(eq(session.userId, change.userId));
     await revokeIssuedTokens(tx, change.userId, at);
     await revokeOwnedPublicLinks(tx, change.userId, at);
@@ -71,14 +77,13 @@ export async function deactivateAccount(change: AccountLifecycleChange): Promise
 
 export async function reactivateAccount(change: AccountLifecycleChange): Promise<AccountLifecycleOutcome> {
   return change.db.transaction(async (tx) => {
-    const status = await currentStatus(tx, change.userId);
-    if (status === null) return { kind: "missing" as const };
-    if (status === ACTIVE_ACCOUNT_STATUS) return { kind: "unchanged" as const };
     const at = change.at ?? new Date();
-    await tx
+    const applied = await tx
       .update(user)
       .set({ status: ACTIVE_ACCOUNT_STATUS, deactivatedAt: null, deactivatedBy: null, updatedAt: at })
-      .where(eq(user.id, change.userId));
+      .where(and(eq(user.id, change.userId), eq(user.status, DEACTIVATED_ACCOUNT_STATUS)))
+      .returning({ id: user.id, status: user.status });
+    if (applied.length === 0) return refusalFor(tx, change.userId);
     recordAdminEvent({
       event: "user.reactivated",
       actorId: change.actorId,

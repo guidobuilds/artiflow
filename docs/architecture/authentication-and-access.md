@@ -284,8 +284,12 @@ existing account keeps working. Three guarantees keep it closed:
 - **No surviving bearer token.** Access tokens are signed JWTs with a fifteen-minute lifetime
   that outlive the session, so both bearer surfaces — `/mcp` and `/api/v1` — resolve the
   token's subject against `user.status` after the signature check and refuse anything but an
-  active account with `401 invalid_token`. The refresh tokens issued to that account are
-  revoked in the same transaction as the status, so no new access token can be minted.
+  active account with `401 invalid_token`. A token that carries no subject resolves to no
+  account, so it is refused the same way instead of skipping the check. The refresh tokens
+  issued to that account are revoked in the same transaction as the status, so no new access
+  token can be minted. Revocation is per account: it touches only rows whose user id is the
+  account being deactivated, so a row that names no account and every row of another account
+  keep their state.
 
 `requireAdministrator` also refuses a non-active account, so an administrator loses the
 administration namespace at the same moment as everything else.
@@ -296,11 +300,14 @@ sessions, nor revoked public links, nor revoked tokens.
 **Endpoint.** `POST /api/admin/users/:id/status` takes `{ status: "active" | "deactivated" }`,
 requires the public origin like every cookie mutation, and answers `{ user: { id, status } }`.
 A target state the account already holds answers `409 status_unchanged` and changes nothing;
-an unknown subject answers `404 user_not_found` and a body that names no known state
-`400 invalid_body`. Each applied change emits one `user.deactivated` or `user.reactivated`
-event naming the actor and the person; a refusal emits nothing. Nothing on this path deletes
-content: artifacts, revisions, comments and the share grants the person issued keep their
-rows, and the people they shared with keep reading them.
+the status write is conditional on the state the transition read, so two concurrent requests
+for the same transition apply exactly once and the losing writer changes nothing, records
+nothing and answers that same `409`. An unknown subject answers `404 user_not_found` and a
+body that names no known state `400 invalid_body`. Each applied change emits one
+`user.deactivated` or `user.reactivated` event naming the actor and the person; a refusal
+emits nothing. Nothing on this path deletes content: artifacts, revisions, comments and the
+share grants the person issued keep their rows, and the people they shared with keep reading
+them.
 
 Both session surfaces are listings over the same table: the member's own page uses
 `listSessions`/`revokeSession`/`revokeOtherSessions` and marks the current one by id; the
