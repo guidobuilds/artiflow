@@ -293,6 +293,7 @@ function DraftCard({
   return (
     <form
       className="comment-thread-card comment-thread-card-active comment-thread-draft"
+      data-comment-draft={body.trim() === "" ? "empty" : "typed"}
       style={placement ? { top: placement.top } : undefined}
       onSubmit={(event) => {
         event.preventDefault();
@@ -408,6 +409,7 @@ function MobileSheet({
             <input
               id={replyId}
               value={reply}
+              data-comment-input={reply.trim() === "" ? "empty" : "typed"}
               onChange={(event) => setReply(event.target.value)}
               placeholder="Reply…"
               className="comment-thread-input"
