@@ -173,17 +173,22 @@ test("the owner config advertises the list endpoint and the public config does n
   assert.equal(owner.endpoints.list, "/artifact/a1/comments");
 });
 
-test("the comments list route is registered before the artifact catch-all and refuses bearer and cookieless callers", () => {
+test("the comments list route is registered before the artifact catch-all and gates through one function", () => {
   const library = read("../apps/api/src/routes/library.ts");
   const route = library.indexOf('app.get("/artifact/:id/comments"');
   assert.notEqual(route, -1);
-  assert.ok(route < library.indexOf('app.all("/artifact/*", methodNotAllowed)'));
+  assert.ok(route < library.indexOf('app.all("/artifact/*", methodNotAllowed)'), "the route precedes the catch-all");
   const body = library.slice(route, library.indexOf("if (options.deletion)"));
-  assert.match(body, /headers\.has\("authorization"\)\) return c\.json\(\{ error: "unauthorized" \}, 401\)/);
-  assert.match(body, /if \(!ownerId\) return c\.json\(\{ error: "unauthorized" \}, 401\)/);
-  assert.match(body, /if \(!row\) return c\.json\(\{ error: "not_found" \}, 404\)/);
+  assert.match(body, /commentsListGate\(\{ authorizationHeader, sessionUserId: ownerId, artifact: row \}\)/);
+  assert.match(body, /if \(gate\.kind === "unauthorized"\) return c\.json\(\{ error: "unauthorized" \}, 401\)/);
+  assert.match(body, /if \(gate\.kind === "not_found"\) return c\.json\(\{ error: "not_found" \}, 404\)/);
   assert.match(body, /c\.header\("cache-control", "no-store"\)/);
-  assert.match(body, /canComment: config\.canComment, threads: config\.threads/);
+  assert.match(body, /return c\.json\(\{ canComment: config\.canComment, threads: config\.threads \}\)/);
+  assert.equal(
+    body.includes('headers.has("authorization")) return'),
+    false,
+    "the header is captured and the 401 rule lives in commentsListGate, pinned by test/library-comments-gate.test.ts",
+  );
 });
 
 test("the public viewer only reads comments while the link option is on", () => {

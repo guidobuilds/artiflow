@@ -85,6 +85,27 @@ async function listSharedArtifacts(db: AppDb, userId: string) {
     .limit(SHARED_LIMIT);
 }
 
+type ReadableArtifactRow = { storageKey: string | null; sha256: string | null; revisionNumber: number | null };
+
+export type CommentsListGate<A extends ReadableArtifactRow> =
+  | { kind: "ok"; ownerId: string; artifact: A; storageKey: string; sha256: string; revisionNumber: number }
+  | { kind: "unauthorized" }
+  | { kind: "not_found" }
+  | { kind: "no_current_revision" };
+
+export function commentsListGate<A extends ReadableArtifactRow>(input: {
+  authorizationHeader: boolean;
+  sessionUserId: string | null;
+  artifact: A | null | undefined;
+}): CommentsListGate<A> {
+  if (input.authorizationHeader) return { kind: "unauthorized" };
+  if (input.sessionUserId === null) return { kind: "unauthorized" };
+  if (input.artifact === null || input.artifact === undefined) return { kind: "not_found" };
+  const { storageKey, sha256, revisionNumber } = input.artifact;
+  if (!storageKey || !sha256 || revisionNumber === null) return { kind: "no_current_revision" };
+  return { kind: "ok", ownerId: input.sessionUserId, artifact: input.artifact, storageKey, sha256, revisionNumber };
+}
+
 const methodNotAllowed = (c: Context) => jsonError(c, "method_not_allowed", 405);
 
 async function readableArtifact(db: AppDb, artifactId: string, userId: string) {
@@ -262,19 +283,20 @@ export function createLibraryApp(options: LibraryOptions): Hono {
   });
 
   app.get("/artifact/:id/comments", async (c) => {
-    if (c.req.raw.headers.has("authorization")) return c.json({ error: "unauthorized" }, 401);
-    const ownerId = await sessionUserId(auth, c.req.raw.headers);
-    if (!ownerId) return c.json({ error: "unauthorized" }, 401);
-    const row = await readableArtifact(db, c.req.param("id"), ownerId);
-    if (!row) return c.json({ error: "not_found" }, 404);
-    if (!row.storageKey || !row.sha256 || row.revisionNumber === null)
-      return c.json({ error: "no_current_revision" }, 409);
+    const authorizationHeader = c.req.raw.headers.has("authorization");
+    const ownerId = authorizationHeader ? null : await sessionUserId(auth, c.req.raw.headers);
+    const row = ownerId === null ? null : await readableArtifact(db, c.req.param("id"), ownerId);
+    const gate = commentsListGate({ authorizationHeader, sessionUserId: ownerId, artifact: row });
+    if (gate.kind === "unauthorized") return c.json({ error: "unauthorized" }, 401);
+    if (gate.kind === "not_found") return c.json({ error: "not_found" }, 404);
+    if (gate.kind === "no_current_revision") return c.json({ error: "no_current_revision" }, 409);
+    if (gate.kind !== "ok") return c.json({ error: "not_found" }, 404);
     let source: string | null = null;
-    if (row.kind === "markdown") {
+    if (gate.artifact.kind === "markdown") {
       const read = await getRevisionBytes({
         storage,
-        storageKey: row.storageKey,
-        sha256: row.sha256,
+        storageKey: gate.storageKey,
+        sha256: gate.sha256,
         maxBytes,
       });
       if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
@@ -282,7 +304,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       source = decoded.text;
     }
-    const config = await ownerCommentsConfig(row.id, row.sha256, ownerId, source);
+    const config = await ownerCommentsConfig(gate.artifact.id, gate.sha256, gate.ownerId, source);
     c.header("cache-control", "no-store");
     return c.json({ canComment: config.canComment, threads: config.threads });
   });
