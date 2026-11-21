@@ -5,6 +5,13 @@ import { z } from "zod";
 
 import { ARTIFACT_KINDS, acceptsTextOperations } from "@artiflow/domain/kinds";
 import { applyLineOps, decodeMarkdownText, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
+import {
+  BLOCK_KINDS,
+  diffBlocks,
+  documentBlocks,
+  type DocumentBlock,
+  type DocumentOperation,
+} from "@artiflow/domain/document-operations";
 import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
 import {
   McpRollback,
@@ -29,6 +36,12 @@ import {
   ARTIFACT_VIEWER_RESOURCE_URI,
   BASE64,
   HEX_SHA256,
+  MAX_DOCUMENT_APPLY_OPS,
+  MAX_DOCUMENT_DIFF_ENTRIES,
+  MAX_DOCUMENT_QUERY_RESULTS,
+  MAX_DOCUMENT_READ_BLOCKS,
+  MAX_DOCUMENT_READ_BYTES,
+  MAX_DOCUMENT_READ_LINES,
   digestOf,
   refusal as pkgRefusal,
   refusalOf as pkgRefusalOf,
@@ -40,6 +53,14 @@ import {
 } from "@artiflow/mcp-server/constants";
 type ToolReply = { content: { type: "text"; text: string }[]; isError?: boolean };
 type Access = { ok: true; userId: string } | { ok: false; reply: ToolReply };
+type DocumentRefusal = {
+  ok: false;
+  kind: string;
+  reason: string;
+  currentSeq?: number;
+  opIndex?: number;
+  artifactKind?: string;
+};
 class RollbackReply extends McpRollback<ToolReply> {}
 
 const refusal = pkgRefusal;
@@ -590,6 +611,351 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           appliedOps: input.ops.length,
           sha256,
         });
+      },
+    );
+
+    const documentIdSchema = z.string().min(1).max(100);
+    const documentFailure = (failure: DocumentRefusal, artifactId?: string): ToolReply => {
+      const detail: Record<string, unknown> = artifactId === undefined ? {} : { artifactId };
+      if (failure.artifactKind !== undefined) detail.kind = failure.artifactKind;
+      if (failure.currentSeq !== undefined) detail.currentSeq = failure.currentSeq;
+      if (failure.opIndex !== undefined) detail.opIndex = failure.opIndex;
+      const error = failure.kind === "operation_rejected" ? "invalid_operation" : failure.kind;
+      return refusal(error, failure.reason, detail);
+    };
+    const openDocument = async (
+      userId: string,
+      artifactId: string,
+    ): Promise<{ kind: string; seq: number; text: string } | ToolReply> => {
+      const opened = await backend.documentOpen(userId, artifactId);
+      return opened.ok ? opened.value : documentFailure(opened, artifactId);
+    };
+    const outlineEntry = (block: DocumentBlock): Record<string, unknown> => ({
+      id: block.id,
+      kind: block.kind,
+      line: block.line,
+      endLine: block.endLine,
+      ...(block.level === undefined ? {} : { level: block.level }),
+    });
+    const documentOp = z.discriminatedUnion("op", [
+      z.object({
+        op: z.literal("replace_text"),
+        find: z.string().min(1),
+        replace: z.string(),
+        all: z.boolean().optional(),
+        expectedOccurrences: z.number().int().min(1).optional(),
+      }),
+      z.object({
+        op: z.literal("insert_text"),
+        text: z.string().min(1),
+        at: z.object({ line: z.number().int().min(1), column: z.number().int().min(1) }).optional(),
+      }),
+      z.object({
+        op: z.literal("delete_range"),
+        start: z.object({ line: z.number().int().min(1), column: z.number().int().min(1) }),
+        end: z.object({ line: z.number().int().min(1), column: z.number().int().min(1) }),
+      }),
+      z.object({
+        op: z.literal("append_blocks"),
+        text: z.string().min(1),
+        blockId: z.string().min(1).optional(),
+      }),
+      z.object({ op: z.literal("replace_document"), text: z.string().min(1) }),
+    ]);
+    server.registerTool(
+      "document_create",
+      {
+        title: "Create a markdown document",
+        description: `Create a markdown document inside the product in one call: no upload, no chunking, no file on disk. kind defaults to "markdown" and must name a kind whose agent write mode is text operations, so a kind edited as a whole document refuses with wrong_kind and belongs on artifact_write. When text is omitted the document starts as "# <title>" so the published title keeps matching the request. Returns the artifact identity shape artifact_write returns plus seq, the sequence document_apply accepts as baseSeq.`,
+        inputSchema: {
+          title: z.string().min(1).max(200),
+          kind: z.enum(ARTIFACT_KINDS).optional(),
+          text: z.string().optional(),
+        },
+        outputSchema: {
+          artifactId: z.string(),
+          revisionId: z.string(),
+          revisionNumber: z.number().int(),
+          sizeBytes: z.number().int(),
+          observedSizeBytes: z.number().int(),
+          sha256: z.string().regex(HEX_SHA256),
+          seq: z.number().int(),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const kind = input.kind ?? "markdown";
+        if (!acceptsTextOperations(kind))
+          return refusal("wrong_kind", "kind_does_not_accept_text_operations", {
+            kind,
+            acceptedKinds: ARTIFACT_KINDS.filter((candidate) => acceptsTextOperations(candidate)),
+          });
+        if (input.text !== undefined) {
+          const bytes = new TextEncoder().encode(input.text);
+          if (bytes.length > MAX_CHUNK_BYTES)
+            return refusal(
+              "too_large",
+              `initial text exceeds the document_create cap of ${MAX_CHUNK_BYTES} bytes: create the document and append blocks with document_apply`,
+              { maxBytes: MAX_CHUNK_BYTES, observedBytes: bytes.length },
+            );
+        }
+        const created = await backend.documentCreate({
+          ownerId: access.userId,
+          title: input.title,
+          kind,
+          text: input.text,
+        });
+        if (!created.ok) return documentFailure(created);
+        return {
+          content: [{ type: "text", text: JSON.stringify(created.value) }],
+          structuredContent: created.value,
+        };
+      },
+    );
+    server.registerTool(
+      "document_outline",
+      {
+        title: "Outline a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Return the block index of one owned markdown document's current draft: one entry per heading, paragraph, list item, code fence or table with its id, kind, line and endLine, plus level for headings. Never the text, so a large document costs one line per block. Requires ${readScope}. The ids are what document_read, document_query and document_diff accept; seq is the draft sequence document_apply accepts as baseSeq.`,
+        inputSchema: { artifactId: documentIdSchema },
+      },
+      async ({ artifactId }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        const blocks = documentBlocks(opened.text);
+        return reply({
+          artifactId,
+          kind: opened.kind,
+          seq: opened.seq,
+          lineCount: toLines(opened.text).length,
+          blockCount: blocks.length,
+          blocks: blocks.map(outlineEntry),
+        });
+      },
+    );
+    server.registerTool(
+      "document_read",
+      {
+        title: "Read a window of a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Read a bounded window of one owned markdown document. With no arguments it answers the outline projection (one entry per block, never the text). blockIds reads at most ${MAX_DOCUMENT_READ_BLOCKS} complete blocks by id; from/to reads at most ${MAX_DOCUMENT_READ_LINES} numbered lines, clamped to the document. Both are capped at ${MAX_DOCUMENT_READ_BYTES} bytes, and neither may be combined with the other. Requires ${readScope}; ids come from document_outline or document_query.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          blockIds: z.array(z.string().min(1)).min(1).max(MAX_DOCUMENT_READ_BLOCKS).optional(),
+          from: z.number().int().min(1).optional(),
+          to: z.number().int().min(1).optional(),
+        },
+      },
+      async ({ artifactId, blockIds, from, to }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        const blocks = documentBlocks(opened.text);
+        if (blockIds !== undefined && (from !== undefined || to !== undefined))
+          return refusal("validation", "read_is_either_block_ids_or_a_line_range", { artifactId });
+        if (blockIds === undefined && from === undefined && to === undefined)
+          return reply({
+            artifactId,
+            kind: opened.kind,
+            seq: opened.seq,
+            lineCount: toLines(opened.text).length,
+            blockCount: blocks.length,
+            blocks: blocks.map(outlineEntry),
+          });
+        if (blockIds !== undefined) {
+          const window: Record<string, unknown>[] = [];
+          for (const id of blockIds) {
+            const block = blocks.find((candidate) => candidate.id === id);
+            if (!block) return refusal("unknown_block", "block_not_in_outline", { artifactId, blockId: id });
+            window.push({ ...outlineEntry(block), text: block.content });
+          }
+          const observedBytes = window.reduce((sum, entry) => sum + String(entry.text).length, 0);
+          if (observedBytes > MAX_DOCUMENT_READ_BYTES)
+            return refusal("too_large", "read_window_exceeds_the_byte_cap", {
+              artifactId,
+              maxBytes: MAX_DOCUMENT_READ_BYTES,
+              observedBytes,
+            });
+          return reply({ artifactId, kind: opened.kind, seq: opened.seq, blocks: window, sizeBytes: observedBytes });
+        }
+        const lines = toLines(opened.text);
+        const start = Math.max(1, from ?? 1);
+        const end = Math.min(lines.length, to ?? lines.length);
+        if (start > end)
+          return refusal("validation", "empty_line_window", { lineCount: lines.length, from: start, to: end });
+        if (end - start + 1 > MAX_DOCUMENT_READ_LINES)
+          return refusal("too_large", "read_window_exceeds_the_line_cap", {
+            maxLines: MAX_DOCUMENT_READ_LINES,
+            requestedLines: end - start + 1,
+          });
+        const window = lines.slice(start - 1, end);
+        const observedBytes = new TextEncoder().encode(window.join("\n")).length;
+        if (observedBytes > MAX_DOCUMENT_READ_BYTES)
+          return refusal("too_large", "read_window_exceeds_the_byte_cap", {
+            maxBytes: MAX_DOCUMENT_READ_BYTES,
+            observedBytes,
+          });
+        return reply({
+          artifactId,
+          kind: opened.kind,
+          seq: opened.seq,
+          lineCount: lines.length,
+          from: start,
+          to: end,
+          lines: window,
+        });
+      },
+    );
+    server.registerTool(
+      "document_query",
+      {
+        title: "Find blocks in a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Find blocks in one owned markdown document by case-insensitive text substring, by kind, or both, answering ids and line numbers only. Requires ${readScope}. At most ${MAX_DOCUMENT_QUERY_RESULTS} matches are returned and truncated reports the rest; every id is accepted by document_read.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          text: z.string().min(1).optional(),
+          kind: z.enum(BLOCK_KINDS).optional(),
+          limit: z.number().int().min(1).max(MAX_DOCUMENT_QUERY_RESULTS).optional(),
+        },
+      },
+      async ({ artifactId, text, kind, limit }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        if (text === undefined && kind === undefined)
+          return refusal("validation", "query_needs_text_or_kind", { artifactId });
+        const needle = text?.toLowerCase();
+        const matches = documentBlocks(opened.text)
+          .filter((block) => kind === undefined || block.kind === kind)
+          .filter((block) => needle === undefined || block.content.toLowerCase().includes(needle))
+          .map((block) => ({ id: block.id, kind: block.kind, line: block.line }));
+        const bounded = matches.slice(0, limit ?? MAX_DOCUMENT_QUERY_RESULTS);
+        return reply({
+          artifactId,
+          seq: opened.seq,
+          matchCount: matches.length,
+          truncated: matches.length > bounded.length,
+          matches: bounded,
+        });
+      },
+    );
+    server.registerTool(
+      "document_diff",
+      {
+        title: "Diff two sequences of a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Compare one owned markdown document at two sequences and report, per block, whether it was added, removed, changed or moved — ids, lines and the previous id of a changed block only, never the text. Requires ${readScope}. fromSeq is the sequence you last read; toSeq defaults to the current draft sequence, so an edit made by another author shows up without reading the document. A sequence that is ahead of the draft refuses with the current sequence.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          fromSeq: z.number().int().min(0),
+          toSeq: z.number().int().min(0).optional(),
+        },
+      },
+      async ({ artifactId, fromSeq, toSeq }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        const target = toSeq ?? opened.seq;
+        if (fromSeq > target)
+          return refusal("validation", "diff_range_is_reversed", { artifactId, fromSeq, toSeq: target });
+        const blocksAt = async (seq: number): Promise<{ blocks: DocumentBlock[] } | ToolReply> => {
+          if (seq === opened.seq) return { blocks: documentBlocks(opened.text) };
+          const resolved = await backend.documentTextAt(access.userId, artifactId, seq);
+          return resolved.ok ? { blocks: documentBlocks(resolved.value.text) } : documentFailure(resolved, artifactId);
+        };
+        const before = await blocksAt(fromSeq);
+        if ("content" in before) return before;
+        const after = await blocksAt(target);
+        if ("content" in after) return after;
+        const changes = diffBlocks(before.blocks, after.blocks);
+        const bounded = changes.slice(0, MAX_DOCUMENT_DIFF_ENTRIES);
+        return reply({
+          artifactId,
+          fromSeq,
+          toSeq: target,
+          changeCount: changes.length,
+          truncated: changes.length > bounded.length,
+          changes: bounded,
+        });
+      },
+    );
+    server.registerTool(
+      "document_apply",
+      {
+        title: "Apply operations to a markdown document",
+        description: `Apply a batch of typed operations to one owned markdown document in one atomic call, instead of resending the document. Requires ${scope}. baseSeq is the sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: replace_text (find/replace, optional all and expectedOccurrences), insert_text (at an optional 1-indexed line/column), delete_range (start/end, end exclusive), append_blocks (with an optional blockId to insert after that block) and replace_document. A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged document. The reply carries the new sequence, how many operations this call applied and the resulting operation count. The accepted batch also snapshots the document when 100 operations or ten minutes are due: published reports whether this call froze one, and revisionId names it, so a viewer sees the edit without a second call. Below the threshold nothing is written to storage.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          baseSeq: z.number().int().min(0),
+          idempotencyKey: z.string().min(1).max(100),
+          ops: z.array(documentOp).min(1).max(MAX_DOCUMENT_APPLY_OPS),
+        },
+        outputSchema: {
+          artifactId: z.string(),
+          baseSeq: z.number().int(),
+          seq: z.number().int(),
+          applied: z.number().int(),
+          operationCount: z.number().int(),
+          replayed: z.boolean(),
+          published: z.boolean(),
+          revisionId: z.string().nullable(),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const applied = await backend.documentApply({
+          artifactId: input.artifactId,
+          ownerId: access.userId,
+          authorKind: "agent",
+          authorId: access.userId,
+          baseSeq: input.baseSeq,
+          idempotencyKey: input.idempotencyKey,
+          ops: input.ops as DocumentOperation[],
+        });
+        if (!applied.ok) return documentFailure(applied, input.artifactId);
+        const value = {
+          artifactId: input.artifactId,
+          baseSeq: input.baseSeq,
+          seq: applied.value.seq,
+          applied: applied.value.applied,
+          operationCount: applied.value.operationCount,
+          replayed: applied.value.replayed,
+          published: applied.value.published,
+          revisionId: applied.value.revisionId,
+        };
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+      },
+    );
+    server.registerTool(
+      "document_publish",
+      {
+        title: "Publish a markdown document",
+        description: `Snapshot one owned markdown document's current draft and move the published pointer to it in one transaction, so the viewer and the public link serve the edits made with document_apply right away. Requires ${scope}. Publishing always freezes, whatever the operation count and however little time passed since the last snapshot. A draft with no pending operations refuses with nothing_to_publish and the reason no_pending_operations, because publishing nothing is not a publish. The reply carries the published revision id and the sequence it covers, seqFrom through seqTo.`,
+        inputSchema: { artifactId: documentIdSchema },
+        outputSchema: {
+          artifactId: z.string(),
+          revisionId: z.string(),
+          revisionNumber: z.number().int(),
+          seqFrom: z.number().int(),
+          seqTo: z.number().int(),
+        },
+      },
+      async ({ artifactId }) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const published = await backend.documentPublish(access.userId, artifactId);
+        if (!published.ok) return documentFailure(published, artifactId);
+        const value = published.value;
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
       },
     );
 

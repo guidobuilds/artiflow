@@ -90,15 +90,23 @@ test("resources/read serves the viewer as an mcp-app HTML document", async () =>
   assert.ok((meta?.csp?.frameDomains ?? []).length > 0, "nested artifact iframes need an explicit frame domain");
 });
 
-test("only the three read tools declare readOnlyHint", async () => {
+test("only the seven read tools declare readOnlyHint", async () => {
   const { tools } = await connect();
   const readOnly = tools
     .filter((tool) => (tool as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint === true)
     .map((tool) => tool.name)
     .sort();
-  assert.deepEqual(readOnly, ["artifact_get", "artifact_get_markdown", "artifact_list_comments"]);
+  assert.deepEqual(readOnly, [
+    "artifact_get",
+    "artifact_get_markdown",
+    "artifact_list_comments",
+    "document_diff",
+    "document_outline",
+    "document_query",
+    "document_read",
+  ]);
   const others = tools.filter((tool) => !readOnly.includes(tool.name)).map((tool) => tool.name);
-  assert.equal(others.length, 10, "the registry holds thirteen tools: three reads and ten writers");
+  assert.equal(others.length, 13, "the registry holds twenty tools: seven reads and thirteen writers");
   for (const name of others)
     assert.equal(
       (tools.find((tool) => tool.name === name) as { annotations?: Record<string, unknown> }).annotations,

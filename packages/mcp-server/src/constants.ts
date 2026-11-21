@@ -18,6 +18,13 @@ export const HEX_SHA256 = /^[0-9a-f]{64}$/;
 
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
+export const MAX_DOCUMENT_READ_BLOCKS = 20;
+export const MAX_DOCUMENT_READ_LINES = 200;
+export const MAX_DOCUMENT_READ_BYTES = 65_536;
+export const MAX_DOCUMENT_QUERY_RESULTS = 50;
+export const MAX_DOCUMENT_APPLY_OPS = 50;
+export const MAX_DOCUMENT_DIFF_ENTRIES = 200;
+
 export type ToolReply = { content: { type: "text"; text: string }[]; isError?: boolean };
 export type Access = { ok: true; userId: string } | { ok: false; reply: ToolReply };
 

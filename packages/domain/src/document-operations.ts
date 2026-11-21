@@ -11,8 +11,26 @@ export type DocumentOperation =
   | { op: "replace_document"; text: string };
 
 export type BlockKind = "heading" | "paragraph" | "list-item" | "code-fence" | "table";
+export const BLOCK_KINDS = ["heading", "paragraph", "list-item", "code-fence", "table"] as const;
 export type BlockLocation = { line: number; column: number; kind: BlockKind };
 export type BlockIndex = Record<string, BlockLocation>;
+export type DocumentBlock = {
+  id: string;
+  kind: BlockKind;
+  line: number;
+  endLine: number;
+  column: number;
+  level?: number;
+  content: string;
+};
+export type BlockChangeStatus = "added" | "removed" | "changed" | "moved";
+export type BlockChange = {
+  status: BlockChangeStatus;
+  id: string;
+  line: number;
+  fromId?: string;
+  fromLine?: number;
+};
 
 export type OperationRefusalReason =
   | "empty_operations"
@@ -50,11 +68,11 @@ export type OperationOutcome = {
 
 export type OperationsResult = { ok: true; value: OperationOutcome } | OperationRefusal;
 
-type BlockSpan = { id: string; kind: BlockKind; line: number; column: number; endLine: number; content: string };
+type BlockSpan = DocumentBlock;
 type SingleOutcome = { ok: true; value: { text: string; occurrences: number } } | OperationRefusal;
 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-const HEADING = /^ {0,3}#{1,6}(\s|$)/;
+const HEADING = /^ {0,3}(#{1,6})(\s|$)/;
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s/;
 const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 
@@ -106,6 +124,8 @@ function startsBlock(lines: string[], index: number, line: string): boolean {
   return fenceOf(line) !== null || HEADING.test(line) || LIST_ITEM.test(line) || isTableStart(lines, index);
 }
 
+const headingLevel = (line: string): number | undefined => HEADING.exec(line)?.[1]?.length;
+
 function assignIds(spans: Omit<BlockSpan, "id">[]): BlockSpan[] {
   const ordinals = new Map<string, number>();
   return spans.map((span) => {
@@ -119,11 +139,18 @@ function assignIds(spans: Omit<BlockSpan, "id">[]): BlockSpan[] {
 function scanBlocks(text: string): BlockSpan[] {
   const lines = text.split("\n");
   const spans: Omit<BlockSpan, "id">[] = [];
-  const span = (kind: BlockKind, start: number, end: number, column: number): Omit<BlockSpan, "id"> => ({
+  const span = (
+    kind: BlockKind,
+    start: number,
+    end: number,
+    column: number,
+    level?: number,
+  ): Omit<BlockSpan, "id"> => ({
     kind,
     line: start + 1,
     column,
     endLine: end + 1,
+    ...(level === undefined ? {} : { level }),
     content: lines.slice(start, end + 1).join("\n"),
   });
   let index = 0;
@@ -158,7 +185,7 @@ function scanBlocks(text: string): BlockSpan[] {
       continue;
     }
     if (HEADING.test(line)) {
-      spans.push(span("heading", index, index, indentOf(line) + 1));
+      spans.push(span("heading", index, index, indentOf(line) + 1, headingLevel(line)));
       index += 1;
       continue;
     }
@@ -185,10 +212,55 @@ function scanBlocks(text: string): BlockSpan[] {
   return assignIds(spans);
 }
 
+export function documentBlocks(text: string): DocumentBlock[] {
+  return scanBlocks(text);
+}
+
 export function indexBlocks(text: string): BlockIndex {
   const index: BlockIndex = {};
   for (const block of scanBlocks(text)) index[block.id] = { line: block.line, column: block.column, kind: block.kind };
   return index;
+}
+
+export function diffBlocks(before: readonly DocumentBlock[], after: readonly DocumentBlock[]): BlockChange[] {
+  const beforeIds = new Map(before.map((block) => [block.id, block]));
+  const afterIds = new Set(after.map((block) => block.id));
+  const changes: BlockChange[] = [];
+  for (const block of after) {
+    const previous = beforeIds.get(block.id);
+    if (previous && previous.line !== block.line)
+      changes.push({ status: "moved", id: block.id, line: block.line, fromLine: previous.line });
+  }
+  const gone = before.filter((block) => !afterIds.has(block.id));
+  const fresh = after.filter((block) => !beforeIds.has(block.id));
+  const claimed = new Set<DocumentBlock>();
+  for (const block of fresh) {
+    const closest = gone
+      .filter((candidate) => !claimed.has(candidate) && candidate.kind === block.kind)
+      .map((candidate) => ({ candidate, distance: Math.abs(candidate.line - block.line) }))
+      .filter((entry) => entry.distance <= 1)
+      .sort((left, right) => left.distance - right.distance)[0];
+    if (!closest) {
+      changes.push({ status: "added", id: block.id, line: block.line });
+      continue;
+    }
+    claimed.add(closest.candidate);
+    changes.push({
+      status: "changed",
+      id: block.id,
+      line: block.line,
+      fromId: closest.candidate.id,
+      fromLine: closest.candidate.line,
+    });
+  }
+  for (const block of gone) {
+    if (claimed.has(block)) continue;
+    changes.push({ status: "removed", id: block.id, line: block.line });
+  }
+  return changes
+    .map((change, position) => ({ change, position }))
+    .sort((left, right) => left.change.line - right.change.line || left.position - right.position)
+    .map(({ change }) => change);
 }
 
 export function canonicalMarkdown(document: MarkdownDocument): string {

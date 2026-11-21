@@ -55,6 +55,13 @@ const TOOL_NAMES = [
   "artifact_unresolve_comment",
   "artifact_update_metadata",
   "artifact_write",
+  "document_apply",
+  "document_create",
+  "document_diff",
+  "document_outline",
+  "document_publish",
+  "document_query",
+  "document_read",
 ];
 
 type ToolResult = {
@@ -242,7 +249,7 @@ after(async () => {
   assert.equal(await countLeftoverTestDatabases(), 0);
 });
 
-toolTest("tools/list advertises the eleven artifact tools and a read-only token cannot write", async () => {
+toolTest("tools/list advertises every artifact and document tool and a read-only token cannot write", async () => {
   const body = await rpc(writeToken, { jsonrpc: "2.0", id: 1, method: "tools/list" });
   assert.deepEqual((body.result?.tools ?? []).map((tool) => tool.name).sort(), TOOL_NAMES);
   const bytes = payload();

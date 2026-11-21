@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { eq, sql } from "drizzle-orm";
+import { eq, and, desc, gt, lte, sql } from "drizzle-orm";
 
 import type { AppDb, Database } from "../../adapters/postgres/db/client.ts";
 import {
@@ -32,7 +32,7 @@ export const FREEZE_INTERVAL_MS = 600_000;
 export type DocumentAuthorKind = (typeof DOCUMENT_AUTHOR_KINDS)[number];
 
 export type DocumentErrorKind =
-  "validation" | "not_found" | "concurrent_edit" | "operation_rejected" | "storage" | "error";
+  "validation" | "not_found" | "concurrent_edit" | "operation_rejected" | "nothing_to_publish" | "storage" | "error";
 
 export type DocumentFailure = {
   ok: false;
@@ -100,6 +100,8 @@ export type DocumentStore = {
   readDraft(artifactId: string): Promise<DraftRecord | null>;
   insertDraftIfAbsent(record: DraftRecord): Promise<DraftRecord>;
   readOperation(artifactId: string, idempotencyKey: string): Promise<OperationRecord | null>;
+  readSnapshotAtOrBefore(artifactId: string, seq: number): Promise<SnapshotAtSeq | null>;
+  readAppliedOperations(artifactId: string, afterSeq: number, toSeq: number): Promise<OperationRecord[]>;
   commitOperation(input: { operation: OperationRecord; draft: DraftRecord | null }): Promise<{ committed: boolean }>;
   commitSnapshot(input: {
     revision: SnapshotRecord;
@@ -109,12 +111,24 @@ export type DocumentStore = {
 };
 
 export type OpenedDraft = { artifactId: string; seq: number; formatVersion: number; text: string };
+export type SnapshotAtSeq = {
+  seqTo: number;
+  storageKey: string;
+  sha256: string;
+  formatVersion: number;
+};
 export type AppliedOperations = { artifactId: string; seq: number; applied: number; replayed: boolean };
+export type AppliedAndFrozen = AppliedOperations & {
+  published: boolean;
+  revisionId: string | null;
+  publishedSeq: number;
+};
 export type FreezeOutcome = {
   artifactId: string;
   frozen: boolean;
   publishedSeq: number;
   seq: number;
+  seqFrom: number | null;
   revisionId: string | null;
   revisionNumber: number | null;
   storageKey: string | null;
@@ -133,6 +147,8 @@ export type ApplyOperationsInput = OpenDraftInput & {
 };
 
 export type FreezeInput = OpenDraftInput & { force?: boolean };
+
+export type TextAtInput = OpenDraftInput & { seq: number };
 
 const ok = <T>(value: T): DocumentResult<T> => ({ ok: true, value });
 const fail = (
@@ -203,6 +219,44 @@ export async function openDraft(input: OpenDraftInput): Promise<DocumentResult<O
   return ok({ artifactId, seq: draft.seq, formatVersion: state.value.formatVersion, text: state.value.text });
 }
 
+export async function textAt(input: TextAtInput): Promise<DocumentResult<OpenedDraft>> {
+  const { store, storage, artifactId, seq } = input;
+  if (!isIdentifier(artifactId)) return fail("validation", "artifact_id_required");
+  if (!Number.isSafeInteger(seq) || seq < 0) return fail("validation", "sequence_out_of_range");
+  const artifact = await store.readArtifact(artifactId);
+  if (!artifact) return fail("not_found", "artifact_not_found");
+  const draft = await store.readDraft(artifactId);
+  const current = draft?.seq ?? artifact.publishedSeq;
+  if (seq > current) return fail("validation", "sequence_ahead_of_the_draft", { currentSeq: current });
+  if (draft && draft.seq === seq) {
+    const state = textOf(draft);
+    if (!state.ok) return state;
+    return ok({ artifactId, seq, formatVersion: state.value.formatVersion, text: state.value.text });
+  }
+  const snapshot = await store.readSnapshotAtOrBefore(artifactId, seq);
+  let text = "";
+  let formatVersion = DOCUMENT_FORMAT_VERSION;
+  if (snapshot) {
+    const read = await getRevisionBytes({ storage, storageKey: snapshot.storageKey, sha256: snapshot.sha256 });
+    if (!read.ok) return fail(storageKind(read.kind), read.reason);
+    const decoded = decodeMarkdownText(read.value.bytes);
+    if (!decoded.ok) return fail("error", "snapshot_is_not_valid_utf8");
+    text = decoded.text;
+    formatVersion = snapshot.formatVersion;
+  }
+  let cursor = snapshot?.seqTo ?? 0;
+  if (cursor === seq) return ok({ artifactId, seq, formatVersion, text });
+  for (const row of await store.readAppliedOperations(artifactId, cursor, seq)) {
+    if (row.seq !== cursor + 1) return fail("validation", "sequence_not_recorded", { currentSeq: current });
+    const applied = applyDocumentOperations({ formatVersion, text }, row.ops);
+    if (!applied.ok) return fail("error", "recorded_operation_no_longer_applies");
+    text = applied.value.text;
+    cursor = row.seq;
+  }
+  if (cursor !== seq) return fail("validation", "sequence_not_recorded", { currentSeq: current });
+  return ok({ artifactId, seq, formatVersion, text });
+}
+
 const replayOf = (record: OperationRecord): AppliedOperations => ({
   artifactId: record.artifactId,
   seq: record.seq,
@@ -267,12 +321,31 @@ export async function applyOperations(input: ApplyOperationsInput): Promise<Docu
   return ok({ artifactId, seq, applied: applied.value.applied, replayed: false });
 }
 
+export async function applyOperationsAndFreeze(input: ApplyOperationsInput): Promise<DocumentResult<AppliedAndFrozen>> {
+  const applied = await applyOperations(input);
+  if (!applied.ok) return applied;
+  const frozen = await freezeIfDue({
+    store: input.store,
+    storage: input.storage,
+    artifactId: input.artifactId,
+    now: input.now,
+  });
+  if (!frozen.ok) return frozen;
+  return ok({
+    ...applied.value,
+    published: frozen.value.frozen,
+    revisionId: frozen.value.revisionId,
+    publishedSeq: frozen.value.publishedSeq,
+  });
+}
+
 const unfrozen = (artifactId: string, artifact: ArtifactDocumentState, seq: number): DocumentResult<FreezeOutcome> =>
   ok({
     artifactId,
     frozen: false,
     publishedSeq: artifact.publishedSeq,
     seq,
+    seqFrom: null,
     revisionId: null,
     revisionNumber: null,
     storageKey: null,
@@ -288,7 +361,10 @@ async function freeze(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>
   if (!artifact) return fail("not_found", "artifact_not_found");
   const draft = await store.readDraft(artifactId);
   const draftSeq = draft?.seq ?? artifact.publishedSeq;
-  if (!draft || draftSeq <= artifact.publishedSeq) return unfrozen(artifactId, artifact, draftSeq);
+  if (!draft || draftSeq <= artifact.publishedSeq) {
+    if (input.force === true) return fail("nothing_to_publish", "no_pending_operations");
+    return unfrozen(artifactId, artifact, draftSeq);
+  }
   const elapsed = artifact.latestSnapshot ? now.getTime() - artifact.latestSnapshot.createdAt.getTime() : 0;
   const pending = draftSeq - artifact.publishedSeq;
   if (input.force !== true && pending < FREEZE_OPERATION_THRESHOLD && elapsed < FREEZE_INTERVAL_MS)
@@ -317,12 +393,16 @@ async function freeze(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>
     expectedPublishedSeq: artifact.publishedSeq,
     expectedDraftSeq: draftSeq,
   });
-  if (!committed.committed) return unfrozen(artifactId, artifact, draftSeq);
+  if (!committed.committed) {
+    if (input.force === true) return fail("nothing_to_publish", "no_pending_operations");
+    return unfrozen(artifactId, artifact, draftSeq);
+  }
   return ok({
     artifactId,
     frozen: true,
     publishedSeq: revision.seqTo,
     seq: revision.seqTo,
+    seqFrom: revision.seqFrom,
     revisionId: committed.revisionId,
     revisionNumber: committed.revisionNumber,
     storageKey: revision.storageKey,
@@ -455,6 +535,50 @@ export function drizzleDocumentStore(database: Database): DocumentStore {
         result: row.result as "applied" | "rejected",
         ops: Array.isArray(row.ops) ? (row.ops as DocumentOperation[]) : [],
       };
+    },
+    async readSnapshotAtOrBefore(artifactId, seq) {
+      const rows = await db
+        .select({
+          seqTo: artifactRevisions.seqTo,
+          storageKey: artifactRevisions.storageKey,
+          sha256: artifactRevisions.sha256,
+          formatVersion: artifactRevisions.formatVersion,
+        })
+        .from(artifactRevisions)
+        .where(and(eq(artifactRevisions.artifactId, artifactId), lte(artifactRevisions.seqTo, seq)))
+        .orderBy(desc(artifactRevisions.seqTo), desc(artifactRevisions.revision))
+        .limit(1);
+      return rows[0] ?? null;
+    },
+    async readAppliedOperations(artifactId, afterSeq, toSeq) {
+      const rows = await db
+        .select({
+          artifactId: documentOperations.artifactId,
+          seq: documentOperations.seq,
+          baseSeq: documentOperations.baseSeq,
+          authorKind: documentOperations.authorKind,
+          authorId: documentOperations.authorId,
+          ops: documentOperations.ops,
+          result: documentOperations.result,
+          idempotencyKey: documentOperations.idempotencyKey,
+          createdAt: documentOperations.createdAt,
+        })
+        .from(documentOperations)
+        .where(
+          and(
+            eq(documentOperations.artifactId, artifactId),
+            eq(documentOperations.result, "applied"),
+            gt(documentOperations.seq, afterSeq),
+            lte(documentOperations.seq, toSeq),
+          ),
+        )
+        .orderBy(documentOperations.seq);
+      return rows.map((row) => ({
+        ...row,
+        authorKind: row.authorKind as DocumentAuthorKind,
+        result: row.result as "applied" | "rejected",
+        ops: Array.isArray(row.ops) ? (row.ops as DocumentOperation[]) : [],
+      }));
     },
     commitOperation: ({ operation, draft }) =>
       db.transaction(async (tx) => {

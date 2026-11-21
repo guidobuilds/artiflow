@@ -4,6 +4,8 @@ import { test } from "node:test";
 import {
   DOCUMENT_FORMAT_VERSION,
   applyDocumentOperations,
+  diffBlocks,
+  documentBlocks,
   canonicalBytes,
   canonicalMarkdown,
   indexBlocks,
@@ -260,4 +262,79 @@ test("a batch applies every operation in order against the text produced so far"
   assert.equal(result.applied, 3);
   assert.deepEqual(result.occurrences, [1, 0, 0]);
   assert.equal(result.formatVersion, DOCUMENT_FORMAT_VERSION);
+});
+
+test("documentBlocks reports kind, line span and heading level without changing any id", () => {
+  const blocks = documentBlocks(DOC);
+  assert.deepEqual(
+    blocks.map((block) => [block.kind, block.line, block.endLine, block.level]),
+    [
+      ["heading", 1, 1, 1],
+      ["paragraph", 3, 3, undefined],
+      ["list-item", 5, 5, undefined],
+      ["list-item", 6, 6, undefined],
+      ["code-fence", 8, 10, undefined],
+      ["table", 12, 14, undefined],
+    ],
+  );
+  assert.equal(blocks[0]?.content, "# Title");
+  assert.deepEqual(
+    Object.keys(indexBlocks(DOC)),
+    blocks.map((block) => block.id),
+    "the index is a projection",
+  );
+  assert.deepEqual(
+    indexBlocks(DOC)[blocks[0]?.id as string],
+    { line: 1, column: 1, kind: "heading" },
+    "the published sidecar keeps its shape",
+  );
+  assert.deepEqual(
+    documentBlocks(DOC.replace("# Title", "## Title")).map((block) => block.level),
+    [2, undefined, undefined, undefined, undefined, undefined],
+    "the level follows the heading marker",
+  );
+});
+
+test("diffBlocks reports added, removed, changed and moved blocks by id only", () => {
+  const before = documentBlocks("# Title\n\nfirst paragraph\n\nsecond paragraph\n\nlast line");
+  const after = documentBlocks("# Title\n\nfirst paragraph edited\n\nlast line\n\nbrand new block");
+  assert.deepEqual(
+    diffBlocks(before, after).map((change) => [change.status, change.line]),
+    [
+      ["changed", 3],
+      ["moved", 5],
+      ["removed", 5],
+      ["added", 7],
+    ],
+  );
+  const changed = diffBlocks(before, after)[0];
+  assert.deepEqual(
+    [changed?.fromId, changed?.fromLine],
+    [before[1]?.id, 3],
+    "a changed block names the identity it replaced",
+  );
+  assert.deepEqual(
+    diffBlocks(documentBlocks("a\n\nb"), documentBlocks("a\n\nb\n\nc")).map((change) => change.status),
+    ["added"],
+    "an append moves nothing",
+  );
+  assert.deepEqual(
+    diffBlocks(documentBlocks("a\n\nb"), documentBlocks("new\n\na\n\nb")).map((change) => [
+      change.status,
+      change.line,
+      change.fromLine,
+    ]),
+    [
+      ["added", 1, undefined],
+      ["moved", 3, 1],
+      ["moved", 5, 3],
+    ],
+    "a block that keeps its identity but changes line is moved",
+  );
+  assert.deepEqual(
+    diffBlocks(documentBlocks("a\n\nb\n\nc"), documentBlocks("a\n\nc")).map((change) => change.status),
+    ["moved", "removed"],
+    "a deletion moves the block after it and removes the deleted one",
+  );
+  assert.deepEqual(diffBlocks(before, before), [], "an unchanged document reports nothing");
 });

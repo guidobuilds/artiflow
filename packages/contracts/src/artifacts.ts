@@ -118,5 +118,23 @@ export const ARTIFACT_TOOL_NAMES = [
   "artifact_reply_comment",
   "artifact_resolve_comment",
   "artifact_unresolve_comment",
+  "document_create",
+  "document_outline",
+  "document_read",
+  "document_query",
+  "document_diff",
+  "document_apply",
+  "document_publish",
 ] as const;
 export type ArtifactToolName = (typeof ARTIFACT_TOOL_NAMES)[number];
+
+export const DOCUMENT_TOOL_NAMES = [
+  "document_create",
+  "document_outline",
+  "document_read",
+  "document_query",
+  "document_diff",
+  "document_apply",
+  "document_publish",
+] as const;
+export type DocumentToolName = (typeof DOCUMENT_TOOL_NAMES)[number];

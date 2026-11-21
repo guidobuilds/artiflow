@@ -7,9 +7,11 @@ import {
   FREEZE_INTERVAL_MS,
   FREEZE_OPERATION_THRESHOLD,
   applyOperations,
+  applyOperationsAndFreeze,
   freezeIfDue,
   openDraft,
   publish,
+  textAt,
   type ArtifactDocumentState,
   type DocumentStore,
   type DraftRecord,
@@ -105,6 +107,21 @@ function fakeStore(seed: { artifactId: string; publishedSeq?: number; snapshotTe
     },
     async readOperation(artifactId: string, idempotencyKey: string): Promise<OperationRecord | null> {
       return operations.find((row) => row.artifactId === artifactId && row.idempotencyKey === idempotencyKey) ?? null;
+    },
+    async readSnapshotAtOrBefore(artifactId: string, seq: number) {
+      const candidates = revisions
+        .filter((row) => row.artifactId === artifactId && row.seqTo <= seq)
+        .sort((left, right) => right.seqTo - left.seqTo || right.revision - left.revision);
+      const row = candidates[0];
+      return row
+        ? { seqTo: row.seqTo, storageKey: row.storageKey, sha256: row.sha256, formatVersion: row.formatVersion }
+        : null;
+    },
+    async readAppliedOperations(artifactId: string, afterSeq: number, toSeq: number): Promise<OperationRecord[]> {
+      return operations
+        .filter((row) => row.artifactId === artifactId && row.result === "applied")
+        .filter((row) => row.seq > afterSeq && row.seq <= toSeq)
+        .sort((left, right) => left.seq - right.seq);
     },
     commitOperation: (input) =>
       serial(async () => {
@@ -465,7 +482,7 @@ test("freezeIfDue snapshots after the ten minute window since the last snapshot"
   assert.equal(frozen.ok && frozen.value.frozen, true, "the elapsed window is enough");
 });
 
-test("publish freezes below the threshold and refuses nothing", async () => {
+test("publish freezes below the threshold", async () => {
   const seeded = fakeStore({ artifactId: "a1" });
   const storage = fakeStorage();
   await applyOperations({
@@ -507,4 +524,143 @@ test("a duplicate idempotency key refused by the store is replayed, never applie
   assert.equal(second.ok, true);
   assert.equal(seeded.operations.length, 1, "only one row is appended");
   assert.deepEqual([first.ok, second.ok], [true, true]);
+});
+
+test("textAt resolves the published sequence, an intermediate one and the live draft", async () => {
+  const seeded = fakeStore({ artifactId: "a1", publishedSeq: 3 });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, PUBLISHED);
+  for (const index of [4, 5]) {
+    const applied = await applyOperations({
+      store: seeded.store,
+      storage,
+      artifactId: "a1",
+      authorKind: "agent",
+      authorId: "agent-1",
+      baseSeq: index - 1,
+      idempotencyKey: `key-${index}`,
+      ops: [{ op: "append_blocks", text: `line ${index}` }],
+      now: NOW,
+    });
+    assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
+  }
+  const atPublished = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 3 });
+  assert.deepEqual(atPublished, {
+    ok: true,
+    value: { artifactId: "a1", seq: 3, formatVersion: 1, text: PUBLISHED },
+  });
+  const atFour = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 4 });
+  assert.equal(atFour.ok, true);
+  if (atFour.ok) assert.equal(atFour.value.text, `${PUBLISHED}\n\nline 4`);
+  const atDraft = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 5 });
+  assert.equal(atDraft.ok && atDraft.value.text, textOf(seeded), "the live draft is the current sequence");
+  const ahead = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 6 });
+  assert.equal(ahead.ok, false);
+  if (ahead.ok) return;
+  assert.equal(ahead.kind, "validation");
+  assert.equal(ahead.reason, "sequence_ahead_of_the_draft");
+  assert.equal(ahead.currentSeq, 5);
+});
+
+test("textAt replays from the nearest snapshot instead of rescanning the whole log", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  const base = { store: seeded.store, storage, artifactId: "a1", authorKind: "agent" as const, authorId: "agent-1" };
+  for (const index of [1, 2, 3]) {
+    await applyOperations({
+      ...base,
+      baseSeq: index - 1,
+      idempotencyKey: `key-${index}`,
+      ops: [{ op: "append_blocks", text: `line ${index}` }],
+      now: NOW,
+    });
+  }
+  const frozen = await publish({ store: seeded.store, storage, artifactId: "a1", now: NOW });
+  assert.equal(frozen.ok && frozen.value.frozen, true, "the snapshot covers the first three operations");
+  await applyOperations({
+    ...base,
+    baseSeq: 3,
+    idempotencyKey: "key-4",
+    ops: [{ op: "replace_text", find: "line 1", replace: "line one" }],
+    now: NOW,
+  });
+  const afterFreeze = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 4 });
+  assert.equal(
+    afterFreeze.ok && afterFreeze.value.text,
+    "line one\n\nline 2\n\nline 3",
+    "the replay starts at the snapshot",
+  );
+  const atSnapshot = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 3 });
+  assert.equal(atSnapshot.ok && atSnapshot.value.text, "line 1\n\nline 2\n\nline 3");
+  assert.equal(seeded.revisions.length, 1, "resolving history writes no snapshot");
+});
+
+test("publish refuses with nothing_to_publish when the draft has no pending operations", async () => {
+  const seeded = fakeStore({ artifactId: "a1", publishedSeq: 1 });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, PUBLISHED);
+  const empty = await publish({ store: seeded.store, storage, artifactId: "a1", now: NOW });
+  assert.equal(empty.ok, false);
+  if (empty.ok) return;
+  assert.equal(empty.kind, "nothing_to_publish");
+  assert.equal(empty.reason, "no_pending_operations");
+  assert.equal(seeded.revisions.length, 1, "a refused publish writes no snapshot");
+  assert.equal(storage.objects.size, 1, "a refused publish writes no object");
+  await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "a1",
+    authorKind: "agent",
+    authorId: "agent-1",
+    baseSeq: 1,
+    idempotencyKey: "key-1",
+    ops: [{ op: "append_blocks", text: "pending" }],
+    now: NOW,
+  });
+  const frozen = await publish({ store: seeded.store, storage, artifactId: "a1", now: NOW });
+  assert.equal(frozen.ok, true, frozen.ok ? "" : frozen.reason);
+  if (!frozen.ok) return;
+  assert.deepEqual([frozen.value.frozen, frozen.value.seqFrom, frozen.value.publishedSeq], [true, 2, 2]);
+  const again = await publish({ store: seeded.store, storage, artifactId: "a1", now: NOW });
+  assert.equal(again.ok, false);
+  if (again.ok) return;
+  assert.equal(again.kind, "nothing_to_publish");
+  assert.equal(seeded.revisions.length, 2, "the second publish writes no snapshot");
+  assert.equal(storage.objects.size, 2, "the second publish writes no object");
+});
+
+test("applyOperationsAndFreeze publishes on the operation that crosses the threshold", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  const base = {
+    store: seeded.store,
+    storage,
+    artifactId: "a1",
+    authorKind: "agent" as const,
+    authorId: "agent-1",
+    now: NOW,
+  };
+  const published: boolean[] = [];
+  for (let index = 1; index <= 100; index += 1) {
+    const applied = await applyOperationsAndFreeze({
+      ...base,
+      baseSeq: index - 1,
+      idempotencyKey: `key-${index}`,
+      ops: [{ op: "append_blocks", text: `line ${index}` }],
+    });
+    assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
+    if (!applied.ok) return;
+    assert.equal(applied.value.seq, index);
+    published.push(applied.value.published);
+    if (!applied.value.published) assert.equal(applied.value.revisionId, null);
+  }
+  assert.deepEqual([...new Set(published.slice(0, 99))], [false], "nothing freezes below the threshold");
+  assert.equal(published[99], true, "the hundredth operation freezes");
+  assert.equal(seeded.revisions.length, 1, "one snapshot covers the hundred operations");
+  assert.equal(seeded.operations.length, 100, "one row per operation and no extra write");
+  assert.equal(storage.objects.size, 1, "one snapshot object");
+  const revision = seeded.revisions[0] as FakeRevision;
+  assert.deepEqual([revision.seqFrom, revision.seqTo], [1, 100]);
+  assert.equal(seeded.artifacts.get("a1")?.publishedSeq, 100);
+  assert.equal(seeded.artifacts.get("a1")?.currentRevisionId, revision.id);
 });

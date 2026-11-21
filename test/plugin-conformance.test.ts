@@ -42,3 +42,24 @@ test("an unknown kind must not open the apps frame (least-privileged branch)", (
   assert.equal(report.ok, false);
   assert.ok(report.issues.some((issue) => issue.check === "open" && issue.detail.includes("unknown")));
 });
+
+test("the document tools are part of the Artiflow MCP surface a plugin may declare", () => {
+  const report = runConformance({
+    ...base,
+    manifest: {
+      id: "artiflow:opencode",
+      kind: "plugin" as const,
+      tools: [
+        "document_create",
+        "document_outline",
+        "document_read",
+        "document_query",
+        "document_diff",
+        "document_apply",
+        "document_publish",
+      ],
+    },
+  });
+  assert.equal(report.ok, true, JSON.stringify(report.issues));
+  assert.deepEqual(report.issues, []);
+});

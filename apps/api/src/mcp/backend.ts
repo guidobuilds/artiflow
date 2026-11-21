@@ -3,12 +3,17 @@ import {
   type McpCaps,
   type McpChunkListing,
   type McpCommentRow,
+  type McpDocumentApplyInput,
+  type McpDocumentCreateInput,
+  type McpDocumentState,
   type McpExecutor,
   type McpResult,
   type McpUploadRow,
   McpRollback,
 } from "@artiflow/mcp-server/ports";
+import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { acceptsTextOperations } from "@artiflow/domain/kinds";
 import {
   commentDocument,
   currentRevision,
@@ -34,6 +39,13 @@ import {
 } from "../adapters/storage/s3.ts";
 import { commitUpload, writeArtifact } from "../domain/commit-flow.ts";
 import { getCurrentState, renameArtifact, setRevisionCas } from "../domain/commits.ts";
+import {
+  applyOperationsAndFreeze,
+  drizzleDocumentStore,
+  openDraft,
+  publish,
+  textAt,
+} from "../domain/documents/service.ts";
 import { createUpload, getUpload, listChunks, putChunk } from "../domain/staging.ts";
 import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
 import type { Storage } from "../adapters/storage/client.ts";
@@ -46,7 +58,21 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
     maxCommentQuote: caps?.maxCommentQuote ?? MAX_COMMENT_QUOTE,
   };
   const db = database.db;
+  const documents = drizzleDocumentStore(database);
   const executorOf = (executor: McpExecutor): AppDb | AppTx => (executor ?? db) as AppDb;
+  const documentOf = async (ownerId: string, artifactId: string): Promise<McpResult<{ kind: string }>> => {
+    const state = await getCurrentState(db, artifactId, ownerId);
+    if (!state.ok) return { ok: false, kind: state.kind, reason: state.reason };
+    if (state.value.deletedAt) return { ok: false, kind: "gone", reason: "artifact_deleted" };
+    if (!acceptsTextOperations(state.value.kind))
+      return {
+        ok: false,
+        kind: "wrong_kind",
+        reason: "artifact_is_not_a_markdown_document",
+        artifactKind: state.value.kind,
+      };
+    return { ok: true, value: { kind: state.value.kind } };
+  };
   const digestOfKey = async (storageKey: string): Promise<string | null> =>
     (
       await db
@@ -95,6 +121,108 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
         if (error instanceof McpRollback) return error.carried;
         throw error;
       }
+    },
+    documentCreate: async ({ ownerId, title, kind, text }: McpDocumentCreateInput) => {
+      const body = text !== undefined && text.trim().length > 0 ? text : `# ${title}\n`;
+      const bytes = new TextEncoder().encode(body);
+      const written = await writeArtifact({
+        database,
+        storage,
+        ownerId,
+        bytes,
+        title,
+        kind: kind ?? "markdown",
+      });
+      if (!written.ok) return { ok: false, kind: written.kind, reason: written.reason };
+      const opened = await openDraft({ store: documents, storage, artifactId: written.value.artifactId });
+      if (!opened.ok) return { ok: false, kind: opened.kind, reason: opened.reason };
+      return {
+        ok: true,
+        value: {
+          artifactId: written.value.artifactId,
+          revisionId: written.value.revisionId,
+          revisionNumber: written.value.revisionNumber,
+          sizeBytes: written.value.sizeBytes,
+          observedSizeBytes: written.value.observedSizeBytes,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          seq: opened.value.seq,
+        },
+      };
+    },
+    documentOpen: async (ownerId: string, artifactId: string): Promise<McpResult<McpDocumentState>> => {
+      const described = await documentOf(ownerId, artifactId);
+      if (!described.ok) return described;
+      const opened = await openDraft({ store: documents, storage, artifactId });
+      if (!opened.ok) return { ok: false, kind: opened.kind, reason: opened.reason };
+      return {
+        ok: true,
+        value: {
+          artifactId,
+          kind: described.value.kind,
+          seq: opened.value.seq,
+          text: opened.value.text,
+        },
+      };
+    },
+    documentTextAt: async (ownerId: string, artifactId: string, seq: number) => {
+      const described = await documentOf(ownerId, artifactId);
+      if (!described.ok) return described;
+      const resolved = await textAt({ store: documents, storage, artifactId, seq });
+      if (!resolved.ok) return { ok: false, kind: resolved.kind, reason: resolved.reason };
+      return { ok: true, value: { artifactId, seq: resolved.value.seq, text: resolved.value.text } };
+    },
+    documentApply: async (input: McpDocumentApplyInput) => {
+      const described = await documentOf(input.ownerId, input.artifactId);
+      if (!described.ok) return described;
+      const applied = await applyOperationsAndFreeze({
+        store: documents,
+        storage,
+        artifactId: input.artifactId,
+        authorKind: input.authorKind,
+        authorId: input.authorId,
+        baseSeq: input.baseSeq,
+        idempotencyKey: input.idempotencyKey,
+        ops: input.ops,
+      });
+      if (!applied.ok)
+        return {
+          ok: false,
+          kind: applied.kind,
+          reason: applied.reason,
+          currentSeq: applied.currentSeq,
+          opIndex: applied.opIndex,
+        };
+      return {
+        ok: true,
+        value: {
+          artifactId: input.artifactId,
+          seq: applied.value.seq,
+          applied: applied.value.applied,
+          operationCount: applied.value.seq,
+          replayed: applied.value.replayed,
+          published: applied.value.published,
+          revisionId: applied.value.revisionId,
+        },
+      };
+    },
+    documentPublish: async (ownerId: string, artifactId: string) => {
+      const described = await documentOf(ownerId, artifactId);
+      if (!described.ok) return described;
+      const frozen = await publish({ store: documents, storage, artifactId });
+      if (!frozen.ok) return { ok: false, kind: frozen.kind, reason: frozen.reason };
+      const value = frozen.value;
+      if (value.revisionId === null || value.revisionNumber === null || value.seqFrom === null)
+        return { ok: false, kind: "nothing_to_publish", reason: "no_pending_operations" };
+      return {
+        ok: true,
+        value: {
+          artifactId,
+          revisionId: value.revisionId,
+          revisionNumber: value.revisionNumber,
+          seqFrom: value.seqFrom,
+          seqTo: value.publishedSeq,
+        },
+      };
     },
   };
 }
