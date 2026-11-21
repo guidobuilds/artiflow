@@ -1,4 +1,4 @@
-export type AuthUser = { id: string; name: string; email: string };
+export type AuthUser = { id: string; name: string; email: string; image: string | null };
 export type Capabilities = { emailPassword: boolean; registration: boolean; socialProviders: string[] };
 export type Credentials = { email: string; password: string };
 export type SignUpInput = Credentials & { name: string };
@@ -16,11 +16,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toUser(value: unknown): AuthUser | null {
   if (!isRecord(value) || !isRecord(value.user)) return null;
-  const { id, name, email } = value.user;
+  const { id, name, email, image } = value.user;
   if (typeof id !== "string" || id === "") return null;
   if (typeof name !== "string" || name === "") return null;
   if (typeof email !== "string" || email === "") return null;
-  return { id, name, email };
+  return { id, name, email, image: typeof image === "string" && image !== "" ? image : null };
 }
 
 async function call(path: string, init: RequestInit): Promise<Response | null> {

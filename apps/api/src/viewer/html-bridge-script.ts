@@ -247,7 +247,7 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
     if (frame !== 0) return;
     frame = window.requestAnimationFrame(flush);
   };
-  const onScroll = () => {
+  const announceScroll = () => {
     scrolled = true;
     schedule();
   };
@@ -258,12 +258,14 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
     document.addEventListener("mousemove", onMove, true);
     document.addEventListener("click", onClick, true);
     window.addEventListener("load", place);
+    window.addEventListener("load", announceScroll);
     setTimeout(place, 120);
     document.addEventListener("DOMContentLoaded", place);
-    window.addEventListener("scroll", onScroll, true);
+    window.addEventListener("scroll", announceScroll, true);
     window.addEventListener("resize", schedule, true);
     if (typeof ResizeObserver === "function") new ResizeObserver(schedule).observe(document.documentElement);
     post({ type: "ready" });
+    announceScroll();
   };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
   else start();

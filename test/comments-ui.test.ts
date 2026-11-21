@@ -43,7 +43,11 @@ test("every editor chrome, selection and comment action uses the shared noninter
     ["chat", '"Comment"'],
     ["refresh", '"Retry history"'],
     ["history", "{`Restore version ${revision.revisionNumber}"],
-    ["trash", "{`Delete reply by ${entry.author.name || entry.author.id}"],
+    ["left", '"Previous thread"'],
+    ["right", '"Next thread"'],
+    ["x", '"Close thread"'],
+    ["trash", "{`Delete reply by ${authorName(entry.author)}"],
+    ["x", '"Cancel comment"'],
     ["left", '"Previous thread"'],
     ["right", '"Next thread"'],
     ["x", '"Close thread"'],
@@ -55,8 +59,8 @@ test("every editor chrome, selection and comment action uses the shared noninter
   );
   assert.match(
     sidebar,
-    /<button\s+type="button"\s+id=\{`\$\{bodyId\}-label`\}/,
-    "only the card header is a native button so keyboard focus works; every icon action keeps the shared tooltip",
+    /<button\s+ref=\{pillRef\}\s+type="button"/,
+    "only the pill is a native button so keyboard focus works; every icon action keeps the shared tooltip",
   );
   assert.match(page, /icon=\{entry\.icon\}\s+label=\{entry\.label\}/, "every toolbar entry uses the shared tooltip");
   assert.deepEqual(
@@ -150,8 +154,9 @@ test("canvas selection opens the margin at the selection; cards mark, scroll whe
   assert.match(page, /block: "center"/);
   assert.match(page, /classList\.add\("comment-marker-flash"\)/);
   assert.match(margin, /data-thread-id=\{thread\.id\}/);
-  assert.match(margin, /tabIndex=\{0\}/);
+  assert.match(margin, /<button\s+ref=\{pillRef\}\s+type="button"\s+data-thread-id=\{thread\.id\}/);
   assert.match(margin, /aria-expanded=\{active\}/);
+  assert.match(markdown, /activateCallback\.current\(null\)/);
 });
 
 test("the editor highlights follow the thread state and hide with the margin", () => {
@@ -165,7 +170,7 @@ test("the editor highlights follow the thread state and hide with the margin", (
   assert.match(page, /writeCommentsVisible\(commentStorage\.current, next\)/);
   assert.match(styles, /\.comment-marker-active \{/);
   assert.match(styles, /\.comment-marker-stale \{[^}]*border-bottom: 1px dotted var\(--fg-subtle\)/);
-  assert.match(styles, /\.editor-workspace\.editor-margin-open \{\s*grid-template-columns: minmax\(0, 1fr\) 320px;/);
+  assert.match(styles, /\.editor-workspace\.editor-margin-open \{\s*grid-template-columns: minmax\(0, 1fr\) 360px;/);
   assert.equal(
     readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8").includes("CommentSidebar"),
     false,

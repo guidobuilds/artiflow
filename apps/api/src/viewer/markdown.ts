@@ -44,7 +44,7 @@ export function markdownViewerPage(
   comments?: { config: ViewerCommentsConfig; assets: { script: string; styles: string[]; dev: boolean } },
 ): string {
   const csp =
-    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'";
+    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'";
   const commentsData =
     comments === undefined
       ? ""
@@ -60,7 +60,7 @@ ${VIEWER_CHROME_CSS}
 </style><style id="doc-styles">
 ${DOCUMENT_CSS}
 .docshell{display:grid;grid-template-columns:minmax(0,1fr);min-height:0;flex:1;overflow:auto}
-.docshell.comments-visible{grid-template-columns:minmax(0,1fr) 320px}
+.docshell.comments-visible{grid-template-columns:minmax(0,1fr) 360px}
 .viewer-comments{display:none}
 .docshell.comments-visible .viewer-comments{display:block;padding:16px;border-left:1px solid var(--doc-line);background:var(--doc-bg)}
 @media (max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}

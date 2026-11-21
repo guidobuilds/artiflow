@@ -19,7 +19,7 @@ import { markdownViewerPage, renderMarkdownFragment } from "../apps/api/src/view
 const TODAYS_POLICY =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
 const VIEWER_POLICY =
-  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'";
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'";
 
 const unescapeAttribute = (value: string): string =>
   value
@@ -62,6 +62,7 @@ test("the served viewer policy is today's wrapper list plus the same-origin bund
     "script-src 'self' 'unsafe-inline'",
     "style-src 'self' 'unsafe-inline'",
     "frame-src 'self'",
+    "img-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
   ]);
@@ -92,7 +93,7 @@ test("the widened policy adds no source, host or sandbox relaxation", () => {
   ]) {
     assert.equal(VIEWER_CSP.includes(forbidden), false, `the viewer policy never gains ${forbidden}`);
   }
-  assert.equal(VIEWER_CSP.split("; ").length, TODAYS_POLICY.split("; ").length + 1, "exactly one directive added");
+  assert.equal(VIEWER_CSP.split("; ").length, TODAYS_POLICY.split("; ").length + 2, "exactly two directives added");
 });
 
 test("the 404 refusal keeps the narrow policy and never references the widened constant", () => {
@@ -129,7 +130,7 @@ test("the markdown wrapper keeps its scriptless sandbox and its own policy list"
   assert.equal(scriptBodies(page).length, 1, "exactly the one refresh script");
   assert.equal(
     /content-security-policy" content="([^"]*)"/.exec(page)?.[1],
-    `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'`,
+    `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'`,
   );
 });
 
@@ -478,8 +479,7 @@ test("the owner bar still handles focus and the F shortcut", () => {
 });
 
 test("the markdown page keeps its own policy and the fragment can only add text", () => {
-  assert.equal(/img-src/.test(VIEWER_CSP), false, "the response policy grants no image source");
-  assert.match(VIEWER_CSP, /^default-src 'none'/, "img-src therefore falls back to default-src 'none'");
+  assert.equal(/img-src 'self'(;|$)/.test(VIEWER_CSP), true, "the response policy grants same-origin images only");
   assert.equal(VIEWER_CSP.includes("data:"), false);
   assert.equal(VIEWER_CSP.includes("https:"), false);
 
@@ -491,7 +491,7 @@ test("the markdown page keeps its own policy and the fragment can only add text"
     { metaUrl: "/api/artifacts/1111", revisionNumber: 1, sha256: "bbb" },
   );
   const meta = /content-security-policy" content="([^"]*)"/.exec(markdown)?.[1] ?? "";
-  assert.equal(meta.includes("img-src data: https:"), true, "the page's own allowance stays on the page");
+  assert.equal(meta.includes("img-src 'self' data: https:"), true, "the page's own allowance stays on the page");
   assert.equal(
     meta.includes("frame-src"),
     false,
