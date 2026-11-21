@@ -146,8 +146,8 @@ test("canvas selection opens the margin at the selection; cards mark, scroll whe
   assert.match(page, /top: Math\.max\(0, position\.top/);
   assert.match(markdown, /begin\(selection\.text, selection\.span, selection\.top\)/);
   assert.match(markdown, /draftAnchorTop=\{draft\?\.anchorTop \?\? 0\}/);
-  assert.match(page, /box\.top < view\.top \|\| box\.bottom > view\.bottom/);
-  assert.match(page, /block: "nearest"/);
+  assert.match(page, /box\.top < 0 \|\| box\.bottom > window\.innerHeight/);
+  assert.match(page, /block: "center"/);
   assert.match(page, /classList\.add\("comment-marker-flash"\)/);
   assert.match(margin, /data-thread-id=\{thread\.id\}/);
   assert.match(margin, /tabIndex=\{0\}/);

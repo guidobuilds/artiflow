@@ -174,6 +174,7 @@ const applyRevision = async (revision) => {
   if (refresh.srcdocUrl === null) {
     // A server-rendered document has no byte endpoint to read: reload, asking the browser to keep
     // the reader where they were.
+    if (document.querySelector("[data-comment-draft='typed'], [data-comment-input='typed']") !== null) return;
     try {
       history.scrollRestoration = "auto";
     } catch (error) {
@@ -258,7 +259,7 @@ body.focus .vbar-exit{display:block}
 .docshell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;overflow:hidden}
 .docshell.comments-visible{grid-template-columns:minmax(0,1fr) 320px}
 .viewer-comments{display:none}
-.docshell.comments-visible .viewer-comments{display:block;overflow:auto;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
+.docshell.comments-visible .viewer-comments{display:block;position:relative;overflow:hidden;padding:12px;border-left:1px solid var(--line-strong);background:var(--bg)}
 @media(max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
 iframe{height:100%;min-height:0;width:100%;border:0;background:white}
 </style>
