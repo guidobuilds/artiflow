@@ -17,6 +17,12 @@ export const SSO_UNKNOWN_ACCOUNT =
   "No account on this instance signs in with that address. Ask the administrator to create one.";
 export const SSO_DEACTIVATED_ACCOUNT =
   "This account is deactivated. Ask the administrator to reactivate it.";
+export const SSO_DOMAIN_NOT_ALLOWED =
+  "This instance only creates accounts on the domains the administrator allowed. Ask the administrator to allow " +
+  "that domain, or to accept any account this identity provider authenticates.";
+export const SSO_TENANT_MISMATCH =
+  "The identity provider answered for a tenant this connection does not pin. Ask the administrator to review the " +
+  "enterprise connection.";
 export const SSO_REFUSED = "The single sign-on sign-in was refused. Ask the administrator for access.";
 
 export function ssoFailure(search: string): string {
@@ -25,6 +31,8 @@ export function ssoFailure(search: string): string {
   if (code === "") return "";
   if (code === "sso_account_unknown") return SSO_UNKNOWN_ACCOUNT;
   if (code === "sso_account_deactivated") return SSO_DEACTIVATED_ACCOUNT;
+  if (code === "sso_domain_not_allowed") return SSO_DOMAIN_NOT_ALLOWED;
+  if (code === "sso_tenant_mismatch") return SSO_TENANT_MISMATCH;
   return SSO_REFUSED;
 }
 

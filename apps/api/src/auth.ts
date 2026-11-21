@@ -131,7 +131,13 @@ function ssoIdentityPlugin(registration: SsoProviderRegistration, database: Data
         },
       },
     ],
-    resolveUser: createSsoUserResolver({ db: database.db, allowedDomains: registration.allowedDomains }),
+    resolveUser: createSsoUserResolver({
+      db: database.db,
+      allowedDomains: registration.allowedDomains,
+      issuer: registration.issuer,
+      jitProvisioning: registration.jitProvisioning,
+      acceptAnyAccount: registration.acceptAnyAccount,
+    }),
   }) as BetterAuthPlugin;
 }
 

@@ -15,11 +15,13 @@ import {
   FALLBACK_PATH,
   loginSurface,
   SSO_DEACTIVATED_ACCOUNT,
+  SSO_DOMAIN_NOT_ALLOWED,
   SSO_REFUSED,
+  SSO_TENANT_MISMATCH,
   SSO_UNKNOWN_ACCOUNT,
   ssoFailure,
 } from "../apps/dashboard/src/login-methods.ts";
-import { SSO_CONNECTION_PROVIDER_ID } from "../apps/api/src/settings/sso-connection.ts";
+import { SSO_CONNECTION_PROVIDER_ID, ssoPinnedTenant } from "../apps/api/src/settings/sso-connection.ts";
 
 type Call = { url: string; init: RequestInit };
 const realFetch = globalThis.fetch;
@@ -150,16 +152,37 @@ test("a refusal that came back from the identity provider names the administrato
   assert.equal(ssoFailure("?return=%2Flibrary"), "", "the ordinary login page states no refusal");
   assert.equal(ssoFailure("?error=sso_account_unknown"), SSO_UNKNOWN_ACCOUNT);
   assert.equal(ssoFailure("?error=sso_account_deactivated"), SSO_DEACTIVATED_ACCOUNT);
+  assert.equal(ssoFailure("?error=sso_domain_not_allowed"), SSO_DOMAIN_NOT_ALLOWED);
+  assert.equal(ssoFailure("?error=sso_tenant_mismatch"), SSO_TENANT_MISMATCH);
   assert.equal(ssoFailure("?error=invalid_provider"), SSO_REFUSED);
 
-  for (const message of [SSO_UNKNOWN_ACCOUNT, SSO_DEACTIVATED_ACCOUNT, SSO_REFUSED]) {
+  for (const message of [
+    SSO_UNKNOWN_ACCOUNT,
+    SSO_DEACTIVATED_ACCOUNT,
+    SSO_DOMAIN_NOT_ALLOWED,
+    SSO_TENANT_MISMATCH,
+    SSO_REFUSED,
+  ]) {
     assert.match(message, /administrator/i, "every refusal tells the person who can unblock them");
   }
+  assert.match(SSO_DOMAIN_NOT_ALLOWED, /accept any account/i, "the domain refusal names the explicit acceptance");
   assert.doesNotMatch(SSO_REFUSED, /password|credential|token/i);
 
   const screen = read(SCREEN);
   assert.match(screen, /useState\(\(\) => ssoFailure\(search\)\)/, "the refusal reaches the page as a message");
   assert.match(screen, /\{error \?/, "the refusal is rendered");
+});
+
+test("the tenant pin is the tenant the saved issuer names", () => {
+  const tenantId = "6f8c8f3a-1f4e-4c26-9c15-58a2a0a0b7d1";
+  assert.equal(ssoPinnedTenant(`https://login.microsoftonline.com/${tenantId}/v2.0`), tenantId);
+  assert.equal(ssoPinnedTenant(`https://login.microsoftonline.com/${tenantId}/v2.0/`), tenantId);
+  assert.equal(ssoPinnedTenant(`https://sts.windows.net/${tenantId}/`), tenantId);
+  assert.equal(ssoPinnedTenant("https://idp.example.test/tenant-a"), "tenant-a");
+  assert.equal(ssoPinnedTenant("https://idp.example.test/Realm-A"), "realm-a", "the pin compares in one case");
+  assert.equal(ssoPinnedTenant("https://idp.example.test"), null, "an issuer that names no tenant pins none");
+  assert.equal(ssoPinnedTenant("https://idp.example.test/"), null);
+  assert.equal(ssoPinnedTenant("not a url"), null);
 });
 
 test("the continuation page carries the connection action and comes back with its query", () => {

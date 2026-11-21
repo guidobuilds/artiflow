@@ -51,6 +51,8 @@ export type SsoProviderRegistration = {
   readonly clientSecret: string;
   readonly scopes: readonly string[];
   readonly allowedDomains: readonly string[];
+  readonly jitProvisioning: boolean;
+  readonly acceptAnyAccount: boolean;
 };
 
 export function ssoSecretName(): string {
@@ -63,6 +65,25 @@ export function ssoRedirectUri(publicOrigin: string): string {
 
 export function ssoDiscoveryUrl(issuer: string): string {
   return `${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`;
+}
+
+const TENANT_VERSION_SEGMENT = /^v\d+(?:\.\d+)?$/;
+
+export function ssoPinnedTenant(issuer: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(issuer);
+  } catch {
+    return null;
+  }
+  const segments = url.pathname
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter((segment) => segment !== "");
+  const last = segments.at(-1);
+  if (last !== undefined && TENANT_VERSION_SEGMENT.test(last.toLowerCase())) segments.pop();
+  const tenant = segments.at(-1);
+  return tenant === undefined ? null : tenant.toLowerCase();
 }
 
 function displayNameOf(document: Record<string, unknown>): string | null {
@@ -155,5 +176,7 @@ export function ssoProviderRegistration(
     clientSecret: credential,
     scopes: Object.freeze([...scopes]),
     allowedDomains: Object.freeze([...allowedDomains]),
+    jitProvisioning: flagOf(document, "jitProvisioning"),
+    acceptAnyAccount: flagOf(document, "acceptAnyAccount"),
   });
 }

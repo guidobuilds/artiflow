@@ -525,8 +525,9 @@ this product:
   library's self-service registration is closed.
 - `domainVerification` disabled — an SMB cannot publish a DNS TXT record, and the trusted
   matrix below replaces it.
-- `disableImplicitSignUp` bound to the JIT setting, and `resolveUser` implementing our own
-  trust rules instead of the library's domain-only linking.
+- `disableImplicitSignUp` permanently on — `resolveUser` provisions and links, so the library's
+  own sign-up path never runs — and `resolveUser` implementing our own trust rules instead of the
+  library's domain-only linking.
 - `guardProviderMutation` rejects an edit that would drop the connection while linked
   identities exist unless the administrator confirmed the impact, which gives the
   specification's confirmation requirement a server-side home.
@@ -538,6 +539,19 @@ authorities present themselves; the error names the fix (a single-tenant app reg
 or the tenant-scoped issuer URL). At callback, `iss` must equal the pinned issuer, and when
 the IdP emits `tid` it must equal the pinned tenant. Domain allowlists are an additional
 barrier and never a substitute for this check.
+
+The pinned tenant is derived from the saved issuer in one place, `ssoPinnedTenant` in
+`apps/api/src/settings/sso-connection.ts`: the last path segment once a version segment such as
+`v2.0` is dropped, lower-cased. So `https://login.microsoftonline.com/<tenant>/v2.0`,
+`https://sts.windows.net/<tenant>/` and `https://idp.example.test/tenant-a` all name their
+tenant, and the `tid` claim of the verified ID token is compared against that value. A token
+whose `iss` is not the saved issuer, whose `tid` names another tenant, or whose `tid` arrives
+while the issuer names no tenant at all, is refused with `sso_tenant_mismatch` before the
+account is looked up, so an allowed domain never rescues it. An issuer with no tenant segment
+(`https://idp.example.test`) pins the issuer alone and accepts a token only when it asserts no
+tenant: a claim that could not be checked against anything fails closed. SAML identities carry
+no ID token, so they are pinned by their assertion issuer only; this product registers OIDC
+providers exclusively.
 
 **Claim trust and linking.** `resolveUser` implements the specification's matrix and nothing
 more:
@@ -603,22 +617,42 @@ ID token is the trust evidence: `resolveUser` reads the verified token's `email_
 never the unverified user information response, and the pinning rules of the next subsection
 build on that claim only.
 
-**This slice's refusal matrix.** Provisioning and linking are the next slice, so this one
-implements the minimum a usable login needs and nothing that creates state:
+**The refusal matrix as implemented.** `apps/api/src/identity/sso-resolution.ts` answers with
+one named code per refusal, and the login page renders each in its own words through
+`ssoFailure`, never text the identity provider supplied:
 
-| Existing account                 | Outcome                                                       |
-| --------------------------------- | ------------------------------------------------------------- |
-| none                              | reject `sso_account_unknown`, telling the person to ask the administrator |
-| deactivated                       | reject `sso_account_deactivated`; the account is never reactivated |
-| linked to a different SSO identity | reject `sso_identity_conflict`                                |
-| active, verified claim or allowed domain | link the identity to the account and create its session |
-| active, unverifiable email         | reject `sso_email_unverified`                                 |
+| Situation                                                                 | Refusal                    |
+| ------------------------------------------------------------------------- | -------------------------- |
+| a first sign-in while just-in-time provisioning is off                    | `sso_account_unknown`      |
+| a matched account that is deactivated                                     | `sso_account_deactivated`  |
+| an existing account with an unverified claim and a foreign domain          | `sso_email_unverified`     |
+| an address or an enterprise identity bound to another account              | `sso_identity_conflict`    |
+| a first sign-in on a domain outside the allowlist, without explicit acceptance | `sso_domain_not_allowed` |
+| a token from another tenant, or from an issuer this build did not pin      | `sso_tenant_mismatch`      |
 
-Nothing in this unit creates an account, reactivates one or edits a profile. `disableImplicitSignUp`
-is on and every path returns a link or a refusal, so the library has no sign-up to perform; a
-first authorized sign-in that would need a new account stays a refusal until the JIT slice
-lands, together with `acceptAnyAccount`, the `tid` pin against the pinned tenant and the
-concurrent-linking rules.
+The domain refusal names the fix it needs: the administrator can allow the domain or turn the
+explicit any-account acceptance on. Every refusal leaves the stored rows untouched: no account,
+no identity and no session is written, and the account that matched a refused sign-in keeps its
+status and its address. Nothing in the matrix reactivates an account or edits a profile.
+
+**Who writes the rows.** The resolver owns provisioning and linking, and the library's own
+sign-up path stays closed: `disableImplicitSignUp: true` is on whatever the JIT switch says, so
+the library can never create an account from a provider profile. A created account is written
+inside the resolver with the address lower-cased, `status: active`, `role: member` and
+`emailVerified` taken from the verified claim, and its identity row is written beside it under
+the same rules. The role is never read from a provider claim, so an administrator-ish `role`,
+`groups` or `roles` claim grants nothing. A linked account keeps the address and the profile it
+had: the resolver answers `link` with `profile: "preserve"`, and the account is matched on the
+lower-cased address, so a provider that answers in another case neither duplicates the account
+nor rewrites the stored one.
+
+**Concurrency.** `user.email` and the pair `(providerId, accountId)` of the account table are
+unique, and both writes are `insert … on conflict do nothing`: a losing racer reads the row the
+winner committed and resolves to the same account instead of creating a second one. Two
+simultaneous first sign-ins for the same address and identity therefore end with one account,
+one identity row and two sessions, never two accounts. The identity row is written before the
+library finalizes the sign-in, so the library always finds the account it must bind and never
+creates a second one of its own.
 
 The server decides in two places, both inside the auth instance built from the snapshot, so a
 configuration change reaches them through the rebuild of section 5:

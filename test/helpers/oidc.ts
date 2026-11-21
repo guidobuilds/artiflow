@@ -13,6 +13,7 @@ export type IdpProfile = {
   email: string;
   emailVerified?: boolean;
   name?: string;
+  claims?: Record<string, unknown>;
 };
 
 export type DiscoveryMode = "ok" | "broken" | "mismatched_issuer";
@@ -63,17 +64,18 @@ export async function startFakeIdentityProvider(options: IdpOptions): Promise<Fa
   const seen: string[] = [];
   let origin = "";
 
-  function idToken(claims: IdpProfile): string {
+  function idToken(person: IdpProfile): string {
     const now = Math.floor(Date.now() / 1000);
     const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT", kid }));
     const payload = base64url(
       JSON.stringify({
+        ...person.claims,
         iss: issuer,
         aud: options.clientId,
-        sub: claims.subject,
-        email: claims.email,
-        email_verified: claims.emailVerified === true,
-        name: claims.name ?? "Enterprise Person",
+        sub: person.subject,
+        email: person.email,
+        email_verified: person.emailVerified === true,
+        name: person.name ?? "Enterprise Person",
         iat: now,
         exp: now + TOKEN_LIFETIME_SECONDS,
       }),
