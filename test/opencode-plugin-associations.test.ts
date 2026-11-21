@@ -208,7 +208,12 @@ test("stored session history stays capped at 20 and retains the latest revision"
 
 test("portable RPC uses flat method names and validates list and event payloads", async () => {
   assert.equal(Associated.id, "artiflow.associated");
-  assert.deepEqual(Object.keys(Associated.methods), ["viewer.token", "viewer.consent", "associated.list"]);
+  assert.deepEqual(Object.keys(Associated.methods), [
+    "viewer.token",
+    "viewer.consent",
+    "associated.list",
+    "config.url",
+  ]);
   const tokenInput = Associated.methods["viewer.token"].input["~standard"];
   assert.deepEqual(await tokenInput.validate({}), { value: {} });
   const tokenOutput = Associated.methods["viewer.token"].output["~standard"];

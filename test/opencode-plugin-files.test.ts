@@ -30,9 +30,14 @@ function harness(write?: unknown) {
       events.push(event);
     },
   );
-  const reply =
-    write ??
-    ({ artifactId: "a", revisionId: "r", revisionNumber: 1, sizeBytes: 5, observedSizeBytes: 5, sha256: "0" });
+  const reply = write ?? {
+    artifactId: "a",
+    revisionId: "r",
+    revisionNumber: 1,
+    sizeBytes: 5,
+    observedSizeBytes: 5,
+    sha256: "0",
+  };
   const respond = async (input: unknown) => {
     calls.push({ input });
     if (reply instanceof Error) throw reply;
@@ -132,7 +137,9 @@ for (const invalid of [false, true])
 
 test("write_file preserves instance refusals without recording an association", async () =>
   fixture(async (directory) => {
-    const h = harness(new ArtifactRefusal({ error: "too_large", message: "the document exceeds the artifact size cap" }));
+    const h = harness(
+      new ArtifactRefusal({ error: "too_large", message: "the document exceeds the artifact size cap" }),
+    );
     const path = join(directory, "page.md");
     await writeFile(path, "# Refused");
     assert.deepEqual(await executeArtifactTool("write_file", { path }, h.context, h.auth, h.associations), {
@@ -145,14 +152,18 @@ test("write_file preserves instance refusals without recording an association", 
 test("server registers supplementary guidance and write_file without modifying canonical skill registration", async () => {
   const source = await readFile(new URL("../plugins/opencode/src/index.ts", import.meta.url), "utf8");
   const definitions = await readFile(new URL("../plugins/opencode/src/tool-definitions.ts", import.meta.url), "utf8");
-  assert.match(source, /id: "artiflow:opencode-large-artifacts"/);
+  const guidance = await readFile(
+    new URL("../plugins/opencode/skills/opencode-large-artifacts/SKILL.md", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /\["creating-artifacts", "using-artiflow", "opencode-large-artifacts"\]/);
   assert.match(source, /for \(const skill of skills\) editor.add\(skill\)/);
   assert.match(source, /for \(const definition of toolDefinitions\)/);
   assert.match(
     definitions,
     /Inline `write` for small payloads; write large HTML\/markdown to a file with normal file tools first, then call write_file — tool arguments cannot carry very large payloads \(model output-token limit\)/,
   );
-  assert.match(source, /The viewer reuses server-tool OAuth automatically; no extra clicks are needed/);
+  assert.match(guidance, /The viewer reuses server-tool OAuth automatically; no extra clicks are needed/);
   assert.match(definitions, /name: "write_file"[\s\S]*required: \["path"\]/);
 });
 

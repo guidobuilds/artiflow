@@ -146,7 +146,8 @@ test("native wiring uses host select/dedupe, restores closed tabs, and gates art
   assert.match(main, /existing.load\(input.token\)/);
   assert.match(main, /entry.embed.dispose\(\)/);
   assert.match(main, /will-navigate/);
-  assert.match(main, /current.origin !== config.base/);
+  assert.match(main, /current.origin !== base/);
+  assert.match(main, /guiConfigReader\(/);
 });
 
 test("GUI uses normalized options before environment for library and artifact URLs", () => {
@@ -176,7 +177,8 @@ test("GUI environment fallback preserves loopback support", () => {
 test("GUI missing configuration has actionable guidance", () => {
   assert.deepEqual(guiConfig({}, undefined), {
     base: null,
-    error: 'Configure "url" in the Artiflow plugin options, or set ARTIFLOW_URL in the Desktop environment.',
+    error:
+      'Run /artiflow-setup <origin> in OpenCode, or configure "url" in the Artiflow plugin options or ARTIFLOW_URL in the Desktop environment.',
   });
 });
 test("GUI rejects invalid explicit options rather than falling back", () => {
