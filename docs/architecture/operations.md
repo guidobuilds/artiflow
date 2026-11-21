@@ -120,7 +120,12 @@ Current state:
 - Startup lines and auth-mode line on stdout (`[api] …`).
 - Config failures print a redacted reason and exit 1.
 - GC summary once per sweep.
-- Better Auth logging disabled; no access log; no request id; no metrics or traces.
+- Structured administration lines: one JSON object per line on stdout for each operation of
+  section 12 of [authentication and access](authentication-and-access.md#12-structured-logging-d12)
+  — role changes, sign-up, edits, activation, session closing, invitation and reset issuance,
+  access and SSO configuration, password policy, purge, and every use of the emergency fallback.
+  The shape is closed and carries no credential, token, link, address or request body.
+- Better Auth logging disabled; no access log; no metrics or traces.
 - Caddy has no access log configured.
 
 This is sufficient for a single-node self-hosted deployment but not for
@@ -191,6 +196,8 @@ print to stdout and exit non-zero on refusal, with the reason on stderr.
 | `admin:list`                | Print one email per administrator, sorted; empty and exit 0 when none     |
 | `user:invite EMAIL`         | Print one single-use registration URL                                     |
 | `user:reset-password EMAIL` | Print one single-use password reset URL                                   |
+| `user:purge EMAIL --reassign-to EMAIL` | Delete an account, handing its artifacts to another existing account |
+| `user:purge EMAIL --delete-content`    | Delete an account together with its artifacts                        |
 
 `admin:grant` never creates an account: an unknown address is refused and the
 message names `user:invite`, because only the invitation path lets the person
@@ -198,6 +205,19 @@ choose a password. Nothing protects the last administrator, so an instance can
 be left with none and recovered with `admin:grant`. Each role change writes one
 structured event line with `actorRole: "console"` and `outcome: "applied"`; the
 event shape carries no secret, token or link.
+
+`user:purge` takes the address and exactly one content choice, and asks for the
+address to be typed again unless `--yes` is passed. It refuses an unknown
+address, an unknown reassignment target, the account itself as its own target,
+neither or both content choices, and an unconfirmed or mismatched confirmation,
+with the reason on stderr and exit status 1. It removes the account row, its
+identities, sessions, issued tokens, pending invitation and reset links and the
+share grants it held; `--reassign-to` hands its artifacts, revisions, comments
+and public links to the target so the people they were shared with keep opening
+them, and `--delete-content` deletes them, leaving their bytes to the
+revision-orphan sweep of section 4. The purge writes one `user.purged` line and
+is never reachable from the interface. Full detail, table by table, in section 13
+of [authentication and access](authentication-and-access.md#13-operations-d13).
 
 ## 11. Capacity notes
 

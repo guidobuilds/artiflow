@@ -6,18 +6,23 @@ export const ADMIN_EVENTS = [
   "access.methods.updated",
   "access.sso.updated",
   "password.policy.updated",
+  "user.registered",
   "user.updated",
   "user.deactivated",
   "user.reactivated",
+  "user.purged",
   "invitation.created",
   "invitation.revoked",
   "invitation.regenerated",
   "password.reset.issued",
   "session.revoked",
   "sessions.revoked",
+  "login.fallback.used",
 ] as const;
 
 export type AdminEventName = (typeof ADMIN_EVENTS)[number];
+
+export const UNATTRIBUTED_FALLBACK_ACTOR = "unattributed";
 
 type AdminEventBase = {
   actorId: string;
@@ -41,8 +46,18 @@ export type UserAdminEvent = AdminEventBase & {
   emailChange?: { before: string; after: string };
 };
 
+export type UserRegistrationAdminEvent = AdminEventBase & {
+  event: "user.registered";
+  subjectId: string;
+};
+
 export type UserLifecycleAdminEvent = AdminEventBase & {
   event: "user.deactivated" | "user.reactivated";
+  subjectId: string;
+};
+
+export type UserPurgeAdminEvent = AdminEventBase & {
+  event: "user.purged";
   subjectId: string;
 };
 
@@ -62,14 +77,26 @@ export type SessionAdminEvent = AdminEventBase &
     | { event: "sessions.revoked"; subjectId: string }
   );
 
+export type FallbackAdminEvent = {
+  event: "login.fallback.used";
+  actorId: string;
+  actorRole: UserRole | "anonymous";
+  subjectId: string;
+  outcome: "applied" | "refused";
+  requestId?: string;
+};
+
 export type AdminEventInput =
   | RoleAdminEvent
   | SettingAdminEvent
   | UserAdminEvent
+  | UserRegistrationAdminEvent
   | UserLifecycleAdminEvent
+  | UserPurgeAdminEvent
   | InvitationAdminEvent
   | PasswordResetAdminEvent
-  | SessionAdminEvent;
+  | SessionAdminEvent
+  | FallbackAdminEvent;
 
 type WriteLine = (line: string) => void;
 

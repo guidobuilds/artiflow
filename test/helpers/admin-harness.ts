@@ -28,7 +28,7 @@ export type AdminHarness = {
   config: AppConfig;
   database: Database;
   auth: AuthHolder;
-  command(script: string, args: string[]): CommandResult;
+  command(script: string, args: string[], stdin?: string): CommandResult;
   close(): Promise<void>;
 };
 
@@ -106,12 +106,13 @@ export async function startAdminHarness(config: AppConfig): Promise<AdminHarness
     config,
     database,
     auth,
-    command(script, args) {
+    command(script, args, stdin) {
       const result = spawnSync(bun, ["run", "--silent", script, ...args], {
         cwd: PROJECT_ROOT,
         encoding: "utf8",
         timeout: 20_000,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
+        ...(stdin === undefined ? {} : { input: stdin }),
         env: {
           ...process.env,
           PATH: childPath,

@@ -35,6 +35,7 @@
     "admin:list": "bun apps/api/src/commands/admin-list.ts",
     "user:invite": "bun apps/api/src/commands/invite.ts",
     "user:reset-password": "bun apps/api/src/commands/reset-password.ts",
+    "user:purge": "bun apps/api/src/commands/purge.ts",
     "dev": "bun scripts/dev.mjs",
     "deploy:up": "docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build",
     "deploy:logs": "docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f",

@@ -814,17 +814,64 @@ the rule in effect, and reloads the stored document on a conflict before asking 
 ## 12. Structured logging (D12)
 
 **Decision.** A JSON-lines logger writes one object per line to stdout with a fixed shape:
-`ts`, `level`, `event`, `actorId`, `actorRole`, `subjectId`, `settingKey`, `action`,
-`outcome`, `reason`, `requestId`, `ip`, `origin`. `event` is a closed union declared in
-`packages/contracts`, so an unregistered event is a type error rather than a typo in
-production. Administrative mutations, invitation and reset issuance, fallback use, session
-revocation, deactivation and purge each emit their event in the same transaction that
-performs the change, or immediately after it commits when the transaction cannot carry it.
+`ts`, `level`, `event`, `actorId`, `actorRole`, and exactly one subject of the change —
+`subjectId`, `settingKey`, or `subjectId` plus `sessionId` — and then `outcome` and, when the
+request carried one, `requestId`. A `user.updated` line that moved the address adds
+`emailBefore` and `emailAfter`. `event` is a closed union declared in
+`apps/api/src/logging/admin-events.ts`, so an unregistered event is a type error rather than
+a typo in production: `role.granted`, `role.revoked`, `user.registered`, `user.updated`,
+`user.deactivated`, `user.reactivated`, `user.purged`, `session.revoked`, `sessions.revoked`,
+`invitation.created`, `invitation.revoked`, `invitation.regenerated`,
+`password.reset.issued`, `access.methods.updated`, `access.sso.updated`,
+`password.policy.updated` and `login.fallback.used`.
 
-There is no `body`, `token`, `link` or secret field in the shape, which is what makes
-redaction structural instead of a filter that can be forgotten. Levels come from the
-environment; the default keeps informational events. There is no audit UI and no export,
-per the specification.
+Every named operation of the specification emits exactly one line, written by the change it
+records:
+
+| Operation                        | Event                                                       | Written from                                 |
+| -------------------------------- | ----------------------------------------------------------- | -------------------------------------------- |
+| Sign-up through an invitation    | `user.registered`                                           | the registration completion endpoint         |
+| Name and email edit              | `user.updated`                                              | `apps/api/src/admin/users.ts`                |
+| Role change                      | `role.granted`, `role.revoked`                              | role endpoint, `admin:grant`, `admin:revoke` |
+| Activation and deactivation      | `user.reactivated`, `user.deactivated`                      | `apps/api/src/admin/lifecycle.ts`            |
+| Session closing                  | `session.revoked`, `sessions.revoked`                       | `apps/api/src/admin/sessions.ts`             |
+| Invitation issuance              | `invitation.created`, `invitation.revoked`, `invitation.regenerated` | `apps/api/src/admin/invitations.ts` |
+| Reset issuance                   | `password.reset.issued`                                     | `apps/api/src/admin/reset-links.ts`          |
+| Access method change             | `access.methods.updated`                                    | `PUT /api/admin/access`                      |
+| Password policy change           | `password.policy.updated`                                   | `PUT /api/admin/password-policy`             |
+| SSO connection and JIT change    | `access.sso.updated`                                        | `PUT /api/admin/sso`                         |
+| Purge                            | `user.purged`                                               | `apps/api/src/admin/purge.ts`                |
+| Emergency fallback               | `login.fallback.used`                                       | the lock's two enforcement points            |
+
+The event is written inside the transaction that performs the change when the change owns
+one (role, edit, lifecycle, sessions, invitations, purge) and immediately after the write
+commits when it does not (the two settings documents, reset issuance, registration
+completion, the fallback attempt, which records an authentication decision rather than a
+write). A refused operation records nothing: the guards answer before any line, and the
+conditional writes that lose a race emit nothing. `user.registered` names the account that
+completed an invitation, resolved from the consumed invitation rather than from the request
+body, so a completion that only sets a password on a reactivated account records the same
+single line.
+
+The fallback line names the account that attempted it and its stored role, with `outcome`
+`applied` when the lock admitted the attempt and `refused` when it did not. An attempt for an
+address that holds no account is recorded with `actorId` and `subjectId` `unattributed` and
+`actorRole` `anonymous`; the attempted address itself is never written. The social branch is
+recorded by an after-hook that reads the freshly created session before the lock destroys it,
+so an admitted and a refused social attempt are the same closed line as the password ones.
+
+There is no `body`, `token`, `link`, `address` or secret field in the shape, and every line is
+built from a typed object rather than from a request, which is what makes redaction structural
+instead of a filter that can be forgotten: the invitation and reset issuance lines carry the
+invitation or account identifier, never the link that was answered once, and the registration
+and fallback lines are built from an identifier looked up from the token, never from the token.
+Levels come from the environment; the default keeps informational events. There is no audit UI
+and no export, per the specification.
+
+**Known gap.** `user:invite` and `user:reset-password` print exactly one line — the link — and
+write nothing else to either stream, a contract pinned by the command suites. Their issuance is
+therefore not recorded by those two commands; the administration paths that issue the same
+tables record it.
 
 ## 13. Operations (D13)
 
@@ -847,10 +894,40 @@ is not an administrator. `admin:list` prints one email per administrator, sorted
 exits 0 with no output when the instance has none. Each role change writes one structured event
 with `actorRole: "console"`, so a recovery is traceable without an account (section 12).
 
-`user:purge` requires exactly one of the two content flags and an interactive confirmation
-that repeats the email, plus `--yes` for non-interactive use. It removes identities, sessions,
-tokens and the account row so nothing of that person remains usable, and it is never exposed
-in the interface.
+### The purge command
+
+`bun run user:purge EMAIL (--reassign-to EMAIL | --delete-content) [--yes]`. Exactly one content
+choice is required. Without `--yes` the command asks for the address to be typed again on stderr
+and refuses an empty or different answer; `--yes` skips the prompt for non-interactive use. Each
+refusal writes one line to stderr, nothing to stdout, and exits 1: the usage line (no address, an
+unknown flag, two addresses), `not a valid email address`, `not a valid email address` for
+`--reassign-to`, `choose exactly one content choice`, `--reassign-to and --delete-content cannot be
+combined`, `no account exists for that address`, `no account exists for the reassignment target`,
+the reassignment target being the same account, and the purge not being confirmed. The account and
+the target are resolved before the confirmation is asked, so an operator is never asked to confirm
+a purge that cannot run. The applied purge writes one `user.purged` line with `actorRole: "console"`.
+It is never exposed in the interface: no administration route deletes or purges an account.
+
+Both content choices remove the same set of rows: `session`, `account` (every identity),
+`oauthAccessToken`, `oauthRefreshToken`, `oauthConsent`, the person's owning reference on
+`oauthClient` (the client itself survives, owned by nobody), `passwordResetToken`, the
+`registrationInvite` rows addressed to them or bound to them, `artifactShares` they held, and the
+`user` row last. `ssoProvider`, `artifactUploads` and the invitations they issued follow the
+schema's cascades and `on delete set null` rules; a comment they resolved keeps its row with
+`resolvedBy` cleared.
+
+- **`--reassign-to EMAIL`** moves `artifacts.ownerId`, `artifactComments.authorId` and
+  `artifactShares.grantedByUserId` to the target before the account row goes, so the artifacts,
+  their revisions, their comments, their public links and the grants they carried keep working for
+  the people they were shared with. Nothing is deleted on this path except the account and what
+  belongs to it alone.
+- **`--delete-content`** deletes the `artifacts` rows of the person, which cascades to
+  `artifactRevisions`, `artifactComments`, `artifactShares` and `artifactPublicLinks`. The revision
+  rows carry the storage keys, so the bytes become unreferenced and the revision-orphan sweep of
+  section 4 removes them; nothing reads them in the meantime.
+
+Neither path is reachable from the administration namespace, and the deletion path never runs
+when the reassignment flag was given.
 
 ## 14. Testing strategy
 
