@@ -8,6 +8,10 @@ export const ADMIN_EVENTS = [
   "user.updated",
   "user.deactivated",
   "user.reactivated",
+  "invitation.created",
+  "invitation.revoked",
+  "invitation.regenerated",
+  "password.reset.issued",
 ] as const;
 
 export type AdminEventName = (typeof ADMIN_EVENTS)[number];
@@ -39,7 +43,23 @@ export type UserLifecycleAdminEvent = AdminEventBase & {
   subjectId: string;
 };
 
-export type AdminEventInput = RoleAdminEvent | SettingAdminEvent | UserAdminEvent | UserLifecycleAdminEvent;
+export type InvitationAdminEvent = AdminEventBase & {
+  event: "invitation.created" | "invitation.revoked" | "invitation.regenerated";
+  subjectId: string;
+};
+
+export type PasswordResetAdminEvent = AdminEventBase & {
+  event: "password.reset.issued";
+  subjectId: string;
+};
+
+export type AdminEventInput =
+  | RoleAdminEvent
+  | SettingAdminEvent
+  | UserAdminEvent
+  | UserLifecycleAdminEvent
+  | InvitationAdminEvent
+  | PasswordResetAdminEvent;
 
 type WriteLine = (line: string) => void;
 

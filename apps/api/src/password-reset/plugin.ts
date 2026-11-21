@@ -94,6 +94,7 @@ export const passwordReset = (input: { policy?: PasswordPolicySource } = {}): Be
         tokenHash: { type: "string", required: true },
         expiresAt: { type: "date", required: true },
         consumedAt: { type: "date", required: false },
+        createdBy: { type: "string", required: false },
         createdAt: { type: "date", required: true },
       },
       disableMigration: true,

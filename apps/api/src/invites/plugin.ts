@@ -9,12 +9,19 @@ import {
   validatePassword,
   type PasswordPolicySource,
 } from "../password-policy/policy.ts";
+import { setAccountPassword } from "../password-reset/service.ts";
 import { canonicalizeEmail, hashInviteToken } from "./token.ts";
 
 const INVITE_MODEL = "registrationInvite";
 const REFUSAL = { code: "INVALID_INVITATION", message: "This invitation is invalid, expired or already used." };
 
-type InvitationRow = { email: string; expiresAt: Date | string; consumedAt: Date | string | null };
+type InvitationRow = {
+  email: string;
+  userId: string | null;
+  expiresAt: Date | string;
+  consumedAt: Date | string | null;
+  revokedAt: Date | string | null;
+};
 
 function refused(): APIError {
   return APIError.from("BAD_REQUEST", REFUSAL);
@@ -28,7 +35,7 @@ function asResponseError(error: unknown): APIError {
 function isUsable(invitation: InvitationRow): boolean {
   const expiresAt =
     invitation.expiresAt instanceof Date ? invitation.expiresAt.getTime() : Date.parse(invitation.expiresAt);
-  return invitation.consumedAt === null && expiresAt > Date.now();
+  return invitation.consumedAt === null && invitation.revokedAt === null && expiresAt > Date.now();
 }
 
 const preview = createAuthEndpoint(
@@ -81,6 +88,7 @@ const completeEndpoint = (policy: PasswordPolicySource) =>
             where: [
               { field: "tokenHash", value: tokenHash },
               { field: "consumedAt", value: null },
+              { field: "revokedAt", value: null },
               { field: "expiresAt", operator: "gt", value: new Date() },
             ],
             update: { consumedAt: new Date() },
@@ -92,6 +100,12 @@ const completeEndpoint = (policy: PasswordPolicySource) =>
             where: [{ field: "tokenHash", value: tokenHash }],
           });
           if (!invitation) throw refused();
+
+          if (typeof invitation.userId === "string" && invitation.userId.length > 0) {
+            if ((await ctx.context.internalAdapter.findUserById(invitation.userId)) === null) throw refused();
+            await setAccountPassword(ctx.context, invitation.userId, passwordHash);
+            return;
+          }
 
           const email = canonicalizeEmail(invitation.email);
           if (await ctx.context.internalAdapter.findUserByEmail(email)) throw refused();
@@ -125,6 +139,9 @@ export const registrationInvites = (input: { policy?: PasswordPolicySource } = {
         email: { type: "string", required: true },
         expiresAt: { type: "date", required: true },
         consumedAt: { type: "date", required: false },
+        revokedAt: { type: "date", required: false },
+        createdBy: { type: "string", required: false },
+        userId: { type: "string", required: false },
         createdAt: { type: "date", required: true },
       },
       disableMigration: true,

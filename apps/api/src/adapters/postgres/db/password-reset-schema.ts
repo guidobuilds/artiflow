@@ -15,6 +15,7 @@ export const passwordResetToken = pgTable(
     tokenHash: text("tokenHash").notNull().unique(),
     expiresAt: date("expiresAt").notNull(),
     consumedAt: date("consumedAt"),
+    createdBy: text("createdBy").references(() => user.id, { onDelete: "set null" }),
     createdAt: date("createdAt").notNull().defaultNow(),
   },
   (table) => [

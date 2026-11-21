@@ -236,14 +236,59 @@ answer "who can read this row").
 **Decision.** The existing token machinery stays: `registrationInvite` and
 `passwordResetToken`, both single-use, both consumed by a conditional update so that two
 concurrent completions cannot both succeed, both stored as SHA-256 hashes with a 24 h and
-1 h expiry respectively. `registrationInvite` gains `created_by` so the pending-invitation
-list can show who issued it; `passwordResetToken` gains it for the same reason.
+1 h expiry respectively. `registrationInvite` gains `createdBy`, `userId` and `revokedAt`;
+`passwordResetToken` gains `createdBy`. Migration 0018 adds all four as nullable columns, so
+applying it leaves every existing row unattributed and never fails on one. `createdBy` is the
+account that issued the link (`null` for the console commands and for every row written before
+the migration) and references `user` with `on delete set null`, so removing an administrator
+never removes an invitation. `userId` binds an invitation to the account it was issued for and
+references `user` with `on delete cascade`, so purging that account takes its pending invitation
+with it.
 
-Added to the existing console commands, the administration surface gains endpoints to issue,
-list, revoke and regenerate both kinds. Regeneration is revoke-then-issue inside one
-transaction, so the previous link stops working the moment a new one exists. Inviting an
-email that belongs to a deactivated account reactivates that account and issues a new
-password flow; it never creates a second user.
+**Administration endpoints.** All of them sit behind the administrator guard, and every mutation
+also behind the cookie mutation guard:
+
+- `GET /api/admin/invitations` answers `{ invitations }` with the pending ones — not consumed,
+  not revoked, not expired — ordered by expiry. A row carries `id`, `email`, `expiresAt`,
+  `createdAt` and `issuedBy` (`{ id, name, email }`, or `null` for a link the console issued).
+  No read ever returns a link or a hash: the link is answered once, by the call that creates it,
+  and never afterwards.
+- `POST /api/admin/invitations` takes `{ email }` and answers `{ invitation, link, reactivated }`.
+  A malformed address answers `400 invalid_email` and an address that already holds an active
+  account `409 email_in_use`, both without writing anything. An address that holds a deactivated
+  account is reactivated through the same conditional write as the status endpoint, so it records
+  its own `user.reactivated` event, and the invitation is issued on that same account with
+  `reactivated: true`; a second account for the address is never created. Completing such an
+  invitation sets that account's password — which is what `userId` is for — and leaves its name
+  unchanged; an invitation with no bound account keeps refusing an address that gained an account
+  after issuance, exactly as before.
+- `POST /api/admin/invitations/:id/revoke` answers `{ invitation: { id, revokedAt } }`. The write is
+  conditional on the row still being pending, so two concurrent revocations apply exactly once.
+- `POST /api/admin/invitations/:id/regenerate` revokes the previous invitation and inserts the new
+  one in the same transaction, and answers `{ invitation, link }` for the new row. The previous
+  link stops working the moment that transaction commits.
+- `POST /api/admin/reset-links` takes `{ email }` and answers `{ link, expiresAt }` for an existing
+  active account, replacing any pending reset link of that account. An address with no account
+  answers `404 user_not_found` and a deactivated account `409 account_deactivated`, so a reset
+  link is never the way back into a deactivated account; a malformed address answers
+  `400 invalid_email`.
+
+Refusals are named and stable: `invitation_not_found` (404) and `invitation_consumed`,
+`invitation_expired` and `invitation_revoked` (409) for revoke and regenerate, `invalid_email`
+(400), `email_in_use` and `account_deactivated` (409), `user_not_found` (404). The public preview
+and completion keep their single generic refusal, so whoever holds a link cannot learn whether it
+was revoked, consumed, expired or never existed.
+
+Each applied operation emits one event naming the actor and the subject: `invitation.created`,
+`invitation.revoked` and `invitation.regenerated` with the invitation id, and
+`password.reset.issued` with the account id. `invitation.regenerated` names the invitation it
+created; the revocation it performs belongs to the same operation and carries no second line. A
+refused operation records nothing and writes nothing, and no event or stored row carries a link
+or a token.
+
+The console commands stay unchanged and speak the same tables, so a link they print is pending in
+the administration list and completes the same way; the only difference is that `issuedBy` is
+`null`.
 
 Changing an email does not require verification (functional specification) and does not
 touch linked identities: `account` rows are keyed by `(providerId, accountId)`, not by email,

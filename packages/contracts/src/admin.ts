@@ -116,3 +116,54 @@ export const updateAccessConfigurationRequestSchema = z.strictObject({
   }),
 });
 export type UpdateAccessConfigurationRequest = z.infer<typeof updateAccessConfigurationRequestSchema>;
+
+export const invitationIssuerSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string(),
+  email: z.string(),
+});
+export type InvitationIssuer = z.infer<typeof invitationIssuerSchema>;
+
+export const adminInvitationSchema = z.strictObject({
+  id: z.string().min(1),
+  email: z.string(),
+  expiresAt: z.iso.datetime(),
+  createdAt: z.iso.datetime(),
+  issuedBy: invitationIssuerSchema.nullable(),
+});
+export type AdminInvitation = z.infer<typeof adminInvitationSchema>;
+
+export const adminInvitationListResponseSchema = z.strictObject({
+  invitations: z.array(adminInvitationSchema),
+});
+export type AdminInvitationListResponse = z.infer<typeof adminInvitationListResponseSchema>;
+
+export const createAdminInvitationRequestSchema = z.strictObject({ email: z.string() });
+export type CreateAdminInvitationRequest = z.infer<typeof createAdminInvitationRequestSchema>;
+
+export const createAdminInvitationResponseSchema = z.strictObject({
+  invitation: adminInvitationSchema,
+  link: z.string().min(1),
+  reactivated: z.boolean(),
+});
+export type CreateAdminInvitationResponse = z.infer<typeof createAdminInvitationResponseSchema>;
+
+export const regenerateAdminInvitationResponseSchema = z.strictObject({
+  invitation: adminInvitationSchema,
+  link: z.string().min(1),
+});
+export type RegenerateAdminInvitationResponse = z.infer<typeof regenerateAdminInvitationResponseSchema>;
+
+export const revokeAdminInvitationResponseSchema = z.strictObject({
+  invitation: z.strictObject({ id: z.string().min(1), revokedAt: z.iso.datetime() }),
+});
+export type RevokeAdminInvitationResponse = z.infer<typeof revokeAdminInvitationResponseSchema>;
+
+export const issueAdminResetLinkRequestSchema = z.strictObject({ email: z.string() });
+export type IssueAdminResetLinkRequest = z.infer<typeof issueAdminResetLinkRequestSchema>;
+
+export const issueAdminResetLinkResponseSchema = z.strictObject({
+  link: z.string().min(1),
+  expiresAt: z.iso.datetime(),
+});
+export type IssueAdminResetLinkResponse = z.infer<typeof issueAdminResetLinkResponseSchema>;

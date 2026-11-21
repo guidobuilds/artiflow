@@ -12,6 +12,14 @@ import { recordAdminEvent } from "../logging/admin-events.ts";
 import { AdminUserEditError, adminUserListQuerySchema, listAdminUsers, updateAdminUser } from "../admin/users.ts";
 import { deactivateAccount, reactivateAccount } from "../admin/lifecycle.ts";
 import {
+  createInvitation,
+  listPendingInvitations,
+  regenerateInvitation,
+  revokeInvitation,
+  type InvitationRefusal,
+} from "../admin/invitations.ts";
+import { issueAdminResetLink } from "../admin/reset-links.ts";
+import {
   AccessConfigurationError,
   readAccessConfiguration,
   updateAccessConfiguration,
@@ -22,16 +30,23 @@ import {
   updatePasswordPolicyConfiguration,
 } from "../password-policy/administration.ts";
 import {
+  createAdminInvitationRequestSchema,
+  issueAdminResetLinkRequestSchema,
   setUserRoleRequestSchema,
   setUserStatusRequestSchema,
   updateAccessConfigurationRequestSchema,
   updateAdminUserRequestSchema,
   updatePasswordPolicyRequestSchema,
   type AccessConfiguration,
+  type AdminInvitationListResponse,
   type AdminUser,
   type AdministratorListResponse,
   type AdminUserListResponse,
+  type CreateAdminInvitationResponse,
+  type IssueAdminResetLinkResponse,
   type PasswordPolicyConfiguration,
+  type RegenerateAdminInvitationResponse,
+  type RevokeAdminInvitationResponse,
   type SetUserRoleResponse,
   type SetUserStatusResponse,
   type UpdateAdminUserResponse,
@@ -45,6 +60,10 @@ export type AdminOptions = {
 };
 
 type AdminEnv = { Variables: { requestId?: string } };
+
+function refusalStatus(reason: InvitationRefusal): 404 | 409 {
+  return reason === "invitation_not_found" ? 404 : 409;
+}
 
 export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
   const app = new Hono<AdminEnv>();
@@ -167,6 +186,104 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
     }
     if (updated === null) return jsonError(c, "user_not_found", 404);
     return c.json({ user: updated } satisfies UpdateAdminUserResponse);
+  });
+
+  app.get("/api/admin/invitations", async (c) => {
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+    const invitations = await listPendingInvitations({ db: options.database.db });
+    return c.json({ invitations } satisfies AdminInvitationListResponse);
+  });
+
+  app.post("/api/admin/invitations", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = createAdminInvitationRequestSchema.safeParse(body);
+    if (!parsed.success) return jsonError(c, "invalid_body", 400);
+
+    const outcome = await createInvitation({
+      db: options.database.db,
+      email: parsed.data.email,
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      publicOrigin: options.publicOrigin,
+      requestId: c.get("requestId"),
+    });
+    if (outcome.kind === "invalid-email") return jsonError(c, "invalid_email", 400);
+    if (outcome.kind === "email-in-use") return jsonError(c, "email_in_use", 409);
+    return c.json({
+      invitation: outcome.invitation,
+      link: outcome.link,
+      reactivated: outcome.reactivated,
+    } satisfies CreateAdminInvitationResponse);
+  });
+
+  app.post("/api/admin/invitations/:id/revoke", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const outcome = await revokeInvitation({
+      db: options.database.db,
+      invitationId: c.req.param("id"),
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      publicOrigin: options.publicOrigin,
+      requestId: c.get("requestId"),
+    });
+    if (outcome.kind === "refused") return jsonError(c, outcome.reason, refusalStatus(outcome.reason));
+    return c.json({ invitation: outcome.invitation } satisfies RevokeAdminInvitationResponse);
+  });
+
+  app.post("/api/admin/invitations/:id/regenerate", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const outcome = await regenerateInvitation({
+      db: options.database.db,
+      invitationId: c.req.param("id"),
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      publicOrigin: options.publicOrigin,
+      requestId: c.get("requestId"),
+    });
+    if (outcome.kind === "refused") return jsonError(c, outcome.reason, refusalStatus(outcome.reason));
+    return c.json({ invitation: outcome.invitation, link: outcome.link } satisfies RegenerateAdminInvitationResponse);
+  });
+
+  app.post("/api/admin/reset-links", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = issueAdminResetLinkRequestSchema.safeParse(body);
+    if (!parsed.success) return jsonError(c, "invalid_body", 400);
+
+    const outcome = await issueAdminResetLink({
+      db: options.database.db,
+      email: parsed.data.email,
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      publicOrigin: options.publicOrigin,
+      requestId: c.get("requestId"),
+    });
+    if (outcome.kind === "invalid-email") return jsonError(c, "invalid_email", 400);
+    if (outcome.kind === "no-account") return jsonError(c, "user_not_found", 404);
+    if (outcome.kind === "account-deactivated") return jsonError(c, "account_deactivated", 409);
+    return c.json({ link: outcome.link, expiresAt: outcome.expiresAt } satisfies IssueAdminResetLinkResponse);
   });
 
   app.get("/api/admin/access", async (c) => {
