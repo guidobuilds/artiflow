@@ -96,7 +96,7 @@ const when = (iso: string): string => {
 function Author({ author }: { author: CommentAuthor }) {
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <UserAvatar aria-hidden="true" image={author.image} />
+      <UserAvatar aria-hidden="true" image={author.image} name={author.name} />
       <span className="min-w-0 truncate text-[13px] font-medium">{author.name || author.id}</span>
     </span>
   );
@@ -152,7 +152,7 @@ function ThreadPill({
         .join(" ")}
       style={placement ? { top: placement.top } : undefined}
     >
-      <UserAvatar aria-hidden="true" image={thread.author.image} />
+      <UserAvatar aria-hidden="true" image={thread.author.image} name={thread.author.name} />
       {resolved ? (
         <Icon name="check" className="comment-thread-pill-check" />
       ) : replies > 0 ? (

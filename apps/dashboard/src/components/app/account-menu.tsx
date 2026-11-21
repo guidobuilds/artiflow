@@ -25,7 +25,7 @@ export function AccountMenu({ user, active }: { user: AuthUser | null; active?: 
             active ? "bg-surface-2 shadow-[inset_0_0_0_1px_var(--line)]" : "hover:bg-surface",
           )}
         >
-          {user ? <UserAvatar image={user.image} className="ring-0" /> : <Avatar className="ring-0">?</Avatar>}
+          {user ? <UserAvatar image={user.image} name={user.name} className="ring-0" /> : <Avatar className="ring-0">?</Avatar>}
           <span className="grid min-w-0 leading-tight max-[760px]:hidden">
             <span className="truncate text-[13px] text-fg">{user ? user.name.trim() || user.email : "Account"}</span>
             {user && user.name.trim() ? (

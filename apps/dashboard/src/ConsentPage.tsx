@@ -165,7 +165,7 @@ export default function ConsentPage({ search }: { search: string }) {
 
           {user ? (
             <div className="flex items-center gap-2.5 rounded-md bg-surface px-3 py-2.5 text-[13.5px]">
-              <UserAvatar image={user.image} className="ring-0" />
+              <UserAvatar image={user.image} name={user.name} className="ring-0" />
               <span className="min-w-0 flex-1 truncate text-fg">{user.email}</span>
               <button
                 type="button"
