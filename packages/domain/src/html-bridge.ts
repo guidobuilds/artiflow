@@ -1,5 +1,5 @@
 export const BRIDGE_CHANNEL = "artiflow-comments";
-export const BRIDGE_VERSION = 1;
+export const BRIDGE_VERSION = 2;
 export const MAX_BRIDGE_MESSAGES = 600;
 export const BRIDGE_BUDGET_WINDOW_MS = 1_000;
 
@@ -25,6 +25,7 @@ export type FrameEvent =
       viewportY: number;
     }
   | { type: "pin-click"; id: string }
+  | { type: "scroll"; y: number }
   | { type: "ready" };
 
 export type Envelope = { channel: string; version: number; nonce: string };
@@ -87,6 +88,8 @@ const validCommand = (raw: Record<string, unknown>): boolean => {
       );
     case "pin-click":
       return isString(raw.id) && raw.id.length > 0;
+    case "scroll":
+      return isFiniteNumber(raw.y);
     case "ready":
       return true;
     default:

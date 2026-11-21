@@ -114,7 +114,7 @@ export default function MarkdownComments({
   dataCallback.current = onData;
   const refresh = useCallback(async () => {
     const current = ++run.current;
-    setStatus("loading");
+    setStatus((value) => (value === "ready" || value === "empty" ? value : "loading"));
     const result = await listComments(artifactId);
     if (run.current !== current) return;
     if (result.ok) {

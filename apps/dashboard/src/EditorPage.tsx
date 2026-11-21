@@ -428,14 +428,12 @@ function DocumentEditor({ initial }: { initial: Document }) {
   const markAnchor = (id: string) => {
     const nodes = editor?.view.dom.querySelectorAll<HTMLElement>("[data-comment-id]");
     const matches = Array.from(nodes ?? []).filter((node) => node.dataset.commentId === id);
-    const canvas = canvasRef.current;
     const first = matches[0];
-    if (canvas && first) {
+    if (first) {
       const box = first.getBoundingClientRect();
-      const view = canvas.getBoundingClientRect();
-      if (box.top < view.top || box.bottom > view.bottom)
+      if (box.top < 0 || box.bottom > window.innerHeight)
         first.scrollIntoView({
-          block: "nearest",
+          block: "center",
           behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
         });
     }
