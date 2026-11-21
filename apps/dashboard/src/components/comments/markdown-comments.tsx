@@ -9,6 +9,7 @@ import {
   type SourceSpan,
 } from "@artiflow/domain/comment-anchors";
 import { getSession, type ManageResult } from "@/auth-client.ts";
+import { draftBlockedReason } from "@/comment-draft.ts";
 import {
   createComment as createCommentRequest,
   deleteComment as deleteCommentRequest,
@@ -191,6 +192,7 @@ export default function MarkdownComments({
     setBusy(false);
   };
   const threads = (data?.comments ?? []).map((thread) => toMarginThread(thread, source, "Text changed"));
+  const blockedReason = draftBlockedReason(draft);
   const draftModel: CommentDraft | null =
     draft === null
       ? null
@@ -199,10 +201,14 @@ export default function MarkdownComments({
           body: draft.body,
           busy,
           authorImage,
-          error: error || (outdatedDraft ? "The document changed; select the text again." : ""),
+          error: error || (outdatedDraft ? "The document changed; select the text again." : "") || blockedReason || "",
         };
   const submitDraft = (body: string) => {
-    if (draft?.anchor === null || draft === null) return;
+    if (draft === null) return;
+    if (blockedReason !== null) {
+      setError(blockedReason);
+      return;
+    }
     if (!saved) {
       setError("Wait for the document to save before commenting.");
       return;

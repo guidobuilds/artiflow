@@ -141,7 +141,10 @@ test("pills and the dock stay keyboard reachable with forty-four pixel targets",
   assert.match(component, /shortcutFor\(/);
   assert.match(component, /className="sr-only"[^>]*\n?\s*(?:htmlFor|children)/);
   assert.match(styles, /\.comment-thread-pill:focus-visible \{[^}]*outline: 2px solid/);
-  assert.match(styles, /\.comment-thread-pill::after \{[^}]*inset: -4px;/);
+  const pillHeight = Number(/\.comment-thread-pill \{[^}]*height: (\d+)px/.exec(styles)?.[1] ?? "0");
+  const inset = Number(/\.comment-thread-pill::after \{[^}]*inset: -(\d+)px/.exec(styles)?.[1] ?? "0");
+  assert.ok(pillHeight > 0 && inset > 0, "the pill declares a height and an expanded hit area");
+  assert.ok(pillHeight + 2 * inset >= 44, `the pill hit area is ${pillHeight + 2 * inset}px, under the 44px floor`);
   assert.match(styles, /\.comment-thread-pill \{[^}]*min-width: 36px;[^}]*height: 32px;/);
   assert.match(styles, /\.comment-thread-input \{[^}]*min-height: 44px;/);
   assert.match(component, /className="min-h-11"/);

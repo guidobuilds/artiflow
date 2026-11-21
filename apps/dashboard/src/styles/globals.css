@@ -614,7 +614,7 @@
 .comment-thread-pill::after {
   content: "";
   position: absolute;
-  inset: -4px;
+  inset: -6px;
 }
 
 .comment-thread-pill:focus-visible {

@@ -514,3 +514,33 @@ test("the public share 200s both spread the widened viewer headers", () => {
   assert.equal([...source.matchAll(/markdownViewerPage\(/g)].length, 1, "the markdown share page is one of them");
   assert.equal([...source.matchAll(/wrapperPage\(/g)].length, 1, "and the HTML share page is the other");
 });
+
+const MARKDOWN_REFRESH = { metaUrl: "/api/artifacts/1111", revisionNumber: 1, sha256: "bbb" };
+const markdownPage = (): string =>
+  markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, false, MARKDOWN_REFRESH);
+
+test("the Markdown viewer defers the reload while a comment draft holds text", async () => {
+  const environment = makeEnvironment({
+    selectors: ["[data-comment-draft='typed'], [data-comment-input='typed']"],
+    respond: () => json({ revisionNumber: 2, sha256: "changed" }),
+  });
+  environment.element("[data-comment-draft='typed'], [data-comment-input='typed']");
+  environment.run(refreshScriptOf(markdownPage()));
+  environment.tick();
+  await settle();
+
+  assert.deepEqual(environment.fetches, [MARKDOWN_REFRESH.metaUrl]);
+  assert.equal(environment.reloads(), 0, "a typed draft is never discarded by a reload");
+});
+
+test("the Markdown viewer still reloads when nothing is being typed", async () => {
+  const environment = makeEnvironment({
+    selectors: [],
+    respond: () => json({ revisionNumber: 2, sha256: "changed" }),
+  });
+  environment.run(refreshScriptOf(markdownPage()));
+  environment.tick();
+  await settle();
+
+  assert.equal(environment.reloads(), 1, "the reload path still runs for a server-rendered document");
+});

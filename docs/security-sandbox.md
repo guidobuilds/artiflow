@@ -364,8 +364,19 @@ Why this is safe to widen with:
 
 The only CSP change is `img-src 'self'`, added to the comments-enabled viewer policy and to the
 Markdown viewer policy so the bundled user avatars (`/avatars/*`) can render in the comments column.
-The HTML artifact is a `srcdoc` frame and inherits that list, so it can now load same-origin images
-but still no other host, script source or network (`connect-src 'self'` and `default-src 'none'`
-are unchanged). The wrapper already allows `script-src 'unsafe-inline'`, which is what the inline
+No other host, script source or network channel is opened: `connect-src 'self'` and
+`default-src 'none'` are unchanged.
+
+The artifact frame does **not** gain image loading. It is a `srcdoc` frame with
+`sandbox="allow-scripts"` and no `allow-same-origin`, so its origin is opaque and `'self'` matches
+nothing inside it. Avatars load in the parent viewer page, which is same-origin with them. Adding
+`allow-same-origin` to the sandbox would make `'self'` meaningful there and turn author-controlled
+markdown or artifact markup into a credentialed same-origin request channel, so that attribute must
+stay out.
+
+The Markdown viewer page itself is same-origin and now allows `img-src 'self'`, so author-written
+markdown image syntax can make an authenticated reader's browser fetch a same-origin URL. Those GET
+routes are read-only and send no credentials beyond the session cookie the page already carries;
+documents that need to say otherwise must not rely on image syntax being inert. The wrapper already allows `script-src 'unsafe-inline'`, which is what the inline
 bridge needs, and the parent bundle is the same same-origin `viewer-comments` asset used by the
 Markdown viewer.

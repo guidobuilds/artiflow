@@ -273,6 +273,7 @@ function ThreadPanel({
               id={`${replyId}-reply`}
               data-reply-input=""
               value={reply}
+              data-comment-input={reply.trim() === "" ? "empty" : "typed"}
               onChange={(event) => setReply(event.target.value)}
               placeholder="Reply…"
               className="comment-thread-input"
@@ -331,6 +332,7 @@ function DraftPanel({
           ? "comment-thread-dock comment-thread-draft comment-thread-dock-sheet"
           : "comment-thread-dock comment-thread-draft"
       }
+      data-comment-draft={body.trim() === "" ? "empty" : "typed"}
       onSubmit={(event) => {
         event.preventDefault();
         if (draft.busy || !body.trim()) return;

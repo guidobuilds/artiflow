@@ -224,7 +224,7 @@ export default function ShareModal({
               </p>
               <ul className="m-0 list-none p-0" aria-labelledby="share-people">
                 <li className="flex min-h-[44px] items-center gap-2.5 border-t border-line py-2">
-                  <UserAvatar image={owner?.image} aria-label="Your avatar" />
+                  <UserAvatar image={owner?.image} name={owner?.name} aria-label="Your avatar" />
                   <span className="min-w-0 flex-1 truncate text-[14px] text-fg">You</span>
                   <span className="text-[12.5px] text-fg-subtle">Owner</span>
                 </li>
