@@ -347,7 +347,7 @@ integration("an administrator reads the empty connection with its redirect URI a
       acceptAnyAccountWarning: ACCEPT_ANY_ACCOUNT_WARNING,
     },
     redirectUri: `${publicOrigin()}/api/auth/sso/callback/artiflow`,
-    readiness: { signInAvailable: false },
+    readiness: { signInAvailable: true },
     provenance: null,
   });
 });
@@ -437,13 +437,14 @@ integration("a valid connection is stored with its credential, and a read report
   assert.equal((JSON.parse(replacedPayload) as SsoView).revision, 2);
 });
 
-integration("enabling the connection is refused while this build has no sign-in route", async () => {
+integration("an administrator enables the connection once the sign-in route exists", async () => {
   const before = await storedConnection();
+  assert.ok(before, "the connection was stored by the previous case");
   const captured = await withAuditCapture(() =>
     withDiscovery(advertisedIssuer, () =>
       ssoPut(
         connectionBody({
-          revision: 2,
+          revision: before.revision,
           enabled: true,
           jitProvisioning: true,
           allowedDomains: ["acme.example.test"],
@@ -452,15 +453,26 @@ integration("enabling the connection is refused while this build has no sign-in 
       ),
     ),
   );
-  assertStatus(captured.result, 400, "an enable with no sign-in route behind it is refused");
-  assert.deepEqual(await captured.result.json(), { error: "sso_sign_in_unavailable" });
-  assert.deepEqual(captured.lines, [], "a refused enable records nothing");
-  assert.deepEqual(await storedConnection(), before, "a refused enable stores nothing");
-  assert.equal(before?.value.enabled, false, "the stored connection stays disabled");
+  assertStatus(captured.result, 200, "an enable with a sign-in route behind it is accepted");
+  const payload = await captured.result.text();
+  assertNoCredentialMaterial(payload, "the enable response");
+  const body = JSON.parse(payload) as SsoView;
+  assert.equal(body.connection.enabled, true, "the stored connection is published");
+  assert.equal(body.revision, before.revision + 1, "the enable is one stored revision");
+  assert.deepEqual(body.readiness, { signInAvailable: true });
+  assert.equal(captured.lines.length, 1, "the applied enable records exactly one event");
+  assert.equal(captured.lines[0]?.event, "access.sso.updated");
+  assert.equal(captured.lines[0]?.outcome, "applied");
+  assert.equal(JSON.stringify(captured.lines[0]).includes(CLIENT_SECRET), false, "the event carries no credential");
+
+  const stored = await storedConnection();
+  assert.ok(stored, "the enabled document is stored");
+  assert.equal(stored.value.enabled, true, "the stored document is enabled");
+  assert.equal(stored.value.clientSecretName, ssoSecretName());
 
   const readiness = await adminGet(target(), SSO_PATH, actor(administrator).cookie);
   assertStatus(readiness, 200, "the readiness state is readable");
-  assert.deepEqual(((await readiness.json()) as SsoView).readiness, { signInAvailable: false });
+  assert.deepEqual(((await readiness.json()) as SsoView).readiness, { signInAvailable: true });
 });
 
 integration("a stale revision answers the conflict and changes nothing", async () => {
@@ -475,14 +487,16 @@ integration("a stale revision answers the conflict and changes nothing", async (
 });
 
 integration("a change without the public origin is refused before it is applied", async () => {
+  const before = await storedConnection();
+  assert.ok(before, "the connection is stored");
   const response = await adminRequest(target(), SSO_PATH, {
     method: "PUT",
     headers: { cookie: actor(administrator).cookie, "content-type": "application/json" },
-    body: JSON.stringify(connectionBody({ revision: 2, displayName: "Renamed" })),
+    body: JSON.stringify(connectionBody({ revision: before.revision, displayName: "Renamed" })),
   });
   assertStatus(response, 403, "a cookie mutation requires the public origin");
   assert.deepEqual(await response.json(), { error: "origin_not_allowed" });
   const stored = await storedConnection();
-  assert.equal(stored?.revision, 2, "the stored revision is unchanged");
+  assert.equal(stored?.revision, before.revision, "the stored revision is unchanged");
   assert.equal(stored?.value.displayName, "Acme Workforce");
 });

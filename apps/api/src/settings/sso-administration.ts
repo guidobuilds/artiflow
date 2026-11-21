@@ -5,6 +5,8 @@ import type { AppDb } from "../adapters/postgres/db/client.ts";
 import { secretConfigured, writeSecret, type SecretKey } from "./secrets.ts";
 import {
   SSO_SIGN_IN_AVAILABLE,
+  ssoDiscoveryUrl,
+  ssoIssuerProblem,
   ssoRedirectUri,
   ssoSecretName,
   ssoStoredConnectionFromValue,
@@ -42,8 +44,6 @@ export type DiscoveryResponse = { ok: boolean; status: number; json(): Promise<u
 export type DiscoveryFetcher = (url: string) => Promise<DiscoveryResponse>;
 
 const DISCOVERY_TIMEOUT_MS = 5_000;
-const TEMPLATE_MARKER = /[{}<>]/;
-const MULTI_TENANT_AUTHORITIES = new Set(["common", "organizations", "consumers"]);
 const DOMAIN_LABEL = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?";
 const DOMAIN_RE = new RegExp(`^(?:${DOMAIN_LABEL}\\.)+${DOMAIN_LABEL}$`);
 
@@ -58,25 +58,14 @@ function normalized(value: string): string {
 }
 
 function assertConcreteIssuer(issuer: string): void {
-  if (TEMPLATE_MARKER.test(issuer)) throw new SsoConfigurationError("sso_issuer_templated");
-  let url: URL;
-  try {
-    url = new URL(issuer);
-  } catch {
-    throw new SsoConfigurationError("sso_issuer_invalid");
-  }
-  if (url.protocol !== "https:") throw new SsoConfigurationError("sso_issuer_insecure");
-  if (url.search !== "" || url.hash !== "") throw new SsoConfigurationError("sso_issuer_invalid");
-  const multiTenant = url.pathname
-    .split("/")
-    .some((segment) => MULTI_TENANT_AUTHORITIES.has(segment.trim().toLowerCase()));
-  if (multiTenant) throw new SsoConfigurationError("sso_issuer_templated");
+  const problem = ssoIssuerProblem(issuer);
+  if (problem !== null) throw new SsoConfigurationError(problem);
 }
 
 async function discoveredIssuer(issuer: string, discover: DiscoveryFetcher): Promise<string> {
   let response: DiscoveryResponse;
   try {
-    response = await discover(`${normalized(issuer)}/.well-known/openid-configuration`);
+    response = await discover(ssoDiscoveryUrl(issuer));
   } catch {
     throw new SsoConfigurationError("sso_discovery_unreachable");
   }

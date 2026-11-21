@@ -566,14 +566,59 @@ rendered as an ordinary rejected credential, in the same words every other faile
 receives, and the copy never suggests otherwise. A connection published with
 `fallbackAvailable: false` promises no alternative and renders none.
 
-Signing in through the connection arrives with its own slice, so this build cannot start one. The
-page degrades honestly rather than offering a button that does nothing: the primary area states
-that the connection is configured and that signing in through it is not available yet, and it
-links to `/login?fallback=1`, which keeps the administrator-only alternative reachable. The rules
-sit in one pure function, `apps/dashboard/src/login-methods.ts`, over the answered capabilities
-and the query, so the page holds no second copy of them: until the read answers no method is
-rendered, and a failed read states that the methods could not be loaded instead of falling back
-to the conventional form the instance may have locked.
+Signing in through the connection is one action labelled with the administrator's display name and
+asking for no email, and it starts the flow: the page sends `providerId` and the path it should
+come back to, `POST /api/auth/sign-in/sso` answers the authorization URL, and the browser leaves
+for the identity provider. The action renders only while the connection is published; an
+instance without one keeps the methods it answered. The MCP continuation form on `/login`
+offers the same action and passes its own query as the callback, so the pending authorization
+survives the round trip and the process resumes where it stopped. A refusal that comes back from
+the provider lands on the page that can state it, and the copy is chosen by the refusal code —
+`login-methods.ts` keeps `ssoFailure` beside `loginSurface`, so the page never renders text the
+identity provider supplied. The rules sit in one pure function,
+`apps/dashboard/src/login-methods.ts`, over the answered capabilities and the query, so the
+page holds no second copy of them: until the read answers no method is rendered, and a failed
+read states that the methods could not be loaded instead of falling back to the conventional
+form the instance may have locked.
+
+The provider is registered from the stored document, never from a row of its own. Every build
+of the auth instance of section 5 turns one enabled, locally valid document into the library's
+`defaultSSO` provider — pinned issuer, its discovery address, the client id, the decrypted
+credential and the scopes — and the plugin's own self-service routes are disabled and its
+provider limit is zero, so nothing but our administration API can publish a connection. The
+document decides everything: a change to it is a new revision, so the rebuilt instance carries
+the new provider without a restart, and an absent, disabled or locally unusable document
+registers nothing and leaves the instance answering exactly as before. The connection is
+therefore the only source of truth: the library's provider table is created by its own migration
+(`drizzle/0019_reflective_matthew_murdock.sql`) and declared to the adapter the auth instance
+receives, but nothing writes it while the document is the configuration. The plugin's own
+provider reads and writes stay disabled, so a row in that table can never become a second,
+divergent answer to what the connection is.
+
+Two consequences are pinned here. The identity provider's origin joins the instance's trusted
+origins while a connection is registered, because the library fetches discovery, the JWKS and
+the user information endpoint through the same origin allowlist that guards redirects;
+save-time validation of section 10 is what makes that substitution acceptable. And the issued
+ID token is the trust evidence: `resolveUser` reads the verified token's `email_verified` claim,
+never the unverified user information response, and the pinning rules of the next subsection
+build on that claim only.
+
+**This slice's refusal matrix.** Provisioning and linking are the next slice, so this one
+implements the minimum a usable login needs and nothing that creates state:
+
+| Existing account                 | Outcome                                                       |
+| --------------------------------- | ------------------------------------------------------------- |
+| none                              | reject `sso_account_unknown`, telling the person to ask the administrator |
+| deactivated                       | reject `sso_account_deactivated`; the account is never reactivated |
+| linked to a different SSO identity | reject `sso_identity_conflict`                                |
+| active, verified claim or allowed domain | link the identity to the account and create its session |
+| active, unverifiable email         | reject `sso_email_unverified`                                 |
+
+Nothing in this unit creates an account, reactivates one or edits a profile. `disableImplicitSignUp`
+is on and every path returns a link or a refusal, so the library has no sign-up to perform; a
+first authorized sign-in that would need a new account stays a refusal until the JIT slice
+lands, together with `acceptAnyAccount`, the `tid` pin against the pinned tenant and the
+concurrent-linking rules.
 
 The server decides in two places, both inside the auth instance built from the snapshot, so a
 configuration change reaches them through the rebuild of section 5:
@@ -652,14 +697,14 @@ token and the credential are never logged and never returned. A refused save sto
 document, no credential and records no event; an applied change stores the credential and the
 document in one transaction and emits exactly one `access.sso.updated` event.
 
-**Readiness rule.** The document may be stored and edited, but it may not be published as
-enabled while this build has no SSO sign-in route: enabling it now would lock every
-non-administrator out of password and social sign-in, the sequencing hazard recorded for this
-work. `SSO_SIGN_IN_AVAILABLE` is `false` in `apps/api/src/settings/sso-connection.ts`, the
-write path refuses `enabled: true` with `sso_sign_in_unavailable` once the field and discovery
-checks have passed, and the read publishes `readiness: { signInAvailable: false }` so the page
-states the reason instead of promising a button it cannot honour. The sign-in deliverable
-flips that one constant and the refusal disappears with it.
+**Readiness rule.** Enabling the connection publishes a login surface, so it is allowed only
+while this build can start that sign-in: `SSO_SIGN_IN_AVAILABLE` is `true` in
+`apps/api/src/settings/sso-connection.ts`, the write path accepts `enabled: true` once the field
+and discovery checks have passed, and the read publishes `readiness: { signInAvailable: true }`.
+The constant is checked after the field and discovery validations so a document that cannot sign
+anyone in is still refused for its own reason, and it exists because the sequencing hazard is
+real: publishing a connection nobody can use locks every non-administrator out of password and
+social sign-in.
 
 **Endpoints and page.** `GET /api/admin/sso` answers the document, `credentialConfigured`,
 the redirect URI the administrator registers at the identity provider

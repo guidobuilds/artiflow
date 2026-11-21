@@ -1,6 +1,7 @@
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { admin } from "better-auth/plugins";
+import { sso } from "@better-auth/sso";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { randomAvatar } from "@artiflow/domain/avatars";
@@ -8,9 +9,10 @@ import { randomAvatar } from "@artiflow/domain/avatars";
 import { isLoopbackHostname, type AppConfig } from "./config.ts";
 import type { Database } from "./adapters/postgres/db/client.ts";
 import { registrationAuthSchema } from "./adapters/postgres/db/auth-schema.ts";
-import { user } from "./adapters/postgres/db/schema.ts";
+import { ssoProvider, user } from "./adapters/postgres/db/schema.ts";
 import { isActiveAccount } from "./identity/account-status.ts";
 import { instanceRoles } from "./identity/admin-access.ts";
+import { createSsoUserResolver } from "./identity/sso-resolution.ts";
 import { ADMINISTRATOR_ROLE, MEMBER_ROLE } from "./identity/roles.ts";
 import { registrationInvites } from "./invites/plugin.ts";
 import { alternativeMethodLock } from "./login/fallback-lock.ts";
@@ -24,6 +26,11 @@ import {
 } from "./password-policy/policy.ts";
 import type { PasswordPolicyView } from "@artiflow/contracts/settings";
 import { environmentSnapshot, type AccessSnapshot } from "./settings/access-snapshot.ts";
+import {
+  SSO_CONNECTION_PROVIDER_ID,
+  ssoIssuerOrigin,
+  type SsoProviderRegistration,
+} from "./settings/sso-connection.ts";
 
 export type AuthConfig = Pick<
   AppConfig,
@@ -93,6 +100,46 @@ export function socialProviderOptions(
 
 export type AuthInstance = ReturnType<typeof createAuthFromSnapshot>;
 
+const SSO_SELF_SERVICE_PATHS = [
+  "/sso/register",
+  "/sso/providers",
+  "/sso/get-provider",
+  "/sso/update-provider",
+  "/sso/delete-provider",
+  "/sso/request-domain-verification",
+  "/sso/verify-domain",
+  "/sso/callback",
+];
+
+function ssoIdentityPlugin(registration: SsoProviderRegistration, database: Database): BetterAuthPlugin {
+  return sso({
+    providersLimit: () => 0,
+    domainVerification: { enabled: false },
+    disableImplicitSignUp: true,
+    disabledPaths: SSO_SELF_SERVICE_PATHS,
+    defaultSSO: [
+      {
+        providerId: SSO_CONNECTION_PROVIDER_ID,
+        domain: registration.domain,
+        oidcConfig: {
+          issuer: registration.issuer,
+          discoveryEndpoint: registration.discoveryUrl,
+          clientId: registration.clientId,
+          clientSecret: registration.clientSecret,
+          scopes: [...registration.scopes],
+          pkce: true,
+        },
+      },
+    ],
+    resolveUser: createSsoUserResolver({ db: database.db, allowedDomains: registration.allowedDomains }),
+  }) as BetterAuthPlugin;
+}
+
+function trustedOriginsOf(config: AuthConfig, registration: SsoProviderRegistration | null): string[] {
+  const idpOrigin = registration === null ? null : ssoIssuerOrigin(registration.issuer);
+  return idpOrigin === null ? [config.publicOrigin] : [config.publicOrigin, idpOrigin];
+}
+
 export function createAuth(config: AuthConfig, database: Database): AuthInstance {
   return createAuthFromSnapshot(config, database, environmentSnapshot(config.authProviders));
 }
@@ -101,10 +148,12 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
   const origin = publicOriginUrl(config);
   const policy: PasswordPolicySource = () => readPasswordPolicy(database.db);
   const passwordEnabled = passwordLoginEnabled(config, snapshot);
+  const registration = snapshot.sso.provider;
+  const ssoPlugins: BetterAuthPlugin[] = registration === null ? [] : [ssoIdentityPlugin(registration, database)];
   return betterAuth({
     baseURL: config.publicOrigin,
     secret: config.authSecret,
-    trustedOrigins: [config.publicOrigin],
+    trustedOrigins: trustedOriginsOf(config, registration),
     telemetry: { enabled: false },
     logger: { disabled: true },
     emailAndPassword: {
@@ -143,6 +192,7 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
         ssoEnabled: snapshot.sso.enabled,
         passwordEnabled,
       }),
+      ...ssoPlugins,
       admin({
         roles: instanceRoles,
         adminRoles: [ADMINISTRATOR_ROLE],
@@ -166,7 +216,7 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
     },
     database: drizzleAdapter(database.db, {
       provider: "pg",
-      schema: registrationAuthSchema,
+      schema: { ...registrationAuthSchema, ssoProvider },
       transaction: true,
     }),
   });

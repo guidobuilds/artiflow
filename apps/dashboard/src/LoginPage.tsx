@@ -5,14 +5,23 @@ import {
   continueAuthorization,
   FOLLOW_FAILED,
   followAuthorize,
+  getCapabilities,
   getSession,
   signInWithOAuthQuery,
+  ssoSignIn,
+  type Capabilities,
   type Continuation,
 } from "./auth-client.ts";
-import AuthScreen from "./AuthScreen.tsx";
+import AuthScreen, { ConnectionPanel, EmergencyPanel } from "./AuthScreen.tsx";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
+import {
+  CONNECTION_ERROR_PATH_WITH_ALTERNATIVE,
+  FALLBACK_PARAMETER,
+  METHODS_UNAVAILABLE,
+  loginSurface,
+} from "./login-methods.ts";
 
 type Status = "checking" | "signin" | "redirecting" | "invalid";
 
@@ -23,11 +32,37 @@ export default function LoginPage({ search }: { search: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [restartable, setRestartable] = useState(false);
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
+  const [readError, setReadError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
   const runRef = useRef(0);
+  const surface = loginSurface(capabilities, search);
+  const continuation = `${window.location.pathname}${window.location.search}`;
+  const fallbackHref = useMemo(() => {
+    const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+    params.set(FALLBACK_PARAMETER, "1");
+    return `${window.location.pathname}?${params.toString()}`;
+  }, [search]);
 
   useEffect(() => {
     heading.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    void getCapabilities()
+      .then((result) => {
+        if (!live) return;
+        if (!result.ok) {
+          setReadError(METHODS_UNAVAILABLE);
+          return;
+        }
+        setCapabilities(result.value);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
   }, []);
 
   const finish = (result: Continuation) => {
@@ -92,6 +127,19 @@ export default function LoginPage({ search }: { search: string }) {
   const onField = (key: "email" | "password") => (event: ChangeEvent<HTMLInputElement>) =>
     setValues((current) => ({ ...current, [key]: event.target.value }));
 
+  const connectionSignIn = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    const result = await ssoSignIn(continuation, CONNECTION_ERROR_PATH_WITH_ALTERNATIVE);
+    setBusy(false);
+    if (result.ok) {
+      window.location.assign(result.url);
+      return;
+    }
+    setError(result.error);
+  };
+
   if (!link) return <AuthScreen />;
 
   return (
@@ -116,7 +164,24 @@ export default function LoginPage({ search }: { search: string }) {
             </p>
           ) : null}
           {status === "signin" ? (
-            <form className="grid gap-4" onSubmit={submit}>
+            <div className="grid gap-4">
+              {surface.connection ? (
+                <ConnectionPanel
+                  notice={surface.connection}
+                  fallback={surface.fallbackLink}
+                  fallbackHref={fallbackHref}
+                  busy={busy}
+                  start={() => void connectionSignIn()}
+                />
+              ) : null}
+              {surface.emergency ? <EmergencyPanel notice={surface.emergency} /> : null}
+              {readError ? (
+                <p role="alert" className="text-[13px] text-danger-text">
+                  {readError}
+                </p>
+              ) : null}
+              {surface.password ? (
+                <form className="grid gap-4" onSubmit={submit}>
               <Field label="Email" htmlFor="login-email">
                 <Input
                   id="login-email"
@@ -147,6 +212,8 @@ export default function LoginPage({ search }: { search: string }) {
                 {busy ? "Signing in…" : "Sign in and continue"}
               </Button>
             </form>
+              ) : null}
+            </div>
           ) : null}
           {error ? (
             <div role="alert">

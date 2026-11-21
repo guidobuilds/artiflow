@@ -13,12 +13,23 @@ export const CONNECTION_UNNAMED = "Single sign-on";
 export const METHODS_UNAVAILABLE =
   "Could not load the sign-in methods for this instance. Reload the page and try again.";
 
-export const connectionUnavailable = (label: string): string =>
-  `${label} is configured for this instance. Signing in through it is not available yet in this build.`;
+export const SSO_UNKNOWN_ACCOUNT =
+  "No account on this instance signs in with that address. Ask the administrator to create one.";
+export const SSO_DEACTIVATED_ACCOUNT =
+  "This account is deactivated. Ask the administrator to reactivate it.";
+export const SSO_REFUSED = "The single sign-on sign-in was refused. Ask the administrator for access.";
+
+export function ssoFailure(search: string): string {
+  const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  const code = params.get("error") ?? "";
+  if (code === "") return "";
+  if (code === "sso_account_unknown") return SSO_UNKNOWN_ACCOUNT;
+  if (code === "sso_account_deactivated") return SSO_DEACTIVATED_ACCOUNT;
+  return SSO_REFUSED;
+}
 
 export type ConnectionNotice = {
   readonly label: string;
-  readonly statement: string;
   readonly access: string | null;
 };
 
@@ -26,6 +37,9 @@ export type EmergencyNotice = {
   readonly title: string;
   readonly copy: string;
 };
+
+export const CONNECTION_ERROR_PATH = "/login";
+export const CONNECTION_ERROR_PATH_WITH_ALTERNATIVE = "/login?fallback=1";
 
 export type LoginSurface = {
   readonly connection: ConnectionNotice | null;
@@ -66,7 +80,6 @@ export function loginSurface(capabilities: Capabilities | null, search: string):
   return {
     connection: {
       label,
-      statement: connectionUnavailable(label),
       access: alternative ? EMERGENCY_REACHABLE : null,
     },
     fallbackLink: alternative && !revealed,

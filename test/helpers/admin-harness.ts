@@ -12,6 +12,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { escapeIdentifier, Pool, type PoolClient } from "pg";
 
 import { createApiApp, type ApiAppDeps } from "../../apps/api/src/app.ts";
+import { createAuthHolder, type AuthHolder } from "../../apps/api/src/auth-holder.ts";
 import { createDatabase, type Database } from "../../apps/api/src/adapters/postgres/db/client.ts";
 import type { AppConfig } from "../../apps/api/src/config.ts";
 
@@ -26,6 +27,7 @@ export type AdminHarness = {
   baseUrl: string;
   config: AppConfig;
   database: Database;
+  auth: AuthHolder;
   command(script: string, args: string[]): CommandResult;
   close(): Promise<void>;
 };
@@ -79,10 +81,12 @@ export async function startAdminHarness(config: AppConfig): Promise<AdminHarness
 
   const port = await freePort();
   const internalOrigin = `http://127.0.0.1:${port}`;
+  const auth = createAuthHolder({ config, database });
   const app = createApiApp({
     config: { ...config, internalOrigin, apiPort: port },
     database,
     storage: unusedStorage(),
+    auth,
   });
 
   const started = await new Promise<{ server: ReturnType<typeof serve>; baseUrl: string }>((resolve, reject) => {
@@ -101,6 +105,7 @@ export async function startAdminHarness(config: AppConfig): Promise<AdminHarness
     baseUrl: started.baseUrl,
     config,
     database,
+    auth,
     command(script, args) {
       const result = spawnSync(bun, ["run", "--silent", script, ...args], {
         cwd: PROJECT_ROOT,

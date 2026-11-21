@@ -12,7 +12,46 @@ export const SSO_CONNECTION_OFF: SsoConnection = Object.freeze({ enabled: false,
 
 export const SSO_CONNECTION_PROVIDER_ID = "artiflow";
 
-export const SSO_SIGN_IN_AVAILABLE = false;
+export const SSO_SIGN_IN_AVAILABLE = true;
+
+export type SsoIssuerProblem = "sso_issuer_insecure" | "sso_issuer_invalid" | "sso_issuer_templated";
+
+const TEMPLATE_MARKER = /[{}<>]/;
+const MULTI_TENANT_AUTHORITIES = new Set(["common", "organizations", "consumers"]);
+
+export function ssoIssuerProblem(value: string): SsoIssuerProblem | null {
+  if (TEMPLATE_MARKER.test(value)) return "sso_issuer_templated";
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return "sso_issuer_invalid";
+  }
+  if (url.protocol !== "https:") return "sso_issuer_insecure";
+  if (url.search !== "" || url.hash !== "") return "sso_issuer_invalid";
+  const multiTenant = url.pathname
+    .split("/")
+    .some((segment) => MULTI_TENANT_AUTHORITIES.has(segment.trim().toLowerCase()));
+  return multiTenant ? "sso_issuer_templated" : null;
+}
+
+export function ssoIssuerOrigin(value: string): string | null {
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+export type SsoProviderRegistration = {
+  readonly issuer: string;
+  readonly discoveryUrl: string;
+  readonly domain: string;
+  readonly clientId: string;
+  readonly clientSecret: string;
+  readonly scopes: readonly string[];
+  readonly allowedDomains: readonly string[];
+};
 
 export function ssoSecretName(): string {
   return `${SSO_CONNECTION_KEY}.clientSecret`;
@@ -20,6 +59,10 @@ export function ssoSecretName(): string {
 
 export function ssoRedirectUri(publicOrigin: string): string {
   return `${publicOrigin.replace(/\/+$/, "")}/api/auth/sso/callback/${SSO_CONNECTION_PROVIDER_ID}`;
+}
+
+export function ssoDiscoveryUrl(issuer: string): string {
+  return `${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`;
 }
 
 function displayNameOf(document: Record<string, unknown>): string | null {
@@ -84,4 +127,33 @@ export function ssoStoredConnectionFromValue(value: unknown): SsoStoredConnectio
 
 export async function readSsoConnection(db: AppDb | AppTx): Promise<SsoConnection> {
   return ssoConnectionFromValue(await readRawSettingValue(db, SSO_CONNECTION_KEY));
+}
+
+export function ssoProviderRegistration(
+  value: unknown,
+  clientSecret: string | null,
+): SsoProviderRegistration | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const document = value as Record<string, unknown>;
+  if (document.enabled !== true) return null;
+  const issuer = textOf(document, "issuer").trim();
+  const clientId = textOf(document, "clientId").trim();
+  const credential = (clientSecret ?? "").trim();
+  const scopes = textsOf(document, "scopes")
+    .map((scope) => scope.trim())
+    .filter((scope) => scope !== "");
+  if (issuer === "" || ssoIssuerProblem(issuer) !== null) return null;
+  if (clientId === "" || credential === "" || scopes.length === 0) return null;
+  const allowedDomains = textsOf(document, "allowedDomains")
+    .map((domain) => domain.trim().toLowerCase())
+    .filter((domain) => domain !== "");
+  return Object.freeze({
+    issuer,
+    discoveryUrl: ssoDiscoveryUrl(issuer),
+    domain: allowedDomains[0] ?? new URL(issuer).hostname.toLowerCase(),
+    clientId,
+    clientSecret: credential,
+    scopes: Object.freeze([...scopes]),
+    allowedDomains: Object.freeze([...allowedDomains]),
+  });
 }

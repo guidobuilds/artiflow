@@ -153,6 +153,16 @@ export async function socialSignIn(provider: string, callbackURL: string): Promi
   return toContinuation(await readJson(response));
 }
 
+export const SSO_PROVIDER_ID = "artiflow";
+const SSO_UNREACHABLE = "Could not start the single sign-on sign-in. Reload the page and try again.";
+
+export async function ssoSignIn(callbackURL: string, errorCallbackURL: string): Promise<Continuation> {
+  const response = await send("/sign-in/sso", { providerId: SSO_PROVIDER_ID, callbackURL, errorCallbackURL });
+  if (!response) return { ok: false, error: NETWORK, restartable: false };
+  if (!response.ok) return { ok: false, error: SSO_UNREACHABLE, restartable: false };
+  return toContinuation(await readJson(response));
+}
+
 export type PublicClient = { clientId: string; clientName: string; clientUri: string };
 export type PublicClientResult =
   { ok: true; value: PublicClient } | { ok: false; error: string; signInRequired: boolean };

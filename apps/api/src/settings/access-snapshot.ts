@@ -4,17 +4,26 @@ import { DEFAULT_PASSWORD_POLICY } from "@artiflow/contracts/settings";
 import { readPasswordPolicy } from "../password-policy/policy.ts";
 import { SecretError, readSecret, type SecretKey } from "./secrets.ts";
 import { PROVIDERS, type ProviderName } from "./seed.ts";
-import { SSO_CONNECTION_OFF, readSsoConnection, type SsoConnection } from "./sso-connection.ts";
-import { accessMethodsSetting, readSetting, readSettingsRevision } from "./store.ts";
+import {
+  SSO_CONNECTION_OFF,
+  ssoConnectionFromValue,
+  ssoProviderRegistration,
+  ssoSecretName,
+  type SsoConnection,
+  type SsoProviderRegistration,
+} from "./sso-connection.ts";
+import { accessMethodsSetting, readRawSettingValue, readSetting, SSO_CONNECTION_KEY, readSettingsRevision } from "./store.ts";
 
 export type SnapshotProvider = { readonly clientId: string; readonly clientSecret: string };
+
+export type SnapshotSso = SsoConnection & { readonly provider: SsoProviderRegistration | null };
 
 export type AccessSnapshot = {
   readonly passwordEnabled: boolean;
   readonly passwordMinLength: number;
   readonly providers: Readonly<Partial<Record<ProviderName, SnapshotProvider>>>;
   readonly degraded: readonly ProviderName[];
-  readonly sso: SsoConnection;
+  readonly sso: SnapshotSso;
 };
 
 export type AccessSnapshotRead = {
@@ -26,9 +35,17 @@ type SnapshotInput = {
   passwordEnabled: boolean;
   passwordMinLength: number;
   providers: Partial<Record<ProviderName, SnapshotProvider>>;
-  sso: SsoConnection;
+  sso: SnapshotSso;
   degraded?: readonly ProviderName[];
 };
+
+function freezeSso(sso: SnapshotSso): SnapshotSso {
+  return Object.freeze({
+    enabled: sso.enabled,
+    displayName: sso.displayName,
+    provider: sso.provider === null ? null : Object.freeze(sso.provider),
+  });
+}
 
 function freezeSnapshot(input: SnapshotInput): AccessSnapshot {
   const providers: Partial<Record<ProviderName, SnapshotProvider>> = {};
@@ -42,7 +59,7 @@ function freezeSnapshot(input: SnapshotInput): AccessSnapshot {
     passwordMinLength: input.passwordMinLength,
     providers: Object.freeze(providers),
     degraded: Object.freeze([...(input.degraded ?? [])]),
-    sso: Object.freeze({ enabled: input.sso.enabled, displayName: input.sso.displayName }),
+    sso: freezeSso(input.sso),
   });
 }
 
@@ -58,7 +75,7 @@ export function environmentSnapshot(socialProviders: SocialProviders): AccessSna
     passwordEnabled: true,
     passwordMinLength: DEFAULT_PASSWORD_POLICY.minLength,
     providers,
-    sso: SSO_CONNECTION_OFF,
+    sso: { ...SSO_CONNECTION_OFF, provider: null },
   });
 }
 
@@ -68,11 +85,22 @@ export async function readAccessSnapshot(input: {
   fallback: AccessSnapshot;
 }): Promise<AccessSnapshotRead> {
   const revision = await readSettingsRevision(input.db);
-  const [stored, policy, sso] = await Promise.all([
+  const [stored, policy, ssoValue] = await Promise.all([
     readSetting(input.db, accessMethodsSetting),
     readPasswordPolicy(input.db),
-    readSsoConnection(input.db),
+    readRawSettingValue(input.db, SSO_CONNECTION_KEY),
   ]);
+  const sso = ssoConnectionFromValue(ssoValue);
+  let ssoSecret: string | null = null;
+  if (sso.enabled) {
+    try {
+      ssoSecret = await readSecret(input.db, ssoSecretName(), input.key);
+    } catch (error) {
+      if (!(error instanceof SecretError)) throw error;
+      ssoSecret = null;
+    }
+  }
+  const ssoRegistration = ssoProviderRegistration(ssoValue, ssoSecret);
   if (stored === null) {
     return {
       revision,
@@ -81,7 +109,7 @@ export async function readAccessSnapshot(input: {
         passwordMinLength: policy.minLength,
         providers: input.fallback.providers,
         degraded: input.fallback.degraded,
-        sso,
+        sso: { enabled: sso.enabled, displayName: sso.displayName, provider: ssoRegistration },
       }),
     };
   }
@@ -117,7 +145,7 @@ export async function readAccessSnapshot(input: {
       passwordMinLength: policy.minLength,
       providers,
       degraded,
-      sso,
+      sso: { enabled: sso.enabled, displayName: sso.displayName, provider: ssoRegistration },
     }),
   };
 }

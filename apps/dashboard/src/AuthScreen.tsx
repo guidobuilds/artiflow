@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { getCapabilities, signIn, signUp, socialSignIn, type Capabilities } from "./auth-client.ts";
+import { getCapabilities, signIn, signUp, socialSignIn, ssoSignIn, type Capabilities } from "./auth-client.ts";
 import {
+  CONNECTION_ERROR_PATH,
   EMERGENCY_TITLE,
   FALLBACK_PATH,
   METHODS_UNAVAILABLE,
   loginSurface,
+  ssoFailure,
   type ConnectionNotice,
   type EmergencyNotice,
 } from "./login-methods.ts";
@@ -36,20 +38,31 @@ function HowItWorks() {
   );
 }
 
-function ConnectionPanel({ notice, fallback }: { notice: ConnectionNotice; fallback: boolean }) {
+export function ConnectionPanel({
+  notice,
+  fallback,
+  busy,
+  start,
+  fallbackHref = FALLBACK_PATH,
+}: {
+  notice: ConnectionNotice;
+  fallback: boolean;
+  busy: boolean;
+  start: () => void;
+  fallbackHref?: string;
+}) {
   return (
     <div className="grid gap-2 border border-line px-3 py-2.5">
-      <p className="text-[15px] font-medium">Sign in with {notice.label}</p>
-      <p role="status" className="text-[13px] text-fg-muted">
-        {notice.statement}
-      </p>
+      <Button type="button" variant="primary" className="w-full" disabled={busy} onClick={start}>
+        Sign in with {notice.label}
+      </Button>
       {notice.access === null ? null : <p className="text-[13px] text-fg-muted">{notice.access}</p>}
-      {fallback ? <TextLink href={FALLBACK_PATH}>{EMERGENCY_TITLE}</TextLink> : null}
+      {fallback ? <TextLink href={fallbackHref}>{EMERGENCY_TITLE}</TextLink> : null}
     </div>
   );
 }
 
-function EmergencyPanel({ notice }: { notice: EmergencyNotice }) {
+export function EmergencyPanel({ notice }: { notice: EmergencyNotice }) {
   return (
     <div className="grid gap-1 border border-line px-3 py-2.5">
       <p className="text-[13px] font-medium">{notice.title}</p>
@@ -75,7 +88,7 @@ export default function AuthScreen({
   const [readError, setReadError] = useState("");
   const [signup, setSignup] = useState(false);
   const [values, setValues] = useState({ name: "", email: "", password: "" });
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => ssoFailure(search));
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const newAccount = signup || invitation !== undefined;
@@ -153,6 +166,20 @@ export default function AuthScreen({
     setBusy(false);
   };
 
+  const connectionSignIn = async () => {
+    if (busy || submitting.current) return;
+    setError("");
+    setBusy(true);
+    const refused = returnPath === "/" ? CONNECTION_ERROR_PATH : `${CONNECTION_ERROR_PATH}?return=${encodeURIComponent(returnPath)}`;
+    const result = await ssoSignIn(returnPath, refused);
+    if (result.ok) {
+      window.location.assign(result.url);
+      return;
+    }
+    setError(result.error);
+    setBusy(false);
+  };
+
   const label = newAccount ? "Create account" : "Sign in";
   return (
     <main className="grid min-h-dvh min-[960px]:grid-cols-2">
@@ -178,7 +205,14 @@ export default function AuthScreen({
               {readError}
             </p>
           ) : null}
-          {surface.connection ? <ConnectionPanel notice={surface.connection} fallback={surface.fallbackLink} /> : null}
+          {surface.connection ? (
+            <ConnectionPanel
+              notice={surface.connection}
+              fallback={surface.fallbackLink}
+              busy={busy}
+              start={() => void connectionSignIn()}
+            />
+          ) : null}
           {surface.emergency ? <EmergencyPanel notice={surface.emergency} /> : null}
           {invitation === undefined && socialProviders.length > 0 ? (
             <>

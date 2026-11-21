@@ -9,7 +9,6 @@ import {
   EMERGENCY_TITLE,
   FALLBACK_PATH,
   METHODS_UNAVAILABLE,
-  connectionUnavailable,
   loginSurface,
 } from "../apps/dashboard/src/login-methods.ts";
 
@@ -86,9 +85,7 @@ test("an enabled connection is the only action, labelled with its name and askin
   const surface = loginSurface(methods({ sso: CONNECTION }), "");
   assert.ok(surface.connection, "the connection reaches the page");
   assert.equal(surface.connection.label, "Acme Identity");
-  assert.equal(surface.connection.statement, connectionUnavailable("Acme Identity"));
-  assert.match(surface.connection.statement, /Acme Identity is configured for this instance\./);
-  assert.match(surface.connection.statement, /not available yet in this build/);
+  assert.equal(surface.connection.access, EMERGENCY_REACHABLE, "the emergency alternative is named");
   assert.equal(surface.password, false, "no password form is offered first");
   assert.deepEqual(surface.providers, [], "no social button is offered");
   assert.equal(surface.emergency, null);
@@ -154,11 +151,9 @@ test("without the parameter the conventional methods are not rendered at all", (
   );
 });
 
-test("a connection whose sign-in is not available yet says so and keeps the alternative reachable", () => {
+test("a connection keeps the emergency alternative reachable and promises nothing it cannot offer", () => {
   const surface = loginSurface(methods({ sso: CONNECTION }), "");
   assert.ok(surface.connection);
-  assert.match(surface.connection.statement, /configured/);
-  assert.match(surface.connection.statement, /not available yet in this build/);
   assert.equal(surface.connection.access, EMERGENCY_REACHABLE);
   assert.match(EMERGENCY_REACHABLE, /emergency access/);
   assert.equal(surface.fallbackLink, true);
@@ -175,10 +170,10 @@ test("a connection whose sign-in is not available yet says so and keeps the alte
 
   const screen = read(SCREEN);
   const panel = section(screen, "function ConnectionPanel", "function EmergencyPanel");
-  assert.match(panel, /\{notice\.statement\}/);
-  assert.match(panel, /href=\{FALLBACK_PATH\}/);
-  assert.match(panel, /\{EMERGENCY_TITLE\}/);
-  assert.doesNotMatch(panel, /<Button/, "the connection is never a button that does nothing");
+  assert.match(panel, /<Button[^>]*type="button"/, "the connection is the action that starts the flow");
+  assert.match(panel, /Sign in with \{notice\.label\}/);
+  assert.match(panel, /href=\{fallbackHref\}/);
+  assert.doesNotMatch(panel, /<Input/, "the connection asks for no email first");
 });
 
 test("the connection reaches the page through the existing capabilities read", async () => {

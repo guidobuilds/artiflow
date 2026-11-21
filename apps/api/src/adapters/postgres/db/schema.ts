@@ -78,6 +78,23 @@ export const verification = pgTable(
   (table) => [index("verification_identifier_idx").on(table.identifier)],
 );
 
+export const ssoProvider = pgTable(
+  "ssoProvider",
+  {
+    id: text("id").primaryKey(),
+    issuer: text("issuer").notNull(),
+    domain: text("domain").notNull(),
+    oidcConfig: text("oidcConfig"),
+    samlConfig: text("samlConfig"),
+    userId: text("userId").references(() => user.id, { onDelete: "cascade" }),
+    providerId: text("providerId").notNull().unique(),
+    organizationId: text("organizationId"),
+    createdAt: date("createdAt").notNull().defaultNow(),
+    updatedAt: date("updatedAt").notNull().defaultNow(),
+  },
+  (table) => [index("ssoProvider_userId_idx").on(table.userId)],
+);
+
 export const authSchema = { user, session, account, verification };
 
 export { instanceSecret, instanceSetting } from "./settings-schema.ts";
