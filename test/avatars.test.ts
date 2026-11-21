@@ -26,14 +26,14 @@ test("random assignment covers every avatar and stays in range", () => {
   assert.deepEqual(new Set(AVATAR_PATHS.map((_, i) => randomAvatar(() => i / AVATAR_PATHS.length))).size, 4);
 });
 
-test("a missing or unsafe image falls back to the default avatar", () => {
+test("a missing, external or unsafe image falls back to the default avatar", () => {
   assert.equal(avatarSource(null), DEFAULT_AVATAR);
   assert.equal(avatarSource(undefined), DEFAULT_AVATAR);
   assert.equal(avatarSource(""), DEFAULT_AVATAR);
   assert.equal(avatarSource("javascript:alert(1)"), DEFAULT_AVATAR);
   assert.equal(avatarSource("http://host/a.png"), DEFAULT_AVATAR);
   assert.equal(avatarSource("/avatars/avatar-3.png"), "/avatars/avatar-3.png");
-  assert.equal(avatarSource("https://host/a.png"), "https://host/a.png");
+  assert.equal(avatarSource("https://host/a.png"), DEFAULT_AVATAR);
 });
 
 test("new users get a random avatar unless one is already provided", async () => {

@@ -13,11 +13,5 @@ export function randomAvatar(random: () => number = Math.random): string {
 }
 
 export function avatarSource(image: string | null | undefined): string {
-  if (typeof image !== "string") return DEFAULT_AVATAR;
-  if (AVATAR_PATHS.includes(image)) return image;
-  try {
-    return new URL(image).protocol === "https:" ? image : DEFAULT_AVATAR;
-  } catch {
-    return DEFAULT_AVATAR;
-  }
+  return typeof image === "string" && AVATAR_PATHS.includes(image) ? image : DEFAULT_AVATAR;
 }
