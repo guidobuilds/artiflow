@@ -308,9 +308,6 @@ export function mountViewerComments(): void {
     const target = (event.target as HTMLElement | null)?.closest<HTMLElement>(`mark.${MARK}`);
     if (target?.dataset.threadId) activate(target.dataset.threadId);
   });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && state.activeId !== null) activate(null);
-  });
 }
 
 const pinsOf = (threads: ViewerThread[]) =>
@@ -535,7 +532,7 @@ export function mountViewerCommentsInFrame(): void {
     });
     commentButton.prepend(button);
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && state.commenting) {
+      if (event.key === "Escape" && state.commenting && state.draft === null && state.activeId === null) {
         state.commenting = false;
         state.draft = null;
         send({ type: "mode", on: false });
@@ -574,6 +571,7 @@ export function mountViewerCommentsInFrame(): void {
     const message = parsed.message;
     if (message.type === "ready") {
       send({ type: "pins", pins: pins() });
+      if (state.activeId !== null) send({ type: "focus", id: state.activeId });
       if (state.commenting) send({ type: "mode", on: true });
       render();
       return;

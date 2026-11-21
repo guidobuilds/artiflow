@@ -257,6 +257,16 @@ open, so they stay reachable in the HTML viewer, whose column cannot scroll. The
 frame's scroll position once on ready and on load, so a frame that opens already scrolled places the
 pills correctly.
 
+Below 800px the pills hide and the same dock content opens as a bottom sheet (thread header with
+previous/next/close, replies, Resolve or Reopen, Delete, and a reply form kept in a sticky footer; new
+drafts open there too), reached from an `Open threads` button in the comments bar, which stays visible as
+a collapsed row. On every surface `J` and `K` move to the next or previous thread in document order
+(without wrapping), `R` focuses the open thread's reply box and `Esc` closes the open thread or draft.
+Shortcuts are ignored while typing (including in the editor), with modifier keys held, or while comments
+are hidden. A `#c-<threadId>` link opens that thread on load and on `hashchange`, scrolling its anchor
+into view (instantly under reduced motion; the HTML viewer uses the bridge `focus` command); opening a
+thread rewrites the hash with `replaceState` and closing it clears it. Unknown ids are ignored.
+
 The shared and public Markdown viewers render the sanitized fragment in the page itself and mount the
 same thread margin from a dedicated `viewer-comments` bundle, receiving an already-authorized JSON data
 island (`apps/api/src/viewer/comments-data.ts`) with each thread's staleness and text occurrence. The

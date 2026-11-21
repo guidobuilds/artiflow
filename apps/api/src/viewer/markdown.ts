@@ -63,7 +63,7 @@ ${DOCUMENT_CSS}
 .docshell.comments-visible{grid-template-columns:minmax(0,1fr) 360px}
 .viewer-comments{display:none}
 .docshell.comments-visible .viewer-comments{display:block;padding:16px;border-left:1px solid var(--doc-line);background:var(--doc-bg)}
-@media (max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr)}.docshell.comments-visible .viewer-comments{display:none}}
+@media (max-width:800px){.docshell.comments-visible{grid-template-columns:minmax(0,1fr);grid-auto-rows:auto}.docshell.comments-visible .viewer-comments{position:sticky;bottom:0;z-index:5;padding:4px 12px;border-left:0;border-top:1px solid var(--doc-line)}.docshell.comments-visible .viewer-comments .comment-thread-margin-root{height:auto}}
 </style></head>
 <body>${
     embed

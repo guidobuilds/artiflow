@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { UserAvatar } from "@/components/ui/avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -11,6 +21,14 @@ import {
   threadOrder,
   type ThreadPlacement,
 } from "@/comment-thread-layout.ts";
+import {
+  isEditableTarget,
+  parseThreadHash,
+  resolveDeepLink,
+  shortcutFor,
+  stepThread,
+  threadHashUrl,
+} from "@/comment-thread-navigation.ts";
 import {
   browserCommentStorage,
   openThreadCount,
@@ -174,11 +192,13 @@ function ThreadPanel({
   onResolve,
   onReply,
   onDelete,
+  sheet = false,
 }: {
   thread: CommentThread;
   index: number;
   total: number;
   canComment: boolean;
+  sheet?: boolean;
   onPrevious: () => void;
   onNext: () => void;
   onClose: () => void;
@@ -192,15 +212,9 @@ function ThreadPanel({
   const resolved = thread.resolvedAt !== null;
   return (
     <div
-      className="comment-thread-dock"
+      className={sheet ? "comment-thread-dock comment-thread-dock-sheet" : "comment-thread-dock"}
       role="region"
       aria-label={`Thread ${index + 1} of ${total}`}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.preventDefault();
-          onClose();
-        }
-      }}
     >
       <header className="comment-thread-dock-head">
         <h3 className="comment-thread-dock-title">
@@ -255,6 +269,7 @@ function ThreadPanel({
             </label>
             <input
               id={`${replyId}-reply`}
+              data-reply-input=""
               value={reply}
               onChange={(event) => setReply(event.target.value)}
               placeholder="Reply…"
@@ -286,10 +301,12 @@ function DraftPanel({
   draft,
   onSubmit,
   onCancel,
+  sheet = false,
 }: {
   draft: CommentDraft;
   onSubmit?: (body: string) => void;
   onCancel?: () => void;
+  sheet?: boolean;
 }) {
   const [body, setBody] = useState(draft.body);
   const inputId = useId();
@@ -307,7 +324,11 @@ function DraftPanel({
   return (
     <form
       ref={formRef}
-      className="comment-thread-dock comment-thread-draft"
+      className={
+        sheet
+          ? "comment-thread-dock comment-thread-draft comment-thread-dock-sheet"
+          : "comment-thread-dock comment-thread-draft"
+      }
       onSubmit={(event) => {
         event.preventDefault();
         if (draft.busy || !body.trim()) return;
@@ -330,12 +351,6 @@ function DraftPanel({
           required
           maxLength={4000}
           onChange={(event) => setBody(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onCancel?.();
-            }
-          }}
           className="comment-thread-input"
           placeholder="Write a comment…"
         />
@@ -359,99 +374,36 @@ function DraftPanel({
   );
 }
 
-function MobileSheet({
-  threads,
-  activeId,
-  onActivate,
-  canComment,
-  onResolve,
-  onReply,
-}: {
-  threads: CommentThread[];
-  activeId: string | null;
-  onActivate: (id: string | null) => void;
-  canComment: boolean;
-  onResolve?: (thread: CommentThread, resolved: boolean) => void;
-  onReply?: (thread: CommentThread, body: string) => void;
-}) {
-  const index = threads.findIndex((thread) => thread.id === activeId);
-  const thread = index >= 0 ? threads[index]! : null;
-  const [reply, setReply] = useState("");
-  const replyId = useId();
-  useEffect(() => {
-    if (thread === null) setReply("");
-  }, [thread]);
-  if (thread === null) return null;
-  const step = (delta: number) => {
-    const next = threads[index + delta];
-    if (next) onActivate(next.id);
-  };
+function MobileSheet({ onBackdrop, children }: { onBackdrop: () => void; children: ReactNode }) {
   return (
-    <div className="comment-thread-sheet comment-thread-sheet-open">
-      <div role="dialog" aria-modal="true" aria-label={`Comment thread ${index + 1} of ${threads.length}`}>
-        <header className="comment-thread-sheet-head">
-          <Author author={thread.author} />
-          <span className="flex items-center gap-1">
-            <IconAction icon="left" label="Previous thread" disabled={index === 0} onClick={() => step(-1)} />
-            <IconAction
-              icon="right"
-              label="Next thread"
-              disabled={index === threads.length - 1}
-              onClick={() => step(1)}
-            />
-            <IconAction icon="x" label="Close thread" onClick={() => onActivate(null)} />
-          </span>
-        </header>
-        <div className="comment-thread-sheet-body">
-          <blockquote className="comment-thread-quote">{thread.quotedText}</blockquote>
-          <p className="comment-thread-body">{thread.body}</p>
-          <ol className="comment-thread-replies">
-            {thread.replies.map((entry) => (
-              <li key={entry.id} className="comment-thread-reply">
-                <Author author={entry.author} />
-                <p className="comment-thread-body">{entry.body}</p>
-              </li>
-            ))}
-          </ol>
-        </div>
-        {canComment && onReply ? (
-          <form
-            className="comment-thread-sheet-reply"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (!reply.trim()) return;
-              onReply(thread, reply);
-              setReply("");
-            }}
-          >
-            <label className="sr-only" htmlFor={replyId}>
-              Reply
-            </label>
-            <input
-              id={replyId}
-              value={reply}
-              onChange={(event) => setReply(event.target.value)}
-              placeholder="Reply…"
-              className="comment-thread-input"
-            />
-            <Button type="submit" size="sm" disabled={!reply.trim()}>
-              Reply
-            </Button>
-          </form>
-        ) : null}
-        <div className="comment-thread-actions">
-          {canComment && onResolve ? (
-            <Button size="sm" onClick={() => onResolve(thread, thread.resolvedAt === null)}>
-              {thread.resolvedAt === null ? "Resolve" : "Reopen"}
-            </Button>
-          ) : null}
-          <Button size="sm" variant="ghost" onClick={() => onActivate(null)}>
-            Close
-          </Button>
-        </div>
+    <div
+      className="comment-thread-sheet comment-thread-sheet-open"
+      onClick={(event: MouseEvent<HTMLDivElement>) => {
+        if (event.target === event.currentTarget) onBackdrop();
+      }}
+    >
+      <div role="dialog" aria-modal="true" aria-label="Comment thread">
+        {children}
       </div>
     </div>
   );
+}
+
+const COMPACT_QUERY = "(max-width: 800px)";
+
+function useCompactViewport(): boolean {
+  const [compact, setCompact] = useState(
+    () => typeof window !== "undefined" && window.matchMedia?.(COMPACT_QUERY).matches === true,
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.(COMPACT_QUERY);
+    if (!query) return;
+    const update = () => setCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return compact;
 }
 
 function DockSlot({ top, children }: { top: number; children: ReactNode }) {
@@ -578,9 +530,87 @@ export default function CommentThreadMargin({
   };
   const draftTop = draft === null ? 0 : draftPlacement(placements, draftAnchorTop, collapsed, minTop).top;
   const openCount = openThreadCount(threads);
-  const sheetThreads = shown.filter((thread) => thread.resolvedAt === null);
+  const compact = useCompactViewport();
+  const rootRef = useRef<HTMLElement>(null);
+  const live = useRef({ dockOrder, activeId, onActivate, draft, onCancelDraft, visible, status, threads });
+  live.current = { dockOrder, activeId, onActivate, draft, onCancelDraft, visible, status, threads };
+  const pendingLink = useRef(typeof window !== "undefined" && parseThreadHash(window.location.hash) !== null);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const current = live.current;
+      if (!current.visible) return;
+      const target = event.target;
+      const action = shortcutFor({
+        key: event.key,
+        altKey: event.altKey,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        defaultPrevented: event.defaultPrevented,
+        editable: isEditableTarget(target),
+        insideComments: target instanceof Node && rootRef.current?.contains(target) === true,
+      });
+      if (action === null) return;
+      if (action === "close") {
+        if (current.draft !== null && current.draft !== undefined) {
+          event.preventDefault();
+          current.onCancelDraft?.();
+        } else if (current.activeId !== null) {
+          event.preventDefault();
+          current.onActivate(null);
+        }
+        return;
+      }
+      if (current.draft !== null && current.draft !== undefined) return;
+      if (action === "reply") {
+        const input = rootRef.current?.querySelector<HTMLInputElement>("[data-reply-input]");
+        if (input) {
+          event.preventDefault();
+          input.focus();
+        }
+        return;
+      }
+      const next = stepThread(current.dockOrder, current.activeId, action === "next" ? 1 : -1);
+      if (next !== null) {
+        event.preventDefault();
+        if (next !== current.activeId) current.onActivate(next);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+  useEffect(() => {
+    const onHashChange = () => {
+      const current = live.current;
+      if (!current.visible) return;
+      const id = resolveDeepLink(
+        window.location.hash,
+        current.threads.map((thread) => thread.id),
+      );
+      if (id !== null && id !== current.activeId) current.onActivate(id);
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, []);
+  useEffect(() => {
+    if (!pendingLink.current || !visible || (status !== "ready" && status !== "empty")) return;
+    const id = resolveDeepLink(
+      window.location.hash,
+      threads.map((thread) => thread.id),
+    );
+    pendingLink.current = false;
+    if (id !== null && id !== live.current.activeId) live.current.onActivate(id);
+  }, [threads, status, visible]);
+  useEffect(() => {
+    if (pendingLink.current || typeof window === "undefined") return;
+    const href = window.location.href;
+    const next = threadHashUrl(href, activeId);
+    if (next !== href) window.history.replaceState(window.history.state, "", next);
+  }, [activeId]);
+  const sheetOpen = compact && visible && status !== "error" && (draft !== null || activeThread !== null);
   return (
     <section
+      ref={rootRef}
       className={["comment-thread-margin-root", visible ? "" : "comment-thread-margin-hidden", className ?? ""]
         .filter(Boolean)
         .join(" ")}
@@ -600,6 +630,19 @@ export default function CommentThreadMargin({
         <span className="text-[11.5px] text-fg-subtle" aria-live="polite">
           {openCount} open
         </span>
+        {compact && visible && status !== "error" && dockOrder.length > 0 ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="min-h-11"
+            onClick={() => {
+              const first = stepThread(dockOrder, activeId, 1);
+              if (first !== null) onActivate(first);
+            }}
+          >
+            Open threads
+          </Button>
+        ) : null}
         {visible ? (
           <label className="flex min-h-11 items-center gap-2 text-[11.5px] text-fg-muted">
             <input
@@ -662,7 +705,7 @@ export default function CommentThreadMargin({
               </div>
             </div>
           ) : null}
-          {status !== "error" ? (
+          {status !== "error" && !compact ? (
             <div className="comment-thread-dock-rail">
               {draft !== null && draft !== undefined ? (
                 <DockSlot top={draftTop + layerOffset}>
@@ -702,14 +745,28 @@ export default function CommentThreadMargin({
           ) : null}
         </div>
       ) : null}
-      <MobileSheet
-        threads={sheetThreads}
-        activeId={activeId}
-        onActivate={onActivate}
-        canComment={canComment}
-        onResolve={onResolve}
-        onReply={onReply}
-      />
+      {sheetOpen ? (
+        <MobileSheet onBackdrop={() => (draft !== null ? onCancelDraft?.() : onActivate(null))}>
+          {draft !== null && draft !== undefined ? (
+            <DraftPanel sheet draft={draft} onSubmit={onSubmitDraft} onCancel={onCancelDraft} />
+          ) : activeThread !== null ? (
+            <ThreadPanel
+              sheet
+              key={activeThread.id}
+              thread={activeThread}
+              index={dockIndex}
+              total={dockOrder.length}
+              canComment={canComment}
+              onPrevious={() => stepTo(-1)}
+              onNext={() => stepTo(1)}
+              onClose={() => onActivate(null)}
+              onResolve={onResolve}
+              onReply={onReply}
+              onDelete={onDelete}
+            />
+          ) : null}
+        </MobileSheet>
+      ) : null}
     </section>
   );
 }

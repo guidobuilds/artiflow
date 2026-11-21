@@ -108,21 +108,36 @@ test("view states cover loading, empty, load errors, publish errors and hidden",
   assert.match(styles, /\.comment-thread-skeleton/);
 });
 
-test("narrow screens drop the margin and open a bottom sheet with navigation", () => {
+test("narrow screens hide the pills and open the dock content in a bottom sheet", () => {
   assert.match(styles, /@media \(max-width: 800px\) \{[\s\S]*\.comment-thread-margin \{[\s\S]*display: none;/);
   assert.match(styles, /\.comment-thread-sheet-open \{[\s\S]*align-items: flex-end;/);
-  assert.match(styles, /\.comment-thread-sheet-reply \{[\s\S]*position: sticky;/);
+  assert.match(styles, /\.comment-thread-dock-sheet \.comment-thread-dock-foot \{[\s\S]*position: sticky;/);
+  assert.match(styles, /\.comment-thread-dock-sheet button \{[\s\S]*min-height: 44px;/);
   assert.match(component, /role="dialog" aria-modal="true"/);
+  assert.match(component, /<ThreadPanel\s+sheet/);
+  assert.match(component, /<DraftPanel sheet/);
+  assert.match(component, /Open threads/);
   assert.match(component, /Previous thread/);
   assert.match(component, /Next thread/);
   assert.match(component, /Close thread/);
-  assert.match(component, /thread\.resolvedAt === null \? "Resolve" : "Reopen"/);
+  assert.match(component, /resolved \? "Reopen" : "Resolve"/);
+  assert.match(component, /Delete reply by/);
+});
+
+test("the margin owns the J, K, R and Escape shortcuts and the deep link hash once", () => {
+  assert.match(component, /shortcutFor\(/);
+  assert.match(component, /stepThread\(/);
+  assert.match(component, /\[data-reply-input\]/);
+  assert.match(component, /addEventListener\("hashchange"/);
+  assert.match(component, /replaceState\(/);
+  assert.equal(component.match(/event\.key === "Escape"/g), null);
+  assert.equal(component.match(/addEventListener\("keydown"/g)?.length, 1);
 });
 
 test("pills and the dock stay keyboard reachable with forty-four pixel targets", () => {
   assert.match(component, /<button\s+ref=\{pillRef\}\s+type="button"/);
   assert.match(component, /aria-expanded=\{active\}/);
-  assert.match(component, /event\.key === "Escape"/);
+  assert.match(component, /shortcutFor\(/);
   assert.match(component, /className="sr-only"[^>]*\n?\s*(?:htmlFor|children)/);
   assert.match(styles, /\.comment-thread-pill:focus-visible \{[^}]*outline: 2px solid/);
   assert.match(styles, /\.comment-thread-pill::after \{[^}]*inset: -4px;/);
@@ -141,4 +156,13 @@ test("an empty draft is dismissed by a pointer press outside its form and a type
   assert.match(component, /formRef\.current\?\.contains\(event\.target\)/);
   assert.match(component, /if \(!empty\) return;/);
   assert.match(component, /document\.addEventListener\("pointerdown", dismiss\)/);
+});
+
+test("with history and comments both open, narrow screens stack them in one column", () => {
+  const narrow = styles.slice(styles.lastIndexOf("@media (max-width: 800px)"));
+  assert.match(
+    narrow,
+    /\.editor-workspace\.editor-panel-open\.editor-margin-open \{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
+  );
+  assert.match(narrow, /\.editor-comments-column \{[^}]*grid-column: 1;[^}]*grid-row: 3;/);
 });
