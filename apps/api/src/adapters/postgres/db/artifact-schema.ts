@@ -20,6 +20,9 @@ import { user } from "./schema.ts";
 export const MAX_ARTIFACT_BYTES = 16_777_216;
 export const MAX_CHUNK_BYTES = 1_048_576;
 export const STAGING_TTL_MINUTES = 60;
+export const DOCUMENT_FORMAT_VERSION = 1;
+export const DOCUMENT_AUTHOR_KINDS = ["person", "agent"] as const;
+export const DOCUMENT_OPERATION_RESULTS = ["applied", "rejected"] as const;
 
 export { ARTIFACT_KINDS, DEFAULT_ARTIFACT_KIND };
 export const SHARE_ROLES = ["reader", "editor", "commenter"] as const;
@@ -43,6 +46,7 @@ export const artifacts = pgTable(
       onDelete: "set null",
     }),
     observedSizeBytes: integer("observedSizeBytes"),
+    publishedSeq: integer("publishedSeq").notNull().default(0),
     kind: text("kind").notNull().default(DEFAULT_ARTIFACT_KIND),
     deletedAt: date("deletedAt"),
     createdAt: date("createdAt").notNull().defaultNow(),
@@ -52,6 +56,7 @@ export const artifacts = pgTable(
     index("artifacts_ownerId_idx").on(table.ownerId),
     check("artifacts_observedSizeBytes_cap_check", atMost("observedSizeBytes", MAX_ARTIFACT_BYTES)),
     check("artifacts_kind_check", sql`${sql.identifier("kind")} in ('html', 'markdown')`),
+    check("artifacts_publishedSeq_check", sql`${sql.identifier("publishedSeq")} >= 0`),
   ],
 );
 
@@ -63,9 +68,13 @@ export const artifactRevisions = pgTable(
       .notNull()
       .references(() => artifacts.id, { onDelete: "cascade" }),
     revision: integer("revision").notNull(),
+    formatVersion: integer("formatVersion").notNull().default(DOCUMENT_FORMAT_VERSION),
+    seqFrom: integer("seqFrom").notNull().default(0),
+    seqTo: integer("seqTo").notNull().default(0),
     sizeBytes: integer("sizeBytes").notNull(),
     sha256: text("sha256").notNull(),
     storageKey: text("storageKey").notNull(),
+    blockIndex: jsonb("blockIndex"),
     createdAt: date("createdAt").notNull().defaultNow(),
   },
   (table) => [
@@ -73,6 +82,11 @@ export const artifactRevisions = pgTable(
     index("artifactRevisions_storageKey_idx").on(table.storageKey),
     check("artifactRevisions_sizeBytes_cap_check", atMost("sizeBytes", MAX_ARTIFACT_BYTES)),
     check("artifactRevisions_sha256_hex_check", hexSha256("sha256")),
+    check("artifactRevisions_formatVersion_check", sql`${sql.identifier("formatVersion")} >= 1`),
+    check(
+      "artifactRevisions_seqRange_check",
+      sql`${sql.identifier("seqFrom")} >= 0 and ${sql.identifier("seqTo")} >= ${sql.identifier("seqFrom")}`,
+    ),
   ],
 );
 
@@ -202,6 +216,52 @@ export const artifactPublicLinks = pgTable(
   ],
 );
 
+export const documentDrafts = pgTable(
+  "documentDrafts",
+  {
+    artifactId: text("artifactId")
+      .primaryKey()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull().default(0),
+    formatVersion: integer("formatVersion").notNull().default(DOCUMENT_FORMAT_VERSION),
+    state: jsonb("state").notNull(),
+    updatedByUserId: text("updatedByUserId").references(() => user.id, { onDelete: "set null" }),
+    updatedAt: date("updatedAt").notNull().defaultNow(),
+  },
+  () => [
+    check("documentDrafts_seq_check", sql`${sql.identifier("seq")} >= 0`),
+    check("documentDrafts_formatVersion_check", sql`${sql.identifier("formatVersion")} >= 1`),
+  ],
+);
+
+export const documentOperations = pgTable(
+  "documentOperations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    artifactId: text("artifactId")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    baseSeq: integer("baseSeq").notNull(),
+    authorKind: text("authorKind").notNull(),
+    authorId: text("authorId").notNull(),
+    ops: jsonb("ops").notNull(),
+    result: text("result").notNull(),
+    idempotencyKey: text("idempotencyKey").notNull(),
+    createdAt: date("createdAt").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("documentOperations_artifactId_seq_unique")
+      .on(table.artifactId, table.seq)
+      .where(sql`${sql.identifier("result")} = 'applied'`),
+    uniqueIndex("documentOperations_idempotencyKey_unique").on(table.idempotencyKey),
+    check("documentOperations_seq_check", sql`${sql.identifier("seq")} >= 0`),
+    check("documentOperations_baseSeq_check", sql`${sql.identifier("baseSeq")} >= 0`),
+    check("documentOperations_authorKind_check", sql`${sql.identifier("authorKind")} in ('person', 'agent')`),
+    check("documentOperations_result_check", sql`${sql.identifier("result")} in ('applied', 'rejected')`),
+  ],
+);
+
 export const artifactSchema = {
   artifacts,
   artifactRevisions,
@@ -210,4 +270,6 @@ export const artifactSchema = {
   artifactShares,
   artifactPublicLinks,
   artifactComments,
+  documentOperations,
+  documentDrafts,
 };

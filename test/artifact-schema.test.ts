@@ -12,6 +12,9 @@ import {
 } from "@artiflow/contracts/artifacts";
 
 import {
+  DOCUMENT_AUTHOR_KINDS,
+  DOCUMENT_FORMAT_VERSION,
+  DOCUMENT_OPERATION_RESULTS,
   MAX_ARTIFACT_BYTES,
   MAX_CHUNK_BYTES,
   STAGING_TTL_MINUTES,
@@ -27,6 +30,8 @@ const TABLES = [
   "artifactShares",
   "artifactPublicLinks",
   "artifactComments",
+  "documentOperations",
+  "documentDrafts",
 ];
 const tables = artifactSchema as unknown as Record<string, PgTable>;
 const drizzleDir = new URL("../drizzle/", import.meta.url);
@@ -53,6 +58,7 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["title", false],
       ["currentRevisionId", false],
       ["observedSizeBytes", false],
+      ["publishedSeq", true],
       ["kind", true],
       ["deletedAt", false],
       ["createdAt", true],
@@ -62,9 +68,13 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["id", true],
       ["artifactId", true],
       ["revision", true],
+      ["formatVersion", true],
+      ["seqFrom", true],
+      ["seqTo", true],
       ["sizeBytes", true],
       ["sha256", true],
       ["storageKey", true],
+      ["blockIndex", false],
       ["createdAt", true],
     ],
     artifactUploads: [
@@ -114,14 +124,49 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["createdAt", true],
       ["updatedAt", true],
     ],
+    documentOperations: [
+      ["id", true],
+      ["artifactId", true],
+      ["seq", true],
+      ["baseSeq", true],
+      ["authorKind", true],
+      ["authorId", true],
+      ["ops", true],
+      ["result", true],
+      ["idempotencyKey", true],
+      ["createdAt", true],
+    ],
+    documentDrafts: [
+      ["artifactId", true],
+      ["seq", true],
+      ["formatVersion", true],
+      ["state", true],
+      ["updatedByUserId", false],
+      ["updatedAt", true],
+    ],
   };
+  const primaryKeys: Record<string, string> = { documentDrafts: "artifactId" };
   for (const [name, wanted] of Object.entries(expected)) {
     assert.equal(getTableConfig(tables[name] as PgTable).name, name);
     const columns = columnsOf(name);
     assert.deepEqual([...columns.keys()].sort(), wanted.map(([column]) => column).sort(), `${name} columns`);
     for (const [column, notNull] of wanted)
       assert.equal(columns.get(column)?.notNull, notNull, `${name}.${column} nullability`);
-    assert.equal(columns.get("id")?.primary, true, `${name}.id primary key`);
+    const primary = primaryKeys[name] ?? "id";
+    assert.equal(columns.get(primary)?.primary, true, `${name}.${primary} primary key`);
+  }
+  const defaulted: [string, string, boolean, unknown][] = [
+    ["artifacts", "publishedSeq", true, 0],
+    ["artifactRevisions", "formatVersion", true, 1],
+    ["artifactRevisions", "seqFrom", true, 0],
+    ["artifactRevisions", "seqTo", true, 0],
+    ["documentDrafts", "seq", true, 0],
+    ["documentDrafts", "formatVersion", true, 1],
+  ];
+  for (const [name, column, hasDefault, value] of defaulted) {
+    const entry = columnsOf(name).get(column);
+    assert.equal(entry?.hasDefault, hasDefault, `${name}.${column} default`);
+    assert.equal(entry?.default, value, `${name}.${column} default value`);
   }
 });
 
@@ -131,6 +176,8 @@ test("owner, artifact and upload references cascade to their parents", () => {
     artifactUploads: ["ownerId", "user", "id"],
     artifactRevisions: ["artifactId", "artifacts", "id"],
     artifactChunks: ["uploadId", "artifactUploads", "id"],
+    documentOperations: ["artifactId", "artifacts", "id"],
+    documentDrafts: ["artifactId", "artifacts", "id"],
   };
   for (const [name, [column, target, targetColumn]] of Object.entries(expected)) {
     const foreign = getTableConfig(tables[name] as PgTable).foreignKeys.find((key) =>
@@ -167,6 +214,15 @@ test("revision pins and chunk idempotency are enforced by unique keys", () => {
   assert.equal(columnsOf("artifactRevisions").get("storageKey")?.isUnique, false, "storageKey not unique");
 });
 
+test("the operation log keeps one row per applied sequence and one row per idempotency key", () => {
+  assert.deepEqual(indexNames("documentOperations"), [
+    { name: "documentOperations_artifactId_seq_unique", unique: true, columns: ["artifactId", "seq"] },
+    { name: "documentOperations_idempotencyKey_unique", unique: true, columns: ["idempotencyKey"] },
+  ]);
+  assert.deepEqual(indexNames("documentDrafts"), [], "one draft per artifact needs no secondary index");
+  assert.equal(columnsOf("documentDrafts").get("artifactId")?.primary, true, "the draft is keyed by artifact");
+});
+
 test("size caps, digest and status checks are declared and reach the migration", () => {
   assert.equal(MAX_ARTIFACT_BYTES, 16_777_216, "approved 16 MiB decoded HTML cap");
   assert.equal(MAX_CHUNK_BYTES, 1_048_576, "1 MiB chunk cap");
@@ -174,6 +230,8 @@ test("size caps, digest and status checks are declared and reach the migration",
   assert.deepEqual(checkNames("artifactRevisions"), [
     "artifactRevisions_sizeBytes_cap_check",
     "artifactRevisions_sha256_hex_check",
+    "artifactRevisions_formatVersion_check",
+    "artifactRevisions_seqRange_check",
   ]);
   assert.deepEqual(checkNames("artifactUploads"), [
     "artifactUploads_status_check",
@@ -194,6 +252,29 @@ test("size caps, digest and status checks are declared and reach the migration",
   const status = columnsOf("artifactUploads").get("status");
   assert.equal(status?.default, "open");
   assert.equal(status?.hasDefault, true);
+});
+
+test("the document tables carry their sequence, author and result checks", () => {
+  assert.deepEqual(checkNames("documentOperations"), [
+    "documentOperations_seq_check",
+    "documentOperations_baseSeq_check",
+    "documentOperations_authorKind_check",
+    "documentOperations_result_check",
+  ]);
+  assert.deepEqual(checkNames("documentDrafts"), ["documentDrafts_seq_check", "documentDrafts_formatVersion_check"]);
+  assert.deepEqual([...DOCUMENT_AUTHOR_KINDS], ["person", "agent"]);
+  assert.deepEqual([...DOCUMENT_OPERATION_RESULTS], ["applied", "rejected"]);
+  assert.equal(DOCUMENT_FORMAT_VERSION, 1);
+  const sql0015 = readFileSync(new URL("0015_document_operations.sql", drizzleDir), "utf8");
+  const clauses = [
+    `CONSTRAINT "documentOperations_seq_check" CHECK ("seq" >= 0)`,
+    `CONSTRAINT "documentOperations_baseSeq_check" CHECK ("baseSeq" >= 0)`,
+    `CONSTRAINT "documentOperations_authorKind_check" CHECK ("authorKind" in ('person', 'agent'))`,
+    `CONSTRAINT "documentOperations_result_check" CHECK ("result" in ('applied', 'rejected'))`,
+    `CONSTRAINT "documentDrafts_seq_check" CHECK ("seq" >= 0)`,
+    `CONSTRAINT "documentDrafts_formatVersion_check" CHECK ("formatVersion" >= 1)`,
+  ];
+  for (const clause of clauses) assert.ok(sql0015.includes(clause), clause);
 });
 
 test("the 0002 migration only adds the four new artifact tables", () => {
@@ -261,7 +342,11 @@ test("the 0004 migration adds the commit pointer, its foreign key and the observ
     [columns.get("currentRevisionId")?.notNull, columns.get("observedSizeBytes")?.notNull],
     [false, false],
   );
-  assert.deepEqual(checkNames("artifacts"), ["artifacts_observedSizeBytes_cap_check", "artifacts_kind_check"]);
+  assert.deepEqual(checkNames("artifacts"), [
+    "artifacts_observedSizeBytes_cap_check",
+    "artifacts_kind_check",
+    "artifacts_publishedSeq_check",
+  ]);
 });
 
 test("the 0005 migration lets revisions and artifacts share content-addressed bytes", () => {
@@ -360,4 +445,96 @@ test("the existing read schemas keep their legacy shapes next to the projection"
   assert.deepEqual(artifactSummarySchema.parse(summary), summary);
   assert.equal(artifactSummarySchema.safeParse(metadata).success, false, "summary is not the projection");
   assert.equal(artifactDetailSchema.safeParse(metadata).success, false, "detail reads by id, not artifactId");
+});
+
+test("the 0015 migration adds the operation log, the draft and the snapshot columns", () => {
+  assert.deepEqual(
+    readdirSync(drizzleDir).filter((name) => /^0015_.*\.sql$/.test(name)),
+    ["0015_document_operations.sql"],
+  );
+  const sql0015 = readFileSync(new URL("0015_document_operations.sql", drizzleDir), "utf8");
+  assert.deepEqual(
+    sql0015.split("--> statement-breakpoint").map((part) => part.trim()),
+    [
+      `CREATE TABLE "documentDrafts" (
+	"artifactId" text PRIMARY KEY NOT NULL,
+	"seq" integer DEFAULT 0 NOT NULL,
+	"formatVersion" integer DEFAULT 1 NOT NULL,
+	"state" jsonb NOT NULL,
+	"updatedByUserId" text,
+	"updatedAt" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "documentDrafts_seq_check" CHECK ("seq" >= 0),
+	CONSTRAINT "documentDrafts_formatVersion_check" CHECK ("formatVersion" >= 1)
+);`,
+      `CREATE TABLE "documentOperations" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"artifactId" text NOT NULL,
+	"seq" integer NOT NULL,
+	"baseSeq" integer NOT NULL,
+	"authorKind" text NOT NULL,
+	"authorId" text NOT NULL,
+	"ops" jsonb NOT NULL,
+	"result" text NOT NULL,
+	"idempotencyKey" text NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "documentOperations_seq_check" CHECK ("seq" >= 0),
+	CONSTRAINT "documentOperations_baseSeq_check" CHECK ("baseSeq" >= 0),
+	CONSTRAINT "documentOperations_authorKind_check" CHECK ("authorKind" in ('person', 'agent')),
+	CONSTRAINT "documentOperations_result_check" CHECK ("result" in ('applied', 'rejected'))
+);`,
+      `ALTER TABLE "artifactRevisions" ADD COLUMN "formatVersion" integer DEFAULT 1 NOT NULL;`,
+      `ALTER TABLE "artifactRevisions" ADD COLUMN "seqFrom" integer DEFAULT 0 NOT NULL;`,
+      `ALTER TABLE "artifactRevisions" ADD COLUMN "seqTo" integer DEFAULT 0 NOT NULL;`,
+      `ALTER TABLE "artifactRevisions" ADD COLUMN "blockIndex" jsonb;`,
+      `ALTER TABLE "artifacts" ADD COLUMN "publishedSeq" integer DEFAULT 0 NOT NULL;`,
+      `ALTER TABLE "documentDrafts" ADD CONSTRAINT "documentDrafts_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
+      `ALTER TABLE "documentDrafts" ADD CONSTRAINT "documentDrafts_updatedByUserId_user_id_fk" FOREIGN KEY ("updatedByUserId") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;`,
+      `ALTER TABLE "documentOperations" ADD CONSTRAINT "documentOperations_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
+      `CREATE UNIQUE INDEX "documentOperations_artifactId_seq_unique" ON "documentOperations" USING btree ("artifactId","seq") WHERE "result" = 'applied';`,
+      `CREATE UNIQUE INDEX "documentOperations_idempotencyKey_unique" ON "documentOperations" USING btree ("idempotencyKey");`,
+      `ALTER TABLE "artifactRevisions" ADD CONSTRAINT "artifactRevisions_formatVersion_check" CHECK ("formatVersion" >= 1);`,
+      `ALTER TABLE "artifactRevisions" ADD CONSTRAINT "artifactRevisions_seqRange_check" CHECK ("seqFrom" >= 0 and "seqTo" >= "seqFrom");`,
+      `ALTER TABLE "artifacts" ADD CONSTRAINT "artifacts_publishedSeq_check" CHECK ("publishedSeq" >= 0);`,
+    ],
+  );
+  assert.equal(
+    /^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(sql0015),
+    false,
+    "additive tables, columns and constraints only",
+  );
+  assert.equal(sql0015.includes("artifacts_kind_check"), false, "the kind check is untouched");
+  const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
+    entries: { idx: number; tag: string }[];
+  };
+  assert.deepEqual(
+    journal.entries.map((entry) => [entry.idx, entry.tag]),
+    [...journal.entries.slice(0, 15).map((entry, index) => [index, entry.tag]), [15, "0015_document_operations"]],
+    "the journal records a contiguous sixteenth migration",
+  );
+  const snapshot = JSON.parse(readFileSync(new URL("meta/0015_snapshot.json", drizzleDir), "utf8")) as {
+    prevId: string;
+    tables: Record<string, { columns: Record<string, unknown> }>;
+  };
+  const previous = JSON.parse(readFileSync(new URL("meta/0014_snapshot.json", drizzleDir), "utf8")) as { id: string };
+  assert.equal(snapshot.prevId, previous.id, "the snapshot chains onto the previous one");
+  assert.deepEqual(Object.keys(snapshot.tables["public.documentOperations"]?.columns ?? {}), [
+    "id",
+    "artifactId",
+    "seq",
+    "baseSeq",
+    "authorKind",
+    "authorId",
+    "ops",
+    "result",
+    "idempotencyKey",
+    "createdAt",
+  ]);
+  assert.deepEqual(Object.keys(snapshot.tables["public.documentDrafts"]?.columns ?? {}), [
+    "artifactId",
+    "seq",
+    "formatVersion",
+    "state",
+    "updatedByUserId",
+    "updatedAt",
+  ]);
 });

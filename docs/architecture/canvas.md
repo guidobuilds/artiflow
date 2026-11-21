@@ -565,7 +565,7 @@ erDiagram
         text title
         text kind "html | markdown | canvas | deck"
         text currentRevisionId FK "última publicada"
-        bigint publishedSeq "última operación incluida"
+        int publishedSeq "última operación incluida"
         int observedSizeBytes
         timestamptz deletedAt
     }
@@ -574,8 +574,8 @@ erDiagram
         text artifactId FK
         int revision UK
         int formatVersion "nuevo"
-        bigint seqFrom "nuevo"
-        bigint seqTo "nuevo"
+        int seqFrom "nuevo"
+        int seqTo "nuevo"
         jsonb blockIndex "nuevo"
         int sizeBytes
         text sha256
@@ -593,8 +593,8 @@ erDiagram
     documentOperations {
         uuid id PK
         text artifactId FK
-        bigint seq UK
-        bigint baseSeq
+        int seq UK
+        int baseSeq
         text authorKind "persona | agente"
         text authorId
         jsonb ops
@@ -667,7 +667,11 @@ una fila menos, el registro es decorativo.
 3. **Toda escritura es una fila.** No existe un camino que mute el documento sin dejar
    operación con autor y versión base.
 4. **Una operación pertenece a una secuencia por artefacto.** `seq` es monótona y única, y
-   aplicarla dos veces no la duplica (clave de idempotencia).
+   aplicarla dos veces no la duplica (clave de idempotencia). La secuencia es **por artefacto,
+   no global**, y por eso alcanza con un entero de 32 bits: no existe un techo realista. La
+   unicidad vale para las operaciones **aplicadas**; una operación rechazada deja su fila (para
+   auditar el intento) sin avanzar el documento, así que guarda la secuencia que habría tomado y
+   queda fuera del índice único.
 5. **La escena se serializa de forma canónica** (claves ordenadas, números normalizados) para
    que la firma sea estable; el markdown sigue siendo UTF-8 tal cual.
 6. **Los binarios se referencian por firma**, nunca se incrustan en la instantánea.
