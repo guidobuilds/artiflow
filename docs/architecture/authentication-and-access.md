@@ -290,17 +290,41 @@ the login page.
 
 ## 10. Access methods and the SSO login (D10, D11)
 
-**Administration surface.** `access.methods` is edited at `/admin/access`, a fixed
-route with its own header and no entry in the member navigation; it shares the session,
-the deployment and the administrator guard with the rest of the product. The page reads
+**Administration surface.** The administration routes sit under one shell: a header that
+names the area, navigation between Users, Access and Invitations, and a single refusal
+screen. It has no entry in the member navigation and shares the session, the deployment
+and the administrator guard with the rest of the product. The only entry point is the
+account menu of the member product, where account-level actions already live, and it is
+rendered only when the session payload carries the administrator role; that copy is
+presentation, the guard is the authorization. A session that is not signed in is sent to
+`/login` with a return path, and a signed-in member receives the refusal as a plain
+message with a way back to the library, never an empty shell.
+
+`/admin/access` edits `access.methods`. The page reads
 `GET /api/admin/access` and writes the whole document through `PUT /api/admin/access`,
 showing password enablement, each provider's enablement, its `clientId`, and whether a
 credential is stored. A stored credential is rendered as presence only: the credential
 field is empty, can replace the stored value, and is never prefilled or displayed.
 Every refusal of section 4 is rendered in its own words, and a `revision_conflict`
 reloads the stored document and asks the administrator to review it before saving again.
-A session whose account is not an administrator receives the refusal as a plain message
-with a way back to the library, never an empty shell.
+
+`/admin/users` is the directory of section 8. Search, the role filter and the page are
+server-side: the page sends `page`, `pageSize`, `search` and `role` to
+`GET /api/admin/users` and never loads the whole directory to filter it locally. A row
+shows name, email, role, access methods and last activity, and the footer shows the total
+with the page it belongs to. An empty answer names the next step instead of showing a
+blank table: the console command that issues the first invitation, or the filter to
+clear. Editing sends `PATCH /api/admin/users/:id` with the name and the email, states
+that no verification is required in this version, and replaces the edited row with the
+answered row instead of reloading the page. The role toggle uses
+`POST /api/admin/users/:id/role` and reads its `changed` flag, so a no-op says so. Each
+named refusal of the edit and of the role change — `invalid_name`, `invalid_email`,
+`email_in_use`, `user_not_found` — is rendered in its own words, and the raw code is
+never shown.
+
+`/admin/invitations` names the current path instead of a dead form: invitations are
+issued from the console (`bun run user:invite`) until the interface for issuing, listing
+and revoking them ships in a later step, and the page says so with the command it names.
 
 **Decision.** The single connection is a row managed through `@better-auth/sso` (1.7.x, the
 same release line as `better-auth`), configured to make the library's defaults safe for

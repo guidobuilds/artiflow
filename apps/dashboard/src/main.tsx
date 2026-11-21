@@ -6,6 +6,8 @@ import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import AccountPage from "./AccountPage.tsx";
 import AdminAccessPage from "./AdminAccessPage.tsx";
+import AdminInvitationsPage from "./AdminInvitationsPage.tsx";
+import AdminUsersPage from "./AdminUsersPage.tsx";
 import ConsentPage from "./ConsentPage.tsx";
 import LibraryPage from "./LibraryPage.tsx";
 import EditorPage from "./EditorPage.tsx";
@@ -35,8 +37,12 @@ const page =
     <LibraryPage connect />
   ) : path === "/account" ? (
     <AccountPage />
+  ) : path === "/admin/users" ? (
+    <AdminUsersPage />
   ) : path === "/admin/access" ? (
     <AdminAccessPage />
+  ) : path === "/admin/invitations" ? (
+    <AdminInvitationsPage />
   ) : edit ? (
     <EditorPage artifactId={edit[1]!} />
   ) : (

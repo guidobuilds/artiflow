@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 
+import { adminSectionPath } from "../apps/dashboard/src/admin-entry.ts";
 import {
   ACCESS_PROVIDERS,
   accessRefusalMessage,
@@ -25,6 +26,7 @@ const PAGE = "../apps/dashboard/src/AdminAccessPage.tsx";
 const CLIENT = "../apps/dashboard/src/admin-access-client.ts";
 const MAIN = "../apps/dashboard/src/main.tsx";
 const SHELL = "../apps/dashboard/src/components/app/app-shell.tsx";
+const ADMIN_SHELL = "../apps/dashboard/src/components/app/admin-shell.tsx";
 
 const read = (path: string): string => {
   const file = new URL(path, import.meta.url);
@@ -85,11 +87,16 @@ test("the administration surface has its own route, before the 404, and stays ou
   assert.ok(notFound > admin, "the /admin/access branch must precede the NotFoundPage fallback");
 
   const page = read(PAGE);
-  assert.match(page, /BareShell/);
+  const adminShell = read(ADMIN_SHELL);
+  assert.match(adminShell, /BareShell/);
+  assert.doesNotMatch(adminShell, /<AppShell|LIBRARY_LINKS/);
+  assert.match(adminShell, /Instance administration/);
+  assert.match(adminShell, /aria-label="Administration"/);
+  assert.doesNotMatch(page, /BareShell/);
+  assert.match(page, /<AdminShell section="access" gate=\{load\}/);
   assert.doesNotMatch(page, /AppShell|LIBRARY_LINKS/);
   assert.doesNotMatch(page, /NavItem/);
   assert.doesNotMatch(read(SHELL), /\/admin/);
-  assert.match(page, /Instance administration/);
 });
 
 test("a non-administrator sees a refusal with a way back to the product, never the form", async () => {
@@ -101,12 +108,19 @@ test("a non-administrator sees a refusal with a way back to the product, never t
   assert.match(result.ok === false ? result.error : "", /administrator/i);
 
   const page = read(PAGE);
-  assert.match(page, /load\.kind === "refused"/);
-  assert.match(page, /role="alert"/);
-  assert.match(page, /Back to your library/);
-  assert.match(page, /href="\/"/);
+  const adminShell = read(ADMIN_SHELL);
+  const refusedAt = adminShell.indexOf('gate.kind !== "ready"');
+  assert.ok(refusedAt > 0, "the shell answers a gate that is not ready instead of rendering the page");
+  assert.ok(
+    refusedAt < adminShell.indexOf("<AdminHeader") && refusedAt < adminShell.indexOf("{children}"),
+    "the refusal is decided before the administration header or any page content renders",
+  );
+  assert.match(adminShell, /<p role="alert"/);
+  assert.match(adminShell, /This area is for administrators\./);
+  assert.match(adminShell, /Back to your library/);
+  assert.match(adminShell, /href="\/"/);
   assert.equal((page.match(/<form/g) ?? []).length, 0, "the refusal path must not render the configuration form");
-  assert.ok(page.indexOf("load.kind === \"refused\"") < page.indexOf("<Panel"));
+  assert.match(page, /<AdminShell section="access" gate=\{load\}/);
 });
 
 test("a sessionless visitor is sent to sign in and returns to the page afterwards", async () => {
@@ -116,9 +130,20 @@ test("a sessionless visitor is sent to sign in and returns to the page afterward
   assert.equal(result.ok === false && result.signInRequired, true);
   assert.match(result.ok === false ? result.error : "", /sign in/i);
 
-  const page = read(PAGE);
-  assert.match(page, /Sign in to open this page/);
-  assert.match(page, /encodeURIComponent\("\/admin\/access"\)/);
+  const adminShell = read(ADMIN_SHELL);
+  assert.match(adminShell, /gate\.kind === "refused" && gate\.signInRequired/);
+  assert.match(adminShell, /"Sign in to open this page\."/);
+  assert.match(adminShell, /href=\{signInHref\}/);
+  assert.match(
+    adminShell,
+    /const signInHref = `\/login\?return=\$\{encodeURIComponent\(adminSectionPath\(section\)\)\}`;/,
+  );
+  assert.equal(adminSectionPath("access"), "/admin/access");
+  assert.equal(
+    `/login?return=${encodeURIComponent(adminSectionPath("access"))}`,
+    "/login?return=%2Fadmin%2Faccess",
+    "the sign-in link must carry the encoded administration return path",
+  );
 });
 
 test("the stored configuration renders credential presence and never a credential value", () => {
