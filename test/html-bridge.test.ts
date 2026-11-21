@@ -305,6 +305,15 @@ test("the injected bridge replaces pins on command and honours reduced motion", 
   assert.match(body, /requestAnimationFrame/);
 });
 
+test("the bridge announces the initial scroll position after ready and on load", () => {
+  const script = htmlBridgeScript({ nonce, pins: [pin] });
+  const body = script.slice(script.indexOf(">") + 1, script.lastIndexOf("</script>"));
+  assert.match(body, /post\(\{ type: "ready" \}\);\s*announceScroll\(\);/);
+  assert.match(body, /window\.addEventListener\("load", announceScroll\)/);
+  assert.match(body, /window\.addEventListener\("scroll", announceScroll, true\)/);
+  assert.match(body, /post\(\{ type: "scroll", y: Math\.round\(window\.scrollY \|\| 0\) \}\)/);
+});
+
 test("the html comments column never scrolls its own content so cards track the frame", () => {
   const html = readFileSync(new URL("../apps/api/src/viewer/html.ts", import.meta.url), "utf8");
   const rule = /\.docshell\.comments-visible \.viewer-comments\{([^}]*)\}/.exec(html);

@@ -8,7 +8,7 @@ import {
   type RenderedCandidate,
   type SourceSpan,
 } from "@artiflow/domain/comment-anchors";
-import type { ManageResult } from "@/auth-client.ts";
+import { getSession, type ManageResult } from "@/auth-client.ts";
 import {
   createComment as createCommentRequest,
   deleteComment as deleteCommentRequest,
@@ -108,10 +108,23 @@ export default function MarkdownComments({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [authorImage, setAuthorImage] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getSession().then((result) => {
+      if (!cancelled && result.ok && result.value) setAuthorImage(result.value.image);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const run = useRef(0);
   const nextDraft = useRef(0);
   const dataCallback = useRef(onData);
   dataCallback.current = onData;
+  const announcedSelection = useRef<number | null>(null);
+  const activateCallback = useRef(onActivate);
+  activateCallback.current = onActivate;
   const refresh = useCallback(async () => {
     const current = ++run.current;
     setStatus((value) => (value === "ready" || value === "empty" ? value : "loading"));
@@ -154,6 +167,10 @@ export default function MarkdownComments({
   useEffect(() => {
     if (selection === null || !canComment) return;
     begin(selection.text, selection.span, selection.top);
+    if (announcedSelection.current !== selection.serial) {
+      announcedSelection.current = selection.serial;
+      activateCallback.current(null);
+    }
   }, [selection, canComment, begin]);
   useEffect(() => {
     if (readOnly || data?.canComment === false) setDraft(null);
@@ -181,6 +198,7 @@ export default function MarkdownComments({
           quotedText: draft.quotedText,
           body: draft.body,
           busy,
+          authorImage,
           error: error || (outdatedDraft ? "The document changed; select the text again." : ""),
         };
   const submitDraft = (body: string) => {

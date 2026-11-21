@@ -418,7 +418,7 @@ export function mountViewerCommentsInFrame(): void {
     const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
     return Math.round(frame.getBoundingClientRect().top - (shelf?.getBoundingClientRect().top ?? 0));
   };
-  const anchorFor = (docY: number, offset: number): number => viewportAnchor(docY, state.scrollY, offset, 0);
+  const anchorFor = (docY: number, offset: number): number => viewportAnchor(docY, 0, offset, 0);
   let renderedOffset: number | null = null;
   const shelfAnchors = (offset: number): Record<string, number> => {
     const anchors: Record<string, number> = {};
@@ -441,6 +441,7 @@ export function mountViewerCommentsInFrame(): void {
         )}
         anchors={shelfAnchors(offset)}
         minTop={Number.NEGATIVE_INFINITY}
+        layerOffset={-state.scrollY}
         activeId={state.activeId}
         onActivate={(id) => {
           state.activeId = id;
@@ -599,6 +600,8 @@ export function mountViewerCommentsInFrame(): void {
     if (message.type === "pick") {
       if (!config.canComment) return;
       state.commenting = false;
+      state.activeId = null;
+      send({ type: "focus", id: null });
       state.draft = {
         anchor: {
           kind: "element",

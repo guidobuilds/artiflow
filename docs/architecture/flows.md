@@ -247,6 +247,16 @@ dashed pin labelled "Element changed" when nothing matches uniquely. Pins are dr
 so they follow inner scroll, sticky elements and animations; the parent owns the margin, and no comment
 text ever crosses the bridge.
 
+The thread margin is a 360px column on the editor and both viewers. Closed threads are compact pills
+aligned with their anchors (author avatar and reply count, or a check mark once resolved); opening one
+shows a dock beside the pills, sticky 12px from the top of the visible area, with a `Thread i of n`
+header and previous/next/close, a scrollable body and an always-visible footer with the reply form and
+Resolve or Reopen and Delete. A new selection or picked element opens its draft in the dock and shows
+a ghost pill at the anchor. Threads without a location are listed in the dock area while no thread is
+open, so they stay reachable in the HTML viewer, whose column cannot scroll. The bridge posts the
+frame's scroll position once on ready and on load, so a frame that opens already scrolled places the
+pills correctly.
+
 The shared and public Markdown viewers render the sanitized fragment in the page itself and mount the
 same thread margin from a dedicated `viewer-comments` bundle, receiving an already-authorized JSON data
 island (`apps/api/src/viewer/comments-data.ts`) with each thread's staleness and text occurrence. The

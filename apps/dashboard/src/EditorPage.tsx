@@ -443,6 +443,11 @@ function DocumentEditor({ initial }: { initial: Document }) {
       node.classList.add("comment-marker-flash");
     });
   };
+  const commentShelfTop = () => {
+    const canvas = canvasRef.current;
+    const shelf = canvas?.parentElement?.querySelector<HTMLElement>(".comment-thread-margin") ?? canvas;
+    return shelf?.getBoundingClientRect().top ?? 0;
+  };
   const measureAnchors = useCallback(() => {
     const view = editor?.view;
     const canvas = canvasRef.current;
@@ -734,7 +739,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
                         text: editor.state.doc.textBetween(from, to, "\n"),
                         span,
                         serial: (previous?.serial ?? 0) + 1,
-                        top: Math.max(0, position.top - (canvasRef.current?.getBoundingClientRect().top ?? 0) - 8),
+                        top: Math.max(0, position.top - commentShelfTop()),
                       }));
                       dismissed.current = true;
                       editor.commands.setMeta("bubbleMenu", "hide");
