@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { createSequenceGuard } from "../apps/dashboard/src/viewer-thread-sync.ts";
-import { createThreadsRefetcher } from "../apps/dashboard/src/viewer-thread-sync.ts";
+import { createSequenceGuard, createThreadsRefetcher } from "../apps/dashboard/src/viewer-thread-sync.ts";
 
 type Payload = { version: number };
 

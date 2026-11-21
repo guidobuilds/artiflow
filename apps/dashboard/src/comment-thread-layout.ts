@@ -23,7 +23,8 @@ export type MarginLayoutInput = {
 };
 
 export function marginLayout({ threads, draft, activeId, minTop, gap }: MarginLayoutInput): ThreadPlacement[] {
-  const items = draft === null ? threads : [...threads, { id: DRAFT_ID, anchorTop: draft.anchorTop, height: draft.height }];
+  const items =
+    draft === null ? threads : [...threads, { id: DRAFT_ID, anchorTop: draft.anchorTop, height: draft.height }];
   return layoutCommentThreads({ threads: items, activeId: draft === null ? activeId : DRAFT_ID, minTop, gap });
 }
 
