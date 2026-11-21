@@ -19,6 +19,7 @@ import { instanceSetting } from "../adapters/postgres/db/settings-schema.ts";
 type Query = AppDb | AppTx;
 
 export const ACCESS_METHODS_KEY = "access.methods";
+export const SSO_CONNECTION_KEY = "access.sso";
 export const PASSWORD_POLICY_KEY = "password.policy";
 export const SESSIONS_POLICY_KEY = "sessions.policy";
 
@@ -116,6 +117,12 @@ export async function readSetting<T>(db: Query, definition: SettingDefinition<T>
   const parsed = definition.read.safeParse(row.value);
   if (!parsed.success) throw new SettingValidationError(definition.key, issuesOf(parsed.error));
   return { value: parsed.data, revision: row.revision, updatedAt: row.updatedAt, updatedBy: row.updatedBy };
+}
+
+export async function readRawSettingValue(db: Query, key: string): Promise<unknown> {
+  const rows = await db.select({ value: instanceSetting.value }).from(instanceSetting).where(eq(instanceSetting.key, key));
+  const row = rows[0];
+  return row === undefined ? null : row.value;
 }
 
 export type SettingWrite = {

@@ -554,12 +554,47 @@ more:
 A created account is never an administrator.
 
 **SSO-only login and the fallback.** When the connection is enabled, `/login` renders a
-single button labelled with the administrator's display name and no email field. A URL
-parameter (`?fallback=1`, final name confirmed in section 15) makes the page render the
-conventional methods; the server does not trust it. Instead, one `hooks.before` guard covers
-`/sign-in/email`, `/sign-in/social` and the SSO callback: with SSO enabled, any
-non-SSO method must resolve to an `administrator` and an active account, otherwise it fails
-with a generic message. Knowing the parameter therefore reveals buttons and grants nothing.
+single button labelled with the administrator's display name and no email field; the page
+itself is the next slice, and this one publishes what it needs. A URL parameter
+(`?fallback=1`, resolved in section 15) makes the page render the conventional methods; the
+server does not trust it, and nothing on the server authorizes an action from a query
+parameter. Knowing the parameter therefore reveals buttons and grants nothing.
+
+The server decides in two places, both inside the auth instance built from the snapshot, so a
+configuration change reaches them through the rebuild of section 5:
+
+- `GET /api/auth/capabilities` publishes the login surface. `emailPassword`, `registration`
+  and `socialProviders` stay as they were, and only while the connection is enabled an `sso`
+  object is added with `displayName`, `fallbackAvailable` and
+  `fallbackAdministratorsOnly: true`. An absent or disabled connection publishes no `sso` key
+  at all, so an instance without SSO answers exactly the shape it answered before. The read
+  never carries a client id, a credential, a secret name or the issuer.
+- `apps/api/src/login/fallback-lock.ts` is a plugin with one `hooks.before` and one
+  `hooks.after`. With the connection enabled and password login effectively available, the
+  `before` hook on `/sign-in/email` resolves the submitted address to an active administrator
+  and otherwise throws the library's own `INVALID_EMAIL_OR_PASSWORD` refusal: a member, an
+  unknown address, a deactivated account and a wrong password are answered byte for byte the
+  same, and no session is created. With the connection enabled, the `after` hook on
+  `/sign-in/social` and `/callback/:id` inspects the session the flow just created; when its
+  account is not an active administrator it expires the session cookies, deletes the session
+  row and clears the request's new-session record before the response leaves, so the redirect
+  that follows carries no usable credential.
+
+Neither point can be bypassed from outside the instance. Both hooks run inside the auth
+handler, on the only routes that create a password or a social session — sign-up is closed —
+and after the app-level JSON and origin guards, which leave no form-encoded body the hooks
+would fail to read. Underneath them the session-creation hook of section 9 still refuses a
+non-active account, and the agent surfaces of section 9 resolve a bearer token against the
+same account row. The SSO callback is deliberately outside both matchers: it is the primary
+path, not the alternative.
+
+**Reading the connection.** Until the connection document is designed in the next deliverable,
+`apps/api/src/settings/sso-connection.ts` reads `access.sso` defensively and nothing else
+depends on its shape: the connection counts as enabled only when the stored document is an
+object whose `enabled` is literally `true`, and the display name is its non-blank
+`displayName` string, answered as `null` otherwise. An absent, malformed or disabled document
+means SSO is off. A connection enabled without a display name still locks the alternative
+methods: the lock fails closed and only the label is missing.
 
 **Agent and MCP continuity.** A login started by an MCP client already carries its pending
 authorization as `oauth_query` through the dashboard sign-in. The SSO redirect must preserve

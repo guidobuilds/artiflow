@@ -4,6 +4,7 @@ import { DEFAULT_PASSWORD_POLICY } from "@artiflow/contracts/settings";
 import { readPasswordPolicy } from "../password-policy/policy.ts";
 import { SecretError, readSecret, type SecretKey } from "./secrets.ts";
 import { PROVIDERS, type ProviderName } from "./seed.ts";
+import { SSO_CONNECTION_OFF, readSsoConnection, type SsoConnection } from "./sso-connection.ts";
 import { accessMethodsSetting, readSetting, readSettingsRevision } from "./store.ts";
 
 export type SnapshotProvider = { readonly clientId: string; readonly clientSecret: string };
@@ -13,6 +14,7 @@ export type AccessSnapshot = {
   readonly passwordMinLength: number;
   readonly providers: Readonly<Partial<Record<ProviderName, SnapshotProvider>>>;
   readonly degraded: readonly ProviderName[];
+  readonly sso: SsoConnection;
 };
 
 export type AccessSnapshotRead = {
@@ -24,6 +26,7 @@ type SnapshotInput = {
   passwordEnabled: boolean;
   passwordMinLength: number;
   providers: Partial<Record<ProviderName, SnapshotProvider>>;
+  sso: SsoConnection;
   degraded?: readonly ProviderName[];
 };
 
@@ -39,6 +42,7 @@ function freezeSnapshot(input: SnapshotInput): AccessSnapshot {
     passwordMinLength: input.passwordMinLength,
     providers: Object.freeze(providers),
     degraded: Object.freeze([...(input.degraded ?? [])]),
+    sso: Object.freeze({ enabled: input.sso.enabled, displayName: input.sso.displayName }),
   });
 }
 
@@ -54,6 +58,7 @@ export function environmentSnapshot(socialProviders: SocialProviders): AccessSna
     passwordEnabled: true,
     passwordMinLength: DEFAULT_PASSWORD_POLICY.minLength,
     providers,
+    sso: SSO_CONNECTION_OFF,
   });
 }
 
@@ -63,9 +68,10 @@ export async function readAccessSnapshot(input: {
   fallback: AccessSnapshot;
 }): Promise<AccessSnapshotRead> {
   const revision = await readSettingsRevision(input.db);
-  const [stored, policy] = await Promise.all([
+  const [stored, policy, sso] = await Promise.all([
     readSetting(input.db, accessMethodsSetting),
     readPasswordPolicy(input.db),
+    readSsoConnection(input.db),
   ]);
   if (stored === null) {
     return {
@@ -75,6 +81,7 @@ export async function readAccessSnapshot(input: {
         passwordMinLength: policy.minLength,
         providers: input.fallback.providers,
         degraded: input.fallback.degraded,
+        sso,
       }),
     };
   }
@@ -110,6 +117,7 @@ export async function readAccessSnapshot(input: {
       passwordMinLength: policy.minLength,
       providers,
       degraded,
+      sso,
     }),
   };
 }

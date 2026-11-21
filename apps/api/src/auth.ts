@@ -13,6 +13,7 @@ import { isActiveAccount } from "./identity/account-status.ts";
 import { instanceRoles } from "./identity/admin-access.ts";
 import { ADMINISTRATOR_ROLE, MEMBER_ROLE } from "./identity/roles.ts";
 import { registrationInvites } from "./invites/plugin.ts";
+import { alternativeMethodLock } from "./login/fallback-lock.ts";
 import { passwordReset } from "./password-reset/plugin.ts";
 import { API_RESOURCE_SCOPES, oauthPlugins, publicApiResource, publicIssuer } from "./oauth.ts";
 import { passwordPolicyHook } from "./password-policy/hook.ts";
@@ -99,6 +100,7 @@ export function createAuth(config: AuthConfig, database: Database): AuthInstance
 export function createAuthFromSnapshot(config: AuthConfig, database: Database, snapshot: AccessSnapshot) {
   const origin = publicOriginUrl(config);
   const policy: PasswordPolicySource = () => readPasswordPolicy(database.db);
+  const passwordEnabled = passwordLoginEnabled(config, snapshot);
   return betterAuth({
     baseURL: config.publicOrigin,
     secret: config.authSecret,
@@ -106,7 +108,7 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
     telemetry: { enabled: false },
     logger: { disabled: true },
     emailAndPassword: {
-      enabled: passwordLoginEnabled(config, snapshot),
+      enabled: passwordEnabled,
       disableSignUp: !PUBLIC_REGISTRATION_OPEN,
       minPasswordLength: snapshot.passwordMinLength,
     },
@@ -136,6 +138,11 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
       ...oauthPlugins(config),
       registrationInvites({ policy }),
       passwordReset({ policy }),
+      alternativeMethodLock({
+        db: database.db,
+        ssoEnabled: snapshot.sso.enabled,
+        passwordEnabled,
+      }),
       admin({
         roles: instanceRoles,
         adminRoles: [ADMINISTRATOR_ROLE],
@@ -212,11 +219,22 @@ export function createAuthApp(
 
   app.get("/api/auth/capabilities", async (c) => {
     const snapshot = access === undefined ? environmentSnapshot(config.authProviders) : await access();
+    const emailPassword = passwordLoginEnabled(config, snapshot);
+    const socialProviders = Object.keys(snapshot.providers);
     c.header("cache-control", "no-store");
     return c.json({
-      emailPassword: passwordLoginEnabled(config, snapshot),
+      emailPassword,
       registration: PUBLIC_REGISTRATION_OPEN,
-      socialProviders: Object.keys(snapshot.providers),
+      socialProviders,
+      ...(snapshot.sso.enabled
+        ? {
+            sso: {
+              displayName: snapshot.sso.displayName,
+              fallbackAvailable: emailPassword || socialProviders.length > 0,
+              fallbackAdministratorsOnly: true,
+            },
+          }
+        : {}),
     });
   });
 
