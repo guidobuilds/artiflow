@@ -22,6 +22,7 @@ import {
   type ThreadPlacement,
 } from "@/comment-thread-layout.ts";
 import {
+  isChromeTarget,
   isEditableTarget,
   parseThreadHash,
   resolveDeepLink,
@@ -581,6 +582,7 @@ export default function CommentThreadMargin({
         shiftKey: event.shiftKey,
         defaultPrevented: event.defaultPrevented,
         composing: event.isComposing,
+        inChrome: isChromeTarget(target),
         editable: isEditableTarget(target),
         insideComments: target instanceof Node && rootRef.current?.contains(target) === true,
       });

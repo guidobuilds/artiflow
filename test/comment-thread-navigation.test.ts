@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   formatThreadHash,
+  isChromeTarget,
   isEditableTarget,
   parseThreadHash,
   resolveDeepLink,
@@ -83,4 +84,23 @@ test("a thread link reveals the comments column even when the reader hid it", ()
   assert.equal(revealCommentsForHash(false, ""), false);
   assert.equal(revealCommentsForHash(false, "#c-abc123"), true);
   assert.equal(revealCommentsForHash(false, "#elsewhere"), false);
+});
+
+test("a thread id round-trips through the hash whatever characters it carries", () => {
+  for (const id of ["plain", "with space", "a!b", "x(y)", "z*w", "ñoño", "0f8f-1c2d", "a".repeat(100)]) {
+    const hash = formatThreadHash(id);
+    assert.equal(parseThreadHash(hash), id, `${JSON.stringify(id)} must come back from ${hash}`);
+  }
+});
+
+test("chrome controls and other surfaces keep their own keys", () => {
+  const inChrome = { key: "j", editable: false, inChrome: true };
+  assert.equal(shortcutFor(inChrome), null);
+  assert.equal(shortcutFor({ ...inChrome, key: "k" }), null);
+  assert.equal(shortcutFor({ ...inChrome, key: "r" }), null);
+  assert.equal(shortcutFor({ key: "Escape", editable: false, inChrome: true }), null);
+  assert.equal(shortcutFor({ key: "Escape", editable: false }), "close");
+  assert.equal(shortcutFor({ key: "Escape", editable: true, insideComments: true, inChrome: true }), "close");
+  assert.equal(isChromeTarget({ tagName: "BUTTON", closest: (selector: string) => (selector.includes("button") ? {} : null) }), true);
+  assert.equal(isChromeTarget({ tagName: "P", closest: () => null }), false);
 });

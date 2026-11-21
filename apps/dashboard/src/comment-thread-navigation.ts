@@ -10,6 +10,7 @@ export type ShortcutInput = {
   editable: boolean;
   insideComments?: boolean;
   composing?: boolean;
+  inChrome?: boolean;
 };
 
 const KEY_ACTIONS: Record<string, ShortcutAction> = {
@@ -22,7 +23,12 @@ export function shortcutFor(input: ShortcutInput): ShortcutAction | null {
   if (input.composing === true) return null;
   if (input.defaultPrevented === true) return null;
   if (input.altKey === true || input.ctrlKey === true || input.metaKey === true || input.shiftKey === true) return null;
-  if (input.key === "Escape") return input.editable && input.insideComments !== true ? null : "close";
+  if (input.key === "Escape") {
+    if (input.insideComments === true) return "close";
+    if (input.inChrome === true) return null;
+    return input.editable ? null : "close";
+  }
+  if (input.inChrome === true) return null;
   if (input.editable) return null;
   return KEY_ACTIONS[input.key.toLowerCase()] ?? null;
 }
@@ -34,6 +40,13 @@ type TargetLike = {
 };
 
 const EDITABLE_SELECTOR = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+const CHROME_SELECTOR = "button, a, [role='menuitem'], [role='tab'], summary";
+
+export function isChromeTarget(target: unknown): boolean {
+  if (typeof target !== "object" || target === null) return false;
+  const element = target as TargetLike;
+  return typeof element.closest === "function" && element.closest(CHROME_SELECTOR) !== null;
+}
 
 export function isEditableTarget(target: unknown): boolean {
   if (typeof target !== "object" || target === null) return false;
@@ -65,7 +78,10 @@ export function parseThreadHash(hash: string): string | null {
   }
 }
 
-export const formatThreadHash = (id: string): string => `#c-${encodeURIComponent(id)}`;
+const encodeHashId = (id: string): string =>
+  encodeURIComponent(id).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+
+export const formatThreadHash = (id: string): string => `#c-${encodeHashId(id)}`;
 
 export const revealCommentsForHash = (storedVisible: boolean, hash: string): boolean =>
   storedVisible || parseThreadHash(hash) !== null;
