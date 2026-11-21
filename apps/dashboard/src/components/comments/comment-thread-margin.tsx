@@ -13,6 +13,7 @@ import {
 } from "@/comment-thread-layout.ts";
 import {
   browserCommentStorage,
+  nextResolvedState,
   openThreadCount,
   readCommentsVisible,
   visibleThreads,
@@ -190,6 +191,7 @@ function ThreadPanel({
   const replyId = useId();
   const stale = thread.stale === true;
   const resolved = thread.resolvedAt !== null;
+  const nextResolved = nextResolvedState(thread);
   return (
     <div
       className="comment-thread-dock"
@@ -267,8 +269,8 @@ function ThreadPanel({
         ) : null}
         <div className="comment-thread-actions">
           {canComment && onResolve ? (
-            <Button size="sm" onClick={() => onResolve(thread, resolved)}>
-              {resolved ? "Reopen" : "Resolve"}
+            <Button size="sm" onClick={() => onResolve(thread, nextResolved)}>
+              {nextResolved ? "Resolve" : "Reopen"}
             </Button>
           ) : null}
           {canComment && thread.canDelete && onDelete ? (
@@ -441,8 +443,8 @@ function MobileSheet({
         ) : null}
         <div className="comment-thread-actions">
           {canComment && onResolve ? (
-            <Button size="sm" onClick={() => onResolve(thread, thread.resolvedAt === null)}>
-              {thread.resolvedAt === null ? "Resolve" : "Reopen"}
+            <Button size="sm" onClick={() => onResolve(thread, nextResolvedState(thread))}>
+              {nextResolvedState(thread) ? "Resolve" : "Reopen"}
             </Button>
           ) : null}
           <Button size="sm" variant="ghost" onClick={() => onActivate(null)}>
