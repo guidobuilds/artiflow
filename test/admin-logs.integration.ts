@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { loadConfig } from "../apps/api/src/config.ts";
 import { session, user } from "../apps/api/src/adapters/postgres/db/schema.ts";
 import { decodeSecretKey } from "../apps/api/src/settings/secrets.ts";
+import { recordConsoleAdminEvent } from "../apps/api/src/logging/admin-events.ts";
 import { DEFAULT_PASSWORD_POLICY } from "@artiflow/contracts/settings";
 import {
   adminGet,
@@ -409,6 +410,48 @@ integration("a social sign-in through the fallback writes one line per attempt a
   });
   const stored = await target().database.db.select({ id: session.id }).from(session).where(eq(session.userId, member.userId));
   assert.deepEqual(stored, [], "the refused social session leaves no row");
+});
+
+integration("the console recorder writes its line to stderr and leaves stdout for the answer", async () => {
+  const stderr: string[] = [];
+  const stdout: string[] = [];
+  const originalError = process.stderr.write.bind(process.stderr);
+  const originalOutput = process.stdout.write.bind(process.stdout);
+  process.stderr.write = ((chunk: unknown) => {
+    stderr.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  process.stdout.write = ((chunk: unknown) => {
+    stdout.push(String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    recordConsoleAdminEvent(
+      {
+        event: "invitation.created",
+        actorId: "console",
+        actorRole: "console",
+        subjectId: "invitation-issued-from-the-console",
+        outcome: "applied",
+      },
+      new Date(0),
+    );
+  } finally {
+    process.stderr.write = originalError;
+    process.stdout.write = originalOutput;
+  }
+
+  assert.equal(stdout.join(""), "", "the console answer keeps stdout to itself");
+  assert.equal(stderr.join("").endsWith("\n"), true, "the line is newline terminated");
+  const lines = stderr.join("").split("\n").filter((line) => line !== "");
+  assert.equal(lines.length, 1, "one operation writes exactly one line");
+  const line = JSON.parse(lines[0] ?? "") as AuditLine;
+  assert.deepEqual(Object.keys(line), ["ts", "level", "event", "actorId", "actorRole", "subjectId", "outcome"]);
+  assert.equal(line.ts, new Date(0).toISOString());
+  assert.equal(line.event, "invitation.created");
+  assert.equal(line.actorId, "console");
+  assert.equal(line.actorRole, "console");
+  assert.equal(line.outcome, "applied");
 });
 
 integration("no recorded line carries a credential, a token, a link or a request body", async () => {

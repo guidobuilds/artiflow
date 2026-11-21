@@ -104,6 +104,10 @@ const writeLine: WriteLine = (line) => {
   process.stdout.write(`${line}\n`);
 };
 
+const writeDiagnosticLine: WriteLine = (line) => {
+  process.stderr.write(`${line}\n`);
+};
+
 function detailsOf(input: AdminEventInput): Record<string, string> {
   if ("settingKey" in input) return { settingKey: input.settingKey };
   if (input.event === "session.revoked") return { subjectId: input.subjectId, sessionId: input.sessionId };
@@ -128,4 +132,8 @@ export function adminEventLine(input: AdminEventInput, at: Date = new Date()): s
 
 export function recordAdminEvent(input: AdminEventInput, write: WriteLine = writeLine, at: Date = new Date()): void {
   write(adminEventLine(input, at));
+}
+
+export function recordConsoleAdminEvent(input: AdminEventInput, at: Date = new Date()): void {
+  recordAdminEvent(input, writeDiagnosticLine, at);
 }

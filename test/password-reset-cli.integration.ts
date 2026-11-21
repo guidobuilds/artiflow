@@ -17,6 +17,7 @@ import { createAuth, createAuthApp, type AuthConfig } from "../apps/api/src/auth
 import { loadConfig } from "../apps/api/src/config.ts";
 import { createDatabase, type Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import { account, user } from "../apps/api/src/adapters/postgres/db/schema.ts";
+import { assertNoSensitiveContent, type AuditLine } from "./helpers/audit.ts";
 
 const baseConfig: AuthConfig = loadConfig(process.env);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
@@ -96,6 +97,11 @@ function assertBoundedFailure(result: CliResult): void {
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
   assert.equal(result.stderr.trim().length > 0, true, "a failure explains itself on stderr");
+  assert.equal(
+    result.stderr.split("\n").some((line) => line.startsWith("{")),
+    false,
+    "a refusal records no audit line",
+  );
   assert.equal(result.stderr.length <= MAX_DIAGNOSTIC_CHARS, true, "diagnostics stay bounded");
   assert.equal(result.stderr.trimEnd().split("\n").length <= MAX_DIAGNOSTIC_LINES, true, "diagnostics stay bounded");
   assert.equal(/^\s+at\s/m.test(result.stderr), false, "no stack trace");
@@ -111,16 +117,43 @@ function assertSingleResetUrl(line: string): string {
   return token;
 }
 
-function assertSingleUrlOutput(result: CliResult): string {
+function consoleAuditLine(result: CliResult): AuditLine {
   assert.equal(result.signal, null);
   assert.equal(result.status, 0);
-  assert.equal(result.stderr, "");
+  assert.equal(result.stderr.endsWith("\n"), true, "the audit line is newline-terminated");
+  const lines = result.stderr.split("\n");
+  assert.equal(lines.length, 2, "stderr carries exactly one audit line");
+  const raw = lines[0] ?? "";
+  assert.equal(raw.startsWith("{"), true, `the audit record is one JSON line: ${raw}`);
+  return JSON.parse(raw) as AuditLine;
+}
+
+function assertIssuanceRecorded(result: CliResult): AuditLine {
+  const line = consoleAuditLine(result);
+  assert.equal(line.event, "password.reset.issued", "the record names the operation");
+  assert.equal(line.actorId, "console", "the record names the console as the actor");
+  assert.equal(line.actorRole, "console", "the record names the console role");
+  assert.equal(line.outcome, "applied", "the record names the outcome");
+  assert.equal(typeof line.ts, "string", "the record carries a timestamp");
+  assert.equal(typeof line.subjectId === "string" && line.subjectId !== "", true, "the record names the account");
+  assert.equal("email" in line || "address" in line, false, "the record carries no address field");
+  assertNoSensitiveContent([line], []);
+  assertNoResetUrl(result.stderr);
+  return line;
+}
+
+function assertSingleUrlOutput(result: CliResult): { token: string; audit: AuditLine } {
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 0);
   assert.equal(result.stdout.endsWith("\n"), true, "stdout is one newline-terminated line");
   const lines = result.stdout.split("\n");
   assert.equal(lines.length, 2, "stdout carries exactly the URL line");
   const line = lines[0] ?? "";
   assert.equal(/\s/.test(line), false, "the URL line has no stray whitespace");
-  return assertSingleResetUrl(line);
+  const token = assertSingleResetUrl(line);
+  const audit = assertIssuanceRecorded(result);
+  assert.equal(result.stderr.includes(token), false, "the audit record carries no token");
+  return { token, audit };
 }
 
 function request(url: string, init: RequestInit): Promise<Response> {
@@ -258,14 +291,17 @@ cli("a malformed email is refused instead of producing a link", () => {
   }
 });
 
-cli("an existing account gets exactly one newline-terminated URL and nothing else", async () => {
+cli("an existing account gets the URL on stdout and one audit line on stderr", async () => {
   const email = `owner-${randomUUID()}@example.test`;
   const ownerId = await seedCredentialUser(email, `owner-password-${randomUUID()}`);
 
   const result = runReset([email]);
-  const token = assertSingleUrlOutput(result);
+  const { token, audit } = assertSingleUrlOutput(result);
   assert.equal(result.stdout.includes(email), false, "the URL carries no email");
   assert.equal(result.stdout.includes(sha256Hex(token)), false, "the URL never carries the stored digest");
+  assert.equal(audit.subjectId, ownerId, "the record names the account the link was issued for");
+  assert.equal(result.stderr.includes(email), false, "the audit record carries no address");
+  assert.equal(result.stderr.includes(sha256Hex(token)), false, "the audit record carries no stored digest");
 
   const stored = await storedTokens(ownerId);
   assert.equal(stored.length, 1, "exactly one link is pending");
@@ -293,7 +329,7 @@ cli("a padded, mixed-case address matches the one canonical account", async () =
   const email = `${local}@example.test`;
   const ownerId = await seedCredentialUser(email, `canonical-password-${randomUUID()}`);
 
-  const token = assertSingleUrlOutput(runReset([`  ${local.toUpperCase()}@Example.TEST  `]));
+  const token = assertSingleUrlOutput(runReset([`  ${local.toUpperCase()}@Example.TEST  `])).token;
   const stored = await storedTokens(ownerId);
   assert.equal(stored.length, 1, "the canonical account owns the single pending link");
   assert.equal(stored[0]?.tokenHash, sha256Hex(token));
@@ -303,8 +339,8 @@ cli("a second link invalidates the previous pending link of that account", async
   const email = `rotate-${randomUUID()}@example.test`;
   const ownerId = await seedCredentialUser(email, `rotate-password-${randomUUID()}`);
 
-  const first = assertSingleUrlOutput(runReset([email]));
-  const second = assertSingleUrlOutput(runReset([email.toUpperCase()]));
+  const first = assertSingleUrlOutput(runReset([email])).token;
+  const second = assertSingleUrlOutput(runReset([email.toUpperCase()])).token;
   assert.notEqual(first, second);
 
   const stored = await storedTokens(ownerId);

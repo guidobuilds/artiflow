@@ -17,6 +17,7 @@ import { createAuth, createAuthApp, type AuthConfig } from "../apps/api/src/auth
 import { loadConfig } from "../apps/api/src/config.ts";
 import { createDatabase, type Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import { account, user } from "../apps/api/src/adapters/postgres/db/schema.ts";
+import { assertNoSensitiveContent, type AuditLine } from "./helpers/audit.ts";
 
 const baseConfig: AuthConfig = loadConfig(process.env);
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
@@ -91,6 +92,11 @@ function assertBoundedFailure(result: CliResult): void {
   assert.equal(result.status, 1);
   assert.equal(result.stdout, "");
   assert.equal(result.stderr.trim().length > 0, true, "a failure explains itself on stderr");
+  assert.equal(
+    result.stderr.split("\n").some((line) => line.startsWith("{")),
+    false,
+    "a refusal records no audit line",
+  );
   assert.equal(result.stderr.length <= MAX_DIAGNOSTIC_CHARS, true, "diagnostics stay bounded");
   assert.equal(
     result.stderr.trimEnd().split("\n").length <= MAX_DIAGNOSTIC_LINES,
@@ -110,16 +116,43 @@ function assertSingleUseUrl(line: string): string {
   return token;
 }
 
-function assertSingleUrlOutput(result: CliResult): string {
+function consoleAuditLine(result: CliResult): AuditLine {
   assert.equal(result.signal, null);
   assert.equal(result.status, 0);
-  assert.equal(result.stderr, "");
+  assert.equal(result.stderr.endsWith("\n"), true, "the audit line is newline-terminated");
+  const lines = result.stderr.split("\n");
+  assert.equal(lines.length, 2, "stderr carries exactly one audit line");
+  const raw = lines[0] ?? "";
+  assert.equal(raw.startsWith("{"), true, `the audit record is one JSON line: ${raw}`);
+  return JSON.parse(raw) as AuditLine;
+}
+
+function assertIssuanceRecorded(result: CliResult): AuditLine {
+  const line = consoleAuditLine(result);
+  assert.equal(line.event, "invitation.created", "the record names the operation");
+  assert.equal(line.actorId, "console", "the record names the console as the actor");
+  assert.equal(line.actorRole, "console", "the record names the console role");
+  assert.equal(line.outcome, "applied", "the record names the outcome");
+  assert.equal(typeof line.ts, "string", "the record carries a timestamp");
+  assert.equal(typeof line.subjectId === "string" && line.subjectId !== "", true, "the record names the invitation");
+  assert.equal("email" in line || "address" in line, false, "the record carries no address field");
+  assertNoSensitiveContent([line], []);
+  assertNoInvitationUrl(result.stderr);
+  return line;
+}
+
+function assertSingleUrlOutput(result: CliResult): { token: string; audit: AuditLine } {
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 0);
   assert.equal(result.stdout.endsWith("\n"), true, "stdout is one newline-terminated line");
   const lines = result.stdout.split("\n");
   assert.equal(lines.length, 2, "stdout carries exactly the URL line");
   const line = lines[0] ?? "";
   assert.equal(/\s/.test(line), false, "the URL line has no stray whitespace");
-  return assertSingleUseUrl(line);
+  const token = assertSingleUseUrl(line);
+  const audit = assertIssuanceRecorded(result);
+  assert.equal(result.stderr.includes(token), false, "the audit record carries no token");
+  return { token, audit };
 }
 
 function request(url: string, init: RequestInit): Promise<Response> {
@@ -238,20 +271,29 @@ cli("a malformed email is refused instead of producing an invitation", () => {
   }
 });
 
-cli("a successful invitation prints one newline-terminated URL and nothing else", () => {
+cli("a successful invitation prints the URL on stdout and one audit line on stderr", async () => {
   const email = `invite-${randomUUID()}@example.test`;
   const result = runInvite([email]);
-  assertSingleUrlOutput(result);
+  const { token, audit } = assertSingleUrlOutput(result);
   const line = result.stdout.trimEnd();
   assert.equal(line.includes(email), false, "the URL carries no email");
   assert.equal(line.includes("@"), false, "the URL carries no address");
+  assert.equal(result.stderr.includes(email), false, "the audit record carries no address");
+  assert.equal(result.stderr.includes(token), false, "the audit record carries no token");
+
+  const stored = await db().pool.query<{ id: string }>(
+    'SELECT "id" FROM "registrationInvite" WHERE "email" = $1 AND "consumedAt" IS NULL',
+    [email],
+  );
+  assert.equal(stored.rows.length, 1, "the invitation is pending");
+  assert.equal(audit.subjectId, stored.rows[0]?.id, "the record names the invitation it issued");
 });
 
 cli("two invitations produce two distinct single-use URLs", () => {
   const first = runInvite([`entropy-a-${randomUUID()}@example.test`]);
   const second = runInvite([`entropy-b-${randomUUID()}@example.test`]);
-  const firstToken = assertSingleUrlOutput(first);
-  const secondToken = assertSingleUrlOutput(second);
+  const firstToken = assertSingleUrlOutput(first).token;
+  const secondToken = assertSingleUrlOutput(second).token;
   assert.notEqual(firstToken, secondToken);
   assert.notEqual(first.stdout, second.stdout);
 });

@@ -286,9 +286,8 @@ created; the revocation it performs belongs to the same operation and carries no
 refused operation records nothing and writes nothing, and no event or stored row carries a link
 or a token.
 
-The console commands stay unchanged and speak the same tables, so a link they print is pending in
-the administration list and completes the same way; the only difference is that `issuedBy` is
-`null`.
+The console commands speak the same tables, so a link they print is pending in the administration
+list and completes the same way; the only difference is that `issuedBy` is `null`.
 
 Changing an email does not require verification (functional specification) and does not
 touch linked identities: `account` rows are keyed by `(providerId, accountId)`, not by email,
@@ -813,7 +812,8 @@ the rule in effect, and reloads the stored document on a conflict before asking 
 
 ## 12. Structured logging (D12)
 
-**Decision.** A JSON-lines logger writes one object per line to stdout with a fixed shape:
+**Decision.** A JSON-lines logger writes one object per line, to stdout except where a command
+answers data on stdout itself (see the console issuance note below), with a fixed shape:
 `ts`, `level`, `event`, `actorId`, `actorRole`, and exactly one subject of the change —
 `subjectId`, `settingKey`, or `subjectId` plus `sessionId` — and then `outcome` and, when the
 request carried one, `requestId`. A `user.updated` line that moved the address adds
@@ -868,10 +868,14 @@ and fallback lines are built from an identifier looked up from the token, never 
 Levels come from the environment; the default keeps informational events. There is no audit UI
 and no export, per the specification.
 
-**Known gap.** `user:invite` and `user:reset-password` print exactly one line — the link — and
-write nothing else to either stream, a contract pinned by the command suites. Their issuance is
-therefore not recorded by those two commands; the administration paths that issue the same
-tables record it.
+**Console issuance.** `user:invite` and `user:reset-password` answer the link as their only stdout
+line, so their audit line goes to stderr instead: a caller that redirects stdout keeps the link
+untouched while the operator keeps the record. The line is the same closed shape and carries
+`actorId` and `actorRole` `console`, the event — `invitation.created` with the invitation id, or
+`password.reset.issued` with the account id — and `outcome` `applied`. It never carries the
+address, the token or the link. A refusal keeps writing its message to stderr and records
+nothing. Regeneration and revocation, reached from the administration surface, are unchanged and
+keep writing to stdout.
 
 ## 13. Operations (D13)
 
@@ -886,7 +890,7 @@ to stdout, and exit non-zero on refusal:
 | `user:deactivate EMAIL` / `user:activate EMAIL`  | Same semantics as the UI paths, without the UI                    |
 | `user:purge EMAIL --reassign-to EMAIL`           | Delete the account, reassigning its artifacts                     |
 | `user:purge EMAIL --delete-content`              | Delete the account and its artifacts                              |
-| `user:invite EMAIL`, `user:reset-password EMAIL` | Unchanged                                                         |
+| `user:invite EMAIL`, `user:reset-password EMAIL` | Unchanged; one event on stderr                                    |
 
 `admin:grant` never creates an account: an unknown address is refused with a message that names
 `user:invite` (resolved decision 7). `admin:revoke` refuses an unknown address and an account that
