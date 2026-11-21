@@ -370,11 +370,44 @@ name and nothing else — a grant made before the deactivation keeps its row and
 artifact, so a reactivated account returns to the artifacts it was already given without a new
 share.
 
-Both session surfaces are listings over the same table: the member's own page uses
-`listSessions`/`revokeSession`/`revokeOtherSessions` and marks the current one by id; the
-administration surface uses `listUserSessions`/`revokeUserSession` per user. Neither ever
-returns `session.token` to the browser. Closing the current session returns the member to
-the login page.
+Both session surfaces are listings over the same table, and neither ever returns `session.token`
+to the browser or to the log. A listed session carries `id` (the row identifier, safe to show),
+`startedAt` (the row's `createdAt`), `lastUsedAt` (the row's `updatedAt`), `ipAddress` and
+`userAgent` (`null` when neither was recorded) and `current`, true for the single row behind the
+caller's own cookie. Closing a session deletes its row: sessions are database-backed with no
+cookie cache, so the cookie stops resolving on the next request, and closing the cookie's own
+session ends that session too.
+
+**Administration endpoints.** All of them sit behind the administrator guard, and the two
+mutations also behind the cookie mutation guard:
+
+- `GET /api/admin/users/:id/sessions` answers `{ sessions }`, with `current` true only when a
+  listed row belongs to the calling administrator's own account. An unknown account answers
+  `404 user_not_found`.
+- `POST /api/admin/users/:id/sessions/:sessionId/revoke` answers `{ session: { id } }` and deletes
+  the row, scoped to that account. An unknown session, or a session of a different account,
+  answers `404 session_not_found` and changes nothing.
+- `POST /api/admin/users/:id/sessions/revoke` deletes every session of the account and answers
+  `{ revoked }` with the number of closed rows; an unknown account answers `404 user_not_found`.
+
+Each applied closure emits one event naming the actor and the subject account:
+`session.revoked` also names the closed session's id, and `sessions.revoked` covers the closure of
+all of them. A closure that closes no row records nothing, and no event carries a token.
+
+**Account endpoints.** A member manages their own sessions on a namespace separate from the
+administration one; the reads need a session cookie and the mutations require the public origin
+like every cookie mutation:
+
+- `GET /api/account/sessions` answers `{ sessions }` for the calling account, with `current` true
+  for the session behind the cookie that answered.
+- `POST /api/account/sessions/:id/revoke` answers `{ session: { id } }`. A session of another
+  account is refused exactly like one that does not exist — `404 session_not_found`, never `403` —
+  so the answer never confirms that somebody else's session exists.
+- `POST /api/account/sessions/revoke-others` closes every session of the account except the one
+  behind the cookie and answers `{ revoked }`.
+
+An anonymous caller answers `401 sign_in_required`. Self-service closures are not administrative
+operations and record no event. Closing the current session returns the member to the login page.
 
 ## 10. Access methods and the SSO login (D10, D11)
 

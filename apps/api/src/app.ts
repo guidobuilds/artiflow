@@ -8,6 +8,7 @@ import { createAuthHolder, type AuthHolder } from "./auth-holder.ts";
 import { resolveMcpNetwork, type AppConfig } from "./config.ts";
 import { MAX_ARTIFACT_BYTES } from "./adapters/postgres/db/artifact-schema.ts";
 import { createAdminApp } from "./routes/admin.ts";
+import { createAccountSessionsApp } from "./routes/sessions.ts";
 import { createEditingApp } from "./routes/editing.ts";
 import { createCommentsApp } from "./routes/comments.ts";
 import { createHealthApp } from "./routes/health.ts";
@@ -105,6 +106,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
   };
 
   app.route("/", createAdminApp({ database: databaseView, auth, publicOrigin: config.publicOrigin, config }));
+  app.route("/", createAccountSessionsApp({ database: databaseView, auth, publicOrigin: config.publicOrigin }));
   app.route("/", createSharingApp({ database: databaseView, auth, publicOrigin: config.publicOrigin }));
   app.route(
     "/",

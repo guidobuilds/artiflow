@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { accountSessionSchema, revokedSessionSchema } from "./account.ts";
 import { passwordPolicyDocumentSchema } from "./settings.ts";
 
 export const userRoleSchema = z.enum(["member", "administrator"]);
@@ -167,3 +168,19 @@ export const issueAdminResetLinkResponseSchema = z.strictObject({
   expiresAt: z.iso.datetime(),
 });
 export type IssueAdminResetLinkResponse = z.infer<typeof issueAdminResetLinkResponseSchema>;
+
+export const adminSessionSchema = accountSessionSchema;
+export type AdminSession = z.infer<typeof adminSessionSchema>;
+
+export const adminSessionListResponseSchema = z.strictObject({
+  sessions: z.array(adminSessionSchema),
+});
+export type AdminSessionListResponse = z.infer<typeof adminSessionListResponseSchema>;
+
+export const revokeAdminSessionResponseSchema = z.strictObject({ session: revokedSessionSchema });
+export type RevokeAdminSessionResponse = z.infer<typeof revokeAdminSessionResponseSchema>;
+
+export const revokeAdminSessionsResponseSchema = z.strictObject({
+  revoked: z.number().int().min(0),
+});
+export type RevokeAdminSessionsResponse = z.infer<typeof revokeAdminSessionsResponseSchema>;

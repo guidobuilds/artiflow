@@ -6,7 +6,7 @@ import type { Database } from "../adapters/postgres/db/client.ts";
 import type { createAuth } from "../auth.ts";
 import type { AppConfig } from "../config.ts";
 import { requireAdministrator } from "../http/admin-guard.ts";
-import { cookieMutationGuard, jsonError } from "../http/index.ts";
+import { authenticatedSession, cookieMutationGuard, jsonError } from "../http/index.ts";
 import { ADMINISTRATOR_ROLE, isUserRole } from "../identity/roles.ts";
 import { recordAdminEvent } from "../logging/admin-events.ts";
 import { AdminUserEditError, adminUserListQuerySchema, listAdminUsers, updateAdminUser } from "../admin/users.ts";
@@ -19,6 +19,7 @@ import {
   type InvitationRefusal,
 } from "../admin/invitations.ts";
 import { issueAdminResetLink } from "../admin/reset-links.ts";
+import { listAccountSessions, revokeAccountSession, revokeAccountSessions } from "../admin/sessions.ts";
 import {
   AccessConfigurationError,
   readAccessConfiguration,
@@ -39,6 +40,7 @@ import {
   updatePasswordPolicyRequestSchema,
   type AccessConfiguration,
   type AdminInvitationListResponse,
+  type AdminSessionListResponse,
   type AdminUser,
   type AdministratorListResponse,
   type AdminUserListResponse,
@@ -47,6 +49,8 @@ import {
   type PasswordPolicyConfiguration,
   type RegenerateAdminInvitationResponse,
   type RevokeAdminInvitationResponse,
+  type RevokeAdminSessionResponse,
+  type RevokeAdminSessionsResponse,
   type SetUserRoleResponse,
   type SetUserStatusResponse,
   type UpdateAdminUserResponse,
@@ -186,6 +190,55 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
     }
     if (updated === null) return jsonError(c, "user_not_found", 404);
     return c.json({ user: updated } satisfies UpdateAdminUserResponse);
+  });
+
+  app.get("/api/admin/users/:id/sessions", async (c) => {
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+    const caller = await authenticatedSession(options.auth, c.req.raw.headers);
+    const sessions = await listAccountSessions({
+      db: options.database.db,
+      userId: c.req.param("id"),
+      currentSessionId: caller?.sessionId ?? null,
+    });
+    if (sessions === null) return jsonError(c, "user_not_found", 404);
+    return c.json({ sessions } satisfies AdminSessionListResponse);
+  });
+
+  app.post("/api/admin/users/:id/sessions/revoke", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+    const outcome = await revokeAccountSessions({
+      db: options.database.db,
+      userId: c.req.param("id"),
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      requestId: c.get("requestId"),
+    });
+    if (outcome.kind === "missing") return jsonError(c, "user_not_found", 404);
+    return c.json({ revoked: outcome.revoked } satisfies RevokeAdminSessionsResponse);
+  });
+
+  app.post("/api/admin/users/:id/sessions/:sessionId/revoke", async (c) => {
+    const mutationRefusal = cookieMutationGuard(c, options.publicOrigin);
+    if (mutationRefusal !== null)
+      return jsonError(c, mutationRefusal, mutationRefusal === "origin_not_allowed" ? 403 : 415);
+    const guard = await requireAdministrator(deps, c.req.raw.headers);
+    if (guard.kind === "refusal") return jsonError(c, guard.error, guard.status);
+    const sessionId = c.req.param("sessionId");
+    const outcome = await revokeAccountSession({
+      db: options.database.db,
+      userId: c.req.param("id"),
+      sessionId,
+      actorId: guard.actorId,
+      actorRole: guard.actorRole,
+      requestId: c.get("requestId"),
+    });
+    if (outcome.kind === "missing") return jsonError(c, "session_not_found", 404);
+    return c.json({ session: { id: sessionId } } satisfies RevokeAdminSessionResponse);
   });
 
   app.get("/api/admin/invitations", async (c) => {

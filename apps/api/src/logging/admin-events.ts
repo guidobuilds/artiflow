@@ -12,6 +12,8 @@ export const ADMIN_EVENTS = [
   "invitation.revoked",
   "invitation.regenerated",
   "password.reset.issued",
+  "session.revoked",
+  "sessions.revoked",
 ] as const;
 
 export type AdminEventName = (typeof ADMIN_EVENTS)[number];
@@ -53,13 +55,20 @@ export type PasswordResetAdminEvent = AdminEventBase & {
   subjectId: string;
 };
 
+export type SessionAdminEvent = AdminEventBase &
+  (
+    | { event: "session.revoked"; subjectId: string; sessionId: string }
+    | { event: "sessions.revoked"; subjectId: string }
+  );
+
 export type AdminEventInput =
   | RoleAdminEvent
   | SettingAdminEvent
   | UserAdminEvent
   | UserLifecycleAdminEvent
   | InvitationAdminEvent
-  | PasswordResetAdminEvent;
+  | PasswordResetAdminEvent
+  | SessionAdminEvent;
 
 type WriteLine = (line: string) => void;
 
@@ -69,6 +78,7 @@ const writeLine: WriteLine = (line) => {
 
 function detailsOf(input: AdminEventInput): Record<string, string> {
   if ("settingKey" in input) return { settingKey: input.settingKey };
+  if (input.event === "session.revoked") return { subjectId: input.subjectId, sessionId: input.sessionId };
   if (input.event === "user.updated" && input.emailChange !== undefined) {
     return { subjectId: input.subjectId, emailBefore: input.emailChange.before, emailAfter: input.emailChange.after };
   }
