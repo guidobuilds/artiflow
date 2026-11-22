@@ -21,20 +21,21 @@ Each command loads the full API configuration, so `DATABASE_URL` and the `ARTIFL
 to be present, exactly as for the API process. They exit `0` on success, and `1` with one line on
 standard error on refusal, never a stack trace. `--help` on any of them prints its usage.
 
-| Command                     | What it does                                                   | What it prints                            |
-| --------------------------- | -------------------------------------------------------------- | ----------------------------------------- |
-| `admin:list`                | Lists every administrator                                      | One email per line, sorted; nothing at all |
-| `admin:grant EMAIL`         | Makes an existing account an administrator                     | One log line                              |
-| `admin:revoke EMAIL`        | Returns an administrator to the member role                    | One log line                              |
-| `user:deactivate EMAIL`     | Cuts the access of an account                                  | One log line                              |
-| `user:activate EMAIL`       | Brings a deactivated account back                              | One log line                              |
-| `user:invite EMAIL`         | Prints a single-use registration link, valid 24 hours          | The link                                  |
-| `user:reset-password EMAIL` | Prints a single-use password reset link, valid 1 hour          | The link                                  |
-| `user:purge EMAIL …`        | Deletes an account, with or without its content                | One log line                              |
+| Command                     | What it does                                          | What it prints                             |
+| --------------------------- | ----------------------------------------------------- | ------------------------------------------ |
+| `admin:list`                | Lists every administrator                             | One email per line, sorted; nothing at all |
+| `admin:grant EMAIL`         | Makes an existing account an administrator            | One log line                               |
+| `admin:revoke EMAIL`        | Returns an administrator to the member role           | One log line                               |
+| `user:deactivate EMAIL`     | Cuts the access of an account                         | One log line                               |
+| `user:activate EMAIL`       | Brings a deactivated account back                     | One log line                               |
+| `user:invite EMAIL`         | Prints a single-use registration link, valid 24 hours | The link                                   |
+| `user:reset-password EMAIL` | Prints a single-use password reset link, valid 1 hour | The link                                   |
+| `user:purge EMAIL …`        | Deletes an account, with or without its content       | One log line                               |
 
 The two commands that print a link write their record line to standard error instead, so a caller
 that redirects standard output keeps the link and the operator keeps the record. Neither `admin:list`
-nor a refusal records anything.
+nor a refusal records anything. Each command's exact syntax, options, exit codes and refusal wording is
+in [Console commands](/docs/reference/console-commands/); this page is the procedure that uses them.
 
 ## An instance with no administrator
 
@@ -130,16 +131,16 @@ line.
 
 ## Deactivate or purge
 
-|                                    | Deactivate                    | Purge                                        |
-| ---------------------------------- | ----------------------------- | -------------------------------------------- |
-| Account row                        | Kept, marked deactivated      | Deleted                                      |
-| Sign-in and sessions               | Blocked, sessions deleted     | Impossible, sessions deleted                 |
-| Agent tokens                       | Revoked                       | Deleted                                      |
-| Public links of its artifacts      | Revoked                       | Kept if the artifacts are reassigned         |
-| Artifacts, revisions, comments     | Kept                          | Reassigned to another account, or deleted    |
-| Pending invitations and reset links | Kept                         | Deleted                                      |
-| Reversible                         | Yes, by reactivating          | No                                           |
-| Where                              | `/admin/users`, `user:deactivate` | Console only                             |
+|                                     | Deactivate                        | Purge                                     |
+| ----------------------------------- | --------------------------------- | ----------------------------------------- |
+| Account row                         | Kept, marked deactivated          | Deleted                                   |
+| Sign-in and sessions                | Blocked, sessions deleted         | Impossible, sessions deleted              |
+| Agent tokens                        | Revoked                           | Deleted                                   |
+| Public links of its artifacts       | Revoked                           | Kept if the artifacts are reassigned      |
+| Artifacts, revisions, comments      | Kept                              | Reassigned to another account, or deleted |
+| Pending invitations and reset links | Kept                              | Deleted                                   |
+| Reversible                          | Yes, by reactivating              | No                                        |
+| Where                               | `/admin/users`, `user:deactivate` | Console only                              |
 
 Reactivating restores sign-in and nothing else: the sessions that ended stay ended, the revoked public
 links stay revoked, and the person needs a new link if one is still in use. Their artifacts and the

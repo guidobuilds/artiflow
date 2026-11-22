@@ -35,13 +35,13 @@ grant the role.
 
 ## The administration area
 
-| Section                       | Path                      | What it holds                                                      |
-| ----------------------------- | ------------------------- | ------------------------------------------------------------------ |
-| Users                         | `/admin/users`            | The directory, role, lifecycle, reset links, per-account sessions  |
-| Access                        | `/admin/access`           | Which sign-in methods are offered, and their client credentials    |
-| Password policy               | `/admin/password-policy`  | What a password must contain when it is set                        |
-| Invitations                   | `/admin/invitations`      | Pending registration links, with revoke and regenerate             |
-| Enterprise connection         | `/admin/sso`              | The single OIDC connection, reached from **Access**                |
+| Section               | Path                     | What it holds                                                     |
+| --------------------- | ------------------------ | ----------------------------------------------------------------- |
+| Users                 | `/admin/users`           | The directory, role, lifecycle, reset links, per-account sessions |
+| Access                | `/admin/access`          | Which sign-in methods are offered, and their client credentials   |
+| Password policy       | `/admin/password-policy` | What a password must contain when it is set                       |
+| Invitations           | `/admin/invitations`     | Pending registration links, with revoke and regenerate            |
+| Enterprise connection | `/admin/sso`             | The single OIDC connection, reached from **Access**               |
 
 Every write needs a JSON body and an `Origin` matching `ARTIFLOW_PUBLIC_ORIGIN`, like every other
 browser mutation. Refusals are named codes with their own wording on the page, never a raw code.
@@ -127,11 +127,15 @@ A session token is never rendered, returned or stored by the page. The
 
 `/admin/access` decides which methods the sign-in page offers:
 
-| Method          | What an administrator sets                                                |
-| --------------- | ------------------------------------------------------------------------- |
-| Password        | Enabled or disabled                                                       |
-| Google          | Enabled or disabled, its client id, and its client secret                 |
-| GitHub          | Enabled or disabled, its client id, and its client secret                 |
+| Method   | What an administrator sets                                |
+| -------- | --------------------------------------------------------- |
+| Password | Enabled or disabled                                       |
+| Google   | Enabled or disabled, its client id, and its client secret |
+| GitHub   | Enabled or disabled, its client id, and its client secret |
+
+The whole path for either social provider — where the OAuth client is created, the exact redirect URI
+to register, what the consent screen decides about who may sign in, and what a refused person sees —
+is in [Social sign-in](/docs/self-hosting/social-sign-in/).
 
 Three rules govern what a save stores:
 
@@ -186,14 +190,14 @@ a password reset and at a password change. It is shown to the person before they
 same words the server enforces, and a refusal names every requirement that is missing rather than the
 first.
 
-| Rule                 | Default | Range                |
-| -------------------- | ------- | -------------------- |
-| Minimum length       | 12      | 8 to 128             |
-| Uppercase letter     | on      | on or off            |
-| Lowercase letter     | on      | on or off            |
-| Number               | on      | on or off            |
-| Symbol               | on      | on or off            |
-| Maximum length       | 128     | not configurable     |
+| Rule             | Default | Range            |
+| ---------------- | ------- | ---------------- |
+| Minimum length   | 12      | 8 to 128         |
+| Uppercase letter | on      | on or off        |
+| Lowercase letter | on      | on or off        |
+| Number           | on      | on or off        |
+| Symbol           | on      | on or off        |
+| Maximum length   | 128     | not configurable |
 
 The policy is enforced server-side on every path that sets a password, so a client that bypasses the
 interface receives the same list of missing requirements. Changing the policy never touches stored
@@ -206,14 +210,14 @@ Invitations create accounts; reset links replace a password. Both are single-use
 this instance never emails: you hand them over outside Artiflow, and both are shown once, by the call
 that creates them.
 
-|                    | Invitation                                   | Reset link                                  |
-| ------------------ | -------------------------------------------- | ------------------------------------------- |
-| Lifetime           | 24 hours                                     | 1 hour                                      |
+|                    | Invitation                                   | Reset link                                   |
+| ------------------ | -------------------------------------------- | -------------------------------------------- |
+| Lifetime           | 24 hours                                     | 1 hour                                       |
 | Address            | The one it was issued for, fixed on the form | The account's own address, fixed on the form |
-| Sets               | Name and password, creating the account      | A new password                              |
-| From the interface | `/admin/invitations`                         | **Password reset** on a user                |
+| Sets               | Name and password, creating the account      | A new password                               |
+| From the interface | `/admin/invitations`                         | **Password reset** on a user                 |
 | From the console   | `bun run user:invite EMAIL`                  | `bun run user:reset-password EMAIL`          |
-| Refused for        | An address that holds an active account      | A deactivated account, from the interface   |
+| Refused for        | An address that holds an active account      | A deactivated account, from the interface    |
 
 The invitation page lists what is pending — not consumed, not revoked, not expired — with each row's
 address, the administrator who issued it (or "Issued from the console" for a link the console printed),
@@ -260,18 +264,18 @@ subject of the change — an account, a settings key, or an account and a sessio
 request identifier when the request carried one. The event set is closed in
 code, so an operation without a registered event is a compile error rather than a typo in production.
 
-| Event                                                            | Written when                                        |
-| ---------------------------------------------------------------- | --------------------------------------------------- |
-| `role.granted`, `role.revoked`                                   | A role changes, from the interface or the console   |
-| `user.updated`                                                   | A name or address is saved                          |
-| `user.deactivated`, `user.reactivated`                           | A lifecycle change applies                          |
-| `user.purged`                                                    | The console purge applies                           |
-| `user.registered`                                                | An invitation is completed                          |
-| `session.revoked`, `sessions.revoked`                            | An administrator closes one or all sessions         |
-| `invitation.created`, `invitation.revoked`, `invitation.regenerated` | An invitation is issued, revoked or regenerated  |
-| `password.reset.issued`                                          | A reset link is issued, from the interface or console |
-| `access.methods.updated`, `access.sso.updated`, `password.policy.updated` | A settings document is saved              |
-| `login.fallback.used`                                            | An emergency sign-in is admitted or refused         |
+| Event                                                                     | Written when                                          |
+| ------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `role.granted`, `role.revoked`                                            | A role changes, from the interface or the console     |
+| `user.updated`                                                            | A name or address is saved                            |
+| `user.deactivated`, `user.reactivated`                                    | A lifecycle change applies                            |
+| `user.purged`                                                             | The console purge applies                             |
+| `user.registered`                                                         | An invitation is completed                            |
+| `session.revoked`, `sessions.revoked`                                     | An administrator closes one or all sessions           |
+| `invitation.created`, `invitation.revoked`, `invitation.regenerated`      | An invitation is issued, revoked or regenerated       |
+| `password.reset.issued`                                                   | A reset link is issued, from the interface or console |
+| `access.methods.updated`, `access.sso.updated`, `password.policy.updated` | A settings document is saved                          |
+| `login.fallback.used`                                                     | An emergency sign-in is admitted or refused           |
 
 What the shape cannot carry, because it has no field for it: passwords, tokens, session identifiers as
 credentials, invitation or reset links, client secrets, request bodies, and any credential the

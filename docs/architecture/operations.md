@@ -200,20 +200,22 @@ Run from the repository root with the API's environment loaded — `DATABASE_URL
 with the reason on stderr. What each command does, and what it refuses, is written for operators in
 [Recover access and remove a person](https://artiflow.dev/docs/self-hosting/recovery/) and
 [Administer accounts and sign-in](https://artiflow.dev/docs/self-hosting/administration/); the
+syntax, exit statuses and every refusal of each one are in
+[Console commands](https://artiflow.dev/docs/reference/console-commands/). The
 behaviour itself is defined in section 13 of
 [authentication and access](authentication-and-access.md#13-operations-d13).
 
-| Command                     | Purpose                                                                   |
-| --------------------------- | ------------------------------------------------------------------------- |
-| `admin:grant EMAIL`         | Make an existing account an administrator (first administrator, recovery) |
-| `admin:revoke EMAIL`        | Return an administrator to the member role                                |
-| `admin:list`                | Print one email per administrator, sorted; empty and exit 0 when none     |
-| `user:invite EMAIL`         | Print one single-use registration URL                                     |
-| `user:reset-password EMAIL` | Print one single-use password reset URL                                   |
-| `user:purge EMAIL --reassign-to EMAIL` | Delete an account, handing its content to another existing account |
-| `user:purge EMAIL --delete-content`    | Delete an account together with its content                        |
-| `user:deactivate EMAIL`     | Cut the access of an account without deleting anything                    |
-| `user:activate EMAIL`       | Clear the deactivated state of an account                                 |
+| Command                                | Purpose                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| `admin:grant EMAIL`                    | Make an existing account an administrator (first administrator, recovery) |
+| `admin:revoke EMAIL`                   | Return an administrator to the member role                                |
+| `admin:list`                           | Print one email per administrator, sorted; empty and exit 0 when none     |
+| `user:invite EMAIL`                    | Print one single-use registration URL                                     |
+| `user:reset-password EMAIL`            | Print one single-use password reset URL                                   |
+| `user:purge EMAIL --reassign-to EMAIL` | Delete an account, handing its content to another existing account        |
+| `user:purge EMAIL --delete-content`    | Delete an account together with its content                               |
+| `user:deactivate EMAIL`                | Cut the access of an account without deleting anything                    |
+| `user:activate EMAIL`                  | Clear the deactivated state of an account                                 |
 
 `admin:grant` never creates an account: an unknown address is refused and the
 message names `user:invite`, because only the invitation path lets the person

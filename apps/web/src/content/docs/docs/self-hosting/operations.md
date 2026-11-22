@@ -46,7 +46,9 @@ Administration writes one JSON object per line to standard output, and the conso
 a link write theirs to standard error so standard output stays the link alone. The event set is closed
 in code, every line carries no credential, token, link or request body, and the events are described
 for operators in
-[Administer accounts and sign-in](/docs/self-hosting/administration/#the-administration-log). Nothing
+[Administer accounts and sign-in](/docs/self-hosting/administration/#the-administration-log). Every
+command's output, exit status and refusals are in
+[Console commands](/docs/reference/console-commands/). Nothing
 writes these lines to a file: retention is whatever your container logging keeps.
 
 ## Invitation-only registration
@@ -63,7 +65,8 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml exec api bun run 
 It prints exactly one URL and nothing else. Hand that URL to the person directly; do not post it in a
 shared channel. The link is single use, expires 24 hours after it is issued, and opens a registration
 form whose email address is fixed. Only a SHA-256 digest of the token is stored, so a database read
-never yields a usable link.
+never yields a usable link. The command's syntax, exit status and every refusal are in
+[Console commands](/docs/reference/console-commands/).
 
 The URL looks like `https://artifacts.example.com/register#token=…`, and the token travels in the
 fragment: the page reads it there and sends it to the API in the request body, so it never appears in a

@@ -7,7 +7,9 @@ sidebar:
 
 An instance offers three kinds of sign-in: password, Google and GitHub as social methods, and one
 enterprise connection over OIDC. The first two are configured on [Access](/docs/self-hosting/administration/#access-methods);
-the connection is configured on `/admin/sso`, reached from the Access page. SAML is not supported by
+the connection is configured on `/admin/sso`, reached from the Access page. The social pair has its own
+page: [Social sign-in](/docs/self-hosting/social-sign-in/) covers the provider console, the callback to
+register at each provider and the accounts a social button can open. SAML is not supported by
 this build, and there is exactly one enterprise connection per instance.
 
 This page covers what to register at the provider, which barrier each rule creates, what the product
@@ -16,16 +18,16 @@ get in.
 
 ## What the connection needs
 
-| Field              | What it is                                                                  |
-| ------------------ | --------------------------------------------------------------------------- |
-| Display name       | The label on the sign-in button while the connection is published           |
-| Issuer             | The HTTPS issuer of one concrete application registration                   |
-| Client id          | The non-secret identifier of that registration                              |
-| Client secret      | Stored encrypted; shown as presence only and never read back                |
-| Scopes             | Requested scopes, `openid profile email` by default, at least one required  |
-| Just-in-time       | Whether a first authorized sign-in creates a member account                 |
-| Allowed domains    | Bare hostnames, required whenever just-in-time provisioning is on           |
-| Accept any account | Explicit acceptance of every account the provider authenticates             |
+| Field              | What it is                                                                 |
+| ------------------ | -------------------------------------------------------------------------- |
+| Display name       | The label on the sign-in button while the connection is published          |
+| Issuer             | The HTTPS issuer of one concrete application registration                  |
+| Client id          | The non-secret identifier of that registration                             |
+| Client secret      | Stored encrypted; shown as presence only and never read back               |
+| Scopes             | Requested scopes, `openid profile email` by default, at least one required |
+| Just-in-time       | Whether a first authorized sign-in creates a member account                |
+| Allowed domains    | Bare hostnames, required whenever just-in-time provisioning is on          |
+| Accept any account | Explicit acceptance of every account the provider authenticates            |
 
 Register this redirect URI at the provider, exactly:
 
@@ -50,22 +52,22 @@ it disabled: a disabled document stores what you typed. The scope, domain and cr
 every save. Each refusal is a named code with its own wording on the page, and nothing is stored when
 one fires.
 
-| Refusal                                 | Rule                                                                                       |
-| --------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `sso_issuer_insecure`                   | The issuer must be HTTPS.                                                                  |
-| `sso_issuer_invalid`                    | One concrete URL, without a query or a fragment.                                            |
-| `sso_issuer_templated`                  | A multi-tenant authority — `/common`, `/organizations`, `/consumers` — or a placeholder.    |
-| `sso_discovery_unreachable`             | `<issuer>/.well-known/openid-configuration` failed, timed out or answered an error status.  |
-| `sso_discovery_invalid`                 | The answer is not JSON, or carries no `issuer`.                                             |
-| `sso_issuer_mismatch`                   | The advertised issuer differs from the address you gave.                                    |
-| `sso_display_name_required`             | An enabled connection needs the label people will see.                                      |
-| `sso_client_id_required`                | An enabled connection needs its client id.                                                  |
-| `sso_credential_required`               | An enabled connection needs a stored credential.                                            |
-| `sso_scopes_invalid`                    | At least one requested scope.                                                               |
-| `sso_domain_required`                   | Just-in-time provisioning needs at least one allowed domain.                                |
-| `sso_domain_invalid`                    | Domains are bare hostnames: no scheme, path, wildcard or address.                           |
-| `sso_sign_in_unavailable`               | The build cannot start a sign-in through the connection, so publishing it would lock every non-administrator out of the other methods. |
-| `secret_encryption_unconfigured`        | A credential cannot be stored without the encryption key.                                   |
+| Refusal                          | Rule                                                                                                                                   |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `sso_issuer_insecure`            | The issuer must be HTTPS.                                                                                                              |
+| `sso_issuer_invalid`             | One concrete URL, without a query or a fragment.                                                                                       |
+| `sso_issuer_templated`           | A multi-tenant authority — `/common`, `/organizations`, `/consumers` — or a placeholder.                                               |
+| `sso_discovery_unreachable`      | `<issuer>/.well-known/openid-configuration` failed, timed out or answered an error status.                                             |
+| `sso_discovery_invalid`          | The answer is not JSON, or carries no `issuer`.                                                                                        |
+| `sso_issuer_mismatch`            | The advertised issuer differs from the address you gave.                                                                               |
+| `sso_display_name_required`      | An enabled connection needs the label people will see.                                                                                 |
+| `sso_client_id_required`         | An enabled connection needs its client id.                                                                                             |
+| `sso_credential_required`        | An enabled connection needs a stored credential.                                                                                       |
+| `sso_scopes_invalid`             | At least one requested scope.                                                                                                          |
+| `sso_domain_required`            | Just-in-time provisioning needs at least one allowed domain.                                                                           |
+| `sso_domain_invalid`             | Domains are bare hostnames: no scheme, path, wildcard or address.                                                                      |
+| `sso_sign_in_unavailable`        | The build cannot start a sign-in through the connection, so publishing it would lock every non-administrator out of the other methods. |
+| `secret_encryption_unconfigured` | A credential cannot be stored without the encryption key.                                                                              |
 
 A refused save stores no document, no credential and no log line. An applied save stores both in one
 transaction, writes one `access.sso.updated` line and takes effect on the next request, without a
@@ -145,11 +147,19 @@ provider's job:
 - **GitHub.** Own the OAuth app under the organisation and enable the organisation's OAuth App access
   restrictions, so only approved members can authorise it.
 
+What to create at each provider, which client type it has to be, the exact redirect URI to register and
+what the consent screen decides are in
+[Social sign-in](/docs/self-hosting/social-sign-in/). A first link rests on one rule: the provider has
+to report the address as verified. The stored account's own flag is not consulted, so an account
+created through an invitation links on its first verified Google or GitHub sign-in like any other. An
+identity that already belongs to another account opens that account and never becomes a second
+credential on the account carrying the asserted address.
+
 **Prove it.** Sign out of Artiflow, start the Google sign-in and choose a personal Google account.
 Google refuses before Artiflow is reached, with its internal-app error. Repeat with a GitHub account
-outside the organisation and expect GitHub to refuse the authorisation. If a personal account reaches
-the Artiflow sign-in page and is refused there only because no account uses that address, the provider
-is not restricting anything: an invitation to that address would let it in.
+outside the organisation and expect GitHub to refuse the authorisation. If a personal account gets as
+far as Artiflow's own error page instead, the provider is not restricting anything: the product creates
+no account for it, but it does trust whatever address the provider asserts against a stored account.
 
 While the enterprise connection is published, both social methods are administrator-only anyway: see
 the next section.
@@ -178,17 +188,17 @@ emergency link is rendered, because there is nothing behind it.
 The connection decides admission in one place, and every refusal is a named code the sign-in page
 renders in its own words — never text supplied by the identity provider.
 
-| Existing account                | Evidence                                                    | Outcome                                   |
-| ------------------------------- | ----------------------------------------------------------- | ----------------------------------------- |
-| none, provisioning on           | address on an allowed domain, or any-account accepted        | create `member`, `active`, then link      |
-| none, provisioning on           | domain not allowed, any-account not accepted                 | `sso_domain_not_allowed`                  |
-| none, provisioning off          | —                                                           | `sso_account_unknown`                     |
-| same address                    | verified email claim, no other enterprise identity           | link, keeping the stored profile          |
-| same address                    | no verified claim, issuer pinned and domain allowed          | link                                      |
-| same address                    | identity bound to another account, or account holds another  | `sso_identity_conflict`                   |
-| same address                    | no verified claim and domain not allowed                     | `sso_email_unverified`                    |
-| any                             | matched account is deactivated                              | `sso_account_deactivated`                 |
-| any                             | token from another tenant, or an unpinned issuer             | `sso_tenant_mismatch`                     |
+| Existing account       | Evidence                                                    | Outcome                              |
+| ---------------------- | ----------------------------------------------------------- | ------------------------------------ |
+| none, provisioning on  | address on an allowed domain, or any-account accepted       | create `member`, `active`, then link |
+| none, provisioning on  | domain not allowed, any-account not accepted                | `sso_domain_not_allowed`             |
+| none, provisioning off | —                                                           | `sso_account_unknown`                |
+| same address           | verified email claim, no other enterprise identity          | link, keeping the stored profile     |
+| same address           | no verified claim, issuer pinned and domain allowed         | link                                 |
+| same address           | identity bound to another account, or account holds another | `sso_identity_conflict`              |
+| same address           | no verified claim and domain not allowed                    | `sso_email_unverified`               |
+| any                    | matched account is deactivated                              | `sso_account_deactivated`            |
+| any                    | token from another tenant, or an unpinned issuer            | `sso_tenant_mismatch`                |
 
 A created account is always a member, active, with the address lower-cased and the verified flag taken
 from the ID token claim; a `role`, `groups` or `roles` claim grants nothing. A linked account keeps its
