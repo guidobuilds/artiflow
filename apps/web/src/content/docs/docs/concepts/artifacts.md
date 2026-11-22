@@ -21,11 +21,12 @@ stable id, and an ordered list of **revisions**.
 
 ## Kinds available today
 
-| Kind             | What you get                                                                                                                                                                                                |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `html` (default) | One self-contained page. Inline CSS and JavaScript run inside a sandboxed frame.                                                                                                                            |
-| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well.                                                                                               |
-| `canvas`         | A versioned JSON scene of frames and nodes, rendered as a navigable document. Read-only today: an agent publishes it, a person looks at it and moves between screens. See [Canvas](../artifacts/canvas.md). |
+| Kind             | What you get                                                                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `html` (default) | One self-contained page. Inline CSS and JavaScript run inside a sandboxed frame.                                                                  |
+| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well.                                     |
+| `canvas`         | A versioned JSON scene of frames and nodes, rendered as a navigable document and editable in the dashboard. See [Canvas](../artifacts/canvas.md). |
+| `deck`           | The same scene format, with slides in order and a presentation view. See [Deck](../artifacts/deck.md).                                            |
 
 A canvas carries no comments yet; node anchors arrive with the editing phase, and until then the viewer
 mounts no comment panel for it.

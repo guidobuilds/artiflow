@@ -101,7 +101,7 @@ JSON
 | Field   | Required | Rules                                                                  |
 | ------- | -------- | ---------------------------------------------------------------------- |
 | `text`  | yes      | Non-empty UTF-8 text, up to 16 MiB (16,777,216 bytes) in this one call |
-| `kind`  | no       | `html` (default), `markdown`, or `canvas`                              |
+| `kind`  | no       | `html` (default), `markdown`, `canvas`, or `deck`                      |
 | `title` | no       | 1–200 characters                                                       |
 
 This route takes the whole document in one request, so its cap is the artifact cap, not the 1 MiB
@@ -142,7 +142,7 @@ Refusals specific to this route:
 
 Newest first, at most 100 rows, no pagination parameters. `title` and `observedSizeBytes` are `null`
 until an artifact has one, and `kind` reads `unknown` for a stored value that is not one of the declared
-kinds (`html`, `markdown`, `canvas`).
+kinds (`html`, `markdown`, `canvas`, `deck`).
 
 `GET /artifacts/shared` lists what other accounts invited you to, at most 200 rows, each row adding
 `sharedBy: {"email": "owner@example.com"}`.
@@ -300,7 +300,7 @@ one is `400 reply_has_no_anchor`.
 | `element`     | `{selector, point:{x,y} in 0–1, textHint (≤120 chars), viewportWidth}`                                    | HTML     |
 | `page-point`  | `{x in 0–1, y in pixels, viewportWidth}`                                                                  | HTML     |
 | `board-point` | `{boardId (frame), nodeId, x, y}` — x and y are fractions of the node's own box                           | Canvas   |
-| `slide-point` | `{slideId, nodeId, x, y}` — same rules, no kind accepts it yet                                            | future   |
+| `slide-point` | `{slideId, nodeId, x, y}` — same rules as `board-point`                                                   | Deck     |
 
 `GET /artifacts/{artifactId}/comments` returns threads for anyone who can read the artifact. The
 author is an entity: `{ id, name, image }`, never an email of another participant.

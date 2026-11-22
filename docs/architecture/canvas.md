@@ -1031,6 +1031,12 @@ presupuesto de bytes y de llamadas.
 
 **Objetivo:** el cuarto tipo, barato porque reusa todo.
 
+**Entregado en su primera mitad:** el tipo existe, presenta una slide a la vez con contador, teclado,
+controles y toggle de índice, y `slide-point` dejó de ser un ancla inalcanzable. Las compuertas de
+escena dejaron de nombrar un tipo: preguntan si el tipo renderiza una escena, así que un deck abre
+borrador, aplica lotes, restaura y publica por el mismo camino que un canvas. Faltan el editor y el
+export a PDF, que necesita su propia decisión porque no hay navegador headless acá.
+
 - Deck = escena con marcos ordenados y modo presentación; hereda operaciones, assets,
   comentarios y borrador.
 - Exportar a PDF.
