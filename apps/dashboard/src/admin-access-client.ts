@@ -49,7 +49,7 @@ const REFUSALS: Record<string, string> = {
   provider_credential_required:
     "Enabling a provider needs a stored credential. Enter the client secret, then save again.",
   secret_encryption_unconfigured:
-    "This instance cannot encrypt a credential because no secret key is configured. Set the encryption key before storing one.",
+    "This instance has no encryption key, so a credential cannot be stored. Add ARTIFLOW_SECRET_ENCRYPTION_KEY (32 bytes, base64) to the environment and restart the API, then save again.",
   invalid_body: "The server refused the request as incomplete. Nothing was saved.",
   network: "The server could not be reached, so nothing was saved.",
   unreadable_answer: "The server answered unexpectedly, so nothing was saved.",

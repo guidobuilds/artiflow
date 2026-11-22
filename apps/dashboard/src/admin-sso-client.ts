@@ -71,7 +71,7 @@ const REFUSALS: Record<string, string> = {
     "Another administrator saved a change first. The page now shows what is stored; review it and save again.",
   invalid_body: "The server refused the request as incomplete. Nothing was saved.",
   secret_encryption_unconfigured:
-    "This instance cannot encrypt a credential because no encryption key is configured. Set the key before storing one.",
+    "This instance has no encryption key, so a credential cannot be stored. Add ARTIFLOW_SECRET_ENCRYPTION_KEY (32 bytes, base64) to the environment and restart the API, then save again.",
   sso_sign_in_unavailable:
     "This build cannot sign in through the connection yet, so it cannot be enabled: enabling it now would " +
     "lock every non-administrator out of password and social sign-in. Save it disabled and enable it once " +
