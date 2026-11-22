@@ -5,7 +5,7 @@ description: How to create, update and develop Artiflow artifacts. Load before w
 
 # Creating Artiflow artifacts
 
-An Artiflow artifact is one of two kinds, chosen when the artifact is created
+An Artiflow artifact is one of four kinds, chosen when the artifact is created
 (via `artifact_write` or `artifact_commit`):
 
 - **`html` (default)** — one complete, self-contained HTML document: the whole
@@ -14,7 +14,7 @@ An Artiflow artifact is one of two kinds, chosen when the artifact is created
   own viewer and editable by people in the dashboard. Agents create it once and
   then edit it by line patches instead of re-uploading bytes.
 
-Both kinds enter the platform only through the MCP tools. This skill is the
+All four kinds enter the platform only through the MCP tools. This skill is the
 creation procedure: how to author for the viewer's sandbox (HTML) or as a
 document (markdown), how to ship the bytes, how to edit later, and how to
 comment. For what the platform itself can and cannot do (sharing, links,
@@ -126,6 +126,75 @@ Use this staged stream when shipping bytes from disk; the one-call
    or a pinned revision (`revisionId`) back as base64 and compare its `sha256`
    with what you sent. Bytes are re-read from storage and re-hashed server-side,
    so a match proves the roundtrip.
+
+## Canvas and deck — design a scene
+
+`canvas` and `deck` are the two design kinds: a versioned JSON scene of frames and nodes instead of
+HTML or text. A `deck` is the same scene whose frames are slides, presented one at a time. Publish
+with `artifact_write` and the scene as `text`:
+
+```json
+{
+  "formatVersion": 1,
+  "frames": [
+    {
+      "id": "home",
+      "name": "Home",
+      "x": 0,
+      "y": 0,
+      "w": 375,
+      "h": 812,
+      "nodes": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 24,
+          "y": 32,
+          "w": 200,
+          "h": 32,
+          "text": "Checkout",
+          "fill": "#f4f4f2",
+          "fontSize": 24,
+          "fontWeight": 600
+        },
+        { "id": "card", "type": "rect", "x": 24, "y": 80, "w": 327, "h": 120, "fill": "#111613", "radius": 12 }
+      ]
+    }
+  ]
+}
+```
+
+Rules the server enforces, refusing the whole scene when one fails:
+
+- node types are `rect`, `text`, `image` and `path`; nothing else exists.
+- `x`/`y` are frame-relative and the node must sit entirely inside its frame; `w` and `h` above zero.
+- every id is unique across the whole scene and stable, because it is what a comment anchors to.
+  Never put a `/` in an id.
+- `layout`, `constraints`, `componentId` and unknown node types are refused, not ignored.
+- absolute geometry only: there is no auto-layout, so place everything yourself on an 8px scale.
+- an `image` node carries an `assetId` and no bytes: upload first with `asset_upload`
+  (`contentType`, `contentBase64`; raster only, about 1.5 MiB of raw bytes per call) and use the
+  `sha256` it returns. An asset the artifact does not reference renders as a placeholder.
+- limits: 200 frames, 2000 nodes, one frame level deep; `artifact_write` takes at most 1 MiB of text.
+
+Read a published scene by outline and by frame, never the whole document:
+
+- `scene_outline` returns frames with id, name, node count and bounds.
+- `scene_read` returns one frame with its nodes, optionally narrowed by `nodeIds`; it refuses past
+  200 nodes or 64 KiB rather than truncating.
+
+Edit after publishing with one atomic batch instead of republishing:
+
+- `scene_apply` takes `baseSeq` from the read, an `idempotencyKey` and `ops`: `add_frame`,
+  `update_frame`, `remove_frame`, `add_node`, `update_node`, `move_node`, `remove_node`,
+  `replace_scene`.
+- the reply carries the absolute box of every touched node plus the validation verdict: read it
+  instead of assuming the result.
+- a stale `baseSeq` refuses with the current sequence, and replaying the same key applies once.
+
+Comments on a scene anchor to a node: `board-point` on a canvas, `slide-point` on a deck, both with
+the frame id, the `nodeId` and `x`/`y` normalized inside the node. A node the scene does not hold
+refuses with `unknown_node`, and a thread whose node is later removed is listed as orphaned.
 
 ## Markdown documents — create once, edit by lines
 
