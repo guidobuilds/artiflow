@@ -14,7 +14,8 @@
     "./html-bridge": "./src/html-bridge.ts",
     "./kinds": "./src/kinds.ts",
     "./freshness": "./src/freshness.ts",
-    "./markdown": "./src/markdown.ts"
+    "./markdown": "./src/markdown.ts",
+    "./scene": "./src/scene.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

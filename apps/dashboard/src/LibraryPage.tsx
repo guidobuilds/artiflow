@@ -27,7 +27,7 @@ import {
 import { Card, CardGrid, FileTile } from "@/components/ui/card.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { cn } from "@/lib/utils.ts";
-import { ARTIFACT_KINDS, iconFor, labelFor, type ArtifactKind, type KindIcon } from "@artiflow/domain/kinds";
+import { ARTIFACT_KINDS, iconFor, labelFor, pluralFor, type ArtifactKind, type KindIcon } from "@artiflow/domain/kinds";
 import { openArtifact } from "./editor-api.ts";
 import ShareModal from "./ShareModal.tsx";
 import DeleteModal from "./DeleteModal.tsx";
@@ -45,11 +45,12 @@ type Kind = "all" | ArtifactKind;
 const DASHBOARD_ICONS: Record<KindIcon, IconName> = {
   page: "html",
   document: "markdown",
+  canvas: "frame",
   unknown: "doc",
 };
 const KINDS: { value: Kind; label: string }[] = [
   { value: "all", label: "All" },
-  ...ARTIFACT_KINDS.map((kind) => ({ value: kind, label: `${labelFor(kind)}s` })),
+  ...ARTIFACT_KINDS.map((kind) => ({ value: kind, label: pluralFor(kind) })),
 ];
 type Sort = "updated" | "created" | "name";
 const SORTS: { value: Sort; label: string }[] = [

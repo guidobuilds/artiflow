@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const artifactKindSchema = z.enum(["html", "markdown", "unknown"]);
+export const artifactKindSchema = z.enum(["html", "markdown", "canvas", "unknown"]);
 export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 
 export const artifactSummarySchema = z.object({

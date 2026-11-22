@@ -6,11 +6,14 @@ import { artifactKindSchema } from "@artiflow/contracts/artifacts";
 import { COMMENT_ANCHOR_KINDS } from "@artiflow/contracts/comments";
 import { ANCHOR_KINDS_BY_DOCUMENT } from "@artiflow/domain/comment-anchors";
 import { mcpAppsViewerHtml } from "@artiflow/mcp-apps/viewer";
+import { displayName } from "@artiflow/plugin-core/associations";
+import { fileKind } from "@artiflow/plugin-core/write-kind";
 import {
   ARTIFACT_KINDS,
   KIND_CAPABILITIES,
   KIND_ICONS,
   UNKNOWN_KIND,
+  acceptsComments,
   acceptsTextOperations,
   agentWriteFor,
   anchorKindsFor,
@@ -23,6 +26,7 @@ import {
   isArtifactKind,
   kindForExtension,
   labelFor,
+  pluralFor,
   rendersInlineMarkdown,
   rendersSandboxedHtml,
   titleSourceFor,
@@ -39,9 +43,11 @@ type Surface = {
 
 const SURFACES: readonly Surface[] = [
   { capability: "label", resolve: labelFor },
+  { capability: "plural", resolve: pluralFor },
   { capability: "icon", resolve: iconFor },
   { capability: "viewer", resolve: viewerFor },
   { capability: "anchors", resolve: anchorKindsFor },
+  { capability: "comments", resolve: acceptsComments },
   { capability: "agentWrite", resolve: agentWriteFor },
   { capability: "titleSource", resolve: titleSourceFor },
   { capability: "appEdit", resolve: canEditInApp },
@@ -51,9 +57,11 @@ const SURFACES: readonly Surface[] = [
 const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
   html: {
     label: "Page",
+    plural: "Pages",
     icon: "page",
     viewer: "sandboxed-html",
     anchors: ["element", "page-point"],
+    comments: true,
     agentWrite: "replace-document",
     titleSource: "html-title",
     appEdit: false,
@@ -61,18 +69,38 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
   },
   markdown: {
     label: "Doc",
+    plural: "Docs",
     icon: "document",
     viewer: "inline-markdown",
     anchors: ["text-range"],
+    comments: true,
     agentWrite: "text-operations",
     titleSource: "first-heading",
     appEdit: true,
     extensions: [".md", ".markdown"],
   },
+  canvas: {
+    label: "Canvas",
+    plural: "Canvases",
+    icon: "canvas",
+    viewer: "scene",
+    anchors: [],
+    comments: false,
+    agentWrite: "replace-document",
+    titleSource: "frame-name",
+    appEdit: false,
+    extensions: [".canvas", ".scene.json"],
+  },
 };
 
 const unresolved = (value: unknown): boolean =>
   value === undefined || value === "" || value === null || (Array.isArray(value) && value.length === 0);
+
+const silent = (capability: keyof KindCapabilities, row: KindCapabilities | undefined): boolean =>
+  capability === "anchors" && row?.comments === false;
+
+const missing = (capability: keyof KindCapabilities, row: KindCapabilities | undefined, resolved: unknown): boolean =>
+  silent(capability, row) ? resolved === undefined : unresolved(resolved);
 
 const withoutRow = (kind: ArtifactKind): Record<string, KindCapabilities> => {
   const registry = { ...KIND_CAPABILITIES } as Record<string, KindCapabilities>;
@@ -103,7 +131,8 @@ function matrixGaps(registry: Record<string, KindCapabilities>): string[] {
     }
     for (const surface of SURFACES) {
       const resolved = surface.resolve(kind);
-      if (unresolved(resolved)) gaps.push(`${kind}: the ${surface.capability} surface resolves to nothing`);
+      if (missing(surface.capability, declared, resolved))
+        gaps.push(`${kind}: the ${surface.capability} surface resolves to nothing`);
       else if (JSON.stringify(resolved) !== JSON.stringify(declared[surface.capability]))
         gaps.push(`${kind}: the ${surface.capability} surface disagrees with the registry row`);
     }
@@ -153,7 +182,12 @@ test("the surface table covers every declared capability key", () => {
 test("each surface names a known kind rather than the unknown fallback", () => {
   for (const kind of ARTIFACT_KINDS) {
     assert.equal(isArtifactKind(kind), true);
-    for (const surface of SURFACES) assert.equal(unresolved(surface.resolve(kind)), false, surface.capability);
+    for (const surface of SURFACES)
+      assert.equal(
+        missing(surface.capability, KIND_CAPABILITIES[kind], surface.resolve(kind)),
+        false,
+        surface.capability,
+      );
     assert.equal(wireNameFor(kind), kind);
     assert.notEqual(wireNameFor(kind), UNKNOWN_KIND);
   }
@@ -163,7 +197,7 @@ test("each surface names a known kind rather than the unknown fallback", () => {
   assert.equal(capabilitiesFor("deck"), null);
 });
 
-test("the two shipped kinds declare exactly the capabilities the product promises", () => {
+test("every shipped kind declares exactly the capabilities the product promises", () => {
   for (const kind of ARTIFACT_KINDS) {
     const row = KIND_CAPABILITIES[kind];
     if (row === undefined) {
@@ -196,6 +230,39 @@ test("an icon outside the registry vocabulary is a gap, not a wrong picture", ()
       `the gap names ${capability}`,
     );
   }
+});
+
+test("every kind carries its own icon and its own plural, not the html ones", () => {
+  assert.deepEqual(ARTIFACT_KINDS.map(iconFor), ["page", "document", "canvas"], "a new kind gets its own icon");
+  assert.deepEqual(ARTIFACT_KINDS.map(pluralFor), ["Pages", "Docs", "Canvases"]);
+  for (const kind of ARTIFACT_KINDS)
+    assert.ok((KIND_ICONS as readonly string[]).includes(iconFor(kind)), `${kind} names a registry icon`);
+  assert.notEqual(
+    pluralFor("canvas"),
+    `${labelFor("canvas")}s`,
+    "a kind declares its plural instead of appending an s",
+  );
+  assert.equal(pluralFor(UNKNOWN_KIND), "Unknown");
+  assert.equal(pluralFor("deck"), "Unknown");
+});
+
+test("a canvas write derives its title from the first frame name", () => {
+  const scene = JSON.stringify({
+    formatVersion: 1,
+    frames: [
+      { id: "f1", name: "  Onboarding\n flow ", x: 0, y: 0, w: 100, h: 100, nodes: [] },
+      { id: "f2", name: "Second", x: 200, y: 0, w: 100, h: 100, nodes: [] },
+    ],
+  });
+  assert.equal(titleSourceFor("canvas"), "frame-name");
+  assert.equal(displayName({ kind: "canvas", text: scene }), "Onboarding flow");
+  assert.equal(displayName({ title: "Chosen", kind: "canvas", text: scene }), "Chosen", "an explicit title wins");
+  assert.equal(
+    displayName({ kind: "canvas", text: JSON.stringify({ formatVersion: 2, frames: [] }) }),
+    undefined,
+    "a newer scene is not half read for a title",
+  );
+  assert.equal(displayName({ kind: "canvas", text: "not json" }), undefined);
 });
 
 test("deleting a registry row breaks the matrix instead of passing silently", () => {
@@ -292,6 +359,7 @@ test("the composed predicates answer for every kind and fail closed for unknown 
 
 test("the contracts kind enum stays pinned to the registry plus unknown", () => {
   assert.deepEqual([...artifactKindSchema.options].sort(), [...ARTIFACT_KINDS, UNKNOWN_KIND].sort());
+  assert.deepEqual([...artifactKindSchema.options], ["html", "markdown", "canvas", "unknown"], "canvas is pinned");
 });
 
 test("every anchor kind the registry accepts is declared by the comment contract", () => {
@@ -331,7 +399,7 @@ test("the viewer generator emits one parseable script holding today's registry m
   assert.ok(script.length > 0, "the inline script is extractable");
   assert.doesNotThrow(() => new Script(script), "the script stays syntactically parseable");
   const map = JSON.stringify(Object.fromEntries(ARTIFACT_KINDS.map((kind) => [kind, viewerFor(kind)])));
-  assert.ok(script.includes(`var KIND_VIEWERS = ${map};`), "today's two kinds emit byte-identical map data");
+  assert.ok(script.includes(`var KIND_VIEWERS = ${map};`), "every kind's viewer strategy is the emitted map data");
   assert.equal(mcpAppsViewerHtml(KIND_CAPABILITIES), html, "the default capability map is the registry itself");
 });
 
@@ -340,6 +408,80 @@ test("file extensions map to a kind through the registry and fall back to the de
     for (const extension of extensionsFor(kind)) assert.equal(kindForExtension(extension), kind);
   assert.equal(kindForExtension(".MD"), "markdown");
   assert.equal(kindForExtension(".txt"), null);
+  assert.equal(kindForExtension(".canvas"), "canvas");
+  assert.equal(kindForExtension(".SCENE.JSON"), "canvas");
+  assert.equal(kindForExtension(".scene"), null, "the compound suffix is one extension, not two guesses");
+});
+
+test("a written file resolves to its kind by the longest declared suffix", () => {
+  for (const kind of ARTIFACT_KINDS)
+    for (const extension of extensionsFor(kind)) assert.equal(fileKind(`design${extension}`), kind, extension);
+  assert.deepEqual(
+    ["page.html", "legacy.HTM", "notes.md", "notes.Markdown", "readme.txt", "noext", "a.b.html"].map(fileKind),
+    ["html", "html", "markdown", "markdown", "html", "html", "html"],
+    "the kinds that shipped before the scene keep their mapping",
+  );
+  assert.equal(fileKind("board.scene.json"), "canvas", "the compound suffix beats the plain .json reading");
+  assert.equal(fileKind("board.CANVAS"), "canvas");
+});
+
+test("a canvas row that disappears or loses its row breaks the matrix", () => {
+  const removed = matrixGaps(withoutRow("canvas"));
+  assert.notEqual(removed.length, 0, "a scene kind with no row must be a gap");
+  assert.ok(
+    removed.some((gap) => gap === "canvas: ARTIFACT_KINDS declares a row this registry does not have"),
+    "the gap names canvas",
+  );
+  const audited = auditKindMatrix(withoutRow("canvas"));
+  assert.ok(
+    audited.some((gap) => gap.startsWith("canvas:")),
+    "the audit itself names canvas",
+  );
+});
+
+test("a kind may accept no anchors only when it declares that it has no comments", () => {
+  assert.deepEqual(auditKindMatrix(KIND_CAPABILITIES), [], "canvas accepts no anchors and says so");
+  assert.equal(acceptsComments("canvas"), false);
+  assert.deepEqual(anchorKindsFor("canvas"), []);
+
+  const lying = {
+    ...KIND_CAPABILITIES,
+    canvas: { ...KIND_CAPABILITIES.canvas, comments: true },
+  };
+  const gaps = matrixGaps(lying);
+  assert.notEqual(gaps.length, 0, "comments without anchors is still a gap");
+  assert.ok(
+    gaps.some((gap) => gap.startsWith("canvas:") && gap.includes("anchor")),
+    "the gap names the kind and its missing anchor kind",
+  );
+  assert.ok(
+    auditKindMatrix(lying).some((gap) => gap.startsWith("canvas:") && gap.includes("anchor")),
+    "the audit keeps the same rule",
+  );
+
+  const undeclared = { ...KIND_CAPABILITIES, canvas: { ...KIND_CAPABILITIES.canvas, comments: undefined as never } };
+  assert.ok(
+    auditKindMatrix(undeclared).some((gap) => gap.startsWith("canvas:") && gap.includes("comments")),
+    "a kind that never says whether it has comments is a gap",
+  );
+});
+
+test("a compound extension is a declared suffix, not a shape violation", () => {
+  assert.deepEqual(
+    extensionsFor("canvas").filter((extension) => extension.includes(".", 1)),
+    [".scene.json"],
+    "the scene extension is registered with both of its segments",
+  );
+  for (const extension of ["scene", ".Scene.json", "."] as const) {
+    const broken = {
+      ...KIND_CAPABILITIES,
+      canvas: { ...KIND_CAPABILITIES.canvas, extensions: [extension as never] },
+    };
+    assert.ok(
+      auditKindMatrix(broken).some((gap) => gap.includes("not a lowercase dotted suffix")),
+      `${JSON.stringify(extension)} is refused as an extension shape`,
+    );
+  }
 });
 
 test("an extension lookup against a registry without the row resolves to null instead of throwing", () => {

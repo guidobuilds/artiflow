@@ -55,7 +55,7 @@ export const artifacts = pgTable(
   (table) => [
     index("artifacts_ownerId_idx").on(table.ownerId),
     check("artifacts_observedSizeBytes_cap_check", atMost("observedSizeBytes", MAX_ARTIFACT_BYTES)),
-    check("artifacts_kind_check", sql`${sql.identifier("kind")} in ('html', 'markdown')`),
+    check("artifacts_kind_check", sql`${sql.identifier("kind")} in ('html', 'markdown', 'canvas')`),
     check("artifacts_publishedSeq_check", sql`${sql.identifier("publishedSeq")} >= 0`),
   ],
 );

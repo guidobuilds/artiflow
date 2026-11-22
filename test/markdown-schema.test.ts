@@ -26,9 +26,19 @@ const kindMigrationTag = journal.entries
   .map((entry) => entry.tag)
   .find((tag) => readFileSync(new URL(`${tag}.sql`, drizzleDir), "utf8").includes("artifacts_kind_check"));
 const latestSql = readFileSync(new URL(`${kindMigrationTag}.sql`, drizzleDir), "utf8");
+const kindCheckMigrations = journal.entries
+  .map((entry) => entry.tag)
+  .map((tag) => ({ tag, sql: readFileSync(new URL(`${tag}.sql`, drizzleDir), "utf8") }))
+  .filter((migration) => migration.sql.includes("artifacts_kind_check"));
 
 test("artifact kind is a defaulted, database-checked enum", () => {
-  assert.deepEqual([...ARTIFACT_KINDS], ["html", "markdown"]);
+  assert.deepEqual([...ARTIFACT_KINDS], ["html", "markdown", "canvas"]);
+  const latestCheck = kindCheckMigrations.at(-1);
+  assert.ok(latestCheck, "a migration keeps the kind check current");
+  const stored = [...(/CHECK \("kind" in \(([^)]*)\)\)/.exec(latestCheck.sql)?.[1] ?? "").matchAll(/'([^']+)'/g)].map(
+    (match) => match[1],
+  );
+  assert.deepEqual(stored, [...ARTIFACT_KINDS], "the registry and the database check agree on the stored kinds");
   assert.equal(DEFAULT_ARTIFACT_KIND, "html");
   const kind = columnsOf("artifacts").get("kind");
   assert.ok(kind, "artifacts.kind exists");

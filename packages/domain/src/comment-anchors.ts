@@ -24,6 +24,7 @@ const anchorsOf = (kind: ArtifactKind): readonly CommentAnchorKind[] => KIND_CAP
 export const ANCHOR_KINDS_BY_DOCUMENT: Record<ArtifactKind, readonly CommentAnchorKind[]> = {
   markdown: anchorsOf("markdown"),
   html: anchorsOf("html"),
+  canvas: anchorsOf("canvas"),
 };
 export const anchorKindsForDocument = (documentKind: string): readonly CommentAnchorKind[] =>
   anchorKindsFor(documentKind);

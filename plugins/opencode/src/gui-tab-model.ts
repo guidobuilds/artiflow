@@ -5,6 +5,7 @@ import type { Association } from "@artiflow/plugin-core/associations";
 const PLUGIN_ICONS: Record<KindIcon, UiIconProps["name"]> = {
   page: "globe",
   document: "file-document",
+  canvas: "dot-grid",
   unknown: "stop",
 };
 export const artifactIcon = (kind?: string): UiIconProps["name"] => PLUGIN_ICONS[iconFor(kind ?? "")];

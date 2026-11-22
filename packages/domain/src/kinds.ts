@@ -1,27 +1,29 @@
 import type { CommentAnchorKind } from "./comment-anchors.ts";
 
-export type KindViewer = "sandboxed-html" | "inline-markdown";
+export type KindViewer = "sandboxed-html" | "inline-markdown" | "scene";
 export type AgentWriteMode = "replace-document" | "text-operations";
-export type TitleSource = "html-title" | "first-heading";
+export type TitleSource = "html-title" | "first-heading" | "frame-name";
 
-export const KIND_VIEWERS: readonly KindViewer[] = ["sandboxed-html", "inline-markdown"];
+export const KIND_VIEWERS: readonly KindViewer[] = ["sandboxed-html", "inline-markdown", "scene"];
 export const AGENT_WRITE_MODES: readonly AgentWriteMode[] = ["replace-document", "text-operations"];
-export const TITLE_SOURCES: readonly TitleSource[] = ["html-title", "first-heading"];
-export const KIND_ICONS = ["page", "document", "unknown"] as const;
+export const TITLE_SOURCES: readonly TitleSource[] = ["html-title", "first-heading", "frame-name"];
+export const KIND_ICONS = ["page", "document", "canvas", "unknown"] as const;
 export type KindIcon = (typeof KIND_ICONS)[number];
 
 export type KindCapabilities = {
   label: string;
+  plural: string;
   icon: KindIcon;
   viewer: KindViewer;
   anchors: readonly CommentAnchorKind[];
+  comments: boolean;
   agentWrite: AgentWriteMode;
   titleSource: TitleSource;
   appEdit: boolean;
   extensions: readonly string[];
 };
 
-export const ARTIFACT_KINDS = ["html", "markdown"] as const;
+export const ARTIFACT_KINDS = ["html", "markdown", "canvas"] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 export const UNKNOWN_KIND = "unknown";
 export type WireKind = ArtifactKind | typeof UNKNOWN_KIND;
@@ -30,9 +32,11 @@ export const DEFAULT_ARTIFACT_KIND: ArtifactKind = "html";
 export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
   html: {
     label: "Page",
+    plural: "Pages",
     icon: "page",
     viewer: "sandboxed-html",
     anchors: ["element", "page-point"],
+    comments: true,
     agentWrite: "replace-document",
     titleSource: "html-title",
     appEdit: false,
@@ -40,19 +44,33 @@ export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
   },
   markdown: {
     label: "Doc",
+    plural: "Docs",
     icon: "document",
     viewer: "inline-markdown",
     anchors: ["text-range"],
+    comments: true,
     agentWrite: "text-operations",
     titleSource: "first-heading",
     appEdit: true,
     extensions: [".md", ".markdown"],
   },
+  canvas: {
+    label: "Canvas",
+    plural: "Canvases",
+    icon: "canvas",
+    viewer: "scene",
+    anchors: [],
+    comments: false,
+    agentWrite: "replace-document",
+    titleSource: "frame-name",
+    appEdit: false,
+    extensions: [".canvas", ".scene.json"],
+  },
 };
 
 const UNKNOWN_LABEL = "Unknown";
 const UNKNOWN_ICON: KindIcon = "unknown";
-const EXTENSION_SHAPE = /^\.[a-z0-9]+$/;
+const EXTENSION_SHAPE = /^\.[a-z0-9]+(?:\.[a-z0-9]+)*$/;
 
 export const isArtifactKind = (value: string): value is ArtifactKind =>
   (ARTIFACT_KINDS as readonly string[]).includes(value);
@@ -64,7 +82,11 @@ export const wireNameFor = (kind: string): WireKind => (isArtifactKind(kind) ? k
 
 export const anchorKindsFor = (kind: string): readonly CommentAnchorKind[] => capabilitiesFor(kind)?.anchors ?? [];
 
+export const acceptsComments = (kind: string): boolean => capabilitiesFor(kind)?.comments === true;
+
 export const labelFor = (kind: string): string => capabilitiesFor(kind)?.label ?? UNKNOWN_LABEL;
+
+export const pluralFor = (kind: string): string => capabilitiesFor(kind)?.plural ?? UNKNOWN_LABEL;
 
 export const iconFor = (kind: string): KindIcon => capabilitiesFor(kind)?.icon ?? UNKNOWN_ICON;
 
@@ -106,6 +128,7 @@ export function auditKindMatrix(registry: Record<string, KindCapabilities>): str
     if (!isArtifactKind(kind)) gaps.push(`${kind}: not declared in ARTIFACT_KINDS, so no surface resolves it`);
     if (capabilities === undefined) continue;
     if (blank(capabilities.label)) gaps.push(`${kind}: label is blank`);
+    if (blank(capabilities.plural)) gaps.push(`${kind}: plural label is blank`);
     if (!KIND_ICONS.includes(capabilities.icon))
       gaps.push(`${kind}: icon ${String(capabilities.icon)} is not in the registry icon vocabulary`);
     if (!KIND_VIEWERS.includes(capabilities.viewer))
@@ -114,10 +137,13 @@ export function auditKindMatrix(registry: Record<string, KindCapabilities>): str
       gaps.push(`${kind}: agent write ${String(capabilities.agentWrite)} is not a known write mode`);
     if (!TITLE_SOURCES.includes(capabilities.titleSource))
       gaps.push(`${kind}: title source ${String(capabilities.titleSource)} is not a known title source`);
-    if (!Array.isArray(capabilities.anchors) || capabilities.anchors.length === 0)
-      gaps.push(`${kind}: accepts no comment anchor kind`);
+    if (!Array.isArray(capabilities.anchors)) gaps.push(`${kind}: declares no comment anchors`);
     else if (new Set(capabilities.anchors).size !== capabilities.anchors.length)
       gaps.push(`${kind}: repeats a comment anchor kind`);
+    else if (capabilities.anchors.length === 0 && capabilities.comments !== false)
+      gaps.push(`${kind}: accepts no comment anchor kind`);
+    if (typeof capabilities.comments !== "boolean")
+      gaps.push(`${kind}: comments is ${String(capabilities.comments)}, not a declared boolean`);
     if (!Array.isArray(capabilities.extensions) || capabilities.extensions.length === 0)
       gaps.push(`${kind}: declares no file extension`);
     else
