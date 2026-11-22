@@ -301,7 +301,7 @@ test("the document tables carry their sequence, author and result checks", () =>
   assert.deepEqual([...DOCUMENT_AUTHOR_KINDS], ["person", "agent"]);
   assert.deepEqual([...DOCUMENT_OPERATION_RESULTS], ["applied", "rejected"]);
   assert.equal(DOCUMENT_FORMAT_VERSION, 1);
-  const sql0015 = readFileSync(new URL("0015_document_operations.sql", drizzleDir), "utf8");
+  const sql0020 = readFileSync(new URL("0020_flaky_night_thrasher.sql", drizzleDir), "utf8");
   const clauses = [
     `CONSTRAINT "documentOperations_seq_check" CHECK ("seq" >= 0)`,
     `CONSTRAINT "documentOperations_baseSeq_check" CHECK ("baseSeq" >= 0)`,
@@ -310,7 +310,7 @@ test("the document tables carry their sequence, author and result checks", () =>
     `CONSTRAINT "documentDrafts_seq_check" CHECK ("seq" >= 0)`,
     `CONSTRAINT "documentDrafts_formatVersion_check" CHECK ("formatVersion" >= 1)`,
   ];
-  for (const clause of clauses) assert.ok(sql0015.includes(clause), clause);
+  for (const clause of clauses) assert.ok(sql0020.includes(clause), clause);
 });
 
 test("the asset references cascade from the artifact and from the asset side", () => {
@@ -338,13 +338,10 @@ test("the asset references cascade from the artifact and from the asset side", (
   assert.ok(MAX_ASSET_BYTES < MAX_ARTIFACT_BYTES, "an asset cap stays below the artifact cap");
 });
 
-test("the 0017 migration only adds the asset tables, their keys and their index", () => {
-  assert.deepEqual(
-    readdirSync(drizzleDir).filter((name) => /^0017_.*\.sql$/.test(name)),
-    ["0017_public_dark_beast.sql"],
-  );
-  const sql0017 = readFileSync(new URL("0017_public_dark_beast.sql", drizzleDir), "utf8");
-  assert.deepEqual(statementsOf(sql0017), [
+test("the 0020 migration only adds the asset tables, their keys and their index", () => {
+  const sql0020 = readFileSync(new URL("0020_flaky_night_thrasher.sql", drizzleDir), "utf8");
+  const assetStatements = statementsOf(sql0020).filter((statement) => /"(assets|artifactAssets)"/.test(statement));
+  assert.deepEqual(assetStatements, [
     `CREATE TABLE "artifactAssets" (
 	"artifactId" text NOT NULL,
 	"assetSha256" text NOT NULL,
@@ -365,26 +362,18 @@ test("the 0017 migration only adds the asset tables, their keys and their index"
     `ALTER TABLE "artifactAssets" ADD CONSTRAINT "artifactAssets_assetSha256_assets_sha256_fk" FOREIGN KEY ("assetSha256") REFERENCES "public"."assets"("sha256") ON DELETE cascade ON UPDATE no action;`,
     `CREATE INDEX "artifactAssets_assetSha256_idx" ON "artifactAssets" USING btree ("assetSha256");`,
   ]);
-  for (const statement of statementsOf(sql0017)) {
+  for (const statement of assetStatements) {
     assert.match(statement, /^(CREATE TABLE|CREATE INDEX|ALTER TABLE "artifactAssets" ADD CONSTRAINT)/, statement);
     assert.equal(/^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(statement), false, "additive only");
   }
-  assert.equal(sql0017.includes('ALTER TABLE "artifacts"'), false, "no existing table is altered");
+  assert.equal(sql0020.includes('CREATE TABLE "artifacts"'), false, "no existing table is redefined");
   for (const existing of ["artifacts", "artifactRevisions", "artifactUploads", "artifactChunks"])
-    assert.equal(sql0017.includes(`TABLE "${existing}"`), false, `does not redefine ${existing}`);
-  const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
-    entries: { idx: number; tag: string }[];
-  };
-  assert.deepEqual(
-    journal.entries.slice(17, 18).map((entry) => [entry.idx, entry.tag]),
-    [[17, "0017_public_dark_beast"]],
-    "the journal records a contiguous seventeenth migration",
-  );
-  const snapshot = JSON.parse(readFileSync(new URL("meta/0017_snapshot.json", drizzleDir), "utf8")) as {
+    assert.equal(sql0020.includes(`CREATE TABLE "${existing}"`), false, `does not redefine ${existing}`);
+  const snapshot = JSON.parse(readFileSync(new URL("meta/0020_snapshot.json", drizzleDir), "utf8")) as {
     prevId: string;
     tables: Record<string, { columns: Record<string, unknown>; checkConstraints: Record<string, { value: string }> }>;
   };
-  const previous = JSON.parse(readFileSync(new URL("meta/0016_snapshot.json", drizzleDir), "utf8")) as { id: string };
+  const previous = JSON.parse(readFileSync(new URL("meta/0019_snapshot.json", drizzleDir), "utf8")) as { id: string };
   assert.equal(snapshot.prevId, previous.id, "the snapshot chains onto the previous one");
   assert.deepEqual(Object.keys(snapshot.tables["public.assets"]?.columns ?? {}), [
     "sha256",
@@ -576,16 +565,30 @@ test("the existing read schemas keep their legacy shapes next to the projection"
   assert.equal(artifactDetailSchema.safeParse(metadata).success, false, "detail reads by id, not artifactId");
 });
 
-test("the 0015 migration adds the operation log, the draft and the snapshot columns", () => {
+test("the 0020 migration adds the operation log, the draft, the asset tables and the snapshot columns", () => {
   assert.deepEqual(
-    readdirSync(drizzleDir).filter((name) => /^0015_.*\.sql$/.test(name)),
-    ["0015_document_operations.sql"],
+    readdirSync(drizzleDir).filter((name) => /^0020_.*\.sql$/.test(name)),
+    ["0020_flaky_night_thrasher.sql"],
   );
-  const sql0015 = readFileSync(new URL("0015_document_operations.sql", drizzleDir), "utf8");
-  assert.deepEqual(
-    sql0015.split("--> statement-breakpoint").map((part) => part.trim()),
-    [
-      `CREATE TABLE "documentDrafts" (
+  const sql0020 = readFileSync(new URL("0020_flaky_night_thrasher.sql", drizzleDir), "utf8");
+  assert.deepEqual(statementsOf(sql0020), [
+    `CREATE TABLE "artifactAssets" (
+	"artifactId" text NOT NULL,
+	"assetSha256" text NOT NULL,
+	"firstSeenAt" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "artifactAssets_artifactId_assetSha256_pk" PRIMARY KEY("artifactId","assetSha256")
+);`,
+    `CREATE TABLE "assets" (
+	"sha256" text PRIMARY KEY NOT NULL,
+	"sizeBytes" integer NOT NULL,
+	"contentType" text NOT NULL,
+	"storageKey" text NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "assets_sizeBytes_cap_check" CHECK ("sizeBytes" <= ${MAX_ASSET_BYTES}),
+	CONSTRAINT "assets_sha256_hex_check" CHECK ("sha256" ~ '^[0-9a-f]{64}$'),
+	CONSTRAINT "assets_contentType_check" CHECK ("contentType" in (${[...ASSET_CONTENT_TYPES].map((type) => `'${type}'`).join(", ")}))
+);`,
+    `CREATE TABLE "documentDrafts" (
 	"artifactId" text PRIMARY KEY NOT NULL,
 	"seq" integer DEFAULT 0 NOT NULL,
 	"formatVersion" integer DEFAULT 1 NOT NULL,
@@ -595,7 +598,7 @@ test("the 0015 migration adds the operation log, the draft and the snapshot colu
 	CONSTRAINT "documentDrafts_seq_check" CHECK ("seq" >= 0),
 	CONSTRAINT "documentDrafts_formatVersion_check" CHECK ("formatVersion" >= 1)
 );`,
-      `CREATE TABLE "documentOperations" (
+    `CREATE TABLE "documentOperations" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"artifactId" text NOT NULL,
 	"seq" integer NOT NULL,
@@ -611,40 +614,55 @@ test("the 0015 migration adds the operation log, the draft and the snapshot colu
 	CONSTRAINT "documentOperations_authorKind_check" CHECK ("authorKind" in ('person', 'agent')),
 	CONSTRAINT "documentOperations_result_check" CHECK ("result" in ('applied', 'rejected'))
 );`,
-      `ALTER TABLE "artifactRevisions" ADD COLUMN "formatVersion" integer DEFAULT 1 NOT NULL;`,
-      `ALTER TABLE "artifactRevisions" ADD COLUMN "seqFrom" integer DEFAULT 0 NOT NULL;`,
-      `ALTER TABLE "artifactRevisions" ADD COLUMN "seqTo" integer DEFAULT 0 NOT NULL;`,
-      `ALTER TABLE "artifactRevisions" ADD COLUMN "blockIndex" jsonb;`,
-      `ALTER TABLE "artifacts" ADD COLUMN "publishedSeq" integer DEFAULT 0 NOT NULL;`,
-      `ALTER TABLE "documentDrafts" ADD CONSTRAINT "documentDrafts_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
-      `ALTER TABLE "documentDrafts" ADD CONSTRAINT "documentDrafts_updatedByUserId_user_id_fk" FOREIGN KEY ("updatedByUserId") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;`,
-      `ALTER TABLE "documentOperations" ADD CONSTRAINT "documentOperations_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
-      `CREATE UNIQUE INDEX "documentOperations_artifactId_seq_unique" ON "documentOperations" USING btree ("artifactId","seq") WHERE "result" = 'applied';`,
-      `CREATE UNIQUE INDEX "documentOperations_idempotencyKey_unique" ON "documentOperations" USING btree ("idempotencyKey");`,
-      `ALTER TABLE "artifactRevisions" ADD CONSTRAINT "artifactRevisions_formatVersion_check" CHECK ("formatVersion" >= 1);`,
-      `ALTER TABLE "artifactRevisions" ADD CONSTRAINT "artifactRevisions_seqRange_check" CHECK ("seqFrom" >= 0 and "seqTo" >= "seqFrom");`,
-      `ALTER TABLE "artifacts" ADD CONSTRAINT "artifacts_publishedSeq_check" CHECK ("publishedSeq" >= 0);`,
-    ],
-  );
+    `ALTER TABLE "artifacts" DROP CONSTRAINT "artifacts_kind_check", ADD CONSTRAINT "artifacts_kind_check" CHECK ("kind" in ('html', 'markdown', 'canvas', 'deck'));`,
+    `ALTER TABLE "artifactRevisions" ADD COLUMN "formatVersion" integer DEFAULT 1 NOT NULL;`,
+    `ALTER TABLE "artifactRevisions" ADD COLUMN "seqFrom" integer DEFAULT 0 NOT NULL;`,
+    `ALTER TABLE "artifactRevisions" ADD COLUMN "seqTo" integer DEFAULT 0 NOT NULL;`,
+    `ALTER TABLE "artifactRevisions" ADD COLUMN "blockIndex" jsonb;`,
+    `ALTER TABLE "artifacts" ADD COLUMN "publishedSeq" integer DEFAULT 0 NOT NULL;`,
+    `ALTER TABLE "artifactAssets" ADD CONSTRAINT "artifactAssets_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
+    `ALTER TABLE "artifactAssets" ADD CONSTRAINT "artifactAssets_assetSha256_assets_sha256_fk" FOREIGN KEY ("assetSha256") REFERENCES "public"."assets"("sha256") ON DELETE cascade ON UPDATE no action;`,
+    `ALTER TABLE "documentDrafts" ADD CONSTRAINT "documentDrafts_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
+    `ALTER TABLE "documentDrafts" ADD CONSTRAINT "documentDrafts_updatedByUserId_user_id_fk" FOREIGN KEY ("updatedByUserId") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;`,
+    `ALTER TABLE "documentOperations" ADD CONSTRAINT "documentOperations_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
+    `CREATE INDEX "artifactAssets_assetSha256_idx" ON "artifactAssets" USING btree ("assetSha256");`,
+    `CREATE UNIQUE INDEX "documentOperations_artifactId_seq_unique" ON "documentOperations" USING btree ("artifactId","seq") WHERE "result" = 'applied';`,
+    `CREATE UNIQUE INDEX "documentOperations_idempotencyKey_unique" ON "documentOperations" USING btree ("idempotencyKey");`,
+    `ALTER TABLE "artifactRevisions" ADD CONSTRAINT "artifactRevisions_formatVersion_check" CHECK ("formatVersion" >= 1);`,
+    `ALTER TABLE "artifactRevisions" ADD CONSTRAINT "artifactRevisions_seqRange_check" CHECK ("seqFrom" >= 0 and "seqTo" >= "seqFrom");`,
+    `ALTER TABLE "artifacts" ADD CONSTRAINT "artifacts_publishedSeq_check" CHECK ("publishedSeq" >= 0);`,
+  ]);
   assert.equal(
-    /^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(sql0015),
+    /^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(sql0020),
     false,
     "additive tables, columns and constraints only",
   );
-  assert.equal(sql0015.includes("artifacts_kind_check"), false, "the kind check is untouched");
   const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
     entries: { idx: number; tag: string }[];
   };
+  assert.equal(journal.entries.length, 21, "the journal chains every migration, the branch's included");
   assert.deepEqual(
-    journal.entries.slice(0, 16).map((entry) => [entry.idx, entry.tag]),
-    [...journal.entries.slice(0, 15).map((entry, index) => [index, entry.tag]), [15, "0015_document_operations"]],
-    "the journal records a contiguous sixteenth migration",
+    journal.entries.map((entry) => entry.idx),
+    journal.entries.map((_, index) => index),
+    "the journal index is contiguous from zero",
   );
-  const snapshot = JSON.parse(readFileSync(new URL("meta/0015_snapshot.json", drizzleDir), "utf8")) as {
+  assert.deepEqual(
+    [journal.entries.at(-1)?.idx, journal.entries.at(-1)?.tag],
+    [20, "0020_flaky_night_thrasher"],
+    "the new migration is the last entry",
+  );
+  assert.deepEqual(
+    readdirSync(drizzleDir)
+      .filter((name) => name.endsWith(".sql"))
+      .sort(),
+    journal.entries.map((entry) => `${entry.tag}.sql`).sort(),
+    "every journal entry owns one file and no superseded migration stays behind",
+  );
+  const snapshot = JSON.parse(readFileSync(new URL("meta/0020_snapshot.json", drizzleDir), "utf8")) as {
     prevId: string;
     tables: Record<string, { columns: Record<string, unknown> }>;
   };
-  const previous = JSON.parse(readFileSync(new URL("meta/0014_snapshot.json", drizzleDir), "utf8")) as { id: string };
+  const previous = JSON.parse(readFileSync(new URL("meta/0019_snapshot.json", drizzleDir), "utf8")) as { id: string };
   assert.equal(snapshot.prevId, previous.id, "the snapshot chains onto the previous one");
   assert.deepEqual(Object.keys(snapshot.tables["public.documentOperations"]?.columns ?? {}), [
     "id",
@@ -668,77 +686,21 @@ test("the 0015 migration adds the operation log, the draft and the snapshot colu
   ]);
 });
 
-test("the 0018 migration widens the stored kind to the deck row in one statement", () => {
-  assert.deepEqual(
-    readdirSync(drizzleDir).filter((name) => /^0018_.*\.sql$/.test(name)),
-    ["0018_deck_kind.sql"],
-  );
-  const sql0018 = readFileSync(new URL("0018_deck_kind.sql", drizzleDir), "utf8");
-  const statements = sql0018
-    .split("--> statement-breakpoint")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-  assert.deepEqual(statements, [
+test("the 0020 migration widens the stored kind to the four rows in one statement", () => {
+  const sql0020 = readFileSync(new URL("0020_flaky_night_thrasher.sql", drizzleDir), "utf8");
+  const kindStatements = statementsOf(sql0020).filter((statement) => statement.includes("artifacts_kind_check"));
+  assert.deepEqual(kindStatements, [
     `ALTER TABLE "artifacts" DROP CONSTRAINT "artifacts_kind_check", ADD CONSTRAINT "artifacts_kind_check" CHECK ("kind" in ('html', 'markdown', 'canvas', 'deck'));`,
   ]);
-  assert.equal(statements.length, 1, "the drop and the add are one statement, so kind is never left unconstrained");
-  assert.equal(sql0018.includes("artifacts_publishedSeq_check"), false, "the other artifact checks are untouched");
-  assert.equal(/^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(sql0018), false, "no table or data change");
-  const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
-    entries: { idx: number; tag: string }[];
-  };
-  assert.deepEqual(
-    journal.entries.slice(0, 19).map((entry) => [entry.idx, entry.tag]),
-    [...journal.entries.slice(0, 18).map((entry, index) => [index, entry.tag]), [18, "0018_deck_kind"]],
-    "the journal records a contiguous nineteenth migration",
-  );
-  const snapshot = JSON.parse(readFileSync(new URL("meta/0018_snapshot.json", drizzleDir), "utf8")) as {
+  assert.equal(kindStatements.length, 1, "the drop and the add are one statement, so kind is never left unconstrained");
+  const snapshot = JSON.parse(readFileSync(new URL("meta/0020_snapshot.json", drizzleDir), "utf8")) as {
     prevId: string;
     tables: Record<string, { checkConstraints: Record<string, { value: string }> }>;
   };
-  const previous = JSON.parse(readFileSync(new URL("meta/0017_snapshot.json", drizzleDir), "utf8")) as { id: string };
-  assert.equal(snapshot.prevId, previous.id, "the snapshot chains onto the previous one");
   const stored = [
     ...(snapshot.tables["public.artifacts"]?.checkConstraints["artifacts_kind_check"]?.value ?? "").matchAll(
       /'([^']+)'/g,
     ),
   ].map((match) => match[1]);
   assert.deepEqual(stored, [...ARTIFACT_KINDS], "the snapshot check and the registry agree on the four stored kinds");
-});
-
-test("the 0016 migration widens the stored kind to the scene row in one statement", () => {
-  assert.deepEqual(
-    readdirSync(drizzleDir).filter((name) => /^0016_.*\.sql$/.test(name)),
-    ["0016_absurd_rawhide_kid.sql"],
-  );
-  const sql0016 = readFileSync(new URL("0016_absurd_rawhide_kid.sql", drizzleDir), "utf8");
-  const statements = sql0016.split("--> statement-breakpoint").map((part) => part.trim());
-  assert.deepEqual(statements, [
-    `ALTER TABLE "artifacts" DROP CONSTRAINT "artifacts_kind_check", ADD CONSTRAINT "artifacts_kind_check" CHECK ("kind" in ('html', 'markdown', 'canvas'));`,
-  ]);
-  assert.equal(statements.length, 1, "the drop and the add are one statement, so kind is never left unconstrained");
-  assert.equal(sql0016.includes("artifacts_publishedSeq_check"), false, "the other artifact checks are untouched");
-  const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
-    entries: { idx: number; tag: string }[];
-  };
-  assert.deepEqual(
-    journal.entries.slice(0, 17).map((entry) => [entry.idx, entry.tag]),
-    [...journal.entries.slice(0, 16).map((entry, index) => [index, entry.tag]), [16, "0016_absurd_rawhide_kid"]],
-  );
-  const snapshot = JSON.parse(readFileSync(new URL("meta/0016_snapshot.json", drizzleDir), "utf8")) as {
-    prevId: string;
-    tables: Record<string, { checkConstraints: Record<string, { value: string }> }>;
-  };
-  const previous = JSON.parse(readFileSync(new URL("meta/0015_snapshot.json", drizzleDir), "utf8")) as { id: string };
-  assert.equal(snapshot.prevId, previous.id, "the snapshot chains onto the previous one");
-  const stored = [
-    ...(snapshot.tables["public.artifacts"]?.checkConstraints["artifacts_kind_check"]?.value ?? "").matchAll(
-      /'([^']+)'/g,
-    ),
-  ].map((match) => match[1]);
-  assert.deepEqual(
-    stored,
-    ["html", "markdown", "canvas"],
-    "the snapshot records exactly the three kinds this migration widened the check to",
-  );
 });

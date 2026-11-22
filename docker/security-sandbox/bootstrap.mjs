@@ -8,7 +8,10 @@ const TARGET_TEST = "docker/security-sandbox/reproducer.integration.ts";
 const EXIT_ISOLATION = 10;
 const EXIT_SPAWN = 11;
 const EXIT_INCOMPLETE = 12;
-const INTEGRATION_FIXTURES = ["apps/dashboard/src/auth-client.ts", "apps/web/src/content/docs/docs/start/quickstart.md"];
+const INTEGRATION_FIXTURES = [
+  "apps/dashboard/src/auth-client.ts",
+  "apps/web/src/content/docs/docs/start/quickstart.md",
+];
 const SUITE_PATH = /^test\/[A-Za-z0-9._-]+\.(test|integration)\.ts$/;
 const MAX_SUITES = 32;
 const SUITE_CAPTURE_LIMIT = 64 * 1024;
@@ -167,11 +170,11 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
 
 if (MODE !== "integration") {
   console.log(`[bootstrap] target execution starting: node --test ${TARGET_TEST}`);
-  const child = spawn(
-    process.execPath,
-    ["--test", "--test-reporter=tap", "--test-timeout=180000", TARGET_TEST],
-    { cwd: "/work", env: process.env, stdio: "inherit" },
-  );
+  const child = spawn(process.execPath, ["--test", "--test-reporter=tap", "--test-timeout=180000", TARGET_TEST], {
+    cwd: "/work",
+    env: process.env,
+    stdio: "inherit",
+  });
   children.add(child);
   child.once("error", (error) => {
     console.error(`[bootstrap] could not spawn the target test: ${error.message}`);
@@ -263,7 +266,13 @@ function tally(text) {
     for (const match of text.matchAll(new RegExp(`^# ${label} (\\d+)$`, "gm"))) value = Number(match[1]);
     return value;
   };
-  return { tests: read("tests"), pass: read("pass"), fail: read("fail"), skipped: read("skipped"), cancelled: read("cancelled") };
+  return {
+    tests: read("tests"),
+    pass: read("pass"),
+    fail: read("fail"),
+    skipped: read("skipped"),
+    cancelled: read("cancelled"),
+  };
 }
 
 function skipReasons(text) {

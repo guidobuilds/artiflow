@@ -1,10 +1,12 @@
 import { createDatabase, type Database } from "../adapters/postgres/db/client.ts";
 import { ConfigError, loadConfig } from "../config.ts";
 import { canonicalizeEmail, isEmailAddress } from "../invites/token.ts";
+import { recordConsoleAdminEvent } from "../logging/admin-events.ts";
 import { issuePasswordReset } from "../password-reset/service.ts";
 import { resetPasswordUrl } from "../password-reset/token.ts";
 
 const USAGE = "usage: bun run user:reset-password EMAIL";
+const CONSOLE_ACTOR_ID = "console";
 const HELP = `${USAGE}
 Print one single-use password reset URL for an existing account. The link expires in 1 hour.
 An unknown account is refused: this command never creates accounts and never changes a password.`;
@@ -40,6 +42,13 @@ async function reset(email: string): Promise<number> {
     if (issued.kind === "no-account") {
       return refuse("password-reset: no account exists for that address; this command never creates an account.");
     }
+    recordConsoleAdminEvent({
+      event: "password.reset.issued",
+      actorId: CONSOLE_ACTOR_ID,
+      actorRole: "console",
+      subjectId: issued.userId,
+      outcome: "applied",
+    });
     process.stdout.write(`${resetPasswordUrl(config.publicOrigin, issued.token)}\n`);
     return 0;
   } catch (error) {

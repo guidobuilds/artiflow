@@ -38,7 +38,14 @@ function harness(
     getMarkdown: async (input: unknown) =>
       record(
         "getMarkdown",
-        overrides.getMarkdown ?? { artifactId: "a", revisionId: "r1", lineCount: 2, from: 1, to: 2, lines: ["# A", ""] },
+        overrides.getMarkdown ?? {
+          artifactId: "a",
+          revisionId: "r1",
+          lineCount: 2,
+          from: 1,
+          to: 2,
+          lines: ["# A", ""],
+        },
         input,
       ),
     editLines: async (input: unknown) =>
@@ -143,7 +150,13 @@ test("an instance refusal on write is returned verbatim and records no associati
   const refusal = { error: "wrong_kind", message: "artifact_kind_mismatch" };
   const h = harness({ write: new ArtifactRefusal(refusal) });
   assert.deepEqual(
-    await executeArtifactTool("write", { text: "<p>x</p>", artifactId: "a", expectedRevisionId: "r1" }, h.context, h.auth, h.associations),
+    await executeArtifactTool(
+      "write",
+      { text: "<p>x</p>", artifactId: "a", expectedRevisionId: "r1" },
+      h.context,
+      h.auth,
+      h.associations,
+    ),
     { content: JSON.stringify(refusal) },
   );
   assert.deepEqual(h.events, []);

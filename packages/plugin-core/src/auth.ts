@@ -185,8 +185,7 @@ export class ArtiflowAuth {
   api<T>(operation: (api: ArtifactApi) => Promise<T>, signal?: AbortSignal): Promise<T> {
     return this.enqueue(() =>
       this.consenting.authorized(
-        (token) =>
-          operation(createArtifactApi({ base: this.base, token, request: this.request, signal })),
+        (token) => operation(createArtifactApi({ base: this.base, token, request: this.request, signal })),
         signal,
       ),
     );
@@ -207,8 +206,7 @@ export class ArtiflowAuth {
     return this.enqueue(async () => {
       try {
         return { token: await this.consenting.authorized((access) => this.proven(access)) };
-      } catch {
-      }
+      } catch {}
       try {
         return { token: await this.reauthorize.authorized((access) => this.proven(access)) };
       } catch (error) {

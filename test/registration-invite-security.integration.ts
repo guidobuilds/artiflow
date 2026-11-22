@@ -127,9 +127,7 @@ invite("a credential-creation fault rolls back and leaves the invitation usable"
        RETURN NEW;
      END $$`,
   );
-  await pool.query(
-    `CREATE TRIGGER ${fault} BEFORE INSERT ON "account" FOR EACH ROW EXECUTE FUNCTION ${fault}()`,
-  );
+  await pool.query(`CREATE TRIGGER ${fault} BEFORE INSERT ON "account" FOR EACH ROW EXECUTE FUNCTION ${fault}()`);
   try {
     const failed = await invitePost(harness, COMPLETE_PATH, {
       token: issued.token,
@@ -159,7 +157,10 @@ invite("two concurrent completions of one token produce exactly one account", as
     invitePost(harness, COMPLETE_PATH, { token: issued.token, ...first }),
     invitePost(harness, COMPLETE_PATH, { token: issued.token, ...second }),
   ]);
-  assert.deepEqual([a.status, b.status].sort((x, y) => x - y), [200, 400]);
+  assert.deepEqual(
+    [a.status, b.status].sort((x, y) => x - y),
+    [200, 400],
+  );
 
   const winner = a.status === 200 ? first : second;
   const loser = a.status === 200 ? second : first;
@@ -186,9 +187,14 @@ invite("the origin and JSON guard also covers the new registration paths", async
     (await invitePost(harness, PREVIEW_PATH, { token: issued.token }, { "content-type": "text/plain" })).status,
     415,
   );
-  const form = await invitePost(harness, COMPLETE_PATH, { token: issued.token, ...invitationCredential() }, {
-    "content-type": "application/x-www-form-urlencoded",
-  });
+  const form = await invitePost(
+    harness,
+    COMPLETE_PATH,
+    { token: issued.token, ...invitationCredential() },
+    {
+      "content-type": "application/x-www-form-urlencoded",
+    },
+  );
   assert.equal(form.status, 415);
 
   const preview = await invitePost(harness, PREVIEW_PATH, { token: issued.token });

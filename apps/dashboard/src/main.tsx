@@ -5,6 +5,11 @@ import { ThemeProvider } from "@/components/app/theme-provider.tsx";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import AccountPage from "./AccountPage.tsx";
+import AdminAccessPage from "./AdminAccessPage.tsx";
+import AdminInvitationsPage from "./AdminInvitationsPage.tsx";
+import AdminPasswordPolicyPage from "./AdminPasswordPolicyPage.tsx";
+import AdminSsoPage from "./AdminSsoPage.tsx";
+import AdminUsersPage from "./AdminUsersPage.tsx";
 import CanvasEditorPage from "./CanvasEditorPage.tsx";
 import ConsentPage from "./ConsentPage.tsx";
 import LibraryPage from "./LibraryPage.tsx";
@@ -36,6 +41,16 @@ const page =
     <LibraryPage connect />
   ) : path === "/account" ? (
     <AccountPage />
+  ) : path === "/admin/users" ? (
+    <AdminUsersPage />
+  ) : path === "/admin/access" ? (
+    <AdminAccessPage />
+  ) : path === "/admin/sso" ? (
+    <AdminSsoPage />
+  ) : path === "/admin/password-policy" ? (
+    <AdminPasswordPolicyPage />
+  ) : path === "/admin/invitations" ? (
+    <AdminInvitationsPage />
   ) : edit ? (
     <EditorPage artifactId={edit[1]!} />
   ) : canvas ? (

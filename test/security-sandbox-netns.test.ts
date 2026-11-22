@@ -29,10 +29,12 @@ const procNetDev = (names: string[]): string =>
   [
     "Inter-|   Receive                                                |  Transmit",
     " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed",
-    ...names.map((name) => `    ${name}:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0`),
+    ...names.map(
+      (name) =>
+        `    ${name}:       0       0    0    0    0     0          0         0        0       0    0    0    0     0       0          0`,
+    ),
   ].join("\n") + "\n";
-const ROUTE_HEADER =
-  "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT";
+const ROUTE_HEADER = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT";
 const procNetRoute = (rows: string[] = []): string => [ROUTE_HEADER, ...rows].join("\n") + "\n";
 const procNetIfInet6 = (rows: string[]): string => rows.join("\n") + "\n";
 const LOOPBACK_V6 = "00000000000000000000000000000001 01 80 10 80       lo";
@@ -47,19 +49,31 @@ test("pseudo tunnels next to lo are accepted: routes and addresses stay loopback
 });
 
 test("an extra real network device is rejected", () => {
-  const verdict = isLoopbackOnly(procNetDev([...PSEUDO_DEVICES, "eth0"]), procNetRoute(), procNetIfInet6([LOOPBACK_V6]));
+  const verdict = isLoopbackOnly(
+    procNetDev([...PSEUDO_DEVICES, "eth0"]),
+    procNetRoute(),
+    procNetIfInet6([LOOPBACK_V6]),
+  );
   assert.equal(verdict.isolated, false, "a routable interface must never pass");
   assert.match(String(verdict.reason), /unexpected network device eth0/);
 });
 
 test("a default route is rejected", () => {
-  const verdict = isLoopbackOnly(procNetDev(PSEUDO_DEVICES), procNetRoute([DEFAULT_ROUTE_V4]), procNetIfInet6([LOOPBACK_V6]));
+  const verdict = isLoopbackOnly(
+    procNetDev(PSEUDO_DEVICES),
+    procNetRoute([DEFAULT_ROUTE_V4]),
+    procNetIfInet6([LOOPBACK_V6]),
+  );
   assert.equal(verdict.isolated, false, "a default route means the namespace is not isolated");
   assert.match(String(verdict.reason), /default IPv4 route/);
 });
 
 test("a non-loopback IPv6 address is rejected", () => {
-  const verdict = isLoopbackOnly(procNetDev(PSEUDO_DEVICES), procNetRoute(), procNetIfInet6([LOOPBACK_V6, LINK_LOCAL_V6]));
+  const verdict = isLoopbackOnly(
+    procNetDev(PSEUDO_DEVICES),
+    procNetRoute(),
+    procNetIfInet6([LOOPBACK_V6, LINK_LOCAL_V6]),
+  );
   assert.equal(verdict.isolated, false, "a routable IPv6 address must never pass");
   assert.match(String(verdict.reason), /non-loopback IPv6 address/);
 });

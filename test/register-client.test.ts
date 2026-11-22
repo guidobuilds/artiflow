@@ -7,11 +7,7 @@ type Result<T> = { ok: true; value: T } | { ok: false; error: string };
 type InvitationApi = {
   tokenFromFragment: (hash: string) => string | null;
   previewInvitation: (token: string) => Promise<Result<{ email: string }>>;
-  completeInvitation: (input: {
-    token: string;
-    name: string;
-    password: string;
-  }) => Promise<Result<{ created: true }>>;
+  completeInvitation: (input: { token: string; name: string; password: string }) => Promise<Result<{ created: true }>>;
 };
 
 function invitationApi(): InvitationApi {

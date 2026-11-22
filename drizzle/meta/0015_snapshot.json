@@ -1,5 +1,5 @@
 {
-  "id": "bc0b9de3-028c-41c1-bfc2-d1d3c87db7e2",
+  "id": "1e1267da-90a3-42e2-9d8f-878114070a8b",
   "prevId": "2103c590-9e93-473f-9b11-114ebd9d7ed9",
   "version": "7",
   "dialect": "postgresql",
@@ -188,6 +188,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "impersonatedBy": {
+          "name": "impersonatedBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp with time zone",
@@ -281,6 +287,32 @@
         "image": {
           "name": "image",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'member'"
+        },
+        "banned": {
+          "name": "banned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "banReason": {
+          "name": "banReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "banExpires": {
+          "name": "banExpires",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -2012,27 +2044,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "formatVersion": {
-          "name": "formatVersion",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "seqFrom": {
-          "name": "seqFrom",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "seqTo": {
-          "name": "seqTo",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "sizeBytes": {
           "name": "sizeBytes",
           "type": "integer",
@@ -2050,12 +2061,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "blockIndex": {
-          "name": "blockIndex",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "createdAt": {
           "name": "createdAt",
@@ -2129,14 +2134,6 @@
         "artifactRevisions_sha256_hex_check": {
           "name": "artifactRevisions_sha256_hex_check",
           "value": "\"sha256\" ~ '^[0-9a-f]{64}$'"
-        },
-        "artifactRevisions_formatVersion_check": {
-          "name": "artifactRevisions_formatVersion_check",
-          "value": "\"formatVersion\" >= 1"
-        },
-        "artifactRevisions_seqRange_check": {
-          "name": "artifactRevisions_seqRange_check",
-          "value": "\"seqFrom\" >= 0 and \"seqTo\" >= \"seqFrom\""
         }
       },
       "isRLSEnabled": false
@@ -2435,13 +2432,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "publishedSeq": {
-          "name": "publishedSeq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "kind": {
           "name": "kind",
           "type": "text",
@@ -2526,242 +2516,6 @@
         "artifacts_kind_check": {
           "name": "artifacts_kind_check",
           "value": "\"kind\" in ('html', 'markdown')"
-        },
-        "artifacts_publishedSeq_check": {
-          "name": "artifacts_publishedSeq_check",
-          "value": "\"publishedSeq\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.documentDrafts": {
-      "name": "documentDrafts",
-      "schema": "",
-      "columns": {
-        "artifactId": {
-          "name": "artifactId",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "seq": {
-          "name": "seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "formatVersion": {
-          "name": "formatVersion",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "state": {
-          "name": "state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updatedByUserId": {
-          "name": "updatedByUserId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "documentDrafts_artifactId_artifacts_id_fk": {
-          "name": "documentDrafts_artifactId_artifacts_id_fk",
-          "tableFrom": "documentDrafts",
-          "tableTo": "artifacts",
-          "columnsFrom": [
-            "artifactId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "documentDrafts_updatedByUserId_user_id_fk": {
-          "name": "documentDrafts_updatedByUserId_user_id_fk",
-          "tableFrom": "documentDrafts",
-          "tableTo": "user",
-          "columnsFrom": [
-            "updatedByUserId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "documentDrafts_seq_check": {
-          "name": "documentDrafts_seq_check",
-          "value": "\"seq\" >= 0"
-        },
-        "documentDrafts_formatVersion_check": {
-          "name": "documentDrafts_formatVersion_check",
-          "value": "\"formatVersion\" >= 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.documentOperations": {
-      "name": "documentOperations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "artifactId": {
-          "name": "artifactId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "seq": {
-          "name": "seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "baseSeq": {
-          "name": "baseSeq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "authorKind": {
-          "name": "authorKind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "authorId": {
-          "name": "authorId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ops": {
-          "name": "ops",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "result": {
-          "name": "result",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "idempotencyKey": {
-          "name": "idempotencyKey",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "documentOperations_artifactId_seq_unique": {
-          "name": "documentOperations_artifactId_seq_unique",
-          "columns": [
-            {
-              "expression": "artifactId",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"result\" = 'applied'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "documentOperations_idempotencyKey_unique": {
-          "name": "documentOperations_idempotencyKey_unique",
-          "columns": [
-            {
-              "expression": "idempotencyKey",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "documentOperations_artifactId_artifacts_id_fk": {
-          "name": "documentOperations_artifactId_artifacts_id_fk",
-          "tableFrom": "documentOperations",
-          "tableTo": "artifacts",
-          "columnsFrom": [
-            "artifactId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "documentOperations_seq_check": {
-          "name": "documentOperations_seq_check",
-          "value": "\"seq\" >= 0"
-        },
-        "documentOperations_baseSeq_check": {
-          "name": "documentOperations_baseSeq_check",
-          "value": "\"baseSeq\" >= 0"
-        },
-        "documentOperations_authorKind_check": {
-          "name": "documentOperations_authorKind_check",
-          "value": "\"authorKind\" in ('person', 'agent')"
-        },
-        "documentOperations_result_check": {
-          "name": "documentOperations_result_check",
-          "value": "\"result\" in ('applied', 'rejected')"
         }
       },
       "isRLSEnabled": false

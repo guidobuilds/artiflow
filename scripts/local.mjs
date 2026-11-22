@@ -9,6 +9,7 @@ const WORKSPACE = fs.realpathSync(ROOT);
 const ENV_FILE = path.join(ROOT, ".env.local");
 const EXAMPLE_FILE = path.join(ROOT, ".env.example");
 const AUTH_KEY = "ARTIFLOW_AUTH_SECRET";
+const ENCRYPTION_KEY = "ARTIFLOW_SECRET_ENCRYPTION_KEY";
 const MIN_SECRET_LENGTH = 32;
 
 function log(message) {
@@ -79,6 +80,22 @@ function ensureSecret(text) {
   return { text: lines.join("\n"), generated: true };
 }
 
+function ensureEncryptionKey(text) {
+  const present = text.split(/\r?\n/).some((line) => {
+    if (!line.trimStart().startsWith(`${ENCRYPTION_KEY}=`)) return false;
+    return (
+      line
+        .slice(line.indexOf("=") + 1)
+        .trim()
+        .replace(/^(['"])(.*)\1$/, "$2").length > 0
+    );
+  });
+  if (present) return { text, generated: false };
+  const key = crypto.randomBytes(32).toString("base64");
+  const separator = text.length === 0 || text.endsWith("\n") ? "" : "\n";
+  return { text: `${text}${separator}${ENCRYPTION_KEY}=${key}\n`, generated: true };
+}
+
 function setup() {
   assertWorkspace();
 
@@ -86,13 +103,15 @@ function setup() {
     assertOwnedEnvFile();
     fs.chmodSync(ENV_FILE, 0o600);
     const current = fs.readFileSync(ENV_FILE, "utf8");
-    const { text, generated } = ensureSecret(current);
+    const sealed = ensureSecret(current);
+    const { text, generated } = ensureEncryptionKey(sealed.text);
     if (text !== current) {
       fs.writeFileSync(ENV_FILE, text, { encoding: "utf8", mode: 0o600 });
       fs.chmodSync(ENV_FILE, 0o600);
     }
     log(".env.local exists; preserved (mode 0600).");
-    if (generated) log(`${AUTH_KEY} added to .env.local; value not printed.`);
+    if (sealed.generated) log(`${AUTH_KEY} added to .env.local; value not printed.`);
+    if (generated) log(`${ENCRYPTION_KEY} added to .env.local; value not printed.`);
     log("Edit DATABASE_URL and ARTIFLOW_S3_* to point at your external services.");
     log("Next: bun run check:local");
     return;
@@ -101,7 +120,8 @@ function setup() {
   if (!fs.existsSync(EXAMPLE_FILE)) {
     fail("missing .env.example; cannot create .env.local.");
   }
-  const { text } = ensureSecret(fs.readFileSync(EXAMPLE_FILE, "utf8"));
+  const sealed = ensureSecret(fs.readFileSync(EXAMPLE_FILE, "utf8"));
+  const { text } = ensureEncryptionKey(sealed.text);
   fs.writeFileSync(ENV_FILE, text, { encoding: "utf8", mode: 0o600 });
   fs.chmodSync(ENV_FILE, 0o600);
   log("wrote .env.local from .env.example (mode 0600); values not printed.");

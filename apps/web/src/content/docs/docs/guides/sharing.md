@@ -31,6 +31,12 @@ The dashboard shows the server's own answer, so the common refusals read literal
 Invitees find the artifact under **Shared with me** in their own library, with the owner's email on the
 row. Their row menu offers **Open** only: nobody but the owner shares or deletes.
 
+A deactivated account cannot be invited: it is refused exactly like an address with no account, and
+its artifacts behave as described in
+[Recover access and remove a person](/docs/self-hosting/recovery/). A grant made before the person was
+deactivated keeps its row, so a reactivated account returns to the artifacts it already had without a
+new share.
+
 ## Publish a public link
 
 Under **General access**, the two states are **Only people invited** (the default) and **Anyone with

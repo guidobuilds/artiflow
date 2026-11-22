@@ -1,3 +1,5 @@
+import { SecretError, decodeSecretKey, type SecretKey } from "./settings/secrets.ts";
+
 export type NodeEnv = "development" | "production" | "test";
 
 export type StorageConfig = {
@@ -24,6 +26,7 @@ export type AppConfig = {
   demoAuth: boolean;
   authSecret: string;
   authProviders: SocialProviders;
+  secretEncryptionKey?: SecretKey | null;
   databaseUrl: string;
   storage: StorageConfig;
 };
@@ -273,6 +276,16 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     }
   }
 
+  const secretEncryptionKeyValue = read(env, "ARTIFLOW_SECRET_ENCRYPTION_KEY");
+  let secretEncryptionKey: SecretKey | null = null;
+  if (secretEncryptionKeyValue !== null) {
+    try {
+      secretEncryptionKey = decodeSecretKey(secretEncryptionKeyValue);
+    } catch (error) {
+      fail(error instanceof SecretError ? error.message : "ARTIFLOW_SECRET_ENCRYPTION_KEY is invalid.");
+    }
+  }
+
   const databaseUrl = read(env, "DATABASE_URL") ?? "";
   if (!databaseUrl.startsWith("postgres://") && !databaseUrl.startsWith("postgresql://")) {
     fail("DATABASE_URL must be a postgres:// connection string.");
@@ -303,6 +316,7 @@ export function loadConfig(env: Record<string, string | undefined>): AppConfig {
     demoAuth,
     authSecret,
     authProviders,
+    secretEncryptionKey,
     databaseUrl,
     storage: {
       endpoint: endpointUrl.origin,

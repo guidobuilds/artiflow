@@ -24,25 +24,26 @@ storage: the operator supplies both.
 
 These are read by `apps/api/src` (`config.ts` and the scripts it shares).
 
-| Variable                                                                | Required | Default                   | Rule                                                                                                                                                             |
-| ----------------------------------------------------------------------- | -------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NODE_ENV`                                                              | no       | `development`             | `development`, `production` or `test`                                                                                                                            |
-| `DATABASE_URL`                                                          | **yes**  | —                         | `postgres://` or `postgresql://` connection string                                                                                                               |
-| `ARTIFLOW_AUTH_SECRET`                                                  | **yes**  | —                         | At least 32 characters; keep it stable across restarts or every session is invalidated                                                                           |
-| `ARTIFLOW_S3_ENDPOINT`                                                  | **yes**  | —                         | Absolute `http(s)` URL of the S3-compatible endpoint                                                                                                             |
-| `ARTIFLOW_S3_BUCKET`                                                    | **yes**  | —                         | Lowercase `[a-z0-9.-]`, 3–63 characters, starting and ending alphanumeric; must already exist and stay private                                                   |
-| `ARTIFLOW_S3_ACCESS_KEY_ID`                                             | **yes**  | —                         | Access key for the private bucket                                                                                                                                |
-| `ARTIFLOW_S3_SECRET_ACCESS_KEY`                                         | **yes**  | —                         | Secret for the same key                                                                                                                                          |
-| `ARTIFLOW_S3_REGION`                                                    | no       | `us-east-1`               | Any region string your provider expects (`auto` on R2)                                                                                                           |
-| `ARTIFLOW_S3_FORCE_PATH_STYLE`                                          | no       | derived                   | `1` (path style), `0` (virtual-host) or unset: path style when the endpoint host is loopback, virtual-host otherwise                                             |
-| `ARTIFLOW_PUBLIC_ORIGIN`                                                | no       | `http://127.0.0.1:5173`   | Absolute `http(s)` origin with no path, query or fragment                                                                                                        |
-| `ARTIFLOW_API_HOST`                                                     | no       | `127.0.0.1`               | `127.0.0.1` or `0.0.0.0` only                                                                                                                                    |
-| `ARTIFLOW_API_PORT`                                                     | no       | `8787`                    | Integer 1–65535                                                                                                                                                  |
-| `ARTIFLOW_INTERNAL_ORIGIN`                                              | no       | `http://127.0.0.1:<port>` | Bare `http(s)` origin the process uses to fetch its own JWKS; derived on loopback even when the API binds `0.0.0.0`, so set it behind a sidecar or remapped port |
-| `ARTIFLOW_ALLOWED_HOSTS`                                                | no       | empty                     | Comma-separated `host[:port]` authorities, no scheme, path or wildcard                                                                                           |
-| `ARTIFLOW_DEMO_AUTH`                                                    | no       | off                       | `1` enables the local demo login; startup fails unless `NODE_ENV=development` **and** the public origin is loopback                                              |
-| `ARTIFLOW_AUTH_GITHUB_CLIENT_ID` / `ARTIFLOW_AUTH_GITHUB_CLIENT_SECRET` | no       | not configured            | Both or neither: a half-set pair fails startup                                                                                                                   |
-| `ARTIFLOW_AUTH_GOOGLE_CLIENT_ID` / `ARTIFLOW_AUTH_GOOGLE_CLIENT_SECRET` | no       | not configured            | Both or neither: a half-set pair fails startup                                                                                                                   |
+| Variable                                                                | Required | Default                   | Rule                                                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------------------------- | -------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `NODE_ENV`                                                              | no       | `development`             | `development`, `production` or `test`                                                                                                                                                                                                                                                |
+| `DATABASE_URL`                                                          | **yes**  | —                         | `postgres://` or `postgresql://` connection string                                                                                                                                                                                                                                   |
+| `ARTIFLOW_AUTH_SECRET`                                                  | **yes**  | —                         | At least 32 characters; keep it stable across restarts or every session is invalidated                                                                                                                                                                                               |
+| `ARTIFLOW_SECRET_ENCRYPTION_KEY`                                        | no       | —                         | 32 bytes as base64 (`openssl rand -base64 32`). Protects the credentials the administration surface stores; without it, saving a credential is refused instead of stored unprotected, and keep it stable because a stored credential encrypted under another key cannot be decrypted |
+| `ARTIFLOW_S3_ENDPOINT`                                                  | **yes**  | —                         | Absolute `http(s)` URL of the S3-compatible endpoint                                                                                                                                                                                                                                 |
+| `ARTIFLOW_S3_BUCKET`                                                    | **yes**  | —                         | Lowercase `[a-z0-9.-]`, 3–63 characters, starting and ending alphanumeric; must already exist and stay private                                                                                                                                                                       |
+| `ARTIFLOW_S3_ACCESS_KEY_ID`                                             | **yes**  | —                         | Access key for the private bucket                                                                                                                                                                                                                                                    |
+| `ARTIFLOW_S3_SECRET_ACCESS_KEY`                                         | **yes**  | —                         | Secret for the same key                                                                                                                                                                                                                                                              |
+| `ARTIFLOW_S3_REGION`                                                    | no       | `us-east-1`               | Any region string your provider expects (`auto` on R2)                                                                                                                                                                                                                               |
+| `ARTIFLOW_S3_FORCE_PATH_STYLE`                                          | no       | derived                   | `1` (path style), `0` (virtual-host) or unset: path style when the endpoint host is loopback, virtual-host otherwise                                                                                                                                                                 |
+| `ARTIFLOW_PUBLIC_ORIGIN`                                                | no       | `http://127.0.0.1:5173`   | Absolute `http(s)` origin with no path, query or fragment                                                                                                                                                                                                                            |
+| `ARTIFLOW_API_HOST`                                                     | no       | `127.0.0.1`               | `127.0.0.1` or `0.0.0.0` only                                                                                                                                                                                                                                                        |
+| `ARTIFLOW_API_PORT`                                                     | no       | `8787`                    | Integer 1–65535                                                                                                                                                                                                                                                                      |
+| `ARTIFLOW_INTERNAL_ORIGIN`                                              | no       | `http://127.0.0.1:<port>` | Bare `http(s)` origin the process uses to fetch its own JWKS; derived on loopback even when the API binds `0.0.0.0`, so set it behind a sidecar or remapped port                                                                                                                     |
+| `ARTIFLOW_ALLOWED_HOSTS`                                                | no       | empty                     | Comma-separated `host[:port]` authorities, no scheme, path or wildcard                                                                                                                                                                                                               |
+| `ARTIFLOW_DEMO_AUTH`                                                    | no       | off                       | `1` enables the local demo login; startup fails unless `NODE_ENV=development` **and** the public origin is loopback                                                                                                                                                                  |
+| `ARTIFLOW_AUTH_GITHUB_CLIENT_ID` / `ARTIFLOW_AUTH_GITHUB_CLIENT_SECRET` | no       | not configured            | Both or neither: a half-set pair fails startup. Read once, on the first boot of an instance with no stored access configuration                                                                                                                                                      |
+| `ARTIFLOW_AUTH_GOOGLE_CLIENT_ID` / `ARTIFLOW_AUTH_GOOGLE_CLIENT_SECRET` | no       | not configured            | Both or neither: a half-set pair fails startup. Read once, on the first boot of an instance with no stored access configuration                                                                                                                                                      |
 
 The four required storage values plus `DATABASE_URL` are reported together when missing, so one run
 lists every gap. Errors mention names only: no password, bucket key or credential ever reaches a log or
@@ -76,21 +77,37 @@ string equality, and the trusted set is:
 
 ## Login availability
 
-Who can sign in is decided by `NODE_ENV`, not by a build flag:
+Which methods the sign-in page offers is stored configuration, and one deployment gate sits above it:
 
-| Environment                                                            | Email and password |
-| ---------------------------------------------------------------------- | ------------------ |
-| `production`                                                           | Always available   |
-| `development` with `ARTIFLOW_DEMO_AUTH=1` and a loopback public origin | Available          |
-| Anything else                                                          | Not available      |
+| Question                                 | Answered by                                                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Does password authentication exist here? | `NODE_ENV`, never a stored setting: production, or development with the demo login on a loopback origin |
+| Is password sign-in offered?             | The stored access document, and the gate above                                                          |
+| Are Google and GitHub offered?           | The stored access document                                                                              |
+| Is the enterprise connection offered?    | The stored connection document                                                                          |
 
-Social providers appear only when their pair is configured. The browser reads the live answer from
-`GET /api/auth/capabilities` instead of guessing: `emailPassword` reports login availability, the
-configured `socialProviders` are listed, and `registration` carries account-creation availability
-separately — `false` in every profile, independently of whether email/password login is available.
-Accounts are created only from an operator-issued invitation
-(`bun run user:invite EMAIL`), which does not change this flag: the public entry stays closed and the
-invitation link opens its own fixed-email form.
+In production password authentication exists, so an existing account can sign in with it unless an
+administrator has switched the method off on `/admin/access`. The stored configuration cannot open a
+profile that has no password authentication, so the switch only ever narrows.
+
+The Google and GitHub pairs above are a first-boot seed, not a live switch. On an instance with no
+stored access configuration the first start writes them to the database and records that provenance;
+after that the variables are never read again, a variable that stays set changes nothing and produces
+one warning naming it, and providers are managed on `/admin/access`. A half-set pair still fails
+startup, because the configuration parser reads it before the seed decides anything. See
+[Administer accounts and sign-in](/docs/self-hosting/administration/#existing-installations-and-the-environment).
+
+Public account creation stays closed in every profile: registration is `false` in
+`GET /api/auth/capabilities`, and accounts come only from an operator-issued invitation
+(`bun run user:invite EMAIL`) or from just-in-time provisioning through the enterprise connection. The
+invitation link opens its own fixed-email form and does not change that flag.
+
+The browser reads the live answer from `GET /api/auth/capabilities` instead of guessing: `emailPassword`
+reports whether password sign-in is offered, `socialProviders` lists the enabled providers,
+`registration` carries account-creation availability, and an `sso` object appears while the enterprise
+connection is published, with the label that connection shows. The sign-in page, the enterprise
+connection and the password policy are documented on [Identity providers](/docs/self-hosting/identity-providers/)
+and [Administer accounts and sign-in](/docs/self-hosting/administration/).
 
 ## Tooling and deployment variables
 
@@ -130,6 +147,11 @@ environment:
   opt-in per client, never auto-linked.
 - Public account creation: sign-up is closed in every profile, and no variable re-enables it. See
   [Install Artiflow](/docs/self-hosting/installation/) for the current sign-in behavior.
+- The administrator role and the access configuration: no variable grants the role or enables a method.
+  The console grants the role; `/admin/access` decides the methods.
+- Session lifetime: seven days with a one-day activity refresh, fixed in code. There is no variable and
+  no administration setting for it.
+- A purge, a password policy or a stored credential: none of them has a variable.
 - Rate limits and request/body caps (see [Limits](/docs/reference/limits/)).
 - CORS and browser origins: the single trusted origin is `ARTIFLOW_PUBLIC_ORIGIN`.
 - The `/docs` and `/mcp` paths.

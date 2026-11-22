@@ -1,6 +1,6 @@
 {
-  "id": "f280f4a1-aa68-472a-ad9a-9a9225d82b27",
-  "prevId": "4fc8dff9-00d5-402a-ab04-1c03ac677055",
+  "id": "07465516-b5a9-4598-afde-5613fbf16b87",
+  "prevId": "7e5632ce-ea3e-4311-8e50-4e5969ae8c1e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -148,6 +148,88 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.instanceSecret": {
+      "name": "instanceSecret",
+      "schema": "",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "ciphertext": {
+          "name": "ciphertext",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.instanceSetting": {
+      "name": "instanceSetting",
+      "schema": "",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updatedBy": {
+          "name": "updatedBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.session": {
       "name": "session",
       "schema": "",
@@ -184,6 +266,12 @@
         },
         "userAgent": {
           "name": "userAgent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "impersonatedBy": {
+          "name": "impersonatedBy",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -281,6 +369,51 @@
         "image": {
           "name": "image",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'member'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "deactivatedAt": {
+          "name": "deactivatedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deactivatedBy": {
+          "name": "deactivatedBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "banned": {
+          "name": "banned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "banReason": {
+          "name": "banReason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "banExpires": {
+          "name": "banExpires",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -1563,89 +1696,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.artifactAssets": {
-      "name": "artifactAssets",
-      "schema": "",
-      "columns": {
-        "artifactId": {
-          "name": "artifactId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "assetSha256": {
-          "name": "assetSha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "firstSeenAt": {
-          "name": "firstSeenAt",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "artifactAssets_assetSha256_idx": {
-          "name": "artifactAssets_assetSha256_idx",
-          "columns": [
-            {
-              "expression": "assetSha256",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "artifactAssets_artifactId_artifacts_id_fk": {
-          "name": "artifactAssets_artifactId_artifacts_id_fk",
-          "tableFrom": "artifactAssets",
-          "tableTo": "artifacts",
-          "columnsFrom": [
-            "artifactId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "artifactAssets_assetSha256_assets_sha256_fk": {
-          "name": "artifactAssets_assetSha256_assets_sha256_fk",
-          "tableFrom": "artifactAssets",
-          "tableTo": "assets",
-          "columnsFrom": [
-            "assetSha256"
-          ],
-          "columnsTo": [
-            "sha256"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "artifactAssets_artifactId_assetSha256_pk": {
-          "name": "artifactAssets_artifactId_assetSha256_pk",
-          "columns": [
-            "artifactId",
-            "assetSha256"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.artifactChunks": {
       "name": "artifactChunks",
       "schema": "",
@@ -2095,27 +2145,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "formatVersion": {
-          "name": "formatVersion",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "seqFrom": {
-          "name": "seqFrom",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "seqTo": {
-          "name": "seqTo",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "sizeBytes": {
           "name": "sizeBytes",
           "type": "integer",
@@ -2133,12 +2162,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
-        },
-        "blockIndex": {
-          "name": "blockIndex",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "createdAt": {
           "name": "createdAt",
@@ -2212,14 +2235,6 @@
         "artifactRevisions_sha256_hex_check": {
           "name": "artifactRevisions_sha256_hex_check",
           "value": "\"sha256\" ~ '^[0-9a-f]{64}$'"
-        },
-        "artifactRevisions_formatVersion_check": {
-          "name": "artifactRevisions_formatVersion_check",
-          "value": "\"formatVersion\" >= 1"
-        },
-        "artifactRevisions_seqRange_check": {
-          "name": "artifactRevisions_seqRange_check",
-          "value": "\"seqFrom\" >= 0 and \"seqTo\" >= \"seqFrom\""
         }
       },
       "isRLSEnabled": false
@@ -2518,13 +2533,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "publishedSeq": {
-          "name": "publishedSeq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
         "kind": {
           "name": "kind",
           "type": "text",
@@ -2608,300 +2616,7 @@
         },
         "artifacts_kind_check": {
           "name": "artifacts_kind_check",
-          "value": "\"kind\" in ('html', 'markdown', 'canvas', 'deck')"
-        },
-        "artifacts_publishedSeq_check": {
-          "name": "artifacts_publishedSeq_check",
-          "value": "\"publishedSeq\" >= 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.assets": {
-      "name": "assets",
-      "schema": "",
-      "columns": {
-        "sha256": {
-          "name": "sha256",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "sizeBytes": {
-          "name": "sizeBytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "contentType": {
-          "name": "contentType",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "storageKey": {
-          "name": "storageKey",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "assets_sizeBytes_cap_check": {
-          "name": "assets_sizeBytes_cap_check",
-          "value": "\"sizeBytes\" <= 2097152"
-        },
-        "assets_sha256_hex_check": {
-          "name": "assets_sha256_hex_check",
-          "value": "\"sha256\" ~ '^[0-9a-f]{64}$'"
-        },
-        "assets_contentType_check": {
-          "name": "assets_contentType_check",
-          "value": "\"contentType\" in ('image/png', 'image/jpeg', 'image/webp', 'image/gif')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.documentDrafts": {
-      "name": "documentDrafts",
-      "schema": "",
-      "columns": {
-        "artifactId": {
-          "name": "artifactId",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "seq": {
-          "name": "seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "formatVersion": {
-          "name": "formatVersion",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "state": {
-          "name": "state",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updatedByUserId": {
-          "name": "updatedByUserId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "documentDrafts_artifactId_artifacts_id_fk": {
-          "name": "documentDrafts_artifactId_artifacts_id_fk",
-          "tableFrom": "documentDrafts",
-          "tableTo": "artifacts",
-          "columnsFrom": [
-            "artifactId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "documentDrafts_updatedByUserId_user_id_fk": {
-          "name": "documentDrafts_updatedByUserId_user_id_fk",
-          "tableFrom": "documentDrafts",
-          "tableTo": "user",
-          "columnsFrom": [
-            "updatedByUserId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "documentDrafts_seq_check": {
-          "name": "documentDrafts_seq_check",
-          "value": "\"seq\" >= 0"
-        },
-        "documentDrafts_formatVersion_check": {
-          "name": "documentDrafts_formatVersion_check",
-          "value": "\"formatVersion\" >= 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.documentOperations": {
-      "name": "documentOperations",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "artifactId": {
-          "name": "artifactId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "seq": {
-          "name": "seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "baseSeq": {
-          "name": "baseSeq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "authorKind": {
-          "name": "authorKind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "authorId": {
-          "name": "authorId",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ops": {
-          "name": "ops",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "result": {
-          "name": "result",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "idempotencyKey": {
-          "name": "idempotencyKey",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "createdAt": {
-          "name": "createdAt",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "documentOperations_artifactId_seq_unique": {
-          "name": "documentOperations_artifactId_seq_unique",
-          "columns": [
-            {
-              "expression": "artifactId",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"result\" = 'applied'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "documentOperations_idempotencyKey_unique": {
-          "name": "documentOperations_idempotencyKey_unique",
-          "columns": [
-            {
-              "expression": "idempotencyKey",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "documentOperations_artifactId_artifacts_id_fk": {
-          "name": "documentOperations_artifactId_artifacts_id_fk",
-          "tableFrom": "documentOperations",
-          "tableTo": "artifacts",
-          "columnsFrom": [
-            "artifactId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "documentOperations_seq_check": {
-          "name": "documentOperations_seq_check",
-          "value": "\"seq\" >= 0"
-        },
-        "documentOperations_baseSeq_check": {
-          "name": "documentOperations_baseSeq_check",
-          "value": "\"baseSeq\" >= 0"
-        },
-        "documentOperations_authorKind_check": {
-          "name": "documentOperations_authorKind_check",
-          "value": "\"authorKind\" in ('person', 'agent')"
-        },
-        "documentOperations_result_check": {
-          "name": "documentOperations_result_check",
-          "value": "\"result\" in ('applied', 'rejected')"
+          "value": "\"kind\" in ('html', 'markdown')"
         }
       },
       "isRLSEnabled": false
@@ -2940,6 +2655,24 @@
           "primaryKey": false,
           "notNull": false
         },
+        "revokedAt": {
+          "name": "revokedAt",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp with time zone",
@@ -2965,7 +2698,34 @@
           "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "registrationInvite_createdBy_user_id_fk": {
+          "name": "registrationInvite_createdBy_user_id_fk",
+          "tableFrom": "registrationInvite",
+          "tableTo": "user",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "registrationInvite_userId_user_id_fk": {
+          "name": "registrationInvite_userId_user_id_fk",
+          "tableFrom": "registrationInvite",
+          "tableTo": "user",
+          "columnsFrom": [
+            "userId"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "registrationInvite_tokenHash_unique": {
@@ -3023,6 +2783,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "createdAt": {
           "name": "createdAt",
           "type": "timestamp with time zone",
@@ -3060,6 +2826,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "passwordResetToken_createdBy_user_id_fk": {
+          "name": "passwordResetToken_createdBy_user_id_fk",
+          "tableFrom": "passwordResetToken",
+          "tableTo": "user",
+          "columnsFrom": [
+            "createdBy"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

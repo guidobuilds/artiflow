@@ -84,7 +84,11 @@ const read = async (path: string, init: RequestInit = {}, owner?: Owner): Promis
     signal: AbortSignal.timeout(15_000),
   });
   const text = await response.text();
-  return { status: response.status, text, json: text.startsWith("{") ? (JSON.parse(text) as Record<string, unknown>) : null };
+  return {
+    status: response.status,
+    text,
+    json: text.startsWith("{") ? (JSON.parse(text) as Record<string, unknown>) : null,
+  };
 };
 const srcdocOf = (html: string): string =>
   (/srcdoc="([^"]*)"/.exec(html)?.[1] ?? "")
@@ -94,13 +98,27 @@ const srcdocOf = (html: string): string =>
     .replaceAll("&#39;", "'")
     .replaceAll("&amp;", "&");
 const remove = (owner: Owner, artifactId: string): Promise<Reply> =>
-  read(`/api/artifacts/${artifactId}`, { method: "DELETE", headers: { origin: publicOrigin, "content-type": "application/json" }, body: "{}" }, owner);
+  read(
+    `/api/artifacts/${artifactId}`,
+    { method: "DELETE", headers: { origin: publicOrigin, "content-type": "application/json" }, body: "{}" },
+    owner,
+  );
 const seedOwner = async (name: string): Promise<Owner> => {
-  const owner = await trustedSession({ database, baseUrl, origin: publicOrigin }, { name, email: `gui598-${randomUUID()}@example.test` });
+  const owner = await trustedSession(
+    { database, baseUrl, origin: publicOrigin },
+    { name, email: `gui598-${randomUUID()}@example.test` },
+  );
   return { cookie: owner.cookie, userId: owner.userId };
 };
 const seed = async (owner: Owner): Promise<Artifact> => {
-  const written = await writeArtifact({ database, storage, ownerId: owner.userId, bytes: BYTES, title: "shared bytes", kind: "html" });
+  const written = await writeArtifact({
+    database,
+    storage,
+    ownerId: owner.userId,
+    bytes: BYTES,
+    title: "shared bytes",
+    kind: "html",
+  });
   if (!written.ok) throw new Error(`seed refused: ${written.reason}`);
   return { id: written.value.artifactId };
 };
@@ -148,7 +166,11 @@ const within = async <T>(work: Promise<T>, ms: number, message: string): Promise
 
 before(async () => {
   const missing = REQUIRED_ENV.filter((name) => (process.env[name] ?? "").trim().length === 0);
-  assert.deepEqual(missing, [], `missing ${missing.join(", ")}; run scripts/security-sandbox.mjs (this test never skips)`);
+  assert.deepEqual(
+    missing,
+    [],
+    `missing ${missing.join(", ")}; run scripts/security-sandbox.mjs (this test never skips)`,
+  );
   const url = new URL(process.env.DATABASE_URL ?? "");
   assert.equal(
     ["127.0.0.1", "localhost"].includes(url.hostname) || process.env.ARTIFLOW_TEST_DB === "1",
@@ -181,7 +203,10 @@ before(async () => {
   const auth = createAuth(config, database);
   const app = new Hono();
   app.route("/", createAuthApp(auth, config));
-  app.route("/", createLibraryApp({ database, auth, storage, deletion: { publicOrigin, deleteRevisionBytes: holdingDelete } }));
+  app.route(
+    "/",
+    createLibraryApp({ database, auth, storage, deletion: { publicOrigin, deleteRevisionBytes: holdingDelete } }),
+  );
   server = await new Promise<ReturnType<typeof serve>>((resolve, reject) => {
     const started = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 }, () => resolve(started));
     started.once("error", reject);
@@ -199,9 +224,10 @@ after(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   await pool.end();
   await admin.query("DROP DATABASE IF EXISTS " + escapeIdentifier(databaseName));
-  const leftover = await admin.query<{ count: number }>("select count(*)::int as count from pg_database where datname like $1", [
-    `${DATABASE_PREFIX}%`,
-  ]);
+  const leftover = await admin.query<{ count: number }>(
+    "select count(*)::int as count from pg_database where datname like $1",
+    [`${DATABASE_PREFIX}%`],
+  );
   assert.equal(leftover.rows[0]?.count, 0, "no throwaway database remains");
   await admin.end();
 });
@@ -211,7 +237,10 @@ test("control: sequential identical content keeps the survivor readable", { time
   const artifactA = await seed(ownerA);
   const artifactB = await seed(ownerB);
   assert.deepEqual(
-    [(await read(`/artifact/${artifactA.id}`, {}, ownerA)).status, (await read(`/artifact/${artifactB.id}`, {}, ownerB)).status],
+    [
+      (await read(`/artifact/${artifactA.id}`, {}, ownerA)).status,
+      (await read(`/artifact/${artifactB.id}`, {}, ownerB)).status,
+    ],
     [200, 200],
     "both owners read their artifact before any delete",
   );
@@ -231,7 +260,11 @@ test("control: sequential identical content keeps the survivor readable", { time
   assert.deepEqual([(await remove(ownerA, artifactA.id)).status], [200], "A's delete is the committed soft delete");
   assert.equal((await read(`/artifact/${artifactA.id}`, {}, ownerA)).status, 404, "A is gone from the viewer");
   const survivor = await read(`/artifact/${artifactB.id}`, {}, ownerB);
-  assert.deepEqual([survivor.status, srcdocOf(survivor.text)], [200, HTML], "the survivor keeps its own bytes and stays byte-exact");
+  assert.deepEqual(
+    [survivor.status, srcdocOf(survivor.text)],
+    [200, HTML],
+    "the survivor keeps its own bytes and stays byte-exact",
+  );
   const afterDelete = await storedKeys();
   assert.deepEqual(
     [afterDelete.includes(revisionA.storageKey), afterDelete.includes(revisionB.storageKey)],
@@ -242,93 +275,93 @@ test("control: sequential identical content keeps the survivor readable", { time
   assert.equal((await storedKeys()).includes(revisionB.storageKey), false, "the survivor's own key goes with it");
 });
 
-test(
-  "race: DELETE paused between the ownership decision and the byte delete",
-  { timeout: 180_000 },
-  async () => {
-    const [ownerA, ownerB] = [await seedOwner("Race A"), await seedOwner("Race B")];
-    const artifactA = await seed(ownerA);
-    const readable = await read(`/artifact/${artifactA.id}`, {}, ownerA);
-    assert.deepEqual([readable.status, srcdocOf(readable.text)], [200, HTML], "A is readable before the delete");
+test("race: DELETE paused between the ownership decision and the byte delete", { timeout: 180_000 }, async () => {
+  const [ownerA, ownerB] = [await seedOwner("Race A"), await seedOwner("Race B")];
+  const artifactA = await seed(ownerA);
+  const readable = await read(`/artifact/${artifactA.id}`, {}, ownerA);
+  assert.deepEqual([readable.status, srcdocOf(readable.text)], [200, HTML], "A is readable before the delete");
 
-    holdArmed = true;
-    const pendingDelete = remove(ownerA, artifactA.id);
-    pendingDelete.catch(() => {});
-    const release = () => gate.resolve();
+  holdArmed = true;
+  const pendingDelete = remove(ownerA, artifactA.id);
+  pendingDelete.catch(() => {});
+  const release = () => gate.resolve();
+  try {
+    await within(reached.promise, 60_000, "DELETE never reached the byte-delete seam: harness precondition failed");
+
+    const artifactB = await seed(ownerB);
+    const preRelease = await read(`/artifact/${artifactB.id}`, {}, ownerB);
+    assert.deepEqual(
+      [preRelease.status, srcdocOf(preRelease.text)],
+      [200, HTML],
+      "B is readable with the exact original bytes before A's paused delete resumes",
+    );
+
+    const revisionA = await onlyRevisionOf(artifactA.id);
+    const revisionB = await onlyRevisionOf(artifactB.id);
+    const storedBefore = await storedKeys();
+    assert.deepEqual(
+      [revisionA.sha256, revisionB.sha256],
+      [SHA256, SHA256],
+      "both revisions record the same digest for the identical bytes",
+    );
+    assert.notEqual(
+      revisionA.storageKey,
+      revisionB.storageKey,
+      "byte-identical content is stored under two distinct keys, one per revision",
+    );
+    assert.deepEqual(
+      [storedBefore.includes(revisionA.storageKey), storedBefore.includes(revisionB.storageKey)],
+      [true, true],
+      "both objects exist before A's paused delete resumes",
+    );
+
+    release();
+    const deleted = await pendingDelete;
+    assert.deepEqual([deleted.status, deleted.json], [200, { ok: true }], "A's soft delete is the whole answer");
+    const gone = await read(`/artifact/${artifactA.id}`, {}, ownerA);
+    assert.deepEqual(
+      [gone.status, gone.text],
+      [404, NOT_FOUND_PAGE],
+      "A is deleted for its owner, as the branded 404 page",
+    );
+
+    let survivorFailure: unknown = null;
     try {
-      await within(reached.promise, 60_000, "DELETE never reached the byte-delete seam: harness precondition failed");
-
-      const artifactB = await seed(ownerB);
-      const preRelease = await read(`/artifact/${artifactB.id}`, {}, ownerB);
-      assert.deepEqual(
-        [preRelease.status, srcdocOf(preRelease.text)],
-        [200, HTML],
-        "B is readable with the exact original bytes before A's paused delete resumes",
+      const survivor = await read(`/artifact/${artifactB.id}`, {}, ownerB);
+      assert.equal(
+        survivor.status,
+        200,
+        `GUI598_INVARIANT_REGRESSED: GET /artifact/B returned ${survivor.status} ${survivor.text.slice(0, 160)} after A's DELETE`,
       );
-
-      const revisionA = await onlyRevisionOf(artifactA.id);
-      const revisionB = await onlyRevisionOf(artifactB.id);
-      const storedBefore = await storedKeys();
-      assert.deepEqual(
-        [revisionA.sha256, revisionB.sha256],
-        [SHA256, SHA256],
-        "both revisions record the same digest for the identical bytes",
+      assert.equal(
+        srcdocOf(survivor.text),
+        HTML,
+        "GUI598_INVARIANT_REGRESSED: the survivor does not serve the original bytes",
       );
-      assert.notEqual(
-        revisionA.storageKey,
-        revisionB.storageKey,
-        "byte-identical content is stored under two distinct keys, one per revision",
-      );
-      assert.deepEqual(
-        [storedBefore.includes(revisionA.storageKey), storedBefore.includes(revisionB.storageKey)],
-        [true, true],
-        "both objects exist before A's paused delete resumes",
-      );
-
-      release();
-      const deleted = await pendingDelete;
-      assert.deepEqual([deleted.status, deleted.json], [200, { ok: true }], "A's soft delete is the whole answer");
-      const gone = await read(`/artifact/${artifactA.id}`, {}, ownerA);
-      assert.deepEqual([gone.status, gone.text], [404, NOT_FOUND_PAGE], "A is deleted for its owner, as the branded 404 page");
-
-      let survivorFailure: unknown = null;
-      try {
-        const survivor = await read(`/artifact/${artifactB.id}`, {}, ownerB);
-        assert.equal(
-          survivor.status,
-          200,
-          `GUI598_INVARIANT_REGRESSED: GET /artifact/B returned ${survivor.status} ${survivor.text.slice(0, 160)} after A's DELETE`,
-        );
-        assert.equal(
-          srcdocOf(survivor.text),
-          HTML,
-          "GUI598_INVARIANT_REGRESSED: the survivor does not serve the original bytes",
-        );
-      } catch (failure) {
-        survivorFailure = failure;
-      }
-
-      let probeFailure: unknown = null;
-      try {
-        const storedAfter = await storedKeys();
-        const [keyARemoved, keyBKept] = [
-          !storedAfter.includes(revisionA.storageKey),
-          storedAfter.includes(revisionB.storageKey),
-        ];
-        console.log(`GUI598_LOCAL_DELETE_PROBE aKeyRemoved=${String(keyARemoved)} bKeyKept=${String(keyBKept)}`);
-        assert.deepEqual(
-          [keyARemoved, keyBKept],
-          [true, true],
-          "GUI598_INVARIANT_REGRESSED: A's DELETE did not remove exactly A's own key",
-        );
-      } catch (failure) {
-        probeFailure = failure;
-      }
-
-      if (survivorFailure !== null) throw survivorFailure;
-      if (probeFailure !== null) throw probeFailure;
-    } finally {
-      release();
+    } catch (failure) {
+      survivorFailure = failure;
     }
-  },
-);
+
+    let probeFailure: unknown = null;
+    try {
+      const storedAfter = await storedKeys();
+      const [keyARemoved, keyBKept] = [
+        !storedAfter.includes(revisionA.storageKey),
+        storedAfter.includes(revisionB.storageKey),
+      ];
+      console.log(`GUI598_LOCAL_DELETE_PROBE aKeyRemoved=${String(keyARemoved)} bKeyKept=${String(keyBKept)}`);
+      assert.deepEqual(
+        [keyARemoved, keyBKept],
+        [true, true],
+        "GUI598_INVARIANT_REGRESSED: A's DELETE did not remove exactly A's own key",
+      );
+    } catch (failure) {
+      probeFailure = failure;
+    }
+
+    if (survivorFailure !== null) throw survivorFailure;
+    if (probeFailure !== null) throw probeFailure;
+  } finally {
+    release();
+  }
+});
