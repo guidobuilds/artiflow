@@ -283,7 +283,7 @@ export default function AuthScreen({
                   id="auth-password"
                   name="password"
                   type="password"
-                  placeholder={invitation === undefined ? "At least 8 characters" : undefined}
+                  placeholder={undefined}
                   autoComplete={newAccount ? "new-password" : "current-password"}
                   value={values.password}
                   onChange={(event) => setValues({ ...values, password: event.target.value })}

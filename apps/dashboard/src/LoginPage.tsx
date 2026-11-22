@@ -199,8 +199,6 @@ export default function LoginPage({ search }: { search: string }) {
                   id="login-password"
                   type="password"
                   name="password"
-                  placeholder="At least 8 characters"
-                  minLength={8}
                   autoComplete="current-password"
                   value={values.password}
                   onChange={onField("password")}
