@@ -85,8 +85,8 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
     plural: "Canvases",
     icon: "canvas",
     viewer: "scene",
-    anchors: [],
-    comments: false,
+    anchors: ["board-point"],
+    comments: true,
     agentWrite: "replace-document",
     titleSource: "frame-name",
     appEdit: true,
@@ -460,25 +460,32 @@ test("a canvas row that disappears or loses its row breaks the matrix", () => {
   );
 });
 
-test("a kind may accept no anchors only when it declares that it has no comments", () => {
-  assert.deepEqual(auditKindMatrix(KIND_CAPABILITIES), [], "canvas accepts no anchors and says so");
-  assert.equal(acceptsComments("canvas"), false);
-  assert.deepEqual(anchorKindsFor("canvas"), []);
+test("a kind that declares comments must accept an anchor, and losing the canvas one is a gap", () => {
+  assert.deepEqual(auditKindMatrix(KIND_CAPABILITIES), [], "the shipped matrix is green with canvas commenting");
+  assert.equal(acceptsComments("canvas"), true);
+  assert.deepEqual(anchorKindsFor("canvas"), ["board-point"]);
+  assert.deepEqual([...anchorKindsFor("canvas")].sort(), ["board-point"], "a canvas anchor names a node");
 
-  const lying = {
+  const anchorless = {
     ...KIND_CAPABILITIES,
-    canvas: { ...KIND_CAPABILITIES.canvas, comments: true },
+    canvas: { ...KIND_CAPABILITIES.canvas, anchors: [] as never },
   };
-  const gaps = matrixGaps(lying);
-  assert.notEqual(gaps.length, 0, "comments without anchors is still a gap");
+  const gaps = matrixGaps(anchorless);
+  assert.notEqual(gaps.length, 0, "comments without anchors is a gap");
   assert.ok(
     gaps.some((gap) => gap.startsWith("canvas:") && gap.includes("anchor")),
     "the gap names the kind and its missing anchor kind",
   );
   assert.ok(
-    auditKindMatrix(lying).some((gap) => gap.startsWith("canvas:") && gap.includes("anchor")),
+    auditKindMatrix(anchorless).some((gap) => gap.startsWith("canvas:") && gap.includes("anchor")),
     "the audit keeps the same rule",
   );
+
+  const silent = {
+    ...KIND_CAPABILITIES,
+    canvas: { ...KIND_CAPABILITIES.canvas, anchors: [] as never, comments: false },
+  };
+  assert.deepEqual(auditKindMatrix(silent), [], "a kind that declares no comments may accept no anchor kinds");
 
   const undeclared = { ...KIND_CAPABILITIES, canvas: { ...KIND_CAPABILITIES.canvas, comments: undefined as never } };
   assert.ok(

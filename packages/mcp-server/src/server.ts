@@ -33,9 +33,13 @@ import {
 } from "@artiflow/mcp-server/ports";
 
 import {
+  acceptsSceneAnchors,
   anchorKindsForDocument,
   anchorKindAllowed,
   anchorText,
+  isSceneAnchor,
+  sceneAnchorIsOrphaned,
+  sceneAnchorRefusal,
   type AnyCommentAnchor,
 } from "@artiflow/domain/comment-anchors";
 import { commentAnchorSchema } from "@artiflow/contracts/comments";
@@ -1000,6 +1004,10 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       if (!parsed.ok) return refusal("invalid_scene", parsed.reason, { artifactId, path: parsed.path });
       return { revisionId: row.id, seq: draft.value.seq, scene: parsed.value };
     };
+    const currentSceneOf = async (userId: string, artifactId: string): Promise<Scene | null> => {
+      const loaded = await canvasScene(userId, artifactId);
+      return "content" in loaded ? null : loaded.scene;
+    };
     server.registerTool(
       "scene_outline",
       {
@@ -1320,7 +1328,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       {
         title: "List comment threads",
         annotations: { readOnlyHint: true },
-        description: `List an owned document's roots with ordered nested replies, including anchors, bodies and resolution timestamps. Requires ${readScope}; comments create no document revisions. Authors are returned as { id, name, image } and never expose email addresses.`,
+        description: `List an owned document's roots with ordered nested replies, including anchors, bodies and resolution timestamps. Requires ${readScope}; comments create no document revisions. Authors are returned as { id, name, image } and never expose email addresses. A canvas thread also carries orphaned, true when the node its anchor names is no longer in the current scene.`,
         inputSchema: { artifactId: artifactIdSchema },
       },
       async ({ artifactId }) => {
@@ -1329,11 +1337,13 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         const gate = await commentGate(undefined, access.userId, artifactId);
         if ("content" in gate) return gate;
         const rows = await listComments(undefined, artifactId, false);
+        const scene = acceptsSceneAnchors(gate.kind) ? await currentSceneOf(access.userId, artifactId) : null;
         return reply({
           comments: rows
             .filter((row) => row.parentId === null)
             .map((row) => ({
               ...serializeComment(row),
+              ...(scene === null ? {} : { orphaned: sceneAnchorIsOrphaned(scene, row.anchor) }),
               replies: rows
                 .filter((child) => child.parentId === row.id)
                 .map((child) => ({ ...serializeComment(child, row.anchor), replies: [] })),
@@ -1345,7 +1355,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       "artifact_add_comment",
       {
         title: "Comment on a document anchor",
-        description: `Add a root comment to an owned document at a discriminated anchor. Requires ${scope}. Markdown accepts { kind: 'text-range', startLine, startCol, endLine, endCol, quotedText } with 1-indexed UTF-16 columns, end-exclusive, and quotedText matching the CURRENT source exactly; html accepts { kind: 'element', selector, point: { x, y } in 0..1, textHint (max 120 chars), viewportWidth } and { kind: 'page-point', x in 0..1, y in pixels, viewportWidth }. Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses malformed anchors with validation, an anchor the document kind does not accept with unsupported_anchor_kind, and changed quotes with anchor_mismatch.`,
+        description: `Add a root comment to an owned document at a discriminated anchor. Requires ${scope}. Markdown accepts { kind: 'text-range', startLine, startCol, endLine, endCol, quotedText } with 1-indexed UTF-16 columns, end-exclusive, and quotedText matching the CURRENT source exactly; html accepts { kind: 'element', selector, point: { x, y } in 0..1, textHint (max 120 chars), viewportWidth } and { kind: 'page-point', x in 0..1, y in pixels, viewportWidth }; a canvas accepts { kind: 'board-point', boardId, nodeId, x, y } with x and y normalized 0..1 inside that node, so the pin survives the node moving or resizing. Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses malformed anchors with validation, an anchor the document kind does not accept with unsupported_anchor_kind, a node the current scene does not hold with unknown_node, and changed quotes with anchor_mismatch.`,
         inputSchema: {
           artifactId: artifactIdSchema,
           anchor: commentAnchorSchema,
@@ -1374,6 +1384,15 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             const selected = anchorText(decoded.text, anchor);
             if (selected === null) return refusal("validation", "invalid_anchor");
             if (selected !== anchor.quotedText) return refusal("anchor_mismatch", "anchor_mismatch");
+          }
+          if (isSceneAnchor(anchor)) {
+            const loaded = await canvasScene(access.userId, artifactId);
+            if ("content" in loaded) return loaded;
+            if (sceneAnchorRefusal(loaded.scene, anchor) !== null)
+              return refusal("unknown_node", "anchor_node_is_not_in_the_scene", {
+                artifactId,
+                nodeId: anchor.nodeId,
+              });
           }
           return insertStored(client, artifactId, access.userId, null, anchor, revision.id, body);
         });

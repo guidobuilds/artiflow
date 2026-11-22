@@ -1,6 +1,7 @@
 import MarkdownIt from "markdown-it";
 
 import { KIND_CAPABILITIES, anchorKindsFor, type ArtifactKind } from "./kinds.ts";
+import type { Scene } from "./scene.ts";
 
 const quoteMarkdown = new MarkdownIt({ html: true });
 
@@ -14,10 +15,11 @@ export type ElementAnchor = {
   viewportWidth: number;
 };
 export type PagePointAnchor = { kind: "page-point"; x: number; y: number; viewportWidth: number };
-export type BoardPointAnchor = { kind: "board-point"; boardId: string; x: number; y: number };
-export type SlidePointAnchor = { kind: "slide-point"; slideId: string; x: number; y: number };
+export type BoardPointAnchor = { kind: "board-point"; boardId: string; nodeId: string; x: number; y: number };
+export type SlidePointAnchor = { kind: "slide-point"; slideId: string; nodeId: string; x: number; y: number };
 export type AnyCommentAnchor = TextRangeAnchor | ElementAnchor | PagePointAnchor | BoardPointAnchor | SlidePointAnchor;
 export type CommentAnchorKind = AnyCommentAnchor["kind"];
+export type SceneAnchor = BoardPointAnchor | SlidePointAnchor;
 
 const anchorsOf = (kind: ArtifactKind): readonly CommentAnchorKind[] => KIND_CAPABILITIES[kind]?.anchors ?? [];
 
@@ -30,6 +32,22 @@ export const anchorKindsForDocument = (documentKind: string): readonly CommentAn
   anchorKindsFor(documentKind);
 export const anchorKindAllowed = (documentKind: string, kind: CommentAnchorKind): boolean =>
   anchorKindsForDocument(documentKind).includes(kind);
+export const SCENE_ANCHOR_KINDS: readonly CommentAnchorKind[] = ["board-point", "slide-point"];
+export const isSceneAnchor = (anchor: unknown): anchor is SceneAnchor =>
+  typeof anchor === "object" &&
+  anchor !== null &&
+  SCENE_ANCHOR_KINDS.includes((anchor as { kind: CommentAnchorKind }).kind);
+export const acceptsSceneAnchors = (documentKind: string): boolean =>
+  anchorKindsForDocument(documentKind).some((kind) => SCENE_ANCHOR_KINDS.includes(kind));
+export type SceneAnchorRefusalReason = "unknown_node";
+export function sceneAnchorRefusal(scene: Scene, anchor: SceneAnchor): SceneAnchorRefusalReason | null {
+  const frameId = anchor.kind === "board-point" ? anchor.boardId : anchor.slideId;
+  const frame = scene.frames.find((candidate) => candidate.id === frameId);
+  if (frame === undefined) return "unknown_node";
+  return frame.nodes.some((node) => node.id === anchor.nodeId) ? null : "unknown_node";
+}
+export const sceneAnchorIsOrphaned = (scene: Scene, anchor: unknown): boolean =>
+  isSceneAnchor(anchor) && sceneAnchorRefusal(scene, anchor) !== null;
 export function anchorText(source: string, anchor: CommentAnchor): string | null {
   if (
     !anchor ||
@@ -83,9 +101,13 @@ export function anchorShapeIsValid(anchor: unknown): boolean {
   if (candidate.kind === "page-point")
     return ratio(candidate.x) && nonNegative(candidate.y) && positiveInteger(candidate.viewportWidth);
   if (candidate.kind === "board-point")
-    return nonEmptyString(candidate.boardId) && finite(candidate.x) && finite(candidate.y);
+    return (
+      nonEmptyString(candidate.boardId) && nonEmptyString(candidate.nodeId) && ratio(candidate.x) && ratio(candidate.y)
+    );
   if (candidate.kind === "slide-point")
-    return nonEmptyString(candidate.slideId) && finite(candidate.x) && finite(candidate.y);
+    return (
+      nonEmptyString(candidate.slideId) && nonEmptyString(candidate.nodeId) && ratio(candidate.x) && ratio(candidate.y)
+    );
   return false;
 }
 
