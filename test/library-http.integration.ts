@@ -244,7 +244,7 @@ test("a markdown artifact renders formatted and escapes raw HTML", { skip: SKIP,
   assert.equal(/allow-scripts/.test(reply.text), false, "rendered markdown needs no script");
   assert.equal(reply.text.includes("<iframe"), false, "the document is the page, not a nested frame");
   assert.equal(
-    reply.text.match(/<script>/g)?.length,
+    reply.text.match(/<script>/gi)?.length,
     1,
     "the page around the document ships only the freshness poller",
   );
