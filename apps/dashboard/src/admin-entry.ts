@@ -1,14 +1,48 @@
 import { getSession, type AuthUser } from "./auth-client.ts";
 
-export type AdminSection = "users" | "access" | "password-policy" | "invitations";
-export type AdminSectionLink = { key: AdminSection; label: string; href: string };
+export type AdminSection = "users" | "invitations" | "access" | "sso" | "password-policy";
+export type AdminSectionGroup = "People" | "Authentication";
+export type AdminSectionLink = {
+  key: AdminSection;
+  label: string;
+  description: string;
+  group: AdminSectionGroup;
+  href: string;
+};
 
 export const ADMIN_SECTIONS: AdminSectionLink[] = [
-  { key: "users", label: "Users", href: "/admin/users" },
-  { key: "access", label: "Access", href: "/admin/access" },
-  { key: "password-policy", label: "Password policy", href: "/admin/password-policy" },
-  { key: "invitations", label: "Invitations", href: "/admin/invitations" },
+  { key: "users", label: "Users", description: "Accounts, roles and sessions", group: "People", href: "/admin/users" },
+  {
+    key: "invitations",
+    label: "Invitations",
+    description: "Pending links to join",
+    group: "People",
+    href: "/admin/invitations",
+  },
+  {
+    key: "access",
+    label: "Sign-in methods",
+    description: "Password, Google and GitHub",
+    group: "Authentication",
+    href: "/admin/access",
+  },
+  {
+    key: "sso",
+    label: "Enterprise SSO",
+    description: "OpenID Connect provider",
+    group: "Authentication",
+    href: "/admin/sso",
+  },
+  {
+    key: "password-policy",
+    label: "Password policy",
+    description: "Length and character rules",
+    group: "Authentication",
+    href: "/admin/password-policy",
+  },
 ];
+
+export const ADMIN_SECTION_GROUPS: AdminSectionGroup[] = ["People", "Authentication"];
 
 export type AdminGate =
   { kind: "loading" } | { kind: "refused"; message: string; signInRequired: boolean } | { kind: "ready" };

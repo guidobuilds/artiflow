@@ -85,9 +85,10 @@ test("the policy page has its own route before the 404, its own navigation entry
     ADMIN_SECTIONS.map((section) => [section.label, section.href]),
     [
       ["Users", "/admin/users"],
-      ["Access", "/admin/access"],
-      ["Password policy", "/admin/password-policy"],
       ["Invitations", "/admin/invitations"],
+      ["Sign-in methods", "/admin/access"],
+      ["Enterprise SSO", "/admin/sso"],
+      ["Password policy", "/admin/password-policy"],
     ],
   );
   assert.equal(adminSectionPath("password-policy"), "/admin/password-policy");
