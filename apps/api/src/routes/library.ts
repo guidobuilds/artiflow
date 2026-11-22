@@ -39,6 +39,8 @@ import { commentDocument, listComments } from "../adapters/postgres/comments-rep
 import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene } from "@artiflow/domain/scene";
+import { acceptsSceneAnchors, isSceneAnchor } from "@artiflow/domain/comment-anchors";
+import type { Scene } from "@artiflow/domain/scene";
 import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
 import { renderSceneDocument, type SceneImages } from "../viewer/scene.ts";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
@@ -193,12 +195,22 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     } satisfies ArtifactDetail);
   });
 
-  const ownerCommentsConfig = async (artifactId: string, sha256: string, ownerId: string, source: string | null) => {
+  const ownerCommentsConfig = async (
+    artifactId: string,
+    sha256: string,
+    ownerId: string,
+    source: string | null,
+    publishedScene?: () => Promise<Scene | null>,
+  ) => {
     const degraded = await loadViewerComments({
       document: () => commentDocument(db, ownerId, artifactId, "shared"),
       list: () => listComments(db, artifactId, true),
       onError: (error) => console.error(`[viewer] comments degraded for ${artifactId}`, error),
     });
+    const scene =
+      publishedScene === undefined || !degraded.rows.some((row) => isSceneAnchor(row.anchor))
+        ? null
+        : await publishedScene();
     return viewerCommentsConfig({
       artifactId,
       ...(source === null ? { mode: "element" as const, bridgeNonce: bridgeNonce(artifactId, sha256) } : {}),
@@ -207,6 +219,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       viewerId: ownerId,
       canComment: degraded.canComment,
       canDeleteOwn: true,
+      ...(scene === null ? {} : { scene }),
       endpoints: {
         comments: `/api/artifacts/${artifactId}/comments`,
         resolve: `/api/artifacts/${artifactId}/comments`,
@@ -214,6 +227,13 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         list: `/artifact/${artifactId}/comments`,
       },
     });
+  };
+
+  const publishedSceneOf = (storageKey: string, sha256: string) => async (): Promise<Scene | null> => {
+    const read = await getRevisionBytes({ storage, storageKey, sha256, maxBytes });
+    if (!read.ok) return null;
+    const parsed = readScene(new TextDecoder().decode(read.value.bytes));
+    return parsed.ok ? parsed.value : null;
   };
 
   const viewerPage = async (c: Context, artifactId: string, ownerId: string, embed: boolean) => {
@@ -258,11 +278,12 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         origin === null
           ? undefined
           : { origin, artifactId: row.id, digests: await sceneAssetDigests(db, row.id, scene.value) };
+      const config = await ownerCommentsConfig(row.id, row.sha256, ownerId, null, async () => scene.value);
       const srcdocUrl =
         frame === undefined ? `/artifact/${row.id}` : `/artifact/${row.id}?frame=${encodeURIComponent(frame)}`;
       return c.html(
         wrapperPage(
-          escapeAttribute(renderSceneDocument(scene.value, frame, images)),
+          escapeAttribute(renderSceneDocument(scene.value, frame, images, config.threads)),
           embed ? undefined : "/",
           { title: row.title, version: row.revisionNumber },
           embed,
@@ -336,7 +357,13 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       source = decoded.text;
     }
-    const config = await ownerCommentsConfig(gate.artifact.id, gate.sha256, gate.ownerId, source);
+    const config = await ownerCommentsConfig(
+      gate.artifact.id,
+      gate.sha256,
+      gate.ownerId,
+      source,
+      acceptsSceneAnchors(gate.artifact.kind) ? publishedSceneOf(gate.storageKey, gate.sha256) : undefined,
+    );
     c.header("cache-control", "no-store");
     return c.json({ canComment: config.canComment, threads: config.threads });
   });

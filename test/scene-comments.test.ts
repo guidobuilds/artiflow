@@ -35,6 +35,7 @@ import {
 } from "../apps/api/src/domain/documents/service.ts";
 import { createArtifactTools } from "../apps/api/src/mcp/artifact-tools.ts";
 import { createCommentsApp } from "../apps/api/src/routes/comments.ts";
+import { renderSceneDocument } from "../apps/api/src/viewer/scene.ts";
 
 const CANVAS_ID = "11111111-1111-4111-8111-111111111111";
 const HTML_ID = "22222222-2222-4222-8222-222222222222";
@@ -390,6 +391,57 @@ test("a node an operation removed leaves its thread orphaned, not hidden", async
   const body = await listed(app, CANVAS_ID);
   assert.equal(body.comments[0]?.orphaned, true, "the thread says its node is gone");
   assert.deepEqual(body.comments[0]?.anchor, ANCHOR, "the anchor is reported unchanged instead of hidden");
+});
+
+const pinPosition = (document: string): { left: number; top: number } | null => {
+  const found = /class="scene-pin"[^>]*style="left:(-?[\d.]+)px;top:(-?[\d.]+)px"/.exec(document);
+  return found === null ? null : { left: Number(found[1]), top: Number(found[2]) };
+};
+
+const draftScene = async (world: ReturnType<typeof workspace>) => {
+  const opened = await openDraft({ store: world.store, storage: world.storage, artifactId: CANVAS_ID });
+  assert.equal(opened.ok, true, "the canvas draft opens");
+  if (!opened.ok) throw new Error("the canvas draft must open");
+  const scene = opened.value.scene;
+  assert.ok(scene !== null, "the canvas draft carries a scene");
+  return scene;
+};
+
+test("a pin follows the node move_node moved, and vanishes when the node is gone", async () => {
+  const world = canvasWorld();
+  const thread = { id: "comment-one", anchor: ANCHOR };
+  const start = pinPosition(renderSceneDocument(await draftScene(world.store), undefined, undefined, [thread]));
+  assert.deepEqual(start, { left: 65, top: 50 }, "40 + 0.25*100 and 20 + 0.5*60");
+
+  const moved = await applyOperations({
+    store: world.store.store,
+    storage: world.store.storage,
+    artifactId: CANVAS_ID,
+    authorKind: "person",
+    authorId: OWNER,
+    baseSeq: 1,
+    idempotencyKey: "move-live",
+    ops: [{ op: "move_node", id: LIVE, x: 140, y: 90 }],
+  });
+  assert.equal(moved.ok, true, "the node moves through the scene service");
+  const end = pinPosition(renderSceneDocument(await draftScene(world.store), undefined, undefined, [thread]));
+  assert.deepEqual(end, { left: 165, top: 120 }, "140 + 0.25*100 and 90 + 0.5*60");
+  assert.notDeepEqual(end, start, "both numbers moved with the node");
+
+  const removed = await applyOperations({
+    store: world.store.store,
+    storage: world.store.storage,
+    artifactId: CANVAS_ID,
+    authorKind: "person",
+    authorId: OWNER,
+    baseSeq: 2,
+    idempotencyKey: "remove-live",
+    ops: [{ op: "remove_node", id: LIVE }],
+  });
+  assert.equal(removed.ok, true, "the node is removed through the scene service");
+  const document = renderSceneDocument(await draftScene(world.store), undefined, undefined, [thread]);
+  assert.equal(pinPosition(document), null, "no pin is drawn at a stale position");
+  assert.ok(document.includes("Thread 1 points at something that no longer exists in this canvas."), document);
 });
 
 test("html element anchors and markdown text ranges keep their existing payloads", async () => {

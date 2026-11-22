@@ -10,6 +10,7 @@ import {
 } from "@artiflow/domain/scene";
 
 import { escapeAttribute, originOf, sceneDocumentCsp } from "./html.ts";
+import { sceneThreadPlacement, type SceneThreadOrphan, type SceneThreadPin } from "./comments-data.ts";
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const FUNCTIONAL_COLOR = /^(?:rgb|rgba|hsl|hsla)\(\s*[0-9.,%\s/+-]*\)$/;
@@ -97,11 +98,34 @@ const renderNode = (node: SceneNode, images?: SceneImages): string => {
   return "";
 };
 
-const renderFrame = (frame: SceneFrame, visible: boolean, images?: SceneImages): string => {
+const renderPins = (pins: readonly SceneThreadPin[]): string =>
+  pins
+    .map(
+      (pin) =>
+        `<span class="scene-pin" tabindex="0" data-thread-id="${escapeAttribute(pin.id)}" data-node-id="${escapeAttribute(pin.nodeId)}" aria-label="Comment thread ${pin.number}" style="left:${px(pin.left)};top:${px(pin.top)}">${pin.number}</span>`,
+    )
+    .join("");
+
+const renderOrphans = (orphans: readonly SceneThreadOrphan[]): string =>
+  orphans.length === 0
+    ? ""
+    : `<aside class="scene-orphans" aria-label="Comment threads without a node">
+<p class="scene-orphans-title">Threads without a node</p>
+<ul>${orphans
+        .map((orphan) => `<li>Thread ${orphan.number} points at something that no longer exists in this canvas.</li>`)
+        .join("")}</ul>
+</aside>`;
+
+const renderFrame = (
+  frame: SceneFrame,
+  visible: boolean,
+  images?: SceneImages,
+  pins: readonly SceneThreadPin[] = [],
+): string => {
   const label = `${frame.name}, ${num(frame.w)} by ${num(frame.h)}`;
   return `<section class="scene-frame" id="frame-${escapeAttribute(frame.id)}" data-frame-id="${escapeAttribute(frame.id)}" data-frame-w="${num(frame.w)}" data-frame-h="${num(frame.h)}"${visible ? "" : " hidden"} aria-label="${escapeAttribute(label)}">
 <p class="scene-frame-name">${escapeAttribute(frame.name)}<span class="scene-frame-size">${num(frame.w)} × ${num(frame.h)}</span></p>
-<div class="scene-frame-body" style="width:${px(frame.w)};height:${px(frame.h)}">${frame.nodes.map((node) => renderNode(node, images)).join("")}</div>
+<div class="scene-frame-body" style="width:${px(frame.w)};height:${px(frame.h)}">${frame.nodes.map((node) => renderNode(node, images)).join("")}${renderPins(pins)}</div>
 </section>`;
 };
 
@@ -139,6 +163,12 @@ body{display:flex;flex-direction:column;overflow:hidden;background:#141414;color
 .scene-index button[aria-current="true"]{border-color:#ff6a2b;background:#2a1a12;color:#ffffff}
 .scene-index button:focus-visible{outline:2px solid #ff6a2b;outline-offset:2px}
 .scene-empty{position:absolute;inset:0;display:grid;place-content:center;margin:0;color:#9aa0a6;font-size:14px;text-align:center}
+.scene-pin{position:absolute;display:grid;place-content:center;width:20px;height:20px;border-radius:999px;background:#ff6a2b;color:#170b05;font:600 11px/1 ui-monospace,SFMono-Regular,Consolas,monospace;box-shadow:0 2px 8px rgba(0,0,0,.4);transform:translate(-50%,-50%)}
+.scene-pin:focus-visible{outline:2px solid #ffffff;outline-offset:2px}
+.scene-orphans{flex:0 0 auto;max-height:26%;overflow:auto;padding:8px 10px;border-top:1px solid #2a2a2a;background:#101010;color:#c3c8cd;font-size:12px}
+.scene-orphans-title{margin:0 0 4px;color:#ff8a55;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.scene-orphans ul{margin:0;padding-left:16px}
+.scene-orphans li{margin:2px 0}
 @media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}`;
 
 const SCENE_SCRIPT = `(() => {
@@ -332,7 +362,12 @@ const SCENE_SCRIPT = `(() => {
 const BASE_DOCUMENT_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
-export function renderSceneDocument(scene: Scene, frameId?: string, images?: SceneImages): string {
+export function renderSceneDocument(
+  scene: Scene,
+  frameId?: string,
+  images?: SceneImages,
+  threads: readonly { id: string; anchor?: unknown }[] = [],
+): string {
   const origin = images === undefined ? null : originOf(images.origin);
   const source = images !== undefined && origin !== null ? { ...images, origin } : undefined;
   const policy = source === undefined ? BASE_DOCUMENT_CSP : sceneDocumentCsp(source.origin);
@@ -340,6 +375,9 @@ export function renderSceneDocument(scene: Scene, frameId?: string, images?: Sce
   const title = scene.frames[0]?.name ?? "Canvas";
   const selected = scene.frames.find((frame) => frame.id === frameId) ?? scene.frames[0];
   const selectedId = selected === undefined ? null : selected.id;
+  const placement = sceneThreadPlacement(scene, threads);
+  const orphans = renderOrphans(placement.orphans);
+  const pinsOf = (id: string): SceneThreadPin[] => placement.pins.filter((pin) => pin.frameId === id);
   const chrome = empty
     ? `<div class="scene-stage" id="stage">
 <p class="scene-empty">This canvas has no frames yet.</p>
@@ -347,7 +385,7 @@ export function renderSceneDocument(scene: Scene, frameId?: string, images?: Sce
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
     : `<div class="scene-stage" id="stage">
 <div class="scene-tools"><button type="button" id="fit" title="Fit the frame to the screen">Fit</button></div>
-${scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId, source)).join("\n")}
+${scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id))).join("\n")}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene, selectedId)}</nav>`;
   return `<!doctype html>
@@ -356,7 +394,7 @@ ${scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId, source
 ${DOCUMENT_CSS}
 </style></head>
 <body>
-${chrome}
+${chrome}${orphans === "" ? "" : `\n${orphans}`}
 <script>
 ${SCENE_SCRIPT}
 </script>

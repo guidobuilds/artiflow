@@ -511,3 +511,86 @@ test("the alt text is a scene string and markup in it is escaped", () => {
   assert.equal(/<[a-z][^>]*\son[a-z]+\s*=/i.test(tag), false, "an image carries no event handler attribute");
   assert.equal((tag.match(/\son[a-z]+=/gi) ?? []).length, 0);
 });
+
+const boardThread = (overrides: Record<string, unknown> = {}) => ({
+  id: "thread-one",
+  anchor: { kind: "board-point", boardId: "home", nodeId: "node-1", x: 0.25, y: 0.5, ...overrides },
+});
+
+const pinMarkup = (html: string): string[] => html.match(/<span class="scene-pin"[^>]*>[^<]*<\/span>/g) ?? [];
+
+test("a scene-anchored thread draws one pin at the node-relative point", () => {
+  const html = renderSceneDocument(
+    scene(frame({ nodes: [rect({ id: "node-1", x: 40, y: 20, w: 100, h: 60 })] })),
+    undefined,
+    undefined,
+    [boardThread()],
+  );
+  assert.equal((html.match(/class="scene-pin"/g) ?? []).length, 1, "exactly one pin");
+  assert.ok(
+    html.includes(
+      '<span class="scene-pin" tabindex="0" data-thread-id="thread-one" data-node-id="node-1" aria-label="Comment thread 1" style="left:65px;top:50px">1</span>',
+    ),
+    html,
+  );
+  assert.equal(html.includes('class="scene-orphans"'), false, "a placed pin needs no orphan list");
+});
+
+test("the pin lands in the frame that holds the node, at the frame's own origin", () => {
+  const html = renderSceneDocument(
+    scene(
+      frame({ id: "home", name: "Home", nodes: [rect({ id: "a", x: 0, y: 0, w: 10, h: 10 })] }),
+      frame({ id: "away", name: "Away", x: 400, y: 100, nodes: [rect({ id: "b", x: 30, y: 40, w: 20, h: 20 })] }),
+    ),
+    undefined,
+    undefined,
+    [boardThread({ boardId: "away", nodeId: "b", x: 0.5, y: 0.25 })],
+  );
+  const home = html.indexOf('id="frame-home"');
+  const away = html.indexOf('id="frame-away"');
+  const pin = html.indexOf('class="scene-pin"');
+  assert.ok(home < away && away < pin, "the pin is drawn inside the second frame body");
+  const pins = pinMarkup(html);
+  assert.equal(pins.length, 1);
+  assert.ok(
+    (pins[0] ?? "").includes('style="left:40px;top:45px"'),
+    `20*0.5+30 and 20*0.25+40, never the frame offset: ${pins[0] ?? ""}`,
+  );
+});
+
+test("a thread whose node is gone draws no pin and is listed in plain words", () => {
+  for (const anchor of [boardThread({ nodeId: "node-gone" }).anchor, boardThread({ boardId: "frame-gone" }).anchor]) {
+    const html = renderSceneDocument(scene(frame({ nodes: [rect({ id: "node-1" })] })), undefined, undefined, [
+      { id: "thread-one", anchor },
+    ]);
+    assert.equal((html.match(/class="scene-pin"/g) ?? []).length, 0, "no pin at a stale position");
+    assert.ok(html.includes('class="scene-orphans" aria-label="Comment threads without a node"'), html);
+    assert.ok(html.includes("Threads without a node"));
+    assert.ok(html.includes("Thread 1 points at something that no longer exists in this canvas."), html);
+    assert.equal((html.match(/<script/gi) ?? []).length, 1, "the document keeps its one script tag");
+    assert.doesNotThrow(() => new vm.Script(inlineScript(html), { filename: "scene-viewer.js" }));
+  }
+});
+
+test("orphaned threads are listed when the scene has no frames at all", () => {
+  const html = renderSceneDocument(scene(), undefined, undefined, [boardThread()]);
+  assert.ok(html.includes('class="scene-empty"'), "the empty state stays");
+  assert.ok(html.includes("Thread 1 points at something that no longer exists in this canvas."), html);
+  assert.doesNotThrow(() => new vm.Script(inlineScript(html), { filename: "scene-viewer.js" }));
+});
+
+test("a pin id taken from the comment store is escaped", () => {
+  const hostile = '"><script>alert(1)</script>';
+  const html = renderSceneDocument(scene(frame({ nodes: [rect({ id: "node-1" })] })), undefined, undefined, [
+    { id: hostile, anchor: boardThread().anchor },
+  ]);
+  assert.equal(html.includes(hostile), false, "the raw thread id never reaches the document");
+  assert.ok(html.includes('data-thread-id="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"'), html);
+  assert.equal((html.match(/<script/gi) ?? []).length, 1, "the escaped id is not a script tag");
+  assert.equal(/<[a-z][^>]*\son[a-z]+\s*=/i.test(html), false, "no inline event handler attribute");
+});
+
+test("omitting the threads argument renders the same document as passing none", () => {
+  const pinnedScene = scene(frame({ nodes: [rect()] }));
+  assert.equal(renderSceneDocument(pinnedScene, undefined, undefined, []), renderSceneDocument(pinnedScene));
+});

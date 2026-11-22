@@ -115,6 +115,19 @@ const imageTagsOf = (document: string): string[] => document.match(/<img\b[^>]*>
 
 type Revision = { storageKey: string; sha256: string; revisionNumber: number; sizeBytes: number };
 
+const boardThread = {
+  id: "comment-pin",
+  artifactId: ARTIFACT_ID,
+  authorId: VIEWER_ID,
+  authorName: "Ann",
+  authorImage: null,
+  anchor: { kind: "board-point", boardId: "home", nodeId: "home-card", x: 0.25, y: 0.25 },
+  body: "Tighten this",
+  parentId: null,
+  resolvedAt: null,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+};
+
 const revisionOf = (bytes: Uint8Array): Revision => ({
   storageKey: newRevisionStorageKey(),
   sha256: digestOf(bytes),
@@ -281,12 +294,13 @@ test("the public link serves the same canvas document with the same navigation",
   assert.equal(shared.body.includes('<a class="vbar-cell vbar-back"'), false, "no owner chrome on the public page");
 });
 
-test("a canvas mounts no comments panel on either viewer, whatever the link option says", async () => {
+test("a canvas reads its threads for the pins and still mounts no comments panel or bridge", async () => {
   const owner = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
-  assert.equal(owner.queries, 1, "the canvas viewer never reads the comment store");
+  assert.equal(owner.queries, 2, "the artifact row and one comment access read, nothing else");
   assert.equal(owner.body.includes('id="viewer-comments"'), false, "no margin");
   assert.equal(owner.body.includes("viewer-comments-data"), false, "no comment data island");
   assert.equal(owner.body.includes("data-artiflow-bridge"), false, "no bridge inside the frame");
+  assert.equal(srcdocOf(owner.body).includes('class="scene-pin"'), false, "no threads means no pins");
 
   const shared = await shareView({ bytes: SCENE_BYTES, kind: "canvas", showComments: true });
   assert.equal(shared.queries, 1, "the public canvas never lists comments, even with the option on");
@@ -389,6 +403,49 @@ test("PRESERVE: a markdown artifact keeps its exact page bytes", async () => {
   );
 });
 
+test("the owner canvas page draws one pin per scene-anchored thread at the node-relative point", async () => {
+  const reply = await ownerView({
+    bytes: SCENE_BYTES,
+    kind: "canvas",
+    commentResults: [[{ access: "owner" }], [boardThread]],
+  });
+  assert.equal(reply.status, 200);
+  const document = srcdocOf(reply.body);
+  assert.equal((document.match(/class="scene-pin"/g) ?? []).length, 1, "exactly one pin");
+  assert.ok(
+    document.includes(
+      '<span class="scene-pin" tabindex="0" data-thread-id="comment-pin" data-node-id="home-card" aria-label="Comment thread 1" style="left:10px;top:15px">1</span>',
+    ),
+    "40*0.25 at x 0 and 20*0.25 at y 10",
+  );
+  assert.equal(reply.body.includes("viewer-comments-data"), false, "the pin ships inside the document");
+  assert.equal(reply.body.includes("data-artiflow-bridge"), false, "and never a bridge");
+});
+
+test("an orphaned canvas thread draws no pin and is named in the document", async () => {
+  const reply = await ownerView({
+    bytes: SCENE_BYTES,
+    kind: "canvas",
+    commentResults: [
+      [{ access: "owner" }],
+      [{ ...boardThread, anchor: { ...boardThread.anchor, nodeId: "home-gone" } }],
+    ],
+  });
+  assert.equal(reply.status, 200);
+  const document = srcdocOf(reply.body);
+  assert.equal((document.match(/class="scene-pin"/g) ?? []).length, 0, "no pin at a stale position");
+  assert.ok(document.includes("Thread 1 points at something that no longer exists in this canvas."), document);
+});
+
+test("a canvas still renders when the comment store cannot be read", async () => {
+  const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
+  assert.equal(reply.status, 200);
+  const document = srcdocOf(reply.body);
+  assert.equal(document.includes('class="scene-pin"'), false, "no pins without threads");
+  assert.equal(document.includes('class="scene-orphans"'), false, "and no list either");
+  assert.ok(document.includes('id="frame-home"'), "the scene itself still renders");
+});
+
 test("the canvas page allows images from exactly this instance's origin", async () => {
   const reply = await ownerView({
     bytes: imageSceneBytes(),
@@ -404,7 +461,7 @@ test("the canvas page allows images from exactly this instance's origin", async 
     "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src http://localhost; base-uri 'none'; form-action 'none'",
     "the rendered document carries the same single image source",
   );
-  assert.equal(reply.queries, 2, "the reference table is read once");
+  assert.equal(reply.queries, 3, "the reference table is read once, beside the artifact and the comment access row");
 });
 
 test("PRESERVE: html and markdown keep their exact policy strings", async () => {
