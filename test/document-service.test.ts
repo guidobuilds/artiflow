@@ -629,6 +629,42 @@ test("publish refuses with nothing_to_publish when the draft has no pending oper
   assert.equal(storage.objects.size, 2, "the second publish writes no object");
 });
 
+test("a replace_document restore lands and publishes even with nothing pending", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  const restored = "# Restored\n\noriginal bytes";
+  seeded.seedSnapshot(storage, restored);
+  const opened = await openDraft({ store: seeded.store, storage, artifactId: "a1" });
+  assert.equal(opened.ok && opened.value.text, restored, "the draft starts on the revision being restored");
+  const applied = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "a1",
+    authorKind: "person",
+    authorId: "u1",
+    baseSeq: 0,
+    idempotencyKey: "restore-1",
+    ops: [{ op: "replace_document", text: restored }],
+    now: NOW,
+  });
+  assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
+  if (!applied.ok) return;
+  assert.deepEqual([applied.value.seq, applied.value.applied], [1, 1], "the whole-text replacement lands");
+  const frozen = await publish({ store: seeded.store, storage, artifactId: "a1", now: NOW });
+  assert.equal(frozen.ok && frozen.value.frozen, true, frozen.ok ? "" : frozen.reason);
+  if (!frozen.ok) return;
+  const revision = seeded.revisions[1] as FakeRevision;
+  assert.deepEqual([revision.seqFrom, revision.seqTo], [1, 1]);
+  assert.equal(revision.sha256, digitOf(new TextEncoder().encode(restored)), "the snapshot is the restored text");
+  assert.equal(revision.sha256, (seeded.revisions[0] as FakeRevision).sha256, "the bytes are the pinned revision's");
+  assert.equal(
+    new TextDecoder().decode(storage.objects.get(revision.storageKey) as Uint8Array),
+    restored,
+    "the published object is the restored markdown",
+  );
+  assert.deepEqual([seeded.artifacts.get("a1")?.publishedSeq, frozen.value.publishedSeq], [1, 1]);
+});
+
 test("applyOperationsAndFreeze publishes on the operation that crosses the threshold", async () => {
   const seeded = fakeStore({ artifactId: "a1" });
   const storage = fakeStorage();

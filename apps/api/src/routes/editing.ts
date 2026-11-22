@@ -6,7 +6,6 @@ import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { AppDb, Database } from "../adapters/postgres/db/client.ts";
 
 import { getRevisionBytes, putRevisionBytes, newRevisionStorageKey } from "../adapters/storage/s3.ts";
-import { copyRevisionBytes } from "../domain/commit-flow.ts";
 import { setRevisionCas, type RevisionInput } from "../domain/commits.ts";
 import { editsDocumentInApp } from "@artiflow/domain/kinds";
 import { diffDocumentOperations } from "@artiflow/domain/document-operations";
@@ -18,6 +17,7 @@ import {
   drizzleDocumentStore,
   freezeIfDue,
   openDraft,
+  publish,
   textAt,
   type DocumentStore,
 } from "../domain/documents/service.ts";
@@ -229,6 +229,8 @@ export function createEditingApp(options: EditingOptions) {
     if (expectedRevisionId !== undefined && (typeof expectedRevisionId !== "string" || expectedRevisionId.length === 0))
       return c.json({ error: "expected_revision_id_required" }, 400);
     const draft = await documents.readDraft(row.id);
+    if (expectedSeq === undefined && draft !== null && draft.seq > row.publishedSeq)
+      return c.json({ error: "sequence_required", currentSeq: draft.seq, currentRevisionId: row.revisionId }, 409);
     const usesOperations = expectedSeq !== undefined || draft !== null;
     if (!usesOperations && expectedRevisionId === undefined)
       return c.json({ error: "expected_revision_id_required" }, 400);
@@ -358,7 +360,7 @@ export function createEditingApp(options: EditingOptions) {
     if (rejected) return rejected;
     const gate = await docGate(c);
     if (gate instanceof Response) return gate;
-    const { row } = gate;
+    const { userId, row } = gate;
     const wrongKind = requireMarkdown(c, row);
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
@@ -375,44 +377,50 @@ export function createEditingApp(options: EditingOptions) {
     }
     const pinned = await pinnedRevision(db, revisionId, row.id);
     if (!pinned?.sha256) return c.json({ error: "revision_not_found" }, 404);
-    const copied = await copyRevisionBytes({
+    const read = await getRevisionBytes({
       storage,
       storageKey: pinned.storageKey,
       sha256: pinned.sha256,
       maxBytes: cap,
     });
-    if (!copied.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    const count = await revisionCount(db, row.id);
-    const next: RevisionInput = {
-      revision: count + 1,
-      sizeBytes: copied.value.sizeBytes,
-      sha256: copied.value.sha256,
-      storageKey: copied.value.storageKey,
-      observedSizeBytes: copied.value.sizeBytes,
-    };
-    const advanced = await setRevisionCas(database.db, {
+    if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
+    const restored = decodeMarkdownText(read.value.bytes);
+    if (!restored.ok) return c.json({ error: "artifact_unavailable" }, 500);
+    const opened = await openDraft({ store: documents, storage, artifactId: row.id });
+    if (!opened.ok)
+      return opened.kind === "not_found"
+        ? c.json({ error: "not_found" }, 404)
+        : c.json({ error: "artifact_unavailable" }, 500);
+    const applied = await applyOperations({
+      store: documents,
+      storage,
       artifactId: row.id,
-      ownerId: row.ownerId,
-      expectedRevisionId: row.revisionId,
-      next,
+      authorKind: "person",
+      authorId: userId,
+      baseSeq: opened.value.seq,
+      idempotencyKey: randomUUID(),
+      ops: [{ op: "replace_document", text: restored.text }],
     });
-    if (!advanced.ok) {
-      if (advanced.kind === "error") return c.json({ error: "internal_error", reason: advanced.reason }, 500);
-      return c.json(
-        {
-          error: advanced.kind === "concurrent_commit" ? "concurrent_edit" : advanced.kind,
-          reason: advanced.reason,
-          currentRevisionId: advanced.currentRevisionId,
-        },
-        409,
-      );
+    if (!applied.ok) {
+      if (applied.kind === "concurrent_edit")
+        return c.json(
+          { error: "concurrent_edit", currentSeq: applied.currentSeq, currentRevisionId: row.revisionId },
+          409,
+        );
+      if (applied.kind === "not_found") return c.json({ error: "not_found" }, 404);
+      return c.json({ error: "operation_rejected", kind: applied.kind, reason: applied.reason }, 409);
     }
+    const frozen = await publish({ store: documents, storage, artifactId: row.id });
+    if (!frozen.ok || !frozen.value.frozen || frozen.value.revisionId === null || frozen.value.revisionNumber === null)
+      return c.json({ error: "artifact_unavailable" }, 500);
     return c.json({
       artifactId: row.id,
-      revisionId: advanced.value.revisionId,
-      revisionNumber: advanced.value.revisionNumber,
+      revisionId: frozen.value.revisionId,
+      revisionNumber: frozen.value.revisionNumber,
       restoredFrom: revisionId,
-      sha256: next.sha256,
+      sha256: frozen.value.sha256 ?? pinned.sha256,
+      seq: applied.value.seq,
+      publishedSeq: frozen.value.publishedSeq,
     } satisfies SavedRevision);
   });
 
