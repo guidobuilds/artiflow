@@ -256,20 +256,27 @@ test("an empty directory says what to do next", () => {
   assert.match(read(USERS_PAGE), /directoryEmptyMessage\(/);
 });
 
-test("the administration shell carries the area, the four routes and the existing refusal", async () => {
+test("the administration shell carries the area, the five sections and the existing refusal", async () => {
   assert.deepEqual(
     ADMIN_SECTIONS.map((section) => [section.label, section.href]),
     [
       ["Users", "/admin/users"],
-      ["Access", "/admin/access"],
-      ["Password policy", "/admin/password-policy"],
       ["Invitations", "/admin/invitations"],
+      ["Sign-in methods", "/admin/access"],
+      ["Enterprise SSO", "/admin/sso"],
+      ["Password policy", "/admin/password-policy"],
     ],
   );
 
   const shell = read(ADMIN_SHELL);
-  assert.match(shell, /BareShell/);
-  assert.match(shell, /Instance administration/);
+  assert.doesNotMatch(shell, /BareShell/);
+  assert.match(shell, />Administration</);
+  assert.match(shell, /ADMIN_SECTION_GROUPS\.map/);
+  assert.deepEqual(
+    ADMIN_SECTIONS.map((section) => section.group),
+    ["People", "People", "Authentication", "Authentication", "Authentication"],
+  );
+  assert.ok(ADMIN_SECTIONS.every((section) => section.description.length > 0));
   assert.match(shell, /aria-label="Administration"/);
   assert.match(shell, /This area is for administrators\./);
   assert.match(shell, /Sign in to open this page\./);

@@ -93,15 +93,14 @@ test("the connection page has its own route before the 404 and lives inside the 
   assert.ok(notFound > page, "the /admin/sso branch must precede the NotFoundPage fallback");
 
   const rendered = read(PAGE);
-  assert.match(rendered, /<AdminShell section="access" gate=\{load\}/);
+  assert.match(rendered, /<AdminShell section="sso" gate=\{load\}/);
   assert.doesNotMatch(rendered, /BareShell/);
   assert.doesNotMatch(rendered, /AppShell|LIBRARY_LINKS|NavItem/);
 
-  assert.equal(adminSectionPath("access"), "/admin/access");
-  assert.equal(
-    ADMIN_SECTIONS.every((section) => section.href !== "/admin/sso"),
-    true,
-    "the connection is reached from the access page, not as a fifth section",
+  assert.equal(adminSectionPath("sso"), "/admin/sso");
+  assert.ok(
+    ADMIN_SECTIONS.some((section) => section.key === "sso" && section.href === "/admin/sso"),
+    "the connection has its own entry in the administration navigation",
   );
   assert.match(read(ACCESS_PAGE), /href="\/admin\/sso"/);
   assert.match(read(ADMIN_SHELL), /ADMIN_SECTIONS/);
@@ -123,13 +122,13 @@ test("a non-administrator is refused by the shell and never sees the form", asyn
   assert.equal((page.match(/<form/g) ?? []).length, 0, "the page never renders a bare form");
 });
 
-test("a sessionless visitor is sent to sign in and returns to the administration area", async () => {
+test("a sessionless visitor is sent to sign in and returns to the connection page", async () => {
   useFetch(() => json({ error: "sign_in_required" }, 401));
   const result = await readSsoConnectionConfiguration();
   assert.equal(result.ok === false && result.code, "unauthorized");
   assert.equal(result.ok === false && result.signInRequired, true);
   assert.match(result.ok === false ? result.error : "", /sign in/i);
-  assert.equal(`/login?return=${encodeURIComponent(adminSectionPath("access"))}`, "/login?return=%2Fadmin%2Faccess");
+  assert.equal(`/login?return=${encodeURIComponent(adminSectionPath("sso"))}`, "/login?return=%2Fadmin%2Fsso");
 });
 
 test("the stored connection parses, the draft starts from it and the credential is never prefilled", () => {

@@ -4,6 +4,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip.tsx";
 import { cn } from "@/lib/utils.ts";
 
 const paths = {
+  key: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="m11 12 9-9m-4 4 3 3m-6 0 2 2" />
+    </>
+  ),
+  shield: <path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3z" />,
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" />
+      <path d="m3 6 9 7 9-7" />
+    </>
+  ),
   divider: <path d="M4 12h16" />,
   image: (
     <>
