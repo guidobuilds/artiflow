@@ -14,7 +14,9 @@ export type SocialFixture = { database: Database; baseUrl: string; origin: strin
 
 type FakeIdp = { origin: string; close: () => Promise<void> };
 
-function startFakeIdp(profile: { id: string; name: string; email: string }): Promise<FakeIdp> {
+type FakeProfile = { id: string; name: string; email: string; verified: boolean };
+
+function startFakeIdp(profile: FakeProfile): Promise<FakeIdp> {
   const server: Server = createServer((incoming, response) => {
     incoming.resume();
     const url = incoming.url ?? "";
@@ -31,7 +33,7 @@ function startFakeIdp(profile: { id: string; name: string; email: string }): Pro
       return;
     }
     if (incoming.method === "GET" && url === "/user/emails") {
-      send(200, [{ email: profile.email, primary: true, verified: true }]);
+      send(200, [{ email: profile.email, primary: true, verified: profile.verified }]);
       return;
     }
     send(404, { error: "not_found" });
@@ -117,8 +119,19 @@ export async function seedSocialIdentity(
 
 export type SocialOutcome = { location: string; cookie: string; sessionPairs: string[] };
 
-export async function completeSocialSignIn(fixture: SocialFixture, identity: SocialIdentity): Promise<SocialOutcome> {
-  const idp = await startFakeIdp({ id: identity.providerAccountId, name: "Social Login", email: identity.email });
+export type SocialAssertion = { emailVerified?: boolean };
+
+export async function completeSocialSignIn(
+  fixture: SocialFixture,
+  identity: SocialIdentity,
+  assertion: SocialAssertion = {},
+): Promise<SocialOutcome> {
+  const idp = await startFakeIdp({
+    id: identity.providerAccountId,
+    name: "Social Login",
+    email: identity.email,
+    verified: assertion.emailVerified !== false,
+  });
   const restore = routeProviderToIdp(idp.origin);
   try {
     const begun = await fetch(`${fixture.baseUrl}/api/auth/sign-in/social`, {

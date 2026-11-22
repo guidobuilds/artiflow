@@ -208,6 +208,12 @@ export function createAuthFromSnapshot(config: AuthConfig, database: Database, s
       minPasswordLength: snapshot.passwordMinLength,
     },
     socialProviders: socialProviderOptions(snapshot.providers),
+    account: {
+      accountLinking: {
+        requireLocalEmailVerified: false,
+        trustedProviders: [],
+      },
+    },
     session: { cookieCache: { enabled: false } },
     hooks: { before: passwordPolicyHook(policy) },
     databaseHooks: {

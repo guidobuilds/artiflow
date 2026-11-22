@@ -519,6 +519,40 @@ it owns stay as they are, and, for the caller's own session, this browser return
 The panel reads the list again after every closure, reports a session that vanished plainly and then
 refreshes, and never renders a session token or writes one to storage.
 
+**Social linking (Google and GitHub).** Sign-up through a provider stays closed, so a social
+identity can only open an account that already exists with the address the provider reports as
+verified. The library links that identity implicitly, and its default rule also requires the stored
+row to carry `emailVerified: true`, which an account created through an invitation does not: an
+invitation link is a bearer credential, and this product deliberately does not treat holding one as
+mailbox proof, so the column keeps saying `false` after a completion. Left at that default the social
+methods refuse every invited account with `account_not_linked`, which contradicts the requirement
+that Google and GitHub keep working.
+
+**Decision.** `createAuthFromSnapshot` in `apps/api/src/auth.ts` sets
+`account.accountLinking.requireLocalEmailVerified: false` and keeps
+`account.accountLinking.trustedProviders` empty. The link gate therefore rests on the evidence the
+product actually has: the account exists because an administrator invited that address or the
+connection authorised it, and the provider asserts the address as verified. The library then records
+that address as verified on the first link, and a later sign-in reuses the identity instead of
+writing anything.
+
+Both takeover guarantees survive, and each has a test in
+`test/social-linking.integration.ts`: a provider that does not assert the address as verified is
+refused, because only trusted providers may skip that assertion and no provider is trusted; and an
+identity already bound to another account opens that account and never links to, or signs in as, the
+invited one.
+
+The rejected alternative is writing `emailVerified: true` when an invitation completes. It would
+satisfy the same gate without touching the library options, but it would state something the product
+does not know: the invitation link travels by mail and can be forwarded, which is why the completion
+path stores `false` and why the registration tests pin that value. It would also change one column
+for every invited account, for every reader of it, instead of relaxing the single gate that needs it,
+and it would need the registration contract to be rewritten rather than the linking rule.
+
+This rule lives in the library's own option, which the pinned `better-auth` 1.7.25 release line
+honours. A future release that makes the gate unconditional would refuse invited accounts again, and
+the four cases in `test/social-linking.integration.ts` are what catch it.
+
 **Decision.** The single connection is a row managed through `@better-auth/sso` (1.7.x, the
 same release line as `better-auth`), configured to make the library's defaults safe for
 this product:
@@ -967,6 +1001,7 @@ for pure logic, `*.integration.ts` for HTTP and database behaviour, helpers in
 | Unit        | Policy validation, trust matrix, config precedence, secret envelope round-trip, redaction shape                                |
 | HTTP + DB   | Every map-row below, including refusals and the state left behind                                                              |
 | Fake IdP    | One `test/helpers/oidc.ts` serving discovery, JWKS and token responses with switchable `iss`, `tid`, `email_verified`, `email` |
+| Fake provider | One `test/helpers/social-sign-in.ts` answering the GitHub token, profile and address endpoints with switchable `verified`                                    |
 | UI          | Login rendering with and without SSO, fallback rendering, admin surface gating                                                 |
 | Concurrency | Single-use invitation and reset consumption under two parallel completions                                                     |
 
@@ -979,7 +1014,8 @@ administrator authority and simultaneous administrators; console first-admin and
 invitation single use, expiration and revocation; reactivation of a deactivated account
 without duplication; deactivation cutting sessions and revoking public links and
 reactivation not restoring them; SSO-only rendering and the administrator-only fallback;
-Google and GitHub surviving the upgrade and becoming administrable; policy enforcement with
+Google and GitHub surviving the upgrade and becoming administrable, including an invited
+account linking on a verified provider claim; policy enforcement with
 and without the interface; OIDC configuration and actionable errors; JIT on creating a
 member and JIT off refusing; tenant and domain rejection for foreign or personal accounts;
 trusted linking preserving content; session closing on both surfaces; sensitive actions
