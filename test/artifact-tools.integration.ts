@@ -62,6 +62,8 @@ const TOOL_NAMES = [
   "document_publish",
   "document_query",
   "document_read",
+  "scene_outline",
+  "scene_read",
 ];
 
 type ToolResult = {

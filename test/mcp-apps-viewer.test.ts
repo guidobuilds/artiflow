@@ -90,7 +90,7 @@ test("resources/read serves the viewer as an mcp-app HTML document", async () =>
   assert.ok((meta?.csp?.frameDomains ?? []).length > 0, "nested artifact iframes need an explicit frame domain");
 });
 
-test("only the seven read tools declare readOnlyHint", async () => {
+test("only the nine read tools declare readOnlyHint", async () => {
   const { tools } = await connect();
   const readOnly = tools
     .filter((tool) => (tool as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint === true)
@@ -104,9 +104,11 @@ test("only the seven read tools declare readOnlyHint", async () => {
     "document_outline",
     "document_query",
     "document_read",
+    "scene_outline",
+    "scene_read",
   ]);
   const others = tools.filter((tool) => !readOnly.includes(tool.name)).map((tool) => tool.name);
-  assert.equal(others.length, 13, "the registry holds twenty tools: seven reads and thirteen writers");
+  assert.equal(others.length, 13, "the registry holds twenty-two tools: nine reads and thirteen writers");
   for (const name of others)
     assert.equal(
       (tools.find((tool) => tool.name === name) as { annotations?: Record<string, unknown> }).annotations,

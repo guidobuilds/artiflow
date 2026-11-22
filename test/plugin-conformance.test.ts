@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { ARTIFACT_TOOL_NAMES, DOCUMENT_TOOL_NAMES, SCENE_TOOL_NAMES } from "@artiflow/contracts/artifacts";
 import { runConformance } from "@artiflow/plugin-core/conformance";
 
 const base = {
@@ -49,17 +50,33 @@ test("the document tools are part of the Artiflow MCP surface a plugin may decla
     manifest: {
       id: "artiflow:opencode",
       kind: "plugin" as const,
-      tools: [
-        "document_create",
-        "document_outline",
-        "document_read",
-        "document_query",
-        "document_diff",
-        "document_apply",
-        "document_publish",
-      ],
+      tools: [...DOCUMENT_TOOL_NAMES],
     },
   });
   assert.equal(report.ok, true, JSON.stringify(report.issues));
   assert.deepEqual(report.issues, []);
+});
+
+test("the scene tools are part of the Artiflow MCP surface a plugin may declare", () => {
+  const report = runConformance({
+    ...base,
+    manifest: { id: "artiflow:opencode", kind: "plugin" as const, tools: [...SCENE_TOOL_NAMES] },
+  });
+  assert.equal(report.ok, true, JSON.stringify(report.issues));
+  assert.deepEqual(report.issues, []);
+});
+
+test("every registered tool name passes conformance, so the list and the registry cannot drift", () => {
+  for (const name of ARTIFACT_TOOL_NAMES) {
+    const report = runConformance({
+      ...base,
+      manifest: { id: "artiflow:opencode", kind: "plugin" as const, tools: [name] },
+    });
+    assert.equal(report.ok, true, `${name}: ${JSON.stringify(report.issues)}`);
+  }
+  const all = runConformance({
+    ...base,
+    manifest: { id: "artiflow:opencode", kind: "plugin" as const, tools: [...ARTIFACT_TOOL_NAMES] },
+  });
+  assert.equal(all.ok, true, JSON.stringify(all.issues));
 });

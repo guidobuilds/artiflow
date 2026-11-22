@@ -12,6 +12,7 @@ import {
   type DocumentBlock,
   type DocumentOperation,
 } from "@artiflow/domain/document-operations";
+import { readScene, sceneOutline, sceneSubtree, type Scene } from "@artiflow/domain/scene";
 import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
 import {
   McpRollback,
@@ -42,6 +43,8 @@ import {
   MAX_DOCUMENT_READ_BLOCKS,
   MAX_DOCUMENT_READ_BYTES,
   MAX_DOCUMENT_READ_LINES,
+  MAX_SCENE_READ_BYTES,
+  MAX_SCENE_READ_NODES,
   digestOf,
   refusal as pkgRefusal,
   refusalOf as pkgRefusalOf,
@@ -954,6 +957,100 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         if (!published.ok) return documentFailure(published, artifactId);
         const value = published.value;
         return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+      },
+    );
+
+    const canvasScene = async (
+      userId: string,
+      artifactId: string,
+    ): Promise<{ revisionId: string; scene: Scene } | ToolReply> => {
+      const row = await selectReadRevision(undefined, userId, artifactId);
+      if (!row) return refusal("not_found", "artifact_not_visible_to_owner", { artifactId });
+      if (row.deletedAt) return refusal("gone", "artifact_deleted", { artifactId });
+      if (row.kind !== "canvas")
+        return refusal("wrong_kind", "artifact_is_not_a_canvas", { artifactId, kind: row.kind });
+      if (!row.id || !row.sha256 || !row.storageKey) return refusal("not_found", "revision_not_found", { artifactId });
+      const read = await getRevisionBytes({ storageKey: row.storageKey, maxBytes: MAX_ARTIFACT_BYTES });
+      if (!read.ok) return refusalOf(read);
+      const parsed = readScene(new TextDecoder().decode(read.value.bytes));
+      if (!parsed.ok) return refusal("invalid_scene", parsed.reason, { artifactId, path: parsed.path });
+      return { revisionId: row.id, scene: parsed.value };
+    };
+    server.registerTool(
+      "scene_outline",
+      {
+        title: "Outline a canvas scene",
+        annotations: { readOnlyHint: true },
+        description: `Return the frame index of one owned canvas's current revision: one entry per frame with its id, name, node count and bbox, plus the scene format version — never the node bodies, so a canvas with hundreds of nodes costs one line per frame. Requires ${readScope}. The frame ids are what scene_read accepts; any artifact kind that is not a canvas refuses with wrong_kind.`,
+        inputSchema: { artifactId: documentIdSchema },
+      },
+      async ({ artifactId }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const loaded = await canvasScene(access.userId, artifactId);
+        if ("content" in loaded) return loaded;
+        const frames = sceneOutline(loaded.scene);
+        return reply({
+          artifactId,
+          revisionId: loaded.revisionId,
+          formatVersion: loaded.scene.formatVersion,
+          frameCount: frames.length,
+          frames,
+        });
+      },
+    );
+    server.registerTool(
+      "scene_read",
+      {
+        title: "Read one canvas frame",
+        annotations: { readOnlyHint: true },
+        description: `Read one frame of one owned canvas's current revision: its id, name, geometry, bbox and nodes, narrowed to nodeIds when given. Requires ${readScope}. One read returns at most ${MAX_SCENE_READ_NODES} nodes and at most ${MAX_SCENE_READ_BYTES} bytes of frame JSON; a wider request refuses with too_large and its named reason instead of truncating, so narrow it with nodeIds or read another frame. An id the scene does not hold refuses with unknown_frame or unknown_node, and any artifact kind that is not a canvas refuses with wrong_kind.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          frameId: z.string().min(1).max(200),
+          nodeIds: z.array(z.string().min(1).max(200)).min(1).max(MAX_SCENE_READ_NODES).optional(),
+        },
+      },
+      async ({ artifactId, frameId, nodeIds }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const loaded = await canvasScene(access.userId, artifactId);
+        if ("content" in loaded) return loaded;
+        const frame = sceneSubtree(loaded.scene, frameId);
+        const entry = sceneOutline(loaded.scene).find((candidate) => candidate.id === frameId);
+        if (!frame || !entry) return refusal("unknown_frame", "frame_not_in_scene", { artifactId, frameId });
+        const wanted = nodeIds === undefined ? undefined : new Set(nodeIds);
+        for (const id of wanted ?? [])
+          if (!frame.nodes.some((node) => node.id === id))
+            return refusal("unknown_node", "node_not_in_frame", { artifactId, frameId, nodeId: id });
+        const nodes = frame.nodes.filter((node) => wanted === undefined || wanted.has(node.id));
+        if (nodes.length > MAX_SCENE_READ_NODES)
+          return refusal("too_large", "read_window_exceeds_the_node_cap", {
+            artifactId,
+            frameId,
+            maxNodes: MAX_SCENE_READ_NODES,
+            requestedNodes: nodes.length,
+          });
+        const projected = {
+          id: frame.id,
+          name: frame.name,
+          x: frame.x,
+          y: frame.y,
+          w: frame.w,
+          h: frame.h,
+          bbox: entry.bbox,
+          nodeCount: nodes.length,
+          nodes,
+        };
+        const observedBytes = new TextEncoder().encode(JSON.stringify(projected)).length;
+        if (observedBytes > MAX_SCENE_READ_BYTES)
+          return refusal("too_large", "read_window_exceeds_the_byte_cap", {
+            artifactId,
+            frameId,
+            maxBytes: MAX_SCENE_READ_BYTES,
+            observedBytes,
+          });
+        return reply({ artifactId, revisionId: loaded.revisionId, frame: projected });
       },
     );
 
