@@ -182,7 +182,35 @@ export type ApplyOperationsInput = OpenDraftInput & {
   baseSeq: number;
   idempotencyKey: string;
   ops: DocumentOperationsBatch;
+  notify?: boolean;
 };
+
+export type AppliedOperationsEvent = {
+  artifactId: string;
+  seq: number;
+  baseSeq: number;
+  authorKind: DocumentAuthorKind;
+  authorId: string;
+};
+
+const appliedListeners = new Set<(event: AppliedOperationsEvent) => void>();
+
+export function onOperationsApplied(listener: (event: AppliedOperationsEvent) => void): () => void {
+  appliedListeners.add(listener);
+  return () => {
+    appliedListeners.delete(listener);
+  };
+}
+
+function announceApplied(event: AppliedOperationsEvent): void {
+  for (const listener of [...appliedListeners]) {
+    try {
+      listener(event);
+    } catch (error) {
+      console.error(`[documents] applied listener failed: ${error instanceof Error ? error.name : "unknown error"}`);
+    }
+  }
+}
 
 export type FreezeInput = OpenDraftInput & { force?: boolean };
 
@@ -444,6 +472,8 @@ export async function applyOperations(input: ApplyOperationsInput): Promise<Docu
   }
   if (!applied.ok)
     return fail("operation_rejected", applied.reason, { currentSeq: draft.seq, opIndex: applied.opIndex });
+  if (input.notify !== false)
+    announceApplied({ artifactId, seq, baseSeq, authorKind, authorId });
   return ok({
     artifactId,
     seq,

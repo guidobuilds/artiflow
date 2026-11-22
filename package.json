@@ -66,7 +66,11 @@
     "test:oauth": "node --env-file=.env.local --test test/oauth-http.integration.ts"
   },
   "dependencies": {
+    "@artiflow/contracts": "*",
     "@artiflow/domain": "*",
+    "@artiflow/mcp-apps": "*",
+    "@artiflow/plugin-core": "*",
+    "@artiflow/sdk": "*",
     "@aws-sdk/client-s3": "3.1169.0",
     "@better-auth/core": "1.7.25",
     "@better-auth/mcp": "1.7.25",
@@ -95,11 +99,10 @@
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "tailwind-merge": "^3.7.0",
-    "zod": "4.6.7",
-    "@artiflow/contracts": "*",
-    "@artiflow/sdk": "*",
-    "@artiflow/mcp-apps": "*",
-    "@artiflow/plugin-core": "*"
+    "ws": "8.22.2",
+    "y-protocols": "1.0.7",
+    "yjs": "13.6.33",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.5",
@@ -108,12 +111,14 @@
     "@types/pg": "8.23.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "6.3.0",
     "drizzle-kit": "0.31.11",
     "oxlint": "^1.93.0",
     "prettier": "^3.10.1",
     "tailwindcss": "^4.3.3",
     "typescript": "5.9.3",
-    "vite": "8.3.8"
+    "vite": "8.3.8",
+    "y-websocket": "3.1.0"
   }
 }

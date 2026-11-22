@@ -58,7 +58,7 @@ export type DocRow = {
   access: string;
 };
 
-async function documentFor(db: AppDb, userId: string, artifactId: string): Promise<DocRow | undefined> {
+export async function documentFor(db: AppDb, userId: string, artifactId: string): Promise<DocRow | undefined> {
   return (
     await db
       .select({
@@ -160,7 +160,7 @@ export async function docGateFor(
   return { userId, row };
 }
 
-export const canEdit = (row: DocRow): boolean => row.access === "owner" || row.access === "editor";
+export const canEdit = (row: { access: string }): boolean => row.access === "owner" || row.access === "editor";
 
 export const requireEditor = (c: Context, row: DocRow): Response | null =>
   canEdit(row) ? null : c.json({ error: "forbidden" }, 403);
