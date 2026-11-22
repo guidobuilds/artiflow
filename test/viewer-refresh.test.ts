@@ -8,6 +8,7 @@ import {
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
   SANDBOX,
+  sceneCsp,
   THEME_BOOTSTRAP,
   VIEWER_CSP,
   VIEWER_HEADERS,
@@ -502,17 +503,23 @@ test("the markdown page keeps its own policy and the fragment can only add text"
   assert.equal(renderMarkdownFragment("<img src=x onerror=alert(1)>").includes("<img"), false);
 });
 
-test("the public share 200s both spread the widened viewer headers", () => {
+test("the public share 200s all spread the widened viewer headers", () => {
   const source = readFileSync(new URL("../apps/api/src/routes/sharing.ts", import.meta.url), "utf8");
-  assert.equal([...source.matchAll(/\.\.\.VIEWER_HEADERS/g)].length, 2, "exactly the two share 200 responses");
+  assert.equal([...source.matchAll(/\.\.\.VIEWER_HEADERS/g)].length, 2, "the markdown and HTML share 200s");
+  assert.equal([...source.matchAll(/sceneHeaders\(origin\)/g)].length, 1, "the scene share 200 gets its own list");
   assert.equal(source.includes("WRAPPER_CSP"), false, "the share viewer never serves the narrow policy");
   assert.equal(
+    sceneCsp("https://canvas.test"),
+    VIEWER_CSP.replace("img-src 'self'", "img-src https://canvas.test"),
+    "the scene list is the viewer list with one explicit image source",
+  );
+  assert.equal(
     [...source.matchAll(/"x-robots-tag": "noindex"/g)].length,
-    4,
-    "both served pages stay unindexable, as do the ?meta=1 projection and the link comments",
+    5,
+    "every served page stays unindexable, as do the ?meta=1 projection and the link comments",
   );
   assert.equal([...source.matchAll(/markdownViewerPage\(/g)].length, 1, "the markdown share page is one of them");
-  assert.equal([...source.matchAll(/wrapperPage\(/g)].length, 1, "and the HTML share page is the other");
+  assert.equal([...source.matchAll(/wrapperPage\(/g)].length, 2, "the HTML and scene share pages are the others");
 });
 
 const MARKDOWN_REFRESH = { metaUrl: "/api/artifacts/1111", revisionNumber: 1, sha256: "bbb" };

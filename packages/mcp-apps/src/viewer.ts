@@ -1,7 +1,20 @@
+import { KIND_CAPABILITIES } from "@artiflow/domain/kinds";
+
+export type ViewerCapabilities = Record<string, { viewer: string } | undefined>;
+
+const scriptJson = (value: unknown): string =>
+  JSON.stringify(value).replace(
+    /[<>&\u2028\u2029]/g,
+    (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+
+export const viewerScriptMap = (capabilities: ViewerCapabilities): string =>
+  scriptJson(Object.fromEntries(Object.entries(capabilities).map(([kind, row]) => [kind, row?.viewer ?? null])));
+
 export const VIEWER_DOCUMENT_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
 
-export const mcpAppsViewerHtml = (): string => `<!DOCTYPE html>
+export const mcpAppsViewerHtml = (capabilities: ViewerCapabilities = KIND_CAPABILITIES): string => `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -151,10 +164,13 @@ function cspDocument(html) {
   return html.slice(0, close + 1) + meta + html.slice(close + 1);
 }
 
-// Fail closed: only an explicit "html" kind may render bytes as a document. Any other or
-// missing kind stays inert text, so an unknown kind never inherits the frame by default.
+// Fail closed: only a kind whose registered viewer is the sandboxed document may render
+// bytes as a document. Any other or missing kind stays inert text, so an unknown kind
+// never inherits the frame by default.
+var KIND_VIEWERS = ${viewerScriptMap(capabilities)};
+
 function rendersAsFrame(kind) {
-  return kind === "html";
+  return KIND_VIEWERS[kind] === "sandboxed-html";
 }
 
 function showText(text) {

@@ -7,6 +7,7 @@ import { getRevisionBytes } from "../adapters/storage/s3.ts";
 import type { createAuth } from "../auth.ts";
 import {
   artifacts,
+  artifactAssets,
   artifactShares,
   artifactPublicLinks,
   artifactRevisions,
@@ -16,12 +17,23 @@ import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { listComments } from "../adapters/postgres/comments-repo.ts";
 import type { Storage } from "../adapters/storage/client.ts";
-import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
+import {
+  escapeAttribute,
+  NOT_FOUND_HEADERS,
+  NOT_FOUND_PAGE,
+  originOf,
+  sceneHeaders,
+  VIEWER_HEADERS,
+  wrapperPage,
+} from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
 import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { readScene, type Scene } from "@artiflow/domain/scene";
+import { rendersInlineMarkdown, viewerFor } from "@artiflow/domain/kinds";
+import { renderSceneDocument } from "../viewer/scene.ts";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { ACTIVE_ACCOUNT_STATUS } from "../identity/account-status.ts";
 import { readPrincipal } from "../http/principal.ts";
@@ -213,6 +225,17 @@ export async function canReadArtifact(db: AppDb, userId: string, artifactId: str
         .where(and(eq(artifacts.id, artifactId), readableArtifactPredicate(userId)))
     ).length > 0
   );
+}
+
+export async function sceneAssetDigests(db: AppDb, artifactId: string, scene: Scene): Promise<ReadonlySet<string>> {
+  const used = new Set<string>();
+  for (const frame of scene.frames) for (const node of frame.nodes) if (node.type === "image") used.add(node.assetId);
+  if (used.size === 0) return used;
+  const rows = await db
+    .select({ sha256: artifactAssets.assetSha256 })
+    .from(artifactAssets)
+    .where(eq(artifactAssets.artifactId, artifactId));
+  return new Set(rows.map((row) => row.sha256).filter((sha256) => used.has(sha256)));
 }
 
 const TOKEN_BYTES = 32;
@@ -460,7 +483,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       revisionNumber: row.revisionNumber,
       sha256: row.sha256,
     };
-    if (row.kind === "markdown") {
+    if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
       const visible = row.showComments ? await listComments(db, row.artifactId, true) : [];
@@ -481,6 +504,34 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
         200,
         {
           ...VIEWER_HEADERS,
+          "x-robots-tag": "noindex",
+        },
+      );
+    }
+    if (viewerFor(row.kind) === "scene") {
+      const scene = readScene(new TextDecoder().decode(read.value.bytes));
+      if (!scene.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+      const origin = originOf(c.req.url);
+      const images =
+        origin === null
+          ? undefined
+          : {
+              origin,
+              artifactId: row.artifactId,
+              digests: await sceneAssetDigests(db, row.artifactId, scene.value),
+              token,
+            };
+      return c.html(
+        wrapperPage(
+          escapeAttribute(renderSceneDocument(scene.value, c.req.query("frame"), images, [], row.kind)),
+          undefined,
+          undefined,
+          false,
+          refresh,
+        ),
+        200,
+        {
+          ...sceneHeaders(origin),
           "x-robots-tag": "noindex",
         },
       );

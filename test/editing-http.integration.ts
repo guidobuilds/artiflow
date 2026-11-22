@@ -344,6 +344,11 @@ test(
       owner,
     );
     assert.equal(restored.status, 200, restored.text);
+    assert.deepEqual(
+      [restored.json?.seq, restored.json?.publishedSeq],
+      [1, 1],
+      "the restore is one operation and is published at once",
+    );
     const rows = await revisionRows(doc.id);
     const pinnedRow = rows.find((row) => row.id === firstRevision.id);
     const restoredRow = rows.find((row) => row.id === restored.json?.revisionId);
@@ -360,6 +365,19 @@ test(
       assert.equal(got.ok, true, "both revisions remain readable");
       if (got.ok) assert.equal(digestOf(got.value.bytes), row.sha256, "each read verifies against its own row");
     }
+    const operations = (
+      await pool.query<{ seq: number; ops: unknown[]; result: string }>(
+        `select "seq", "ops", "result" from "documentOperations" where "artifactId" = $1 order by "seq" desc limit 1`,
+        [doc.id],
+      )
+    ).rows;
+    assert.equal(operations.length, 1, "the restore appends one operation row");
+    assert.deepEqual(
+      operations[0]?.ops,
+      [{ op: "replace_document", text: DOC_V1 }],
+      "the restore carries the pinned revision's text",
+    );
+    assert.deepEqual([operations[0]?.seq, operations[0]?.result], [1, "applied"]);
     const reread = await read(`/api/artifacts/${doc.id}/document`, {}, owner);
     assert.equal(reread.json?.text, DOC_V1, "restoring the first revision restores its exact text");
     assert.equal(reread.json?.revisionNumber, 4, "restore appends a revision, never rewrites history");
@@ -381,6 +399,92 @@ test(
     assert.deepEqual([htmlRestore.status, htmlRestore.json?.error], [409, "wrong_kind"]);
   },
 );
+
+test("a client that omits the sequence cannot overwrite a draft", { skip: SKIP, timeout: 60_000 }, async () => {
+  const fresh = await seed(owner, "# borrador\n", "Draft doc", "markdown");
+  const first = await read(
+    `/api/artifacts/${fresh.id}/document`,
+    {
+      method: "PUT",
+      headers: MUTATION,
+      body: JSON.stringify({ text: "# borrador\n\neditado\n", expectedSeq: 0 }),
+    },
+    owner,
+  );
+  assert.equal(first.status, 200, first.text);
+  assert.deepEqual([first.json?.seq, first.json?.publishedSeq], [1, 0], "the save stays in the draft");
+  const refused = await read(
+    `/api/artifacts/${fresh.id}/document`,
+    {
+      method: "PUT",
+      headers: MUTATION,
+      body: JSON.stringify({ text: "# perdido\n", expectedRevisionId: first.json?.revisionId }),
+    },
+    owner,
+  );
+  assert.deepEqual(
+    [refused.status, refused.json?.error, refused.json?.currentSeq],
+    [409, "sequence_required", 1],
+    "the draft is never overwritten silently",
+  );
+  const counted = await pool.query<{ count: string }>(
+    `select count(*) from "documentOperations" where "artifactId" = $1`,
+    [fresh.id],
+  );
+  assert.equal(counted.rows[0]?.count, "1", "the refusal appends no operation row");
+  const after = await read(`/api/artifacts/${fresh.id}/document`, {}, owner);
+  assert.deepEqual([after.json?.text, after.json?.seq], ["# borrador\n\neditado\n", 1], "the draft is untouched");
+  const recovered = await read(
+    `/api/artifacts/${fresh.id}/document`,
+    {
+      method: "PUT",
+      headers: MUTATION,
+      body: JSON.stringify({ text: "# borrador\n\neditado\n\nmas\n", expectedSeq: 1 }),
+    },
+    owner,
+  );
+  assert.equal(recovered.status, 200, recovered.text);
+  assert.equal(recovered.json?.seq, 2, "the client's own write lands once it sends the sequence it read");
+});
+
+test("a restore refuses while the draft holds unpublished operations", { skip: SKIP, timeout: 60_000 }, async () => {
+  const pendingDoc = await seed(owner, "# pendiente\n", "Pending doc", "markdown");
+  const saved = await read(
+    `/api/artifacts/${pendingDoc.id}/document`,
+    {
+      method: "PUT",
+      headers: MUTATION,
+      body: JSON.stringify({ text: "# pendiente\n\neditado\n", expectedSeq: 0 }),
+    },
+    owner,
+  );
+  assert.equal(saved.status, 200, saved.text);
+  const refused = await read(
+    `/api/artifacts/${pendingDoc.id}/revisions/${pendingDoc.revisionId}/restore`,
+    { method: "POST", headers: MUTATION, body: JSON.stringify({ expectedRevisionId: saved.json?.revisionId }) },
+    owner,
+  );
+  assert.deepEqual(
+    [refused.status, refused.json?.error, refused.json?.currentSeq],
+    [409, "restore_pending_changes", 1],
+    "the unpublished edit is never destroyed by a restore",
+  );
+  const drafts = await pool.query<{ seq: number; state: { text: string } }>(
+    `select "seq", "state" from "documentDrafts" where "artifactId" = $1`,
+    [pendingDoc.id],
+  );
+  assert.deepEqual(
+    [drafts.rows.length, drafts.rows[0]?.seq, drafts.rows[0]?.state.text],
+    [1, 1, "# pendiente\n\neditado\n"],
+    "the draft row survives the refusal unchanged",
+  );
+  const operations = await pool.query<{ count: string }>(
+    `select count(*) from "documentOperations" where "artifactId" = $1`,
+    [pendingDoc.id],
+  );
+  assert.equal(operations.rows[0]?.count, "1", "the refusal appends no operation row");
+  assert.equal(await currentRevisionOf(pendingDoc.id), pendingDoc.revisionId, "the pointer did not move");
+});
 
 test(
   "restoring the same revision twice allocates a key for each restore",

@@ -1,3 +1,5 @@
+import { ARTIFACT_KINDS } from "@artiflow/domain/kinds";
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -8,7 +10,7 @@ export interface ToolDefinition {
 const string = { type: "string" };
 const lines = { type: "array", items: { type: "string" } };
 const newLines = { type: "array", items: { type: "string" }, minItems: 1, maxItems: 1000 };
-const writeKind = { type: "string", enum: ["html", "markdown"] };
+const writeKind = { type: "string", enum: [...ARTIFACT_KINDS] };
 
 const lineOps = {
   type: "array",

@@ -16,7 +16,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": { target: apiTarget },
+      "/api": { target: apiTarget, ws: true },
       "/mcp": { target: apiTarget },
       "/.well-known": { target: apiTarget },
       "/share": { target: apiTarget },

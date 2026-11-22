@@ -23,7 +23,16 @@ import {
   type CommentMutationResponse,
 } from "@artiflow/contracts/comments";
 import type { Storage } from "../adapters/storage/client.ts";
-import { anchorKindAllowed, anchorText } from "@artiflow/domain/comment-anchors";
+import {
+  acceptsSceneAnchors,
+  anchorKindAllowed,
+  anchorText,
+  isSceneAnchor,
+  sceneAnchorIsOrphaned,
+  sceneAnchorRefusal,
+} from "@artiflow/domain/comment-anchors";
+import type { Scene } from "@artiflow/domain/scene";
+import { drizzleDocumentStore, openDraft, type DocumentStore } from "../domain/documents/service.ts";
 
 type Options = {
   database: Database;
@@ -31,6 +40,7 @@ type Options = {
   storage: Storage;
   publicOrigin: string;
   principal?: true;
+  documentStore?: DocumentStore;
 };
 
 type Doc = CommentDocument;
@@ -38,9 +48,14 @@ type Row = Awaited<ReturnType<typeof listComments>>[number];
 
 const canComment = (doc: Doc) => ["owner", "editor", "commenter"].includes(doc.access);
 
-export function createCommentsApp({ database, auth, storage, publicOrigin, principal }: Options) {
+export function createCommentsApp({ database, auth, storage, publicOrigin, principal, documentStore }: Options) {
   const db = database.db;
+  const documents = documentStore ?? drizzleDocumentStore(database);
   const app = new Hono();
+  const currentScene = async (artifactId: string): Promise<Scene | null> => {
+    const opened = await openDraft({ store: documents, storage, artifactId });
+    return opened.ok ? opened.value.scene : null;
+  };
   const guard = (c: Context): Response | null => {
     if (principal) return null;
     const rejected = cookieMutationGuard(c, publicOrigin);
@@ -66,6 +81,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     if (result instanceof Response) return result;
     const { doc, userId } = result;
     const rows = await listComments(db, doc.id, true);
+    const scene = acceptsSceneAnchors(doc.kind) ? await currentScene(doc.id) : null;
     const serialize = (row: Row) => ({
       id: row.id,
       authorId: row.authorId,
@@ -82,6 +98,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         .filter((row) => row.parentId === null)
         .map((row) => ({
           ...serialize(row),
+          ...(scene === null ? {} : { orphaned: sceneAnchorIsOrphaned(scene, row.anchor) }),
           replies: rows.filter((reply) => reply.parentId === row.id).map(serialize),
         })),
     } satisfies CommentListResponse);
@@ -151,6 +168,11 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         if (selected === null) return c.json({ error: "invalid_anchor" }, 400);
         if (Array.from(anchor.quotedText).length > MAX_COMMENT_QUOTE) return c.json({ error: "too_large" }, 413);
         if (selected !== anchor.quotedText) return c.json({ error: "anchor_mismatch" }, 400);
+      }
+      if (anchor !== null && isSceneAnchor(anchor)) {
+        const scene = await currentScene(doc.id);
+        if (scene === null) return c.json({ error: "artifact_unavailable" }, 500);
+        if (sceneAnchorRefusal(scene, anchor) !== null) return c.json({ error: "unknown_node" }, 400);
       }
       const inserted = await insertComment(client, {
         artifactId: doc.id,

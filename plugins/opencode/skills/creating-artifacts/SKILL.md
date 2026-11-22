@@ -5,7 +5,7 @@ description: How to create, update and develop Artiflow artifacts in OpenCode. L
 
 # Creating Artiflow artifacts in OpenCode
 
-An Artiflow artifact is one of two kinds, chosen when the artifact is created
+An Artiflow artifact is one of four kinds, chosen when the artifact is created
 (with `artiflow_write` or `artiflow_write_file`):
 
 - **`html` (default)** — one complete, self-contained HTML document: the whole
@@ -81,6 +81,59 @@ Both paths land in the same revision, kind and viewer-model rules; they differ
 only in where the bytes are read from. An artifact is always written in one
 call — there is no partial or resumable upload path, and never send one artifact
 through both tools at once.
+
+## Canvas and deck — design artifacts
+
+`canvas` and `deck` are the two design kinds: a versioned JSON scene of frames and nodes instead of
+HTML or markdown. A `deck` is the same scene whose frames are slides. Write one through the same write
+path as any artifact, as a `.canvas` file whose content is the scene:
+
+```json
+{
+  "formatVersion": 1,
+  "frames": [
+    {
+      "id": "home",
+      "name": "Home",
+      "x": 0,
+      "y": 0,
+      "w": 375,
+      "h": 812,
+      "nodes": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 24,
+          "y": 32,
+          "w": 200,
+          "h": 32,
+          "text": "Checkout",
+          "fill": "#f4f4f2",
+          "fontSize": 24,
+          "fontWeight": 600
+        },
+        { "id": "card", "type": "rect", "x": 24, "y": 80, "w": 327, "h": 120, "fill": "#111613", "radius": 12 }
+      ]
+    }
+  ]
+}
+```
+
+Rules the server enforces, refusing the whole scene when one fails:
+
+- node types are `rect`, `text`, `image` and `path`; nothing else exists.
+- `x`/`y` are frame-relative and the node must sit entirely inside its frame; `w` and `h` above zero.
+- every id is unique across the whole scene and stable, because it is what a comment anchors to.
+  Never put a `/` in an id.
+- `layout`, `constraints`, `componentId` and unknown node types are refused, not ignored.
+- absolute geometry only: there is no auto-layout, so place everything yourself on an 8px scale.
+- an `image` node carries an `assetId` and no bytes; attaching an image is not available from this
+  surface yet, so a scene published here shows a labelled placeholder.
+- limits: 200 frames, 2000 nodes, one frame level deep.
+
+Reading the scene back by frame, and editing it by node, are not available from this surface: the
+canvas editor lives in the dashboard, where a person moves, resizes, adds and deletes nodes and posts
+node-anchored comments.
 
 ## Markdown documents — create once, edit by lines
 

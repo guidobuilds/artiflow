@@ -1,3 +1,6 @@
+import { titleSourceFor } from "@artiflow/domain/kinds";
+import { readScene } from "@artiflow/domain/scene";
+
 import { fileKind } from "./write-kind.ts";
 
 export interface Association {
@@ -25,8 +28,13 @@ export function displayName(input: unknown): string | undefined {
   const title = normalize(args.title);
   if (title) return title;
   if (typeof args.text !== "string") return;
-  if (args.kind === "html") return normalize(args.text.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i)?.[1]);
-  if (args.kind === "markdown") {
+  const titleSource = typeof args.kind === "string" ? titleSourceFor(args.kind) : null;
+  if (titleSource === "html-title") return normalize(args.text.match(/<title\b[^>]*>([\s\S]*?)<\/title\s*>/i)?.[1]);
+  if (titleSource === "frame-name") {
+    const scene = readScene(args.text);
+    return scene.ok ? normalize(scene.value.frames[0]?.name) : undefined;
+  }
+  if (titleSource === "first-heading") {
     let fenced: string | undefined;
     for (const line of args.text.split(/\r?\n/)) {
       const fence = line.match(/^ {0,3}(`{3,}|~{3,})/);

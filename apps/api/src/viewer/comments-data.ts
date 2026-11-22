@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { anchorIsStale } from "@artiflow/domain/comment-anchors";
+import { anchorIsStale, isSceneAnchor, sceneAnchorIsOrphaned } from "@artiflow/domain/comment-anchors";
+import { sceneSubtree, type Scene } from "@artiflow/domain/scene";
 
 export const bridgeNonce = (artifactId: string, sha256: string): string =>
   createHash("sha256").update(`comments:${artifactId}:${sha256}`).digest("hex").slice(0, 32);
@@ -17,6 +18,7 @@ export type ViewerComment = {
   stale: boolean;
   occurrence: number;
   anchor?: unknown;
+  orphaned?: boolean;
   canDelete: boolean;
   canResolve: boolean;
 };
@@ -74,12 +76,16 @@ const sourceOffset = (source: string, anchor: { startLine: number; startCol: num
   return offset + anchor.startCol - 1;
 };
 
+const orphanOf = (row: Row, scene: Scene | undefined): { orphaned?: boolean } =>
+  scene === undefined || !isSceneAnchor(row.anchor) ? {} : { orphaned: sceneAnchorIsOrphaned(scene, row.anchor) };
+
 const mapRow = (
   source: string,
   row: Row,
   viewerId: string,
   role: { comment: boolean; resolve: boolean },
   mode: "text" | "element",
+  scene?: Scene,
 ): ViewerComment => {
   const anchor = textRange(row.anchor);
   const offset = anchor === null ? 0 : sourceOffset(source, anchor);
@@ -94,6 +100,7 @@ const mapRow = (
       stale: false,
       occurrence: 0,
       anchor: row.anchor,
+      ...orphanOf(row, scene),
       canDelete: row.canDelete === true,
       canResolve: role.resolve && row.parentId === null,
     };
@@ -106,6 +113,7 @@ const mapRow = (
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
     stale: anchor === null ? false : anchorIsStale(source, anchor, anchor.quotedText),
     occurrence: anchor === null ? 0 : occurrencesBefore(source, anchor.quotedText, offset),
+    ...orphanOf(row, scene),
     canDelete: row.canDelete === true,
     canResolve: role.resolve && row.parentId === null,
   };
@@ -121,6 +129,7 @@ export function viewerCommentsConfig(input: {
   endpoints: ViewerCommentsConfig["endpoints"];
   mode?: "text" | "element";
   bridgeNonce?: string;
+  scene?: Scene;
 }): ViewerCommentsConfig {
   const mode = input.mode ?? "text";
   const role = { comment: input.canComment, resolve: input.canComment };
@@ -128,12 +137,12 @@ export function viewerCommentsConfig(input: {
   const roots = input.rows
     .filter((row) => row.parentId === null)
     .map((row) => ({
-      ...mapRow(input.source, row, input.viewerId ?? "", role, mode),
+      ...mapRow(input.source, row, input.viewerId ?? "", role, mode, input.scene),
       canDelete: row.canDelete === true || owned(row),
       replies: input.rows
         .filter((reply) => reply.parentId === row.id)
         .map((reply) => ({
-          ...mapRow(input.source, reply, input.viewerId ?? "", role, mode),
+          ...mapRow(input.source, reply, input.viewerId ?? "", role, mode, input.scene),
           canDelete: reply.canDelete === true || owned(reply),
         })),
     }));
@@ -146,6 +155,48 @@ export function viewerCommentsConfig(input: {
     threads: roots,
     endpoints: input.endpoints,
   };
+}
+
+export type SceneThreadPin = {
+  id: string;
+  number: number;
+  frameId: string;
+  nodeId: string;
+  left: number;
+  top: number;
+};
+
+export type SceneThreadOrphan = { id: string; number: number };
+
+export type SceneThreadPlacement = { pins: SceneThreadPin[]; orphans: SceneThreadOrphan[] };
+
+export function sceneThreadPlacement(
+  scene: Scene,
+  threads: readonly { id: string; anchor?: unknown }[],
+): SceneThreadPlacement {
+  const pins: SceneThreadPin[] = [];
+  const orphans: SceneThreadOrphan[] = [];
+  threads.forEach((thread, index) => {
+    const anchor = isSceneAnchor(thread.anchor) ? thread.anchor : null;
+    if (anchor === null) return;
+    const number = index + 1;
+    const frameId = anchor.kind === "board-point" ? anchor.boardId : anchor.slideId;
+    const frame = sceneSubtree(scene, frameId);
+    const node = frame === null ? undefined : frame.nodes.find((candidate) => candidate.id === anchor.nodeId);
+    if (frame === null || node === undefined) {
+      orphans.push({ id: thread.id, number });
+      return;
+    }
+    pins.push({
+      id: thread.id,
+      number,
+      frameId: frame.id,
+      nodeId: node.id,
+      left: node.x + anchor.x * node.w,
+      top: node.y + anchor.y * node.h,
+    });
+  });
+  return { pins, orphans };
 }
 
 export type BridgePin = {

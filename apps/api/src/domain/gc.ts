@@ -2,16 +2,28 @@ import { and, eq, gte, inArray, lt, ne, notExists } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import type { AppDb, Database } from "../adapters/postgres/db/client.ts";
-import { artifactChunks, artifactRevisions, artifactUploads } from "../adapters/postgres/db/artifact-schema.ts";
+import {
+  artifactAssets,
+  artifactChunks,
+  artifactRevisions,
+  artifactUploads,
+  assets,
+} from "../adapters/postgres/db/artifact-schema.ts";
 
 import type { Storage } from "../adapters/storage/client.ts";
 import {
+  ASSET_KEY_PREFIX,
+  deleteAssetBytes,
   deleteRevisionBytes,
   deleteStagingChunk,
+  listAssetKeys,
   listRevisionKeys,
   type DeletedRevision,
+  type DeleteAssetInput,
   type DeleteRevisionInput,
   type DeleteStagingChunkInput,
+  type ListAssetKeysInput,
+  type ListedAssetKeys,
   type ListedRevisionKeys,
   type ListRevisionKeysInput,
   type StorageResult,
@@ -190,14 +202,114 @@ export async function sweepRevisionOrphans(input: SweepRevisionsInput): Promise<
   return { examined, candidates, deleted, failed, listFailed };
 }
 
+export const ASSET_GC_GRACE_MS = 24 * 60 * 60_000;
+export const ASSET_GC_PAGE_SIZE = 200;
+export const ASSET_GC_MAX_KEYS_PER_RUN = 2_000;
+
+export type AssetSweepResult = {
+  examined: number;
+  candidates: number;
+  deleted: number;
+  failed: number;
+  kept: number;
+  listFailed: boolean;
+};
+
+export type ReferencedAssetDigestsFn = (db: AppDb, digests: readonly string[]) => Promise<string[]>;
+export type ListAssetKeysFn = (input: ListAssetKeysInput) => Promise<StorageResult<ListedAssetKeys>>;
+export type DeleteAssetBytesFn = (input: DeleteAssetInput) => Promise<StorageResult<DeletedRevision>>;
+export type DropAssetRowFn = (db: AppDb, sha256: string) => Promise<boolean>;
+
+export async function findReferencedAssetDigests(db: AppDb, digests: readonly string[]): Promise<string[]> {
+  if (digests.length === 0) return [];
+  const rows = await db
+    .select({ sha256: artifactAssets.assetSha256 })
+    .from(artifactAssets)
+    .where(inArray(artifactAssets.assetSha256, [...digests]));
+  return [...new Set(rows.map((row) => row.sha256))];
+}
+
+export async function dropAssetRow(db: AppDb, sha256: string): Promise<boolean> {
+  const referenced = await db
+    .select({ sha256: artifactAssets.assetSha256 })
+    .from(artifactAssets)
+    .where(eq(artifactAssets.assetSha256, sha256))
+    .limit(1);
+  if (referenced.length > 0) return false;
+  await db.delete(assets).where(eq(assets.sha256, sha256));
+  return true;
+}
+
+export type SweepAssetsInput = {
+  db: AppDb;
+  storage: Storage;
+  now: Date;
+  graceMs?: number;
+  maxKeysPerRun?: number;
+  pageSize?: number;
+  referencedAssetDigestsFn?: ReferencedAssetDigestsFn;
+  listAssetKeysFn?: ListAssetKeysFn;
+  deleteAssetBytesFn?: DeleteAssetBytesFn;
+  dropAssetRowFn?: DropAssetRowFn;
+};
+
+export async function sweepAssetOrphans(input: SweepAssetsInput): Promise<AssetSweepResult> {
+  const { db, storage, now } = input;
+  const list = input.listAssetKeysFn ?? listAssetKeys;
+  const referenced = input.referencedAssetDigestsFn ?? findReferencedAssetDigests;
+  const removeObject = input.deleteAssetBytesFn ?? deleteAssetBytes;
+  const dropRow = input.dropAssetRowFn ?? dropAssetRow;
+  const graceMs = input.graceMs ?? ASSET_GC_GRACE_MS;
+  const maxKeys = input.maxKeysPerRun ?? ASSET_GC_MAX_KEYS_PER_RUN;
+  const pageSize = Math.max(1, Math.min(input.pageSize ?? ASSET_GC_PAGE_SIZE, maxKeys));
+  const cutoffMs = now.getTime() - graceMs;
+  let examined = 0;
+  let candidates = 0;
+  let deleted = 0;
+  let failed = 0;
+  let kept = 0;
+  let listFailed = false;
+  let continuationToken: string | undefined;
+  while (examined < maxKeys) {
+    const page = await list({ storage, continuationToken, maxKeys: Math.min(pageSize, maxKeys - examined) });
+    if (!page.ok) {
+      listFailed = true;
+      break;
+    }
+    const objects = page.value.objects.slice(0, maxKeys - examined);
+    examined += objects.length;
+    const aged = objects.filter((object) => object.lastModified.getTime() < cutoffMs);
+    const digests = aged.map((object) => object.storageKey.slice(ASSET_KEY_PREFIX.length));
+    const holding = new Set(digests.length === 0 ? [] : await referenced(db, digests));
+    for (const [index, object] of aged.entries()) {
+      const digest = digests[index] as string;
+      if (holding.has(digest)) continue;
+      candidates += 1;
+      if (!(await dropRow(db, digest))) {
+        kept += 1;
+        continue;
+      }
+      const result = await removeObject({ storage, storageKey: object.storageKey });
+      if (result.ok) deleted += 1;
+      else failed += 1;
+    }
+    continuationToken = page.value.nextToken;
+    if (continuationToken === undefined || objects.length === 0) break;
+  }
+  return { examined, candidates, deleted, failed, kept, listFailed };
+}
+
 export const STAGING_GC_STARTUP_DELAY_MS = 15_000;
 export const STAGING_GC_INTERVAL_MS = 15 * 60_000;
 export const REVISION_GC_STARTUP_DELAY_MS = 60_000;
 export const REVISION_GC_INTERVAL_MS = 24 * 60 * 60_000;
+export const ASSET_GC_STARTUP_DELAY_MS = 90_000;
+export const ASSET_GC_INTERVAL_MS = 24 * 60 * 60_000;
 
 type SweepLoop = { stop: () => void };
 export type StagingGcLoop = SweepLoop;
 export type RevisionGcLoop = SweepLoop;
+export type AssetGcLoop = SweepLoop;
 
 type SweepLoopInput<R> = {
   sweepFn: () => Promise<R>;
@@ -286,5 +398,29 @@ export function startRevisionGcLoop(input: StartRevisionGcLoopInput): RevisionGc
       `examined=${result.examined} candidates=${result.candidates} deleted=${result.deleted} failed=${result.failed} listFailed=${result.listFailed}`,
     intervalMs: input.intervalMs ?? REVISION_GC_INTERVAL_MS,
     startupDelayMs: input.startupDelayMs ?? REVISION_GC_STARTUP_DELAY_MS,
+  });
+}
+
+export type StartAssetGcLoopInput = {
+  database: Database;
+  storage: Storage;
+  sweepFn?: () => Promise<AssetSweepResult>;
+  log?: (line: string) => void;
+  intervalMs?: number;
+  startupDelayMs?: number;
+};
+
+export function startAssetGcLoop(input: StartAssetGcLoopInput): AssetGcLoop {
+  return startSweepLoop<AssetSweepResult>({
+    sweepFn:
+      input.sweepFn ??
+      ((): Promise<AssetSweepResult> =>
+        sweepAssetOrphans({ db: input.database.db, storage: input.storage, now: new Date() })),
+    log: input.log ?? ((line: string): void => console.log(line)),
+    tag: "asset-gc",
+    describe: (result) =>
+      `examined=${result.examined} candidates=${result.candidates} deleted=${result.deleted} failed=${result.failed} kept=${result.kept} listFailed=${result.listFailed}`,
+    intervalMs: input.intervalMs ?? ASSET_GC_INTERVAL_MS,
+    startupDelayMs: input.startupDelayMs ?? ASSET_GC_STARTUP_DELAY_MS,
   });
 }

@@ -13,7 +13,7 @@ import {
 } from "../adapters/postgres/db/artifact-schema.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { deleteArtifact, type DeletionWiring } from "../domain/deletion.ts";
-import { readableArtifactPredicate } from "../routes/sharing.ts";
+import { readableArtifactPredicate, sceneAssetDigests } from "../routes/sharing.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import type { McpBearerVerifier } from "../mcp/mount.ts";
 import type {
@@ -22,7 +22,15 @@ import type {
   ArtifactSummary,
   SharedArtifactListResponse,
 } from "@artiflow/contracts/artifacts";
-import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
+import {
+  escapeAttribute,
+  NOT_FOUND_HEADERS,
+  NOT_FOUND_PAGE,
+  originOf,
+  sceneHeaders,
+  VIEWER_HEADERS,
+  wrapperPage,
+} from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
 import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
@@ -30,6 +38,10 @@ import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { readScene, type Scene } from "@artiflow/domain/scene";
+import { acceptsSceneAnchors, isSceneAnchor } from "@artiflow/domain/comment-anchors";
+import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
+import { renderSceneDocument, type SceneImages } from "../viewer/scene.ts";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -122,8 +134,6 @@ export function createLibraryApp(options: LibraryOptions): Hono {
   const { database, auth, storage } = options;
   const db = database.db;
   const maxBytes = Math.min(options.maxArtifactBytes ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
-  const wireKind = (kind: string): ArtifactSummary["kind"] =>
-    kind === "html" || kind === "markdown" ? kind : "unknown";
   const app = new Hono();
 
   app.get("/api/artifacts", async (c) => {
@@ -133,7 +143,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     const artifacts: ArtifactSummary[] = rows.map((row) => ({
       id: row.id,
       title: row.title,
-      kind: wireKind(row.kind),
+      kind: wireNameFor(row.kind),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       observedSizeBytes: row.observedSizeBytes,
@@ -157,7 +167,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       revisionCount: row.revisionCount,
       currentRevisionId: row.currentRevisionId,
       sha256: row.sha256,
-      kind: wireKind(row.kind),
+      kind: wireNameFor(row.kind),
       sharedBy: { email: row.sharedBy },
     }));
     return c.json({ artifacts } satisfies SharedArtifactListResponse);
@@ -176,7 +186,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     return c.json({
       id: row.id,
       title: row.title,
-      kind: wireKind(row.kind),
+      kind: wireNameFor(row.kind),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
       observedSizeBytes: row.observedSizeBytes,
@@ -184,12 +194,22 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     } satisfies ArtifactDetail);
   });
 
-  const ownerCommentsConfig = async (artifactId: string, sha256: string, ownerId: string, source: string | null) => {
+  const ownerCommentsConfig = async (
+    artifactId: string,
+    sha256: string,
+    ownerId: string,
+    source: string | null,
+    publishedScene?: () => Promise<Scene | null>,
+  ) => {
     const degraded = await loadViewerComments({
       document: () => commentDocument(db, ownerId, artifactId, "shared"),
       list: () => listComments(db, artifactId, true),
       onError: (error) => console.error(`[viewer] comments degraded for ${artifactId}`, error),
     });
+    const scene =
+      publishedScene === undefined || !degraded.rows.some((row) => isSceneAnchor(row.anchor))
+        ? null
+        : await publishedScene();
     return viewerCommentsConfig({
       artifactId,
       ...(source === null ? { mode: "element" as const, bridgeNonce: bridgeNonce(artifactId, sha256) } : {}),
@@ -198,6 +218,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       viewerId: ownerId,
       canComment: degraded.canComment,
       canDeleteOwn: true,
+      ...(scene === null ? {} : { scene }),
       endpoints: {
         comments: `/api/artifacts/${artifactId}/comments`,
         resolve: `/api/artifacts/${artifactId}/comments`,
@@ -205,6 +226,13 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         list: `/artifact/${artifactId}/comments`,
       },
     });
+  };
+
+  const publishedSceneOf = (storageKey: string, sha256: string) => async (): Promise<Scene | null> => {
+    const read = await getRevisionBytes({ storage, storageKey, sha256, maxBytes });
+    if (!read.ok) return null;
+    const parsed = readScene(new TextDecoder().decode(read.value.bytes));
+    return parsed.ok ? parsed.value : null;
   };
 
   const viewerPage = async (c: Context, artifactId: string, ownerId: string, embed: boolean) => {
@@ -220,7 +248,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
     const refresh = { metaUrl: `/api/artifacts/${row.id}`, revisionNumber: row.revisionNumber, sha256: row.sha256 };
-    if (row.kind === "markdown") {
+    if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const comments = {
@@ -238,6 +266,30 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         ),
         200,
         VIEWER_HEADERS,
+      );
+    }
+    if (viewerFor(row.kind) === "scene") {
+      const scene = readScene(new TextDecoder().decode(read.value.bytes));
+      if (!scene.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      const frame = c.req.query("frame");
+      const origin = originOf(c.req.url);
+      const images: SceneImages | undefined =
+        origin === null
+          ? undefined
+          : { origin, artifactId: row.id, digests: await sceneAssetDigests(db, row.id, scene.value) };
+      const config = await ownerCommentsConfig(row.id, row.sha256, ownerId, null, async () => scene.value);
+      const srcdocUrl =
+        frame === undefined ? `/artifact/${row.id}` : `/artifact/${row.id}?frame=${encodeURIComponent(frame)}`;
+      return c.html(
+        wrapperPage(
+          escapeAttribute(renderSceneDocument(scene.value, frame, images, config.threads, row.kind)),
+          embed ? undefined : "/",
+          { title: row.title, version: row.revisionNumber },
+          embed,
+          { ...refresh, srcdocUrl },
+        ),
+        200,
+        sceneHeaders(origin),
       );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
@@ -292,7 +344,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (gate.kind === "no_current_revision") return c.json({ error: "no_current_revision" }, 409);
     if (gate.kind !== "ok") return c.json({ error: "not_found" }, 404);
     let source: string | null = null;
-    if (gate.artifact.kind === "markdown") {
+    if (acceptsTextOperations(gate.artifact.kind)) {
       const read = await getRevisionBytes({
         storage,
         storageKey: gate.storageKey,
@@ -304,7 +356,13 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       source = decoded.text;
     }
-    const config = await ownerCommentsConfig(gate.artifact.id, gate.sha256, gate.ownerId, source);
+    const config = await ownerCommentsConfig(
+      gate.artifact.id,
+      gate.sha256,
+      gate.ownerId,
+      source,
+      acceptsSceneAnchors(gate.artifact.kind) ? publishedSceneOf(gate.storageKey, gate.sha256) : undefined,
+    );
     c.header("cache-control", "no-store");
     return c.json({ canComment: config.canComment, threads: config.threads });
   });

@@ -1,6 +1,6 @@
 ---
 title: Edit and revise
-description: Edit Markdown in the browser with autosave, resolve save conflicts, restore versions, comment on selections, and update HTML pages through the agent.
+description: Edit Markdown in the browser with live collaboration and autosave, resolve save conflicts, restore versions, comment on selections, edit a canvas, and update HTML pages through the agent.
 sidebar:
   order: 6
 ---
@@ -26,10 +26,29 @@ tells you where you are:
 | **Saving**   | A save is in flight                                                                         |
 | **Unsaved**  | Changes exist locally and have not been accepted yet                                        |
 | **Conflict** | The artifact moved on while you were editing; the editor turns read-only so nothing is lost |
+| **Live**     | The editor is in a live session; edits merge with everyone else's                           |
 
 A **Conflict** means a save arrived with a stale revision: another tab, another browser or the agent
 committed first. Reload the document to pick up the current revision and redo the edit against it. The
 server refuses the stale write rather than overwriting, which is why history stays linear.
+
+## Live collaboration
+
+Open the same Markdown document twice — another tab, another browser, or a colleague you invited as
+`editor` — and the two sessions share one document. You see the other person's changes as they type,
+with their cursor and selection in their own colour and their name on it. The status reads **Live**
+while the session lasts.
+
+A live session is a convenience, never a requirement: if it cannot connect, the editor falls back to
+the autosave described above and says so quietly, so nothing stops you from editing. If the session is
+refused — you lost the editor grant, for example — the editor says why and stops writing rather than
+retrying.
+
+Underneath, the session is not what is stored. When the document goes quiet, and when the last person
+leaves, the server records **one** operation for everything that changed and asks whether a snapshot is
+due, so history stays linear and the published artifact stays a canonical, verifiable document. An
+agent writing through its tools goes through the same sequence: its change reaches everyone in the
+session, and a human edit that raced it is refused instead of being merged silently.
 
 ## Version history
 

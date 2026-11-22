@@ -11,7 +11,6 @@ export type CommentAnchorKind = (typeof COMMENT_ANCHOR_KINDS)[number];
 const ratio = z.number().min(0).max(1);
 const viewportWidth = z.number().int().min(1).max(1_000_000);
 const at = z.object({ x: ratio, y: ratio });
-const planePoint = z.object({ x: z.number(), y: z.number() });
 
 export const textRangeAnchorSchema = z
   .object({
@@ -47,16 +46,18 @@ export type PagePointAnchorWire = z.infer<typeof pagePointAnchorSchema>;
 export const boardPointAnchorSchema = z.object({
   kind: z.literal("board-point"),
   boardId: z.string().min(1),
-  x: planePoint.shape.x,
-  y: planePoint.shape.y,
+  nodeId: z.string().min(1),
+  x: ratio,
+  y: ratio,
 });
 export type BoardPointAnchorWire = z.infer<typeof boardPointAnchorSchema>;
 
 export const slidePointAnchorSchema = z.object({
   kind: z.literal("slide-point"),
   slideId: z.string().min(1),
-  x: planePoint.shape.x,
-  y: planePoint.shape.y,
+  nodeId: z.string().min(1),
+  x: ratio,
+  y: ratio,
 });
 export type SlidePointAnchorWire = z.infer<typeof slidePointAnchorSchema>;
 
@@ -88,7 +89,10 @@ export const commentEntrySchema = z.object({
 });
 export type CommentEntryWire = z.infer<typeof commentEntrySchema>;
 
-export const commentThreadSchema = commentEntrySchema.extend({ replies: z.array(commentEntrySchema) });
+export const commentThreadSchema = commentEntrySchema.extend({
+  replies: z.array(commentEntrySchema),
+  orphaned: z.boolean().optional(),
+});
 export type CommentThreadWire = z.infer<typeof commentThreadSchema>;
 
 export const commentListResponseSchema = z.object({

@@ -1,3 +1,5 @@
+import { wireNameFor } from "@artiflow/domain/kinds";
+
 export type AuthRole = "member" | "administrator";
 export type AuthUser = { id: string; name: string; email: string; image: string | null; role?: AuthRole };
 export type SsoAccess = { displayName: string | null; fallbackAvailable: boolean };
@@ -309,7 +311,7 @@ export function followAuthorize(url: string, target: LocationTarget): boolean {
 export type ArtifactSummary = {
   id: string;
   title: string;
-  kind: "html" | "markdown";
+  kind: string;
   createdLabel: string;
   createdAt: string | null;
   updatedAt: string | null;
@@ -361,7 +363,7 @@ function toSummary(value: unknown): ArtifactSummary | null {
   return {
     id: value.id,
     title: title === "" ? "Untitled artifact" : title,
-    kind: value.kind === "markdown" ? "markdown" : "html",
+    kind: wireNameFor(typeof value.kind === "string" ? value.kind : ""),
     createdLabel: /^\d{4}-\d{2}-\d{2}$/.test(created) ? created : "date unknown",
     createdAt,
     updatedAt,

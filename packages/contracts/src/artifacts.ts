@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const artifactKindSchema = z.enum(["html", "markdown", "unknown"]);
+export const artifactKindSchema = z.enum(["html", "markdown", "canvas", "deck", "unknown"]);
 export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 
 export const artifactSummarySchema = z.object({
@@ -118,5 +118,33 @@ export const ARTIFACT_TOOL_NAMES = [
   "artifact_reply_comment",
   "artifact_resolve_comment",
   "artifact_unresolve_comment",
+  "document_create",
+  "document_outline",
+  "document_read",
+  "document_query",
+  "document_diff",
+  "document_apply",
+  "document_publish",
+  "scene_outline",
+  "scene_read",
+  "scene_apply",
+  "asset_upload",
 ] as const;
 export type ArtifactToolName = (typeof ARTIFACT_TOOL_NAMES)[number];
+
+export const DOCUMENT_TOOL_NAMES = [
+  "document_create",
+  "document_outline",
+  "document_read",
+  "document_query",
+  "document_diff",
+  "document_apply",
+  "document_publish",
+] as const;
+export type DocumentToolName = (typeof DOCUMENT_TOOL_NAMES)[number];
+
+export const SCENE_TOOL_NAMES = ["scene_outline", "scene_read", "scene_apply"] as const;
+export type SceneToolName = (typeof SCENE_TOOL_NAMES)[number];
+
+export const ASSET_TOOL_NAMES = ["asset_upload"] as const;
+export type AssetToolName = (typeof ASSET_TOOL_NAMES)[number];

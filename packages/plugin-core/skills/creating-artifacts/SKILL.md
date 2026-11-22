@@ -5,7 +5,7 @@ description: How to create, update and develop Artiflow artifacts. Load before w
 
 # Creating Artiflow artifacts
 
-An Artiflow artifact is one of two kinds, chosen when the artifact is created
+An Artiflow artifact is one of four kinds, chosen when the artifact is created
 (via `artifact_write` or `artifact_commit`):
 
 - **`html` (default)** — one complete, self-contained HTML document: the whole
@@ -14,7 +14,7 @@ An Artiflow artifact is one of two kinds, chosen when the artifact is created
   own viewer and editable by people in the dashboard. Agents create it once and
   then edit it by line patches instead of re-uploading bytes.
 
-Both kinds enter the platform only through the MCP tools. This skill is the
+All four kinds enter the platform only through the MCP tools. This skill is the
 creation procedure: how to author for the viewer's sandbox (HTML) or as a
 document (markdown), how to ship the bytes, how to edit later, and how to
 comment. For what the platform itself can and cannot do (sharing, links,
@@ -132,6 +132,59 @@ Use this staged stream when shipping bytes from disk; the one-call
    or a pinned revision (`revisionId`) back as base64 and compare its `sha256`
    with what you sent. Bytes are re-read from storage and re-hashed server-side,
    so a match proves the roundtrip.
+
+## Canvas and deck — design artifacts
+
+`canvas` and `deck` are the two design kinds: a versioned JSON scene of frames and nodes instead of
+HTML or markdown. A `deck` is the same scene whose frames are slides. Write one through the same write
+path as any artifact, as a `.canvas` file whose content is the scene:
+
+```json
+{
+  "formatVersion": 1,
+  "frames": [
+    {
+      "id": "home",
+      "name": "Home",
+      "x": 0,
+      "y": 0,
+      "w": 375,
+      "h": 812,
+      "nodes": [
+        {
+          "id": "title",
+          "type": "text",
+          "x": 24,
+          "y": 32,
+          "w": 200,
+          "h": 32,
+          "text": "Checkout",
+          "fill": "#f4f4f2",
+          "fontSize": 24,
+          "fontWeight": 600
+        },
+        { "id": "card", "type": "rect", "x": 24, "y": 80, "w": 327, "h": 120, "fill": "#111613", "radius": 12 }
+      ]
+    }
+  ]
+}
+```
+
+Rules the server enforces, refusing the whole scene when one fails:
+
+- node types are `rect`, `text`, `image` and `path`; nothing else exists.
+- `x`/`y` are frame-relative and the node must sit entirely inside its frame; `w` and `h` above zero.
+- every id is unique across the whole scene and stable, because it is what a comment anchors to.
+  Never put a `/` in an id.
+- `layout`, `constraints`, `componentId` and unknown node types are refused, not ignored.
+- absolute geometry only: there is no auto-layout, so place everything yourself on an 8px scale.
+- an `image` node carries an `assetId` and no bytes; attaching an image is not available from this
+  surface yet, so a scene published here shows a labelled placeholder.
+- limits: 200 frames, 2000 nodes, one frame level deep.
+
+Reading the scene back by frame, and editing it by node, are not available from this surface: the
+canvas editor lives in the dashboard, where a person moves, resizes, adds and deletes nodes and posts
+node-anchored comments.
 
 ## Markdown documents — create once, edit by lines
 

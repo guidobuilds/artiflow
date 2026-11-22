@@ -3,7 +3,25 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
+import { ARTIFACT_KINDS, acceptsTextOperations, rendersScene } from "@artiflow/domain/kinds";
 import { applyLineOps, decodeMarkdownText, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
+import {
+  BLOCK_KINDS,
+  diffBlocks,
+  documentBlocks,
+  type DocumentBlock,
+  type DocumentOperation,
+} from "@artiflow/domain/document-operations";
+import {
+  NODE_TYPES,
+  SCENE_MAX_FRAMES,
+  SCENE_MAX_NODES,
+  readScene,
+  sceneOutline,
+  sceneSubtree,
+  type Scene,
+} from "@artiflow/domain/scene";
+import type { SceneOperation } from "@artiflow/domain/scene-operations";
 import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
 import {
   McpRollback,
@@ -15,9 +33,13 @@ import {
 } from "@artiflow/mcp-server/ports";
 
 import {
+  acceptsSceneAnchors,
   anchorKindsForDocument,
   anchorKindAllowed,
   anchorText,
+  isSceneAnchor,
+  sceneAnchorIsOrphaned,
+  sceneAnchorRefusal,
   type AnyCommentAnchor,
 } from "@artiflow/domain/comment-anchors";
 import { commentAnchorSchema } from "@artiflow/contracts/comments";
@@ -28,6 +50,17 @@ import {
   ARTIFACT_VIEWER_RESOURCE_URI,
   BASE64,
   HEX_SHA256,
+  MAX_DOCUMENT_APPLY_OPS,
+  MAX_DOCUMENT_DIFF_ENTRIES,
+  MAX_DOCUMENT_QUERY_RESULTS,
+  MAX_DOCUMENT_READ_BLOCKS,
+  MAX_DOCUMENT_READ_BYTES,
+  MAX_DOCUMENT_READ_LINES,
+  MAX_MCP_ASSET_BASE64_CHARS,
+  MAX_MCP_ASSET_BYTES,
+  MAX_SCENE_APPLY_OPS,
+  MAX_SCENE_READ_BYTES,
+  MAX_SCENE_READ_NODES,
   digestOf,
   refusal as pkgRefusal,
   refusalOf as pkgRefusalOf,
@@ -39,6 +72,15 @@ import {
 } from "@artiflow/mcp-server/constants";
 type ToolReply = { content: { type: "text"; text: string }[]; isError?: boolean };
 type Access = { ok: true; userId: string } | { ok: false; reply: ToolReply };
+type DocumentRefusal = {
+  ok: false;
+  kind: string;
+  reason: string;
+  currentSeq?: number;
+  opIndex?: number;
+  artifactKind?: string;
+};
+
 class RollbackReply extends McpRollback<ToolReply> {}
 
 const refusal = pkgRefusal;
@@ -92,6 +134,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     listComments,
     setCommentResolved,
     commentTransaction,
+    uploadAsset,
   } = backend;
   const stagingStorageKey = (sha256: string) => `staging/${sha256}`;
   return (claims) => {
@@ -209,7 +252,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           artifactId: z.string().min(1).max(100).optional(),
           title: z.string().min(1).max(200).optional(),
           expectedRevisionId: z.string().min(1).max(100).optional(),
-          kind: z.enum(["html", "markdown"]).optional(),
+          kind: z.enum(ARTIFACT_KINDS).optional(),
         },
         _meta: VIEWER_TOOL_META,
         outputSchema: {
@@ -303,7 +346,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         description: `Create a new artifact (or, with artifactId plus expectedRevisionId, a compare-and-set revision) from content you already hold as text: pass the full UTF-8 document — "html" (default) for a self-contained HTML page, "markdown" for a markdown document readable with artifact_get_markdown and editable with artifact_edit_lines. One call, no staging: the server computes the sha256 itself. Content over ${Math.floor(MAX_CHUNK_BYTES / 1024)} KiB decoded, or any binary artifact, goes through artifact_start_upload / artifact_put_chunk / artifact_commit instead (requires disk access).`,
         inputSchema: {
           text: z.string().min(1),
-          kind: z.enum(["html", "markdown"]).optional(),
+          kind: z.enum(ARTIFACT_KINDS).optional(),
           artifactId: z.string().min(1).max(100).optional(),
           title: z.string().min(1).max(200).optional(),
           expectedRevisionId: z.string().min(1).max(100).optional(),
@@ -454,7 +497,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       if (row.deletedAt) return { ok: false, reply: refusal("gone", "artifact_deleted", { artifactId }) };
       if (!row.id || !row.sha256 || !row.storageKey)
         return { ok: false, reply: refusal("not_found", "revision_not_found", { artifactId }) };
-      if (row.kind !== "markdown")
+      if (!acceptsTextOperations(row.kind))
         return {
           ok: false,
           reply: refusal("wrong_kind", "artifact_is_not_a_markdown_document", { artifactId, kind: row.kind }),
@@ -592,6 +635,634 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       },
     );
 
+    const documentIdSchema = z.string().min(1).max(100);
+    const documentFailure = (failure: DocumentRefusal, artifactId?: string): ToolReply => {
+      const detail: Record<string, unknown> = artifactId === undefined ? {} : { artifactId };
+      if (failure.artifactKind !== undefined) detail.kind = failure.artifactKind;
+      if (failure.currentSeq !== undefined) detail.currentSeq = failure.currentSeq;
+      if (failure.opIndex !== undefined) detail.opIndex = failure.opIndex;
+      const error = failure.kind === "operation_rejected" ? "invalid_operation" : failure.kind;
+      return refusal(error, failure.reason, detail);
+    };
+    const openDocument = async (
+      userId: string,
+      artifactId: string,
+    ): Promise<{ kind: string; seq: number; text: string } | ToolReply> => {
+      const opened = await backend.documentOpen(userId, artifactId);
+      return opened.ok ? opened.value : documentFailure(opened, artifactId);
+    };
+    const outlineEntry = (block: DocumentBlock): Record<string, unknown> => ({
+      id: block.id,
+      kind: block.kind,
+      line: block.line,
+      endLine: block.endLine,
+      ...(block.level === undefined ? {} : { level: block.level }),
+    });
+    const documentOp = z.discriminatedUnion("op", [
+      z.object({
+        op: z.literal("replace_text"),
+        find: z.string().min(1),
+        replace: z.string(),
+        all: z.boolean().optional(),
+        expectedOccurrences: z.number().int().min(1).optional(),
+      }),
+      z.object({
+        op: z.literal("insert_text"),
+        text: z.string().min(1),
+        at: z.object({ line: z.number().int().min(1), column: z.number().int().min(1) }).optional(),
+      }),
+      z.object({
+        op: z.literal("delete_range"),
+        start: z.object({ line: z.number().int().min(1), column: z.number().int().min(1) }),
+        end: z.object({ line: z.number().int().min(1), column: z.number().int().min(1) }),
+      }),
+      z.object({
+        op: z.literal("append_blocks"),
+        text: z.string().min(1),
+        blockId: z.string().min(1).optional(),
+      }),
+      z.object({ op: z.literal("replace_document"), text: z.string().min(1) }),
+    ]);
+    server.registerTool(
+      "document_create",
+      {
+        title: "Create a markdown document",
+        description: `Create a markdown document inside the product in one call: no upload, no chunking, no file on disk. kind defaults to "markdown" and must name a kind whose agent write mode is text operations, so a kind edited as a whole document refuses with wrong_kind and belongs on artifact_write. When text is omitted the document starts as "# <title>" so the published title keeps matching the request. Returns the artifact identity shape artifact_write returns plus seq, the sequence document_apply accepts as baseSeq.`,
+        inputSchema: {
+          title: z.string().min(1).max(200),
+          kind: z.enum(ARTIFACT_KINDS).optional(),
+          text: z.string().optional(),
+        },
+        outputSchema: {
+          artifactId: z.string(),
+          revisionId: z.string(),
+          revisionNumber: z.number().int(),
+          sizeBytes: z.number().int(),
+          observedSizeBytes: z.number().int(),
+          sha256: z.string().regex(HEX_SHA256),
+          seq: z.number().int(),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const kind = input.kind ?? "markdown";
+        if (!acceptsTextOperations(kind))
+          return refusal("wrong_kind", "kind_does_not_accept_text_operations", {
+            kind,
+            acceptedKinds: ARTIFACT_KINDS.filter((candidate) => acceptsTextOperations(candidate)),
+          });
+        if (input.text !== undefined) {
+          const bytes = new TextEncoder().encode(input.text);
+          if (bytes.length > MAX_CHUNK_BYTES)
+            return refusal(
+              "too_large",
+              `initial text exceeds the document_create cap of ${MAX_CHUNK_BYTES} bytes: create the document and append blocks with document_apply`,
+              { maxBytes: MAX_CHUNK_BYTES, observedBytes: bytes.length },
+            );
+        }
+        const created = await backend.documentCreate({
+          ownerId: access.userId,
+          title: input.title,
+          kind,
+          text: input.text,
+        });
+        if (!created.ok) return documentFailure(created);
+        return {
+          content: [{ type: "text", text: JSON.stringify(created.value) }],
+          structuredContent: created.value,
+        };
+      },
+    );
+    server.registerTool(
+      "document_outline",
+      {
+        title: "Outline a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Return the block index of one owned markdown document's current draft: one entry per heading, paragraph, list item, code fence or table with its id, kind, line and endLine, plus level for headings. Never the text, so a large document costs one line per block. Requires ${readScope}. The ids are what document_read, document_query and document_diff accept; seq is the draft sequence document_apply accepts as baseSeq.`,
+        inputSchema: { artifactId: documentIdSchema },
+      },
+      async ({ artifactId }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        const blocks = documentBlocks(opened.text);
+        return reply({
+          artifactId,
+          kind: opened.kind,
+          seq: opened.seq,
+          lineCount: toLines(opened.text).length,
+          blockCount: blocks.length,
+          blocks: blocks.map(outlineEntry),
+        });
+      },
+    );
+    server.registerTool(
+      "document_read",
+      {
+        title: "Read a window of a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Read a bounded window of one owned markdown document. With no arguments it answers the outline projection (one entry per block, never the text). blockIds reads at most ${MAX_DOCUMENT_READ_BLOCKS} complete blocks by id; from/to reads at most ${MAX_DOCUMENT_READ_LINES} numbered lines, clamped to the document. Both are capped at ${MAX_DOCUMENT_READ_BYTES} bytes, and neither may be combined with the other. Requires ${readScope}; ids come from document_outline or document_query.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          blockIds: z.array(z.string().min(1)).min(1).max(MAX_DOCUMENT_READ_BLOCKS).optional(),
+          from: z.number().int().min(1).optional(),
+          to: z.number().int().min(1).optional(),
+        },
+      },
+      async ({ artifactId, blockIds, from, to }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        const blocks = documentBlocks(opened.text);
+        if (blockIds !== undefined && (from !== undefined || to !== undefined))
+          return refusal("validation", "read_is_either_block_ids_or_a_line_range", { artifactId });
+        if (blockIds === undefined && from === undefined && to === undefined)
+          return reply({
+            artifactId,
+            kind: opened.kind,
+            seq: opened.seq,
+            lineCount: toLines(opened.text).length,
+            blockCount: blocks.length,
+            blocks: blocks.map(outlineEntry),
+          });
+        if (blockIds !== undefined) {
+          const window: Record<string, unknown>[] = [];
+          for (const id of blockIds) {
+            const block = blocks.find((candidate) => candidate.id === id);
+            if (!block) return refusal("unknown_block", "block_not_in_outline", { artifactId, blockId: id });
+            window.push({ ...outlineEntry(block), text: block.content });
+          }
+          const observedBytes = window.reduce((sum, entry) => sum + String(entry.text).length, 0);
+          if (observedBytes > MAX_DOCUMENT_READ_BYTES)
+            return refusal("too_large", "read_window_exceeds_the_byte_cap", {
+              artifactId,
+              maxBytes: MAX_DOCUMENT_READ_BYTES,
+              observedBytes,
+            });
+          return reply({ artifactId, kind: opened.kind, seq: opened.seq, blocks: window, sizeBytes: observedBytes });
+        }
+        const lines = toLines(opened.text);
+        const start = Math.max(1, from ?? 1);
+        const end = Math.min(lines.length, to ?? lines.length);
+        if (start > end)
+          return refusal("validation", "empty_line_window", { lineCount: lines.length, from: start, to: end });
+        if (end - start + 1 > MAX_DOCUMENT_READ_LINES)
+          return refusal("too_large", "read_window_exceeds_the_line_cap", {
+            maxLines: MAX_DOCUMENT_READ_LINES,
+            requestedLines: end - start + 1,
+          });
+        const window = lines.slice(start - 1, end);
+        const observedBytes = new TextEncoder().encode(window.join("\n")).length;
+        if (observedBytes > MAX_DOCUMENT_READ_BYTES)
+          return refusal("too_large", "read_window_exceeds_the_byte_cap", {
+            maxBytes: MAX_DOCUMENT_READ_BYTES,
+            observedBytes,
+          });
+        return reply({
+          artifactId,
+          kind: opened.kind,
+          seq: opened.seq,
+          lineCount: lines.length,
+          from: start,
+          to: end,
+          lines: window,
+        });
+      },
+    );
+    server.registerTool(
+      "document_query",
+      {
+        title: "Find blocks in a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Find blocks in one owned markdown document by case-insensitive text substring, by kind, or both, answering ids and line numbers only. Requires ${readScope}. At most ${MAX_DOCUMENT_QUERY_RESULTS} matches are returned and truncated reports the rest; every id is accepted by document_read.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          text: z.string().min(1).optional(),
+          kind: z.enum(BLOCK_KINDS).optional(),
+          limit: z.number().int().min(1).max(MAX_DOCUMENT_QUERY_RESULTS).optional(),
+        },
+      },
+      async ({ artifactId, text, kind, limit }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        if (text === undefined && kind === undefined)
+          return refusal("validation", "query_needs_text_or_kind", { artifactId });
+        const needle = text?.toLowerCase();
+        const matches = documentBlocks(opened.text)
+          .filter((block) => kind === undefined || block.kind === kind)
+          .filter((block) => needle === undefined || block.content.toLowerCase().includes(needle))
+          .map((block) => ({ id: block.id, kind: block.kind, line: block.line }));
+        const bounded = matches.slice(0, limit ?? MAX_DOCUMENT_QUERY_RESULTS);
+        return reply({
+          artifactId,
+          seq: opened.seq,
+          matchCount: matches.length,
+          truncated: matches.length > bounded.length,
+          matches: bounded,
+        });
+      },
+    );
+    server.registerTool(
+      "document_diff",
+      {
+        title: "Diff two sequences of a markdown document",
+        annotations: { readOnlyHint: true },
+        description: `Compare one owned markdown document at two sequences and report, per block, whether it was added, removed, changed or moved — ids, lines and the previous id of a changed block only, never the text. Requires ${readScope}. fromSeq is the sequence you last read; toSeq defaults to the current draft sequence, so an edit made by another author shows up without reading the document. A sequence that is ahead of the draft refuses with the current sequence.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          fromSeq: z.number().int().min(0),
+          toSeq: z.number().int().min(0).optional(),
+        },
+      },
+      async ({ artifactId, fromSeq, toSeq }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const opened = await openDocument(access.userId, artifactId);
+        if ("content" in opened) return opened;
+        const target = toSeq ?? opened.seq;
+        if (fromSeq > target)
+          return refusal("validation", "diff_range_is_reversed", { artifactId, fromSeq, toSeq: target });
+        const blocksAt = async (seq: number): Promise<{ blocks: DocumentBlock[] } | ToolReply> => {
+          if (seq === opened.seq) return { blocks: documentBlocks(opened.text) };
+          const resolved = await backend.documentTextAt(access.userId, artifactId, seq);
+          return resolved.ok ? { blocks: documentBlocks(resolved.value.text) } : documentFailure(resolved, artifactId);
+        };
+        const before = await blocksAt(fromSeq);
+        if ("content" in before) return before;
+        const after = await blocksAt(target);
+        if ("content" in after) return after;
+        const changes = diffBlocks(before.blocks, after.blocks);
+        const bounded = changes.slice(0, MAX_DOCUMENT_DIFF_ENTRIES);
+        return reply({
+          artifactId,
+          fromSeq,
+          toSeq: target,
+          changeCount: changes.length,
+          truncated: changes.length > bounded.length,
+          changes: bounded,
+        });
+      },
+    );
+    server.registerTool(
+      "document_apply",
+      {
+        title: "Apply operations to a markdown document",
+        description: `Apply a batch of typed operations to one owned markdown document in one atomic call, instead of resending the document. Requires ${scope}. baseSeq is the sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: replace_text (find/replace, optional all and expectedOccurrences), insert_text (at an optional 1-indexed line/column), delete_range (start/end, end exclusive), append_blocks (with an optional blockId to insert after that block) and replace_document. A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged document. The reply carries the new sequence and how many operations this call applied. The accepted batch also snapshots the document when 100 operations or ten minutes are due: published reports whether this call froze one, and revisionId names it, so a viewer sees the edit without a second call. Below the threshold nothing is written to storage.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          baseSeq: z.number().int().min(0),
+          idempotencyKey: z.string().min(1).max(100),
+          ops: z.array(documentOp).min(1).max(MAX_DOCUMENT_APPLY_OPS),
+        },
+        outputSchema: {
+          artifactId: z.string(),
+          baseSeq: z.number().int(),
+          seq: z.number().int(),
+          applied: z.number().int(),
+          replayed: z.boolean(),
+          published: z.boolean(),
+          revisionId: z.string().nullable(),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const applied = await backend.documentApply({
+          artifactId: input.artifactId,
+          ownerId: access.userId,
+          authorKind: "agent",
+          authorId: access.userId,
+          baseSeq: input.baseSeq,
+          idempotencyKey: input.idempotencyKey,
+          ops: input.ops as DocumentOperation[],
+        });
+        if (!applied.ok) return documentFailure(applied, input.artifactId);
+        const value = {
+          artifactId: input.artifactId,
+          baseSeq: input.baseSeq,
+          seq: applied.value.seq,
+          applied: applied.value.applied,
+          replayed: applied.value.replayed,
+          published: applied.value.published,
+          revisionId: applied.value.revisionId,
+        };
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+      },
+    );
+    server.registerTool(
+      "document_publish",
+      {
+        title: "Publish a markdown document",
+        description: `Snapshot one owned markdown document's current draft and move the published pointer to it in one transaction, so the viewer and the public link serve the edits made with document_apply right away. Requires ${scope}. Publishing always freezes, whatever the operation count and however little time passed since the last snapshot. A draft with no pending operations refuses with nothing_to_publish and the reason no_pending_operations, because publishing nothing is not a publish. The reply carries the published revision id and the sequence it covers, seqFrom through seqTo.`,
+        inputSchema: { artifactId: documentIdSchema },
+        outputSchema: {
+          artifactId: z.string(),
+          revisionId: z.string(),
+          revisionNumber: z.number().int(),
+          seqFrom: z.number().int(),
+          seqTo: z.number().int(),
+        },
+      },
+      async ({ artifactId }) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const published = await backend.documentPublish(access.userId, artifactId);
+        if (!published.ok) return documentFailure(published, artifactId);
+        const value = published.value;
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+      },
+    );
+
+    const sceneFailure = (failure: DocumentRefusal, artifactId: string): ToolReply =>
+      failure.kind === "error"
+        ? refusal(
+            "invalid_scene",
+            failure.reason === "snapshot_is_not_valid_scene" ? "malformed_scene" : failure.reason,
+            {
+              artifactId,
+            },
+          )
+        : documentFailure(failure, artifactId);
+    const canvasScene = async (
+      userId: string,
+      artifactId: string,
+    ): Promise<{ revisionId: string; seq: number; scene: Scene } | ToolReply> => {
+      const row = await selectReadRevision(undefined, userId, artifactId);
+      if (!row) return refusal("not_found", "artifact_not_visible_to_owner", { artifactId });
+      if (row.deletedAt) return refusal("gone", "artifact_deleted", { artifactId });
+      if (!rendersScene(row.kind))
+        return refusal("wrong_kind", "artifact_is_not_a_canvas", { artifactId, kind: row.kind });
+      if (!row.id) return refusal("not_found", "revision_not_found", { artifactId });
+      const draft = await backend.documentDraft(userId, artifactId);
+      if (!draft.ok) return sceneFailure(draft, artifactId);
+      const parsed = readScene(draft.value.text);
+      if (!parsed.ok) return refusal("invalid_scene", parsed.reason, { artifactId, path: parsed.path });
+      return { revisionId: row.id, seq: draft.value.seq, scene: parsed.value };
+    };
+    const currentSceneOf = async (userId: string, artifactId: string): Promise<Scene | null> => {
+      const loaded = await canvasScene(userId, artifactId);
+      return "content" in loaded ? null : loaded.scene;
+    };
+    server.registerTool(
+      "scene_outline",
+      {
+        title: "Outline a canvas scene",
+        annotations: { readOnlyHint: true },
+        description: `Return the frame index of one owned canvas's current draft: one entry per frame with its id, name, node count and bbox, plus the scene format version and the draft sequence — never the node bodies, so a canvas with hundreds of nodes costs one line per frame. Requires ${readScope}. The frame ids are what scene_read accepts; any artifact kind that is not a canvas refuses with wrong_kind.`,
+        inputSchema: { artifactId: documentIdSchema },
+      },
+      async ({ artifactId }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const loaded = await canvasScene(access.userId, artifactId);
+        if ("content" in loaded) return loaded;
+        const frames = sceneOutline(loaded.scene);
+        return reply({
+          artifactId,
+          revisionId: loaded.revisionId,
+          seq: loaded.seq,
+          formatVersion: loaded.scene.formatVersion,
+          frameCount: frames.length,
+          frames,
+        });
+      },
+    );
+    server.registerTool(
+      "scene_read",
+      {
+        title: "Read one canvas frame",
+        annotations: { readOnlyHint: true },
+        description: `Read one frame of one owned canvas's current draft: its id, name, geometry, bbox and nodes, narrowed to nodeIds when given. Requires ${readScope}. One read returns at most ${MAX_SCENE_READ_NODES} nodes and at most ${MAX_SCENE_READ_BYTES} bytes of frame JSON; a wider request refuses with too_large and its named reason instead of truncating, so narrow it with nodeIds or read another frame. An id the scene does not hold refuses with unknown_frame or unknown_node, and any artifact kind that is not a canvas refuses with wrong_kind.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          frameId: z.string().min(1).max(200),
+          nodeIds: z.array(z.string().min(1).max(200)).min(1).max(MAX_SCENE_READ_NODES).optional(),
+        },
+      },
+      async ({ artifactId, frameId, nodeIds }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const loaded = await canvasScene(access.userId, artifactId);
+        if ("content" in loaded) return loaded;
+        const frame = sceneSubtree(loaded.scene, frameId);
+        const entry = sceneOutline(loaded.scene).find((candidate) => candidate.id === frameId);
+        if (!frame || !entry) return refusal("unknown_frame", "frame_not_in_scene", { artifactId, frameId });
+        const wanted = nodeIds === undefined ? undefined : new Set(nodeIds);
+        for (const id of wanted ?? [])
+          if (!frame.nodes.some((node) => node.id === id))
+            return refusal("unknown_node", "node_not_in_frame", { artifactId, frameId, nodeId: id });
+        const nodes = frame.nodes.filter((node) => wanted === undefined || wanted.has(node.id));
+        if (nodes.length > MAX_SCENE_READ_NODES)
+          return refusal("too_large", "read_window_exceeds_the_node_cap", {
+            artifactId,
+            frameId,
+            maxNodes: MAX_SCENE_READ_NODES,
+            requestedNodes: nodes.length,
+          });
+        const projected = {
+          id: frame.id,
+          name: frame.name,
+          x: frame.x,
+          y: frame.y,
+          w: frame.w,
+          h: frame.h,
+          bbox: entry.bbox,
+          nodeCount: nodes.length,
+          nodes,
+        };
+        const observedBytes = new TextEncoder().encode(JSON.stringify(projected)).length;
+        if (observedBytes > MAX_SCENE_READ_BYTES)
+          return refusal("too_large", "read_window_exceeds_the_byte_cap", {
+            artifactId,
+            frameId,
+            maxBytes: MAX_SCENE_READ_BYTES,
+            observedBytes,
+          });
+        return reply({ artifactId, revisionId: loaded.revisionId, seq: loaded.seq, frame: projected });
+      },
+    );
+    const sceneId = z.string().min(1).max(200);
+    const sceneNode = z.looseObject({
+      id: sceneId,
+      type: z.enum(NODE_TYPES),
+      x: z.number(),
+      y: z.number(),
+      w: z.number(),
+      h: z.number(),
+    });
+    const sceneFrame = z.looseObject({
+      id: sceneId,
+      name: z.string().min(1).max(200),
+      x: z.number(),
+      y: z.number(),
+      w: z.number(),
+      h: z.number(),
+      nodes: z.array(sceneNode).max(SCENE_MAX_NODES),
+    });
+    const sceneDocument = z.looseObject({
+      formatVersion: z.number().int().min(1),
+      frames: z.array(sceneFrame).max(SCENE_MAX_FRAMES),
+    });
+    const sceneFramePatch = z.looseObject({
+      name: z.string().min(1).max(200).optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      w: z.number().optional(),
+      h: z.number().optional(),
+    });
+    const sceneNodePatch = z.looseObject({
+      x: z.number().optional(),
+      y: z.number().optional(),
+      w: z.number().optional(),
+      h: z.number().optional(),
+      type: z.string().min(1).optional(),
+      fill: z.string().min(1).optional(),
+      radius: z.number().min(0).optional(),
+      text: z.string().optional(),
+      assetId: z.string().min(1).optional(),
+      d: z.string().min(1).optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().optional(),
+      style: z.record(z.string(), z.unknown()).optional(),
+    });
+    const sceneOp = z.discriminatedUnion("op", [
+      z.object({ op: z.literal("add_frame"), frame: sceneFrame }),
+      z.object({ op: z.literal("update_frame"), id: sceneId, props: sceneFramePatch }),
+      z.object({ op: z.literal("remove_frame"), id: sceneId }),
+      z.object({ op: z.literal("add_node"), frameId: sceneId, node: sceneNode }),
+      z.object({ op: z.literal("update_node"), id: sceneId, props: sceneNodePatch }),
+      z.object({
+        op: z.literal("move_node"),
+        id: sceneId,
+        x: z.number(),
+        y: z.number(),
+        w: z.number().optional(),
+        h: z.number().optional(),
+      }),
+      z.object({ op: z.literal("remove_node"), id: sceneId }),
+      z.object({ op: z.literal("replace_scene"), scene: sceneDocument }),
+    ]);
+    server.registerTool(
+      "scene_apply",
+      {
+        title: "Apply operations to a canvas scene",
+        description: `Apply a batch of id-addressed operations to one owned canvas in one atomic call, instead of resending the scene. Requires ${scope}. baseSeq is the draft sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: add_frame, update_frame, remove_frame, add_node, update_node, move_node, remove_node and replace_scene (the escape hatch that replaces the whole scene). A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged scene. The reply carries the new sequence, how many operations applied, the computed box of every touched node so the result can be judged without pixels, the violations the scene engine reports, and whether this call froze a snapshot: published reports whether it froze one and revisionId names it.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          baseSeq: z.number().int().min(0),
+          idempotencyKey: z.string().min(1).max(100),
+          ops: z.array(sceneOp).min(1).max(MAX_SCENE_APPLY_OPS),
+        },
+        outputSchema: {
+          artifactId: z.string(),
+          baseSeq: z.number().int(),
+          seq: z.number().int(),
+          applied: z.number().int(),
+          replayed: z.boolean(),
+          published: z.boolean(),
+          revisionId: z.string().nullable(),
+          boxes: z.array(
+            z.object({
+              id: z.string(),
+              frameId: z.string(),
+              x: z.number(),
+              y: z.number(),
+              w: z.number(),
+              h: z.number(),
+            }),
+          ),
+          violations: z.array(z.looseObject({ reason: z.string(), path: z.string() })),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const applied = await backend.sceneApply({
+          artifactId: input.artifactId,
+          ownerId: access.userId,
+          authorKind: "agent",
+          authorId: access.userId,
+          baseSeq: input.baseSeq,
+          idempotencyKey: input.idempotencyKey,
+          ops: input.ops as SceneOperation[],
+        });
+        if (!applied.ok) return documentFailure(applied, input.artifactId);
+        const value = {
+          artifactId: input.artifactId,
+          baseSeq: input.baseSeq,
+          seq: applied.value.seq,
+          applied: applied.value.applied,
+          replayed: applied.value.replayed,
+          published: applied.value.published,
+          revisionId: applied.value.revisionId,
+          boxes: applied.value.boxes,
+          violations: applied.value.violations,
+        };
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+      },
+    );
+
+    server.registerTool(
+      "asset_upload",
+      {
+        title: "Attach one raster asset to an artifact",
+        description: `Store one raster image once, by its content address, and reference it from one owned artifact: the reply's sha256 is the digest a canvas scene's image node names. Requires ${scope}. contentType must be image/png, image/jpeg, image/webp or image/gif; svg is refused on purpose. contentBase64 decodes to at most ${MAX_MCP_ASSET_BYTES} bytes (${Math.floor(MAX_MCP_ASSET_BYTES / 1024)} KiB), the largest asset the MCP request body can carry in one call: a bigger payload refuses with too_large and its maxBytes, so downscale the image instead of sending it. The server decodes and hashes the bytes itself, so re-sending identical bytes answers the same digest and stores no second object.`,
+        inputSchema: {
+          artifactId: z.string().min(1).max(100),
+          contentType: z.string().min(1).max(200),
+          contentBase64: z.string().min(1),
+        },
+        outputSchema: {
+          sha256: z.string().regex(HEX_SHA256),
+          sizeBytes: z.number().int(),
+          contentType: z.string(),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        if (!UUID_RE.test(input.artifactId))
+          return refusal("invalid_artifact_id", "artifactId must be a canonical lowercase uuid (8-4-4-4-12 hex)", {
+            artifactId: input.artifactId,
+          });
+        if (input.contentBase64.length > MAX_MCP_ASSET_BASE64_CHARS)
+          return refusal(
+            "too_large",
+            `the encoded payload exceeds the ${MAX_MCP_ASSET_BYTES} raw bytes the MCP request body carries in one call: downscale the image`,
+            {
+              maxBytes: MAX_MCP_ASSET_BYTES,
+              maxEncodedChars: MAX_MCP_ASSET_BASE64_CHARS,
+              encodedChars: input.contentBase64.length,
+            },
+          );
+        const bytes = decodeBase64(input.contentBase64);
+        if (!bytes) return refusal("validation", "contentBase64 is not a non-empty base64 payload");
+        const stored = await uploadAsset({
+          ownerId: access.userId,
+          artifactId: input.artifactId,
+          contentType: input.contentType,
+          bytes,
+        });
+        if (!stored.ok)
+          return refusal(
+            stored.kind,
+            stored.reason,
+            stored.maxBytes === undefined ? {} : { maxBytes: stored.maxBytes },
+          );
+        const value = {
+          sha256: stored.value.sha256,
+          sizeBytes: stored.value.sizeBytes,
+          contentType: stored.value.contentType,
+        };
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
+      },
+    );
+
     const commentGate = async (
       query: McpExecutor,
       userId: string,
@@ -657,7 +1328,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       {
         title: "List comment threads",
         annotations: { readOnlyHint: true },
-        description: `List an owned document's roots with ordered nested replies, including anchors, bodies and resolution timestamps. Requires ${readScope}; comments create no document revisions. Authors are returned as { id, name, image } and never expose email addresses.`,
+        description: `List an owned document's roots with ordered nested replies, including anchors, bodies and resolution timestamps. Requires ${readScope}; comments create no document revisions. Authors are returned as { id, name, image } and never expose email addresses. A canvas thread also carries orphaned, true when the node its anchor names is no longer in the current scene.`,
         inputSchema: { artifactId: artifactIdSchema },
       },
       async ({ artifactId }) => {
@@ -666,11 +1337,13 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         const gate = await commentGate(undefined, access.userId, artifactId);
         if ("content" in gate) return gate;
         const rows = await listComments(undefined, artifactId, false);
+        const scene = acceptsSceneAnchors(gate.kind) ? await currentSceneOf(access.userId, artifactId) : null;
         return reply({
           comments: rows
             .filter((row) => row.parentId === null)
             .map((row) => ({
               ...serializeComment(row),
+              ...(scene === null ? {} : { orphaned: sceneAnchorIsOrphaned(scene, row.anchor) }),
               replies: rows
                 .filter((child) => child.parentId === row.id)
                 .map((child) => ({ ...serializeComment(child, row.anchor), replies: [] })),
@@ -682,7 +1355,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       "artifact_add_comment",
       {
         title: "Comment on a document anchor",
-        description: `Add a root comment to an owned document at a discriminated anchor. Requires ${scope}. Markdown accepts { kind: 'text-range', startLine, startCol, endLine, endCol, quotedText } with 1-indexed UTF-16 columns, end-exclusive, and quotedText matching the CURRENT source exactly; html accepts { kind: 'element', selector, point: { x, y } in 0..1, textHint (max 120 chars), viewportWidth } and { kind: 'page-point', x in 0..1, y in pixels, viewportWidth }. Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses malformed anchors with validation, an anchor the document kind does not accept with unsupported_anchor_kind, and changed quotes with anchor_mismatch.`,
+        description: `Add a root comment to an owned document at a discriminated anchor. Requires ${scope}. Markdown accepts { kind: 'text-range', startLine, startCol, endLine, endCol, quotedText } with 1-indexed UTF-16 columns, end-exclusive, and quotedText matching the CURRENT source exactly; html accepts { kind: 'element', selector, point: { x, y } in 0..1, textHint (max 120 chars), viewportWidth } and { kind: 'page-point', x in 0..1, y in pixels, viewportWidth }; a canvas accepts { kind: 'board-point', boardId, nodeId, x, y } with x and y normalized 0..1 inside that node, so the pin survives the node moving or resizing. Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses malformed anchors with validation, an anchor the document kind does not accept with unsupported_anchor_kind, a node the current scene does not hold with unknown_node, and changed quotes with anchor_mismatch.`,
         inputSchema: {
           artifactId: artifactIdSchema,
           anchor: commentAnchorSchema,
@@ -711,6 +1384,15 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             const selected = anchorText(decoded.text, anchor);
             if (selected === null) return refusal("validation", "invalid_anchor");
             if (selected !== anchor.quotedText) return refusal("anchor_mismatch", "anchor_mismatch");
+          }
+          if (isSceneAnchor(anchor)) {
+            const loaded = await canvasScene(access.userId, artifactId);
+            if ("content" in loaded) return loaded;
+            if (sceneAnchorRefusal(loaded.scene, anchor) !== null)
+              return refusal("unknown_node", "anchor_node_is_not_in_the_scene", {
+                artifactId,
+                nodeId: anchor.nodeId,
+              });
           }
           return insertStored(client, artifactId, access.userId, null, anchor, revision.id, body);
         });
