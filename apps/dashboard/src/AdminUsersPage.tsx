@@ -47,7 +47,7 @@ import {
   type DirectoryRead,
 } from "./admin-users-client.ts";
 
-const FIRST_PAGE: AdminUserFilter = { page: 1, search: "", role: null, status: null };
+const FIRST_PAGE: AdminUserFilter = { page: 1, search: "", role: null, status: null, method: null };
 const EMAIL_NOTICE =
   "No verification is required in this version: the new address takes effect immediately and the person keeps their linked sign-in methods.";
 
@@ -220,7 +220,8 @@ export default function AdminUsersPage() {
   const total = rows?.total ?? 0;
   const page = rows?.page ?? 1;
   const pageSize = rows?.pageSize ?? ADMIN_USERS_PAGE_SIZE;
-  const filtered = filter.search.trim() !== "" || filter.role !== null || filter.status !== null;
+  const filtered =
+    filter.search.trim() !== "" || filter.role !== null || filter.status !== null || filter.method !== null;
 
   return (
     <AdminShell section="users" gate={gate}>
@@ -281,6 +282,38 @@ export default function AdminUsersPage() {
               onClick={() => setFilter((current) => ({ ...current, page: 1, status: "deactivated" }))}
             >
               Deactivated
+            </SegmentedItem>
+          </Segmented>
+          <Segmented label="Access method filter">
+            <SegmentedItem
+              pressed={filter.method === null}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, method: null }))}
+            >
+              Any method
+            </SegmentedItem>
+            <SegmentedItem
+              pressed={filter.method === "credential"}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "credential" }))}
+            >
+              Password
+            </SegmentedItem>
+            <SegmentedItem
+              pressed={filter.method === "google"}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "google" }))}
+            >
+              Google
+            </SegmentedItem>
+            <SegmentedItem
+              pressed={filter.method === "github"}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "github" }))}
+            >
+              GitHub
+            </SegmentedItem>
+            <SegmentedItem
+              pressed={filter.method === "artiflow"}
+              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "artiflow" }))}
+            >
+              SSO
             </SegmentedItem>
           </Segmented>
           <Button onClick={applySearch}>Search</Button>

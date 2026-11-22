@@ -125,16 +125,22 @@ test("the entry point is present for an administrator and absent for a member", 
 test("the listing asks the server for one page filtered by search, role and page", async () => {
   assert.equal(ADMIN_USERS_PAGE_SIZE, 20);
   assert.equal(
-    buildAdminUserSearch({ page: 2, search: "  ada lovelace ", role: "administrator", status: null }),
+    buildAdminUserSearch({ page: 2, search: "  ada lovelace ", role: "administrator", status: null, method: null }),
     "/api/admin/users?page=2&pageSize=20&search=ada+lovelace&role=administrator",
   );
   assert.equal(
-    buildAdminUserSearch({ page: 1, search: "   ", role: null, status: null }),
+    buildAdminUserSearch({ page: 1, search: "   ", role: null, status: null, method: null }),
     "/api/admin/users?page=1&pageSize=20",
   );
 
   const calls = useFetch(() => json(directoryBody()));
-  const result = await readAdminUserPage({ page: 2, search: "ada lovelace", role: "administrator", status: null });
+  const result = await readAdminUserPage({
+    page: 2,
+    search: "ada lovelace",
+    role: "administrator",
+    status: null,
+    method: null,
+  });
   assert.equal(result.ok, true);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, "/api/admin/users?page=2&pageSize=20&search=ada+lovelace&role=administrator");
@@ -154,13 +160,13 @@ test("the listing asks the server for one page filtered by search, role and page
 
 test("the directory refuses a member and an unreadable answer without showing rows", async () => {
   useFetch(() => json({ error: "administrator_required" }, 403));
-  const refused = await readAdminUserPage({ page: 1, search: "", role: null, status: null });
+  const refused = await readAdminUserPage({ page: 1, search: "", role: null, status: null, method: null });
   assert.equal(refused.ok, false);
   assert.equal(refused.ok === false && refused.code, "administrator_required");
   assert.match(refused.ok === false ? refused.error : "", /administrator/i);
 
   useFetch(() => json({ users: [{ id: "user-1" }], total: 1, page: 1, pageSize: 20 }));
-  const unreadable = await readAdminUserPage({ page: 1, search: "", role: null, status: null });
+  const unreadable = await readAdminUserPage({ page: 1, search: "", role: null, status: null, method: null });
   assert.equal(unreadable.ok === false && unreadable.code, "unreadable_answer");
   assert.equal(parseAdminUserPage({ users: [], total: -1, page: 1, pageSize: 20 }), null);
 });
@@ -324,28 +330,31 @@ test("the invitations entry reaches the shipped surface instead of the console p
 
 test("the status filter travels to the server next to the role and the search", async () => {
   assert.equal(
-    buildAdminUserSearch({ page: 1, search: "", role: null, status: "deactivated" }),
+    buildAdminUserSearch({ page: 1, search: "", role: null, status: "deactivated", method: null }),
     "/api/admin/users?page=1&pageSize=20&status=deactivated",
   );
   assert.equal(
-    buildAdminUserSearch({ page: 3, search: "ada", role: "administrator", status: "active" }),
+    buildAdminUserSearch({ page: 3, search: "ada", role: "administrator", status: "active", method: null }),
     "/api/admin/users?page=3&pageSize=20&search=ada&role=administrator&status=active",
   );
   assert.equal(
-    buildAdminUserSearch({ page: 1, search: "", role: null, status: null }),
+    buildAdminUserSearch({ page: 1, search: "", role: null, status: null, method: null }),
     "/api/admin/users?page=1&pageSize=20",
   );
 
   const calls = useFetch(() => json(directoryBody()));
-  const result = await readAdminUserPage({ page: 1, search: "", role: null, status: "deactivated" });
+  const result = await readAdminUserPage({ page: 1, search: "", role: null, status: "deactivated", method: null });
   assert.equal(result.ok, true);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.url, "/api/admin/users?page=1&pageSize=20&status=deactivated");
   assert.equal(calls[0]?.init.method, "GET");
 
-  assert.match(directoryEmptyMessage({ search: "", role: null, status: "active" }), /clear the status filter/i);
+  assert.match(
+    directoryEmptyMessage({ search: "", role: null, status: "active", method: null }),
+    /clear the status filter/i,
+  );
   assert.equal(
-    directoryEmptyMessage({ search: "", role: null, status: null }),
+    directoryEmptyMessage({ search: "", role: null, status: null, method: null }),
     directoryEmptyMessage({ search: "", role: null }),
   );
 
@@ -357,6 +366,41 @@ test("the status filter travels to the server next to the role and the search", 
   assert.match(page, /status: "deactivated"/);
   assert.match(page, /status: "active"/);
   assert.match(page, /setFilter\(\(current\) => \(\{ \.\.\.current, page: 1, status:/);
+});
+
+test("the access method filter travels to the server next to the role, the status and the search", async () => {
+  assert.equal(
+    buildAdminUserSearch({ page: 1, search: "", role: null, status: null, method: "github" }),
+    "/api/admin/users?page=1&pageSize=20&method=github",
+  );
+  assert.equal(
+    buildAdminUserSearch({ page: 2, search: "ada", role: "administrator", status: "active", method: "artiflow" }),
+    "/api/admin/users?page=2&pageSize=20&search=ada&role=administrator&status=active&method=artiflow",
+  );
+
+  const calls = useFetch(() => json(directoryBody()));
+  const result = await readAdminUserPage({ page: 1, search: "", role: null, status: null, method: "google" });
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 1, "the method filter is one server read, not a local pass over the rows");
+  assert.equal(calls[0]?.url, "/api/admin/users?page=1&pageSize=20&method=google");
+  assert.equal(calls[0]?.init.method, "GET");
+
+  assert.match(
+    directoryEmptyMessage({ search: "", role: null, status: null, method: "github" }),
+    /clear the method filter/i,
+  );
+
+  assert.equal(accessMethodsLabel(["artiflow"]), "SSO", "the SSO identity is named like every other method");
+
+  const page = read(USERS_PAGE);
+  assert.match(page, /<Segmented label="Access method filter">/);
+  for (const label of ["Any method", "Password", "Google", "GitHub", "SSO"]) {
+    assert.match(page, new RegExp(`>\\s*${label}\\s*<`), `the access method filter offers ${label}`);
+  }
+  assert.match(page, /method: "github"/);
+  assert.match(page, /method: "artiflow"/);
+  assert.match(page, /setFilter\(\(current\) => \(\{ \.\.\.current, page: 1, method:/);
+  assert.match(page, /filter\.method !== null/, "an empty answer offers to clear the method filter");
 });
 
 test("deactivating asks for the consequences first and then sends the deactivated status", async () => {

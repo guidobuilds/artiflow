@@ -408,6 +408,44 @@ integration("the status filter combines with the role filter", async () => {
   assert.equal(activeAdministrators.total, 0);
 });
 
+integration("the access method filter narrows the list", async () => {
+  const github = await listDirectory({ method: "github", pageSize: "100" });
+  assert.deepEqual(
+    github.users.map((row) => row.id),
+    [entry(0).userId],
+    "only the account with a GitHub identity matches",
+  );
+  assert.equal(github.total, 1, "the total counts the filtered accounts");
+
+  const google = await listDirectory({ method: "google", pageSize: "100" });
+  assert.deepEqual(
+    google.users.map((row) => row.id),
+    [entry(1).userId],
+    "the filter compares the stored identity, not the label shown",
+  );
+
+  const password = await listDirectory({ method: "credential", pageSize: "100" });
+  assert.equal(password.total, directory.length, "every seeded account signs in with a password");
+
+  const combined = await listDirectory({ method: "credential", role: "administrator" });
+  assert.deepEqual(
+    combined.users.map((row) => row.id),
+    [entry(2).userId],
+    "the method filter combines with the role filter",
+  );
+
+  const sso = await listDirectory({ method: "artiflow" });
+  assert.deepEqual(sso.users, [], "no seeded account signs in through SSO");
+  assert.equal(sso.total, 0, "an empty filtered page answers the real total");
+
+  counter().reset();
+  await listDirectory({ method: "credential", pageSize: "5" });
+  const withMethod = counter().count();
+  counter().reset();
+  await listDirectory({ pageSize: "5" });
+  assert.equal(withMethod, counter().count(), "the method filter adds no statement to the page and its total");
+});
+
 integration("a row answers the status the account holds", async () => {
   const subject = entry(160);
   const before = await listDirectory({ search: subject.email });
@@ -435,6 +473,19 @@ integration("an unknown status value is refused and leaves the stored rows untou
     "the refusal changed no stored state",
   );
   assert.deepEqual(await storedUser(entry(2).userId), { name: entry(2).name, email: entry(2).email });
+});
+
+integration("an unknown access method is refused and leaves the stored rows untouched", async () => {
+  const response = await adminGet(target(), listPath({ method: "carrier-pigeon" }), actor(administrator).cookie);
+  assertStatus(response, 400, "an unknown access method is a malformed query");
+  assert.deepEqual(await response.json(), { error: "invalid_query" });
+
+  const unaffected = await listDirectory({ method: "github", pageSize: "100" });
+  assert.equal(unaffected.total, 1, "the refusal changed nothing the filter reads");
+  assert.deepEqual(
+    unaffected.users.map((row) => row.id),
+    [entry(0).userId],
+  );
 });
 
 integration("the edit records one event with the actor, the person and both addresses", async () => {

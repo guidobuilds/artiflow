@@ -20,6 +20,9 @@ export type AdministratorListResponse = z.infer<typeof administratorListResponse
 export const accountStatusSchema = z.enum(["active", "deactivated"]);
 export type AccountStatus = z.infer<typeof accountStatusSchema>;
 
+export const adminUserAccessMethodSchema = z.enum(["credential", "google", "github", "artiflow"]);
+export type AdminUserAccessMethod = z.infer<typeof adminUserAccessMethodSchema>;
+
 export const adminUserSchema = z.strictObject({
   id: z.string().min(1),
   name: z.string(),

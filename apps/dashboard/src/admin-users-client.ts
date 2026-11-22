@@ -2,6 +2,7 @@ import { manageRequest } from "./auth-client.ts";
 
 export type AdminRole = "member" | "administrator";
 export type AdminUserStatus = "active" | "deactivated";
+export type AdminUserMethod = "credential" | "google" | "github" | "artiflow";
 export type AdminUserRow = {
   id: string;
   name: string;
@@ -17,6 +18,7 @@ export type AdminUserFilter = {
   search: string;
   role: AdminRole | null;
   status: AdminUserStatus | null;
+  method: AdminUserMethod | null;
 };
 export type AdminUserFailure = { ok: false; code: string; error: string; signInRequired: boolean };
 export type AdminUserList = { ok: true; value: AdminUserPage } | AdminUserFailure;
@@ -100,6 +102,7 @@ const METHOD_LABELS: Record<string, string> = {
   credential: "Password",
   google: "Google",
   github: "GitHub",
+  artiflow: "SSO",
 };
 
 export function accessMethodsLabel(methods: string[]): string {
@@ -122,12 +125,15 @@ export function directoryEmptyMessage(filter: {
   search: string;
   role: AdminRole | null;
   status?: AdminUserStatus | null;
+  method?: AdminUserMethod | null;
 }): string {
   if (filter.search.trim() !== "")
     return "No account matches that search. Clear the search or try a different name or email.";
   if (filter.role !== null) return "No account holds that role. Clear the role filter to see everyone.";
   if (filter.status !== null && filter.status !== undefined)
     return "No account holds that status. Clear the status filter to see everyone.";
+  if (filter.method !== null && filter.method !== undefined)
+    return "No account signs in that way. Clear the method filter to see everyone.";
   return "No accounts yet. Issue the first invitation from the console with bun run user:invite EMAIL.";
 }
 
@@ -139,6 +145,7 @@ export function buildAdminUserSearch(filter: AdminUserFilter): string {
   if (search !== "") params.set("search", search);
   if (filter.role !== null) params.set("role", filter.role);
   if (filter.status !== null) params.set("status", filter.status);
+  if (filter.method !== null) params.set("method", filter.method);
   return `${ADMIN_USERS_PATH}?${params.toString()}`;
 }
 
