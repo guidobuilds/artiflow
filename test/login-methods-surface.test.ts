@@ -11,10 +11,12 @@ import {
   METHODS_UNAVAILABLE,
   loginSurface,
 } from "../apps/dashboard/src/login-methods.ts";
+import { providerLabel, providerMark } from "../apps/dashboard/src/provider-marks.ts";
 
 type Call = { url: string; init: RequestInit };
 const realFetch = globalThis.fetch;
 const SCREEN = "../apps/dashboard/src/AuthScreen.tsx";
+const MARK = "../apps/dashboard/src/components/ui/provider-mark.tsx";
 const ORDINARY_REJECTION = "That email and password did not match an account.";
 
 function useFetch(reply: (call: Call, index: number) => Response): Call[] {
@@ -132,6 +134,47 @@ test("the fallback parameter reveals the conventional methods with the emergency
   const panel = section(screen, "function EmergencyPanel", "export default function AuthScreen");
   assert.match(panel, /\{notice\.title\}/);
   assert.match(panel, /\{notice\.copy\}/);
+});
+
+test("each social button shows its provider's own mark, and a provider without a mark shows none", () => {
+  const google = providerMark("google");
+  const github = providerMark("github");
+  assert.ok(google, "google resolves to a mark");
+  assert.ok(github, "github resolves to a mark");
+  assert.equal(google.src, "/logos/google.svg", "the google button shows the google mark");
+  assert.equal(github.src, "/logos/github.svg", "the github button shows the github mark");
+  assert.notEqual(google.src, github.src, "two providers never share one asset");
+  for (const name of ["google.svg", "github.svg"]) {
+    const file = new URL(`../apps/dashboard/public/logos/${name}`, import.meta.url);
+    assert.ok(existsSync(file), `the mark asset /logos/${name} exists`);
+    assert.match(readFileSync(file, "utf8"), /<svg[\s>]/, `${name} is an svg`);
+  }
+
+  assert.equal(providerLabel("github"), "GitHub", "the provider name keeps its own spelling");
+  assert.equal(providerLabel("google"), "Google");
+  assert.equal(github.monochrome, true, "a single-colour mark is drawn in the icon colour");
+  assert.equal(google.monochrome, false, "a multi-colour mark keeps its own colours");
+
+  for (const unknown of ["gitlab", "apple", "", "__proto__", "constructor", "toString"]) {
+    assert.equal(providerMark(unknown), null, `${unknown || "(empty)"} has no mark instead of a broken reference`);
+  }
+  assert.equal(providerLabel("gitlab"), "Gitlab", "an unknown provider still gets a label");
+
+  const screen = read(SCREEN);
+  const buttons = section(screen, "socialProviders.map(", "or with email");
+  assert.match(buttons, /<ProviderMark provider=\{provider\} \/>/, "each button renders its provider's mark");
+  assert.match(buttons, /onClick=\{\(\) => void providerSignIn\(provider\)\}/, "the button still starts that provider");
+  assert.match(buttons, /providerLabel\(provider\)/, "the mark sits beside the label");
+  assert.doesNotMatch(buttons, /github\.svg|google\.svg/, "the button does not choose the asset itself");
+
+  const mark = read(MARK);
+  assert.match(mark, /providerMark\(provider\)/, "the mark is chosen from the answered provider id");
+  assert.match(mark, /if \(mark === null\) return null;/, "an unknown provider renders no mark at all");
+  assert.match(mark, /alt=""/, "the label names the provider, so the mark stays decorative");
+  assert.match(mark, /aria-hidden="true"/);
+  assert.match(mark, /bg-current/, "a single-colour mark takes the existing icon colour, in both themes");
+  assert.match(mark, /maskImage/, "the mark keeps its shape while its colour comes from the token");
+  assert.doesNotMatch(mark, /<svg/, "the mark is the shipped asset, not a redrawn one");
 });
 
 test("without the parameter the conventional methods are not rendered at all", () => {
