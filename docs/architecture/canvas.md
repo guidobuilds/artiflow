@@ -870,6 +870,13 @@ tamaño y permite que dos documentos compartan la misma imagen sin duplicarla.
 
 ### 11.6 D6 — Borrador vivo y publicado inmutable
 
+**Entregado en F2.** El borrador es una sesión Yjs con presencia —nombre, color y cursor— y el registro
+sigue siendo la bitácora: al quedarse quieto el documento, y al irse el último, el servidor serializa el
+fragmento a markdown, difiere contra el último volcado y agrega **una** operación, con las mismas reglas
+de secuencia y congelado que el camino HTTP. Una escritura del agente invalida la sala y los clientes
+convergen a la base nueva. Las salas viven en el proceso del API, que coincide con el despliegue de un
+solo contenedor: una segunda réplica necesitaría awareness compartido y routing pegajoso.
+
 La inmutabilidad se muda del archivo al **publicado**. Mientras se trabaja existe un
 **borrador** (no versionado) donde las personas y los agentes escriben; publicar congela la
 instantánea. Es el modelo de Confluence, y es la única forma de tener "editar y ver en vivo"
