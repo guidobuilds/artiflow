@@ -10,8 +10,8 @@ export type Document = {
   revisionId: string;
   revisionNumber: number;
   text: string;
-  seq: number;
-  publishedSeq: number;
+  seq?: number;
+  publishedSeq?: number;
 };
 export type Revision = { id: string; revisionNumber: number; sizeBytes: number; createdAt: string };
 export type SavedRevision = { revisionId: string; revisionNumber: number; seq?: number };
@@ -95,7 +95,12 @@ export const getArtifactDetail = (id: string) =>
       : null;
   });
 export const saveDocument = (id: string, text: string, expectedRevisionId: string, expectedSeq?: number) =>
-  manageRequest(`${path(id)}/document`, "PUT", saved, { text, expectedRevisionId, expectedSeq });
+  manageRequest(
+    `${path(id)}/document`,
+    "PUT",
+    saved,
+    expectedSeq === undefined ? { text, expectedRevisionId } : { text, expectedSeq },
+  );
 export const restoreRevision = (id: string, revisionId: string, expectedRevisionId: string) =>
   manageRequest(`${path(id)}/revisions/${encodeURIComponent(revisionId)}/restore`, "POST", saved, {
     expectedRevisionId,

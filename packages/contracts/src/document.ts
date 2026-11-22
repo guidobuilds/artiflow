@@ -12,11 +12,16 @@ export const documentResponseSchema = z.object({
 });
 export type DocumentResponse = z.infer<typeof documentResponseSchema>;
 
-export const saveDocumentRequestSchema = z.object({
-  text: z.string(),
-  expectedRevisionId: z.string().min(1).optional(),
-  expectedSeq: z.number().int().nonnegative().optional(),
-});
+export const saveDocumentRequestSchema = z
+  .object({
+    text: z.string(),
+    expectedRevisionId: z.string().min(1).optional(),
+    expectedSeq: z.number().int().nonnegative().optional(),
+  })
+  .refine((body) => body.expectedSeq === undefined || body.expectedRevisionId === undefined, {
+    path: ["expectedSeq"],
+    message: "a save names the sequence or the revision, never both",
+  });
 export type SaveDocumentRequest = z.infer<typeof saveDocumentRequestSchema>;
 
 export const restoreRevisionRequestSchema = z.object({ expectedRevisionId: z.string().min(1) });

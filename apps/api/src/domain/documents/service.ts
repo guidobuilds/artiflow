@@ -107,6 +107,8 @@ export type DocumentStore = {
     revision: SnapshotRecord;
     expectedPublishedSeq: number;
     expectedDraftSeq: number;
+    operation?: OperationRecord;
+    draft?: DraftRecord;
   }): Promise<CommitSnapshotOutcome>;
 };
 
@@ -149,6 +151,26 @@ export type ApplyOperationsInput = OpenDraftInput & {
 export type FreezeInput = OpenDraftInput & { force?: boolean };
 
 export type TextAtInput = OpenDraftInput & { seq: number };
+
+export type RestoreDocumentInput = OpenDraftInput & {
+  authorKind: DocumentAuthorKind;
+  authorId: string;
+  idempotencyKey: string;
+  text: string;
+};
+
+export type RestoredDocument = {
+  artifactId: string;
+  seq: number;
+  publishedSeq: number;
+  seqFrom: number;
+  seqTo: number;
+  revisionId: string;
+  revisionNumber: number;
+  storageKey: string;
+  sha256: string;
+  sizeBytes: number;
+};
 
 const ok = <T>(value: T): DocumentResult<T> => ({ ok: true, value });
 const fail = (
@@ -411,6 +433,89 @@ async function freeze(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>
   });
 }
 
+const replaceWholeDocument = (formatVersion: number, text: string) =>
+  applyDocumentOperations({ formatVersion, text: "" }, [{ op: "replace_document", text }]);
+
+export async function restoreDocument(input: RestoreDocumentInput): Promise<DocumentResult<RestoredDocument>> {
+  const { store, storage, artifactId, authorKind, authorId, idempotencyKey, text } = input;
+  if (!isIdentifier(artifactId)) return fail("validation", "artifact_id_required");
+  if (!isIdentifier(authorId)) return fail("validation", "author_id_required");
+  if (!(DOCUMENT_AUTHOR_KINDS as readonly string[]).includes(authorKind))
+    return fail("validation", "unknown_author_kind");
+  if (!isIdentifier(idempotencyKey)) return fail("validation", "idempotency_key_required");
+  if (typeof text !== "string") return fail("validation", "text_required");
+  const artifact = await store.readArtifact(artifactId);
+  if (!artifact) return fail("not_found", "artifact_not_found");
+  const draft = await store.readDraft(artifactId);
+  if (draft && draft.seq > artifact.publishedSeq)
+    return fail("concurrent_edit", "pending_changes", { currentSeq: draft.seq });
+  const baseSeq = draft?.seq ?? artifact.publishedSeq;
+  const seq = baseSeq + 1;
+  const formatVersion = draft?.formatVersion ?? artifact.latestSnapshot?.formatVersion ?? DOCUMENT_FORMAT_VERSION;
+  const applied = replaceWholeDocument(formatVersion, text);
+  if (!applied.ok) return fail("operation_rejected", applied.reason, { currentSeq: baseSeq, opIndex: applied.opIndex });
+  const document = { formatVersion: applied.value.formatVersion, text: applied.value.text };
+  const bytes = canonicalBytes(document);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const storageKey = newRevisionStorageKey();
+  const stored = await putRevisionBytes({ storage, storageKey, sha256, bytes });
+  if (!stored.ok) return fail(storageKind(stored.kind), stored.reason);
+  const now = input.now ?? new Date();
+  const revision: SnapshotRecord = {
+    artifactId,
+    formatVersion: document.formatVersion,
+    seqFrom: seq,
+    seqTo: seq,
+    sizeBytes: stored.value.sizeBytes,
+    sha256,
+    storageKey: stored.value.storageKey,
+    blockIndex: indexBlocks(document.text),
+    createdAt: now,
+  };
+  const operation: OperationRecord = {
+    artifactId,
+    seq,
+    baseSeq,
+    authorKind,
+    authorId,
+    ops: [{ op: "replace_document", text }],
+    result: "applied",
+    idempotencyKey,
+    createdAt: now,
+  };
+  const nextDraft: DraftRecord = {
+    artifactId,
+    seq,
+    formatVersion: document.formatVersion,
+    state: { formatVersion: document.formatVersion, text: document.text },
+    updatedByUserId: authorKind === "person" ? authorId : null,
+    updatedAt: now,
+  };
+  const committed = await store.commitSnapshot({
+    revision,
+    expectedPublishedSeq: artifact.publishedSeq,
+    expectedDraftSeq: baseSeq,
+    operation,
+    draft: nextDraft,
+  });
+  if (!committed.committed || committed.revisionId === null || committed.revisionNumber === null) {
+    const current = await store.readDraft(artifactId);
+    return fail("concurrent_edit", "snapshot_raced", { currentSeq: current?.seq ?? baseSeq });
+  }
+  return ok({
+    artifactId,
+    seq,
+    publishedSeq: seq,
+    seqFrom: revision.seqFrom,
+    seqTo: revision.seqTo,
+    revisionId: committed.revisionId,
+    revisionNumber: committed.revisionNumber,
+    storageKey: revision.storageKey,
+    sha256,
+    sizeBytes: revision.sizeBytes,
+  });
+}
+
 export async function freezeIfDue(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>> {
   return freeze({ ...input, force: false });
 }
@@ -612,7 +717,7 @@ export function drizzleDocumentStore(database: Database): DocumentStore {
         }
         return { committed: true };
       }),
-    commitSnapshot: ({ revision, expectedPublishedSeq, expectedDraftSeq }) =>
+    commitSnapshot: ({ revision, expectedPublishedSeq, expectedDraftSeq, operation, draft }) =>
       db.transaction(async (tx) => {
         const locked = await tx
           .select({ publishedSeq: artifacts.publishedSeq })
@@ -626,8 +731,29 @@ export function drizzleDocumentStore(database: Database): DocumentStore {
           .from(documentDrafts)
           .where(eq(documentDrafts.artifactId, revision.artifactId))
           .for("update");
-        if (artifact.publishedSeq !== expectedPublishedSeq || (draftRows[0]?.seq ?? 0) !== expectedDraftSeq)
+        if (
+          artifact.publishedSeq !== expectedPublishedSeq ||
+          (draftRows[0]?.seq ?? artifact.publishedSeq) !== expectedDraftSeq
+        )
           return { committed: false, revisionId: null, revisionNumber: null };
+        if (operation) {
+          const logged = await tx
+            .insert(documentOperations)
+            .values({
+              artifactId: operation.artifactId,
+              seq: operation.seq,
+              baseSeq: operation.baseSeq,
+              authorKind: operation.authorKind,
+              authorId: operation.authorId,
+              ops: operation.ops,
+              result: operation.result,
+              idempotencyKey: operation.idempotencyKey,
+              createdAt: operation.createdAt,
+            })
+            .onConflictDoNothing()
+            .returning({ id: documentOperations.id });
+          if (logged.length === 0) return { committed: false, revisionId: null, revisionNumber: null };
+        }
         const counts = await tx
           .select({ count: sql<number>`count(*)::int` })
           .from(artifactRevisions)
@@ -651,6 +777,19 @@ export function drizzleDocumentStore(database: Database): DocumentStore {
           .update(artifacts)
           .set({ currentRevisionId: revisionId, publishedSeq: revision.seqTo, updatedAt: sql`now()` })
           .where(eq(artifacts.id, revision.artifactId));
+        if (draft) {
+          const moved = {
+            seq: draft.seq,
+            formatVersion: draft.formatVersion,
+            state: draft.state,
+            updatedByUserId: draft.updatedByUserId,
+            updatedAt: draft.updatedAt,
+          };
+          await tx
+            .insert(documentDrafts)
+            .values({ artifactId: draft.artifactId, ...moved })
+            .onConflictDoUpdate({ target: documentDrafts.artifactId, set: moved });
+        }
         return { committed: true, revisionId, revisionNumber };
       }),
   };

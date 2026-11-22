@@ -6,6 +6,15 @@ export type SaveState = SavedRevision & { text: string; status: SaveStatus; dirt
 export type AutosaveDocument = Partial<Document> & Pick<Document, "text" | "revisionId" | "revisionNumber">;
 export const AUTOSAVE_MS = 1500;
 
+const IN_FLIGHT: readonly SaveStatus[] = ["saving", "restoring"];
+const WRITE_REFUSED: readonly SaveStatus[] = ["readonly", "conflict"];
+const FLUSHABLE: readonly SaveStatus[] = ["unsaved", "saved"];
+const IGNORED_EDITS: readonly SaveStatus[] = ["readonly", "restoring"];
+const HELD_EDITS: readonly SaveStatus[] = ["conflict", "error", "saving"];
+const BLOCKED_RESTORE: readonly SaveStatus[] = [...IN_FLIGHT, ...WRITE_REFUSED];
+
+const inStates = (states: readonly SaveStatus[], status: SaveStatus): boolean => states.includes(status);
+
 export class Autosave {
   state: SaveState;
   private baseline: string;
@@ -54,10 +63,10 @@ export class Autosave {
       }, AUTOSAVE_MS);
   }
   change(text: string) {
-    if (this.disposed || ["readonly", "restoring"].includes(this.state.status)) return;
+    if (this.disposed || inStates(IGNORED_EDITS, this.state.status)) return;
     if (text === this.baseline && !this.state.dirty && this.state.status === "saved") return;
     const dirty = text !== this.baseline;
-    const blocked = ["conflict", "error", "saving"].includes(this.state.status);
+    const blocked = inStates(HELD_EDITS, this.state.status);
     this.publish({
       text: dirty ? text : this.savedSource,
       dirty,
@@ -66,7 +75,7 @@ export class Autosave {
     if (!blocked) this.schedule();
   }
   async flush() {
-    if (this.disposed || !this.state.dirty || !["unsaved", "saved"].includes(this.state.status)) return;
+    if (this.disposed || !this.state.dirty || !inStates(FLUSHABLE, this.state.status)) return;
     clearTimeout(this.timer);
     const text = this.state.text;
     this.publish({ status: "saving", code: undefined });
@@ -102,13 +111,13 @@ export class Autosave {
     });
   }
   beginRestore(): boolean {
-    if (this.disposed || ["saving", "restoring", "readonly", "conflict"].includes(this.state.status)) return false;
+    if (this.disposed || inStates(BLOCKED_RESTORE, this.state.status)) return false;
     clearTimeout(this.timer);
     this.publish({ status: "restoring" });
     return true;
   }
   beginReload(): boolean {
-    if (this.disposed || ["saving", "restoring"].includes(this.state.status)) return false;
+    if (this.disposed || inStates(IN_FLIGHT, this.state.status)) return false;
     clearTimeout(this.timer);
     this.publish({ status: "restoring" });
     return true;

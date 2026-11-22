@@ -676,9 +676,11 @@ function DocumentEditor({ initial }: { initial: Document }) {
               ? "This document is too large to save (maximum 16 MiB). Shorten it, then retry."
               : state.code === "reload_required"
                 ? "Restore succeeded, but the document could not be reloaded. Reload before editing again."
-                : "The save was not confirmed. Your local edits remain here. Retry, or reload to check the server version."}
+                : state.code === "restore_pending_changes"
+                  ? "This document has edits that are not published yet. Restoring now would discard them, so nothing changed. Publish the document, then restore."
+                  : "The save was not confirmed. Your local edits remain here. Retry, or reload to check the server version."}
           </p>
-          {state.code !== "reload_required" ? (
+          {state.code !== "reload_required" && state.code !== "restore_pending_changes" ? (
             <IconAction icon="refresh" label="Retry save" onClick={() => session.current?.retry()} />
           ) : null}
           <IconAction

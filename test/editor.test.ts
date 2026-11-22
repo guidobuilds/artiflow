@@ -710,6 +710,7 @@ test("editing requests reuse same-origin JSON/Origin conventions and retain type
     doc,
     { revisions: [{ id: "r1", revisionNumber: 1, sizeBytes: 3, createdAt: "2026-01-01T00:00:00Z" }] },
     { revisionId: "r2", revisionNumber: 2 },
+    { revisionId: "r4", revisionNumber: 4 },
     { revisionId: "r3", revisionNumber: 3 },
   ];
   globalThis.fetch = (async (url, init) => {
@@ -720,12 +721,14 @@ test("editing requests reuse same-origin JSON/Origin conventions and retain type
     assert.deepEqual(await getDocument("a"), { ok: true, value: doc });
     assert.equal((await listRevisions("a")).ok, true);
     assert.equal((await saveDocument("a", "next", "r1", 4)).ok, true);
+    assert.equal((await saveDocument("a", "whole", "r1")).ok, true);
     assert.equal((await restoreRevision("a", "r1", "r2")).ok, true);
     assert.deepEqual(
       calls.map((c) => [c.url, c.init.method]),
       [
         ["/api/artifacts/a/document", "GET"],
         ["/api/artifacts/a/revisions", "GET"],
+        ["/api/artifacts/a/document", "PUT"],
         ["/api/artifacts/a/document", "PUT"],
         ["/api/artifacts/a/revisions/r1/restore", "POST"],
       ],
@@ -737,12 +740,13 @@ test("editing requests reuse same-origin JSON/Origin conventions and retain type
         accept: "application/json",
         origin: "http://127.0.0.1:5173",
       });
-    assert.deepEqual(JSON.parse(calls[2]!.init.body as string), {
-      text: "next",
-      expectedRevisionId: "r1",
-      expectedSeq: 4,
-    });
-    assert.deepEqual(JSON.parse(calls[3]!.init.body as string), { expectedRevisionId: "r2" });
+    assert.deepEqual(JSON.parse(calls[2]!.init.body as string), { text: "next", expectedSeq: 4 });
+    assert.deepEqual(
+      JSON.parse(calls[3]!.init.body as string),
+      { text: "whole", expectedRevisionId: "r1" },
+      "a save without a sequence names the revision instead, never both",
+    );
+    assert.deepEqual(JSON.parse(calls[4]!.init.body as string), { expectedRevisionId: "r2" });
     for (const [status, error] of [
       [409, "concurrent_edit"],
       [413, "too_large"],

@@ -75,7 +75,7 @@ function editorWorld(options: { text?: string; dirty?: boolean } = {}) {
     documentReads: 0,
     buffer: text,
     writes: [] as string[],
-    sequences: [] as number[],
+    sequences: [] as (number | undefined)[],
     notices: [] as (ArtifactMetadata | null)[],
     pending: null as ArtifactMetadata | null,
     dirty: options.dirty === true,

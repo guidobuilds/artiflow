@@ -447,6 +447,45 @@ test("a client that omits the sequence cannot overwrite a draft", { skip: SKIP, 
   assert.equal(recovered.json?.seq, 2, "the client's own write lands once it sends the sequence it read");
 });
 
+test("a restore refuses while the draft holds unpublished operations", { skip: SKIP, timeout: 60_000 }, async () => {
+  const pendingDoc = await seed(owner, "# pendiente\n", "Pending doc", "markdown");
+  const saved = await read(
+    `/api/artifacts/${pendingDoc.id}/document`,
+    {
+      method: "PUT",
+      headers: MUTATION,
+      body: JSON.stringify({ text: "# pendiente\n\neditado\n", expectedSeq: 0 }),
+    },
+    owner,
+  );
+  assert.equal(saved.status, 200, saved.text);
+  const refused = await read(
+    `/api/artifacts/${pendingDoc.id}/revisions/${pendingDoc.revisionId}/restore`,
+    { method: "POST", headers: MUTATION, body: JSON.stringify({ expectedRevisionId: saved.json?.revisionId }) },
+    owner,
+  );
+  assert.deepEqual(
+    [refused.status, refused.json?.error, refused.json?.currentSeq],
+    [409, "restore_pending_changes", 1],
+    "the unpublished edit is never destroyed by a restore",
+  );
+  const drafts = await pool.query<{ seq: number; state: { text: string } }>(
+    `select "seq", "state" from "documentDrafts" where "artifactId" = $1`,
+    [pendingDoc.id],
+  );
+  assert.deepEqual(
+    [drafts.rows.length, drafts.rows[0]?.seq, drafts.rows[0]?.state.text],
+    [1, 1, "# pendiente\n\neditado\n"],
+    "the draft row survives the refusal unchanged",
+  );
+  const operations = await pool.query<{ count: string }>(
+    `select count(*) from "documentOperations" where "artifactId" = $1`,
+    [pendingDoc.id],
+  );
+  assert.equal(operations.rows[0]?.count, "1", "the refusal appends no operation row");
+  assert.equal(await currentRevisionOf(pendingDoc.id), pendingDoc.revisionId, "the pointer did not move");
+});
+
 test(
   "restoring the same revision twice allocates a key for each restore",
   { skip: SKIP, timeout: 60_000 },

@@ -3,6 +3,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { createEditingApp, type EditingOptions } from "../apps/api/src/routes/editing.ts";
+import { saveDocumentRequestSchema } from "@artiflow/contracts/document";
 import {
   FREEZE_INTERVAL_MS,
   type ArtifactDocumentState,
@@ -292,14 +293,20 @@ function routeWorld(options: { kind?: string; text?: string; snapshotAgeMs?: num
         if (artifact.publishedSeq !== input.expectedPublishedSeq) {
           return { committed: false, revisionId: null, revisionNumber: null };
         }
-        if ((drafts.get(input.revision.artifactId)?.seq ?? 0) !== input.expectedDraftSeq)
+        if ((drafts.get(input.revision.artifactId)?.seq ?? artifact.publishedSeq) !== input.expectedDraftSeq)
           return { committed: false, revisionId: null, revisionNumber: null };
+        if (input.operation) {
+          if (operations.some((row) => row.idempotencyKey === input.operation?.idempotencyKey))
+            return { committed: false, revisionId: null, revisionNumber: null };
+          operations.push({ ...input.operation, id: `op-${operations.length + 1}` });
+        }
         const revisionNumber = revisions.filter((row) => row.artifactId === input.revision.artifactId).length + 1;
         const id = randomUUID();
         revisions.push({ ...input.revision, id, revision: revisionNumber });
         artifact.publishedSeq = input.revision.seqTo;
         artifact.revisionId = id;
         artifact.revisionNumber = revisionNumber;
+        if (input.draft) drafts.set(input.draft.artifactId, input.draft);
         return { committed: true, revisionId: id, revisionNumber };
       }),
   };
@@ -379,7 +386,7 @@ test("a person's save appends one operation row and writes no snapshot object", 
     "the existing read fields keep their values",
   );
   const edited = SEEDED.replace("target text", "target words");
-  const response = await save(world, { text: edited, expectedRevisionId: world.artifact.revisionId, expectedSeq: 0 });
+  const response = await save(world, { text: edited, expectedSeq: 0 });
   assert.equal(response.status, 200);
   const body = (await response.json()) as Record<string, unknown>;
   assert.deepEqual([body.seq, body.publishedSeq], [1, 0], "the save reports its resulting sequence");
@@ -505,30 +512,85 @@ test("a save over the byte cap still refuses with too_large", async () => {
   assert.equal(world.operations.length, 0, "a refused oversize save appends no row");
 });
 
+test("the wire contract refuses a save that names both a sequence and a revision", () => {
+  assert.equal(saveDocumentRequestSchema.safeParse({ text: "x" }).success, true);
+  assert.equal(saveDocumentRequestSchema.safeParse({ text: "x", expectedSeq: 0 }).success, true);
+  assert.equal(saveDocumentRequestSchema.safeParse({ text: "x", expectedRevisionId: "r1" }).success, true);
+  assert.equal(
+    saveDocumentRequestSchema.safeParse({ text: "x", expectedSeq: 0, expectedRevisionId: "r1" }).success,
+    false,
+    "the two identities are mutually exclusive on the wire as well",
+  );
+});
+
+test("a save that names both identities refuses with unexpected_revision_token and writes nothing", async () => {
+  const world = routeWorld();
+  const both = await save(world, {
+    text: "# Both",
+    expectedSeq: 0,
+    expectedRevisionId: world.artifact.revisionId,
+  });
+  assert.equal(both.status, 400);
+  assert.deepEqual(await both.json(), { error: "unexpected_revision_token" });
+  assert.equal(
+    (await save(world, { text: `${SEEDED}\nkept`, expectedSeq: 0 })).status,
+    200,
+    "the sequence alone is the whole identity",
+  );
+  const again = await save(world, {
+    text: "# Both",
+    expectedSeq: 1,
+    expectedRevisionId: world.artifact.revisionId,
+  });
+  assert.deepEqual(
+    [again.status, ((await again.json()) as Record<string, unknown>).error],
+    [400, "unexpected_revision_token"],
+    "the refusal does not depend on the draft state",
+  );
+  assert.equal(world.operations.length, 1, "neither refusal appends an operation row");
+  assert.equal(world.draftText(), `${SEEDED}\nkept`, "neither refusal moves the draft");
+  assert.equal(world.revisions.length, 1, "neither refusal writes a snapshot");
+});
+
+test("a restore refuses with restore_pending_changes instead of destroying an unpublished draft", async () => {
+  const world = routeWorld();
+  const seeded = world.revisions[0] as { id: string };
+  const edited = SEEDED.replace("target text", "target words");
+  assert.equal((await save(world, { text: edited, expectedSeq: 0 })).status, 200);
+  const response = await restore(world, seeded.id, { expectedRevisionId: world.artifact.revisionId });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    error: "restore_pending_changes",
+    currentSeq: 1,
+    currentRevisionId: world.artifact.revisionId,
+  });
+  assert.equal(world.operations.length, 1, "the refusal appends no operation row");
+  assert.equal(world.revisions.length, 1, "the refusal writes no snapshot");
+  assert.equal(world.storage.objects.size, 1, "the refusal stores no object");
+  assert.equal(world.draftText(), edited, "the unpublished edit survives the refusal");
+  assert.equal((await read(world)).text, edited, "and is still what the next read serves");
+  const caughtUp = await restore(world, seeded.id, { expectedRevisionId: world.artifact.revisionId });
+  assert.equal(caughtUp.status, 409, "a retry without publishing refuses again instead of landing");
+  const published = await save(world, { text: `${edited}\nmore`, expectedSeq: 1 });
+  assert.equal(published.status, 200, "the pending edit is published forward by the sequence path");
+});
+
 test("a restore lands one replace operation and publishes the restored revision's bytes", async () => {
   const world = routeWorld();
   const seeded = world.revisions[0] as { id: string; sha256: string };
-  assert.equal(
-    (await save(world, { text: SEEDED.replace("target text", "target words"), expectedSeq: 0 })).status,
-    200,
-  );
-  assert.equal(world.draftText(), SEEDED.replace("target text", "target words"));
+  assert.equal(world.drafts.size, 0, "the document never kept a draft");
   const response = await restore(world, seeded.id, { expectedRevisionId: world.artifact.revisionId });
   assert.equal(response.status, 200);
   const body = (await response.json()) as Record<string, unknown>;
   assert.deepEqual(
     [body.restoredFrom, body.revisionNumber, body.seq, body.publishedSeq, body.sha256],
-    [seeded.id, 2, 2, 2, seeded.sha256],
-    "the restore reports its revision, the pinned digest and the new sequence",
+    [seeded.id, 2, 1, 1, seeded.sha256],
+    "the restore reports its revision, the pinned digest and the published sequence",
   );
   assert.equal(body.revisionId, world.revisions[1]?.id);
-  assert.equal(world.operations.length, 2, "the restore appends exactly one operation row");
-  assert.deepEqual(
-    (world.operations[1]?.ops ?? []).map((operation) => operation.op),
-    ["replace_document"],
-  );
-  assert.deepEqual(world.operations[1]?.ops, [{ op: "replace_document", text: SEEDED }]);
-  assert.equal(world.revisions.length, 2, "the forced publish writes exactly one snapshot");
+  assert.equal(world.operations.length, 1, "the restore appends exactly one operation row");
+  assert.deepEqual(world.operations[0]?.ops, [{ op: "replace_document", text: SEEDED }]);
+  assert.equal(world.revisions.length, 2, "the restore writes exactly one snapshot");
   const snapshot = world.revisions[1] as {
     id: string;
     storageKey: string;
@@ -536,34 +598,66 @@ test("a restore lands one replace operation and publishes the restored revision'
     seqFrom: number;
     seqTo: number;
   };
-  assert.deepEqual([snapshot.seqFrom, snapshot.seqTo], [1, 2], "the snapshot covers the pending save and the restore");
-  assert.equal(snapshot.sha256, seeded.sha256, "the published digest is the restored revision's digest");
+  assert.deepEqual([snapshot.seqFrom, snapshot.seqTo], [1, 1], "the snapshot covers the restore operation");
+  assert.equal(snapshot.sha256, seeded.sha256, "the published digest is the pinned revision's digest");
   const published = world.storage.objects.get(snapshot.storageKey);
   assert.ok(published, "the snapshot has its own object");
-  assert.equal(new TextDecoder().decode(published), SEEDED, "the published bytes are the restored revision's bytes");
+  assert.equal(new TextDecoder().decode(published), SEEDED, "the published bytes are the pinned revision's bytes");
   const after = await read(world);
   assert.deepEqual(
     [after.text, after.seq, after.publishedSeq, after.revisionId],
-    [SEEDED, 2, 2, snapshot.id],
+    [SEEDED, 1, 1, snapshot.id],
     "the next read serves the restored text at the published pointer",
   );
+  assert.equal(world.draftText(), SEEDED, "the draft moved with the snapshot");
 });
 
-test("a restore lands on a document whose draft has no pending operations", async () => {
-  const world = routeWorld();
+test("a restore over a published draft moves the draft and keeps the edit in history", async () => {
+  const world = routeWorld({ snapshotAgeMs: FREEZE_INTERVAL_MS + 60_000 });
   const seeded = world.revisions[0] as { id: string; sha256: string };
-  assert.equal(world.drafts.size, 0, "the document never kept a draft");
+  const edited = SEEDED.replace("target text", "target words");
+  const saved = await save(world, { text: edited, expectedSeq: 0 });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(
+    [((await saved.json()) as Record<string, unknown>).publishedSeq, world.revisions.length],
+    [1, 2],
+    "the save froze, so the edit is published and nothing is pending",
+  );
   const response = await restore(world, seeded.id, { expectedRevisionId: world.artifact.revisionId });
   assert.equal(response.status, 200);
   const body = (await response.json()) as Record<string, unknown>;
-  assert.deepEqual([body.seq, body.publishedSeq], [1, 1], "an explicit restore lands with nothing pending");
-  assert.equal(world.operations.length, 1, "the restore appends its own operation row");
-  assert.equal(world.revisions.length, 2, "the forced publish writes the snapshot");
-  assert.equal((world.revisions[1] as { sha256: string }).sha256, seeded.sha256);
-  assert.equal((await read(world)).text, SEEDED, "the next read serves the restored text");
+  assert.deepEqual([body.seq, body.publishedSeq, body.revisionNumber], [2, 2, 3]);
+  assert.equal(world.draftText(), SEEDED, "the draft holds the restored text at the published sequence");
+  assert.equal(
+    new TextDecoder().decode(world.storage.objects.get((world.revisions[1] as { storageKey: string }).storageKey)),
+    edited,
+    "the person's published edit stays in history instead of being destroyed",
+  );
   const legacy = await save(world, { text: `${SEEDED}\nLater`, expectedRevisionId: world.artifact.revisionId });
-  assert.equal(legacy.status, 200, "a draft with nothing pending still accepts a sequence-less save");
-  assert.equal(((await legacy.json()) as Record<string, unknown>).seq, 2);
+  assert.equal(legacy.status, 200, "a clean draft still accepts a legacy client, through the operation path");
+  const legacyBody = (await legacy.json()) as Record<string, unknown>;
+  assert.equal(legacyBody.seq, 3, "the legacy save advances the sequence instead of moving the pointer behind it");
+  assert.equal(world.operations.length, 3, "the legacy save lands as an operation, not as a whole revision");
+  assert.equal(world.revisions.length, 3, "the legacy save creates no snapshot of its own");
+  const recovered = await save(world, { text: `${SEEDED}\nLater again`, expectedSeq: 3 });
+  assert.equal(recovered.status, 200, "the sequence path still lands on the restored document");
+});
+
+test("a restore whose pinned object is missing writes no draft row", async () => {
+  const world = routeWorld();
+  const seeded = world.revisions[0] as { id: string; storageKey: string };
+  world.storage.objects.delete(seeded.storageKey);
+  const response = await restore(world, seeded.id, { expectedRevisionId: world.artifact.revisionId });
+  assert.deepEqual(
+    [response.status, ((await response.json()) as Record<string, unknown>).error],
+    [500, "artifact_unavailable"],
+    "a failed read is not a restore",
+  );
+  assert.equal(world.drafts.size, 0, "the failed read opens no draft row");
+  assert.equal(world.operations.length, 0, "the failed read appends no operation row");
+  assert.equal(world.revisions.length, 1, "the failed read writes no snapshot");
+  assert.equal(world.storage.objects.size, 0, "the failed read stores no object");
+  assert.equal(world.artifact.revisionId, seeded.id, "the pointer did not move");
 });
 
 test("the restore refusals keep their codes, statuses and write nothing", async () => {

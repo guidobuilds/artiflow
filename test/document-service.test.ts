@@ -11,6 +11,7 @@ import {
   freezeIfDue,
   openDraft,
   publish,
+  restoreDocument,
   textAt,
   type ArtifactDocumentState,
   type DocumentStore,
@@ -147,14 +148,20 @@ function fakeStore(seed: { artifactId: string; publishedSeq?: number; snapshotTe
         if (!artifact) return { committed: false, revisionId: null, revisionNumber: null };
         if (
           artifact.publishedSeq !== input.expectedPublishedSeq ||
-          (drafts.get(input.revision.artifactId)?.seq ?? 0) !== input.expectedDraftSeq
+          (drafts.get(input.revision.artifactId)?.seq ?? artifact.publishedSeq) !== input.expectedDraftSeq
         )
           return { committed: false, revisionId: null, revisionNumber: null };
+        if (input.operation) {
+          if (operations.some((row) => row.idempotencyKey === input.operation?.idempotencyKey))
+            return { committed: false, revisionId: null, revisionNumber: null };
+          operations.push({ ...input.operation, id: `op-${operations.length + 1}` });
+        }
         const revisionNumber = revisions.filter((row) => row.artifactId === input.revision.artifactId).length + 1;
         const id = `revision-${revisionNumber}`;
         revisions.push({ ...input.revision, id, revision: revisionNumber });
         artifact.publishedSeq = input.revision.seqTo;
         artifact.currentRevisionId = id;
+        if (input.draft) drafts.set(input.draft.artifactId, input.draft);
         return { committed: true, revisionId: id, revisionNumber };
       }),
   };
@@ -361,6 +368,160 @@ test("a rejected batch appends a rejected row and changes nothing else", async (
   assert.equal(draftOf(seeded).seq, 1, "the emptied batch does not advance the sequence");
   assert.equal(textOf(seeded), "kept", "the emptied batch does not change the text");
   assert.equal(storage.objects.size, 0, "an empty document never reaches storage");
+});
+
+test("a lost commit race refuses with the current sequence and leaves the winner's draft alone", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  const base = { storage, artifactId: "a1", authorKind: "person" as const, authorId: "u1", now: NOW };
+  const winner = await applyOperations({
+    ...base,
+    store: seeded.store,
+    baseSeq: 0,
+    idempotencyKey: "winner",
+    ops: [{ op: "append_blocks", text: "# Winner" }],
+  });
+  assert.equal(winner.ok, true);
+  let reads = 0;
+  const racy: DocumentStore = {
+    ...seeded.store,
+    commitOperation: async () => ({ committed: false }),
+    readOperation: async (artifactId, idempotencyKey) => {
+      reads += 1;
+      return reads === 1 ? null : seeded.store.readOperation(artifactId, idempotencyKey);
+    },
+  };
+  const lost = await applyOperations({
+    ...base,
+    store: racy,
+    baseSeq: 1,
+    idempotencyKey: "loser",
+    ops: [{ op: "append_blocks", text: "# Loser" }],
+  });
+  assert.equal(lost.ok, false);
+  if (lost.ok) return;
+  assert.equal(lost.kind, "concurrent_edit");
+  assert.equal(lost.reason, "sequence_taken");
+  assert.equal(lost.currentSeq, 1, "the refusal names the sequence the winner reached");
+  assert.equal(seeded.operations.length, 1, "the loser appends no row");
+  assert.equal(textOf(seeded), "# Winner", "the winner's draft text is untouched");
+});
+
+test("restoreDocument records the pinned text as one operation and one snapshot", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  const pinned = "# Restored\n\noriginal bytes";
+  seeded.seedSnapshot(storage, pinned);
+  const restored = await restoreDocument({
+    store: seeded.store,
+    storage,
+    artifactId: "a1",
+    authorKind: "person",
+    authorId: "u1",
+    idempotencyKey: "restore-1",
+    text: pinned,
+    now: NOW,
+  });
+  assert.equal(restored.ok, true, restored.ok ? "" : restored.reason);
+  if (!restored.ok) return;
+  assert.deepEqual(
+    [restored.value.seq, restored.value.publishedSeq, restored.value.seqFrom, restored.value.seqTo],
+    [1, 1, 1, 1],
+    "the restore is one operation published at once",
+  );
+  assert.equal(restored.value.revisionNumber, 2);
+  assert.equal(seeded.operations.length, 1, "the restore appends one operation row");
+  const operation = seeded.operations[0] as FakeOperation;
+  assert.deepEqual([operation.seq, operation.baseSeq, operation.result], [1, 0, "applied"]);
+  assert.deepEqual(operation.ops, [{ op: "replace_document", text: pinned }]);
+  const revision = seeded.revisions[1] as FakeRevision;
+  assert.equal(restored.value.revisionId, revision.id);
+  assert.equal(revision.sha256, digitOf(new TextEncoder().encode(pinned)));
+  assert.equal(revision.sha256, (seeded.revisions[0] as FakeRevision).sha256, "the pinned digest is preserved");
+  assert.equal(
+    new TextDecoder().decode(storage.objects.get(revision.storageKey) as Uint8Array),
+    pinned,
+    "the published object is the restored markdown",
+  );
+  assert.deepEqual(
+    [seeded.artifacts.get("a1")?.publishedSeq, seeded.artifacts.get("a1")?.currentRevisionId],
+    [1, revision.id],
+  );
+  assert.equal(textOf(seeded), pinned, "the draft moved with the snapshot");
+  assert.equal(draftOf(seeded).seq, 1);
+});
+
+test("restoreDocument refuses an unpublished draft and names the sequence it would have destroyed", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, PUBLISHED);
+  const pending = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "a1",
+    authorKind: "person",
+    authorId: "someone-else",
+    baseSeq: 0,
+    idempotencyKey: "pending-1",
+    ops: [{ op: "append_blocks", text: "their edit" }],
+    now: NOW,
+  });
+  assert.equal(pending.ok, true);
+  const text = textOf(seeded);
+  const refused = await restoreDocument({
+    store: seeded.store,
+    storage,
+    artifactId: "a1",
+    authorKind: "person",
+    authorId: "u1",
+    idempotencyKey: "restore-1",
+    text: PUBLISHED,
+    now: NOW,
+  });
+  assert.equal(refused.ok, false);
+  if (refused.ok) return;
+  assert.equal(refused.kind, "concurrent_edit");
+  assert.equal(refused.reason, "pending_changes");
+  assert.equal(refused.currentSeq, 1);
+  assert.equal(seeded.operations.length, 1, "the refusal appends no operation row");
+  assert.equal(seeded.revisions.length, 1, "the refusal writes no snapshot");
+  assert.equal(storage.objects.size, 1, "the refusal stores no object");
+  assert.equal(textOf(seeded), text, "the unpublished edit survives");
+});
+
+test("a restore that loses the snapshot race moves no row, pointer or draft", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, PUBLISHED);
+  const pinned = seeded.revisions[0] as FakeRevision;
+  const refusing: DocumentStore = {
+    ...seeded.store,
+    commitSnapshot: async () => ({ committed: false, revisionId: null, revisionNumber: null }),
+  };
+  const lost = await restoreDocument({
+    store: refusing,
+    storage,
+    artifactId: "a1",
+    authorKind: "person",
+    authorId: "u1",
+    idempotencyKey: "restore-lost",
+    text: "# Competing",
+    now: NOW,
+  });
+  assert.equal(lost.ok, false);
+  if (lost.ok) return;
+  assert.equal(lost.kind, "concurrent_edit");
+  assert.equal(lost.reason, "snapshot_raced");
+  assert.equal(lost.currentSeq, 0, "the refusal names the sequence the draft is still at");
+  assert.equal(seeded.operations.length, 0, "no operation row without the snapshot");
+  assert.equal(seeded.drafts.size, 0, "no draft row without the snapshot");
+  assert.equal(seeded.revisions.length, 1, "no snapshot without the operation");
+  assert.deepEqual(
+    [seeded.artifacts.get("a1")?.publishedSeq, seeded.artifacts.get("a1")?.currentRevisionId],
+    [0, pinned.id],
+    "both pointers stayed on the pinned revision",
+  );
+  assert.equal(storage.objects.size, 2, "only the object bytes are orphaned for the sweep to collect");
 });
 
 test("freezeIfDue waits below both thresholds", async () => {

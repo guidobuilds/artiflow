@@ -199,25 +199,42 @@ sequenceDiagram
 
   B->>A: GET /api/artifacts/:id/document
   A->>DB: gate: live artifact + owner/role + kind=markdown + current revision
-  A->>S3: read + verify bytes
-  A-->>B: { text, revisionId, revisionNumber }
+  A->>DB: read the draft, else the current snapshot
+  A->>S3: snapshot path: read + verify bytes
+  A-->>B: { text, revisionId, revisionNumber, seq, publishedSeq }
   Note over B: user edits; autosave debounces 1.5 s
-  B->>A: PUT /document { text, expectedRevisionId }
+  B->>A: PUT /document { text, expectedSeq }
   A->>A: guard Origin+JSON; editor role required
-  A->>A: if expected ≠ current → 409 concurrent_edit
-  A->>S3: putRevisionBytes at a fresh artifacts/<revision id> key (digest-verified)
-  A->>DB: insert revision N+1 + CAS pointer (transaction)
-  A-->>B: { revisionId, revisionNumber, sha256 }
+  A->>A: expectedSeq with expectedRevisionId → 400 unexpected_revision_token
+  A->>DB: no expectedSeq: a draft row → 409 sequence_required { currentSeq, currentRevisionId }
+  A->>A: expectedSeq ≠ draft seq → 409 concurrent_edit { currentSeq, currentRevisionId }
+  A->>A: diff the stored text against the submitted text into typed operations
+  A->>DB: one transaction: append the operation row + advance the draft sequence
+  opt 100 operations or ten minutes since the last snapshot
+    A->>S3: putRevisionBytes of the canonical draft (digest-verified)
+    A->>DB: one transaction: insert snapshot N+1 + move publishedSeq and the pointer
+  end
+  A-->>B: { revisionId, revisionNumber, seq, publishedSeq }
 ```
 
+The save names exactly one identity: `expectedSeq` writes the draft, and a save without
+it is the whole-revision path, which only an artifact the operation path never touched
+(a draftless one) still accepts, gated by `expectedRevisionId`. Naming both is a 400, so
+no client can believe two identities protect the same write, and every `concurrent_edit`
+refusal carries the same `{ currentSeq, currentRevisionId }` payload.
+
 Version history is read-only; **restore** reads a pinned revision's verified bytes and
-applies them as a `replace_document` operation against the current draft sequence, then
-publishes a _new_ snapshot whose bytes are the restored ones, so undo is itself undoable
-and the operation log records who restored what.
+records them as a `replace_document` operation plus a _new_ snapshot, so undo is itself
+undoable and the operation log records who restored what. It refuses with
+`409 restore_pending_changes` (carrying `currentSeq`) while the draft holds applied
+operations that are not published yet, because publishing over them would destroy them.
+The operation row, the snapshot, `publishedSeq`, the pointer and the draft move in one
+transaction or not at all: a restore that loses the race writes nothing but the object
+bytes, which the revision sweep collects because no row names them.
 A conflict freezes autosave and keeps local edits until the user reloads explicitly.
 
-Modules: `editing.ts`, `artifacts/commits.ts`, `artifacts/s3.ts`, `web/editor-api.ts`,
-`web/editor-autosave.ts`.
+Modules: `editing.ts`, `documents/service.ts`, `documents/commit-flow.ts`,
+`artifacts/s3.ts`, `web/editor-api.ts`, `web/editor-autosave.ts`.
 
 ## 8. Comments on a source selection
 

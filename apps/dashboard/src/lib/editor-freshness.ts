@@ -13,7 +13,7 @@ export type DetailRevision = { id: string; revisionNumber: number; sha256: strin
 
 export type DetailWire = { id: string; revision: DetailRevision | null };
 
-export type RemoteText = { text: string; metadata: ArtifactMetadata; seq: number };
+export type RemoteText = { text: string; metadata: ArtifactMetadata; seq?: number };
 
 export type EditorRevision = { revisionId: string; revisionNumber: number };
 
@@ -31,7 +31,7 @@ export function metadataFromDetail(detail: DetailWire, kind: ArtifactKind): Arti
 }
 
 export type RemoteTextSource = {
-  document(): Promise<(EditorRevision & { text: string; seq: number }) | null>;
+  document(): Promise<(EditorRevision & { text: string; seq?: number }) | null>;
   detail(): Promise<ArtifactMetadata | null>;
 };
 
