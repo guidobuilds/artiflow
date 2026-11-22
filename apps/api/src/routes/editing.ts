@@ -171,7 +171,7 @@ export const requireCurrent = (c: Context, row: DocRow): Response | null =>
 const sha256Of = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 export function createEditingApp(options: EditingOptions) {
-  const { database, auth, storage } = options;
+  const { database, storage } = options;
   const db = database.db;
   const cap = maxBytes(options.maxArtifactBytes);
   const documents = options.documentStore ?? drizzleDocumentStore(database);

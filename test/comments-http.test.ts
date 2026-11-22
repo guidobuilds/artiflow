@@ -18,21 +18,34 @@ const ANCHOR = { kind: "text-range", startLine: 3, startCol: 22, endLine: 3, end
 
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
+type Query = Promise<unknown> & {
+  from: () => Query;
+  leftJoin: () => Query;
+  innerJoin: () => Query;
+  where: () => Query;
+  orderBy: () => Query;
+  limit: () => Query;
+  $dynamic: () => Query;
+};
+
 const queryBuilder = (results: readonly unknown[]) => {
   let next = 0;
-  const query = {
-    select: () => query,
-    from: () => query,
-    leftJoin: () => query,
-    innerJoin: () => query,
-    where: () => query,
-    orderBy: () => query,
-    limit: () => query,
-    $dynamic: () => query,
-    then: (onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown): Promise<unknown> =>
-      Promise.resolve(results[next++]).then(onFulfilled, onRejected),
+  const chain = (): Query => {
+    const query: Query = Object.assign(
+      Promise.resolve().then(() => results[next++]),
+      {
+        from: () => query,
+        leftJoin: () => query,
+        innerJoin: () => query,
+        where: () => query,
+        orderBy: () => query,
+        limit: () => query,
+        $dynamic: () => query,
+      },
+    );
+    return query;
   };
-  return query;
+  return { select: chain };
 };
 
 const commentRow = {

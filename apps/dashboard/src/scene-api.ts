@@ -8,7 +8,7 @@ import {
   type TextStyle,
 } from "@artiflow/domain/scene";
 
-import { manageRequest, type LocationTarget, type ManageResult } from "./auth-client.ts";
+import { manageRequest, type LocationTarget } from "./auth-client.ts";
 
 export type SceneDraft = {
   artifactId: string;
@@ -163,7 +163,7 @@ export function updateTextNode(
   const located = locate(scene, nodeId);
   if (located === null || located.node.type !== "text") return scene;
   const current = located.node;
-  const style: TextStyle = { ...(current.style ?? {}) };
+  const style: TextStyle = { ...current.style };
   if (patch.style?.fontSize !== undefined)
     style.fontSize = clamp(rounded(patch.style.fontSize), MIN_FONT_SIZE, MAX_FONT_SIZE);
   if (patch.style?.fontWeight !== undefined)

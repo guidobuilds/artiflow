@@ -11,8 +11,7 @@ import {
   parseArtifactList,
   startLibraryPolling,
 } from "../apps/dashboard/src/auth-client.ts";
-import { labelFor } from "@artiflow/domain/kinds";
-import { editsDocumentInApp, editsSceneInApp } from "@artiflow/domain/kinds";
+import { labelFor, editsDocumentInApp, editsSceneInApp } from "@artiflow/domain/kinds";
 import { safeInternalPath } from "../apps/dashboard/src/lib/utils.ts";
 
 type Call = { url: string; init: RequestInit };

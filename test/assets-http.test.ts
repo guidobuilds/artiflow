@@ -42,8 +42,13 @@ type World = {
   reads: number;
 };
 
-type Chain = Record<string, unknown> & {
-  then: (ok?: (value: unknown) => unknown, error?: (reason: unknown) => unknown) => Promise<unknown>;
+type Chain = Promise<unknown[]> & {
+  from: (next: unknown) => Chain;
+  leftJoin: () => Chain;
+  innerJoin: () => Chain;
+  orderBy: () => Chain;
+  limit: () => Chain;
+  where: (expression: unknown) => Chain;
 };
 
 const providerError = (status: number): Error =>
@@ -87,26 +92,27 @@ function databaseOf(state: World): Database {
   const select = (): Chain => {
     let table: unknown = null;
     let rows: unknown[] = [];
-    const query: Chain = {
-      from: (next: unknown) => {
-        table = next;
-        return query;
+    const query: Chain = Object.assign(
+      Promise.resolve().then(() => rows),
+      {
+        from: (next: unknown) => {
+          table = next;
+          return query;
+        },
+        leftJoin: () => query,
+        innerJoin: () => query,
+        orderBy: () => query,
+        limit: () => query,
+        where: (expression: unknown) => {
+          assert.equal(table, assets, "the asset route reads from the assets table");
+          const compiled = dialect.sqlToQuery(expression as SQL);
+          const statement = { sql: compiled.sql, params: compiled.params };
+          state.statements.push(statement);
+          rows = rowsFor(state, statement);
+          return query;
+        },
       },
-      leftJoin: () => query,
-      innerJoin: () => query,
-      orderBy: () => query,
-      limit: () => query,
-      where: (expression: unknown) => {
-        assert.equal(table, assets, "the asset route reads from the assets table");
-        const compiled = dialect.sqlToQuery(expression as SQL);
-        const statement = { sql: compiled.sql, params: compiled.params };
-        state.statements.push(statement);
-        rows = rowsFor(state, statement);
-        return query;
-      },
-      then: (ok?: (value: unknown) => unknown, error?: (reason: unknown) => unknown) =>
-        Promise.resolve(rows).then(ok, error),
-    };
+    );
     return query;
   };
   return { db: { select } } as unknown as Database;

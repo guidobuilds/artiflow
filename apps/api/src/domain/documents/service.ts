@@ -203,7 +203,7 @@ export function onOperationsApplied(listener: (event: AppliedOperationsEvent) =>
 }
 
 function announceApplied(event: AppliedOperationsEvent): void {
-  for (const listener of [...appliedListeners]) {
+  for (const listener of Array.from(appliedListeners)) {
     try {
       listener(event);
     } catch (error) {
@@ -472,8 +472,7 @@ export async function applyOperations(input: ApplyOperationsInput): Promise<Docu
   }
   if (!applied.ok)
     return fail("operation_rejected", applied.reason, { currentSeq: draft.seq, opIndex: applied.opIndex });
-  if (input.notify !== false)
-    announceApplied({ artifactId, seq, baseSeq, authorKind, authorId });
+  if (input.notify !== false) announceApplied({ artifactId, seq, baseSeq, authorKind, authorId });
   return ok({
     artifactId,
     seq,

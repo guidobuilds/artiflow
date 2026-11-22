@@ -14,7 +14,6 @@ import {
 } from "../apps/api/src/domain/documents/service.ts";
 import { readMarkdownFromFragment, replaceMarkdownInFragment } from "@artiflow/domain/markdown-doc";
 import {
-  COLLAB_DEBOUNCE_MS,
   COLLAB_MARKDOWN_FIELD,
   attachRoomsToDocumentWrites,
   createRooms,
@@ -253,16 +252,6 @@ function client(userId: string): RoomConnection & { updates: Uint8Array[]; aware
       awareness.push(update);
     },
   };
-}
-
-function roomsFor(seeded: Seeded, debounceMs = COLLAB_DEBOUNCE_MS) {
-  return createRooms({
-    store: seeded.store,
-    storage: fakeStorage(),
-    debounceMs,
-    log: (): void => undefined,
-    now: () => NOW,
-  });
 }
 
 async function joined(

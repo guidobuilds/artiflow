@@ -196,6 +196,16 @@ function commentWorld(
   };
 }
 
+type SelectChain = Promise<unknown[]> & {
+  leftJoin: (joined: unknown) => SelectChain;
+  innerJoin: (joined: unknown) => SelectChain;
+  where: () => SelectChain;
+  orderBy: () => SelectChain;
+  limit: () => SelectChain;
+  for: () => SelectChain;
+  $dynamic: () => SelectChain;
+};
+
 function commentsDatabase(world: CommentWorld): Database {
   const select = () => ({
     from: (table: unknown) => {
@@ -206,7 +216,7 @@ function commentsDatabase(world: CommentWorld): Database {
         if (table === artifactComments) return [...world.comments];
         return [];
       };
-      const node = {
+      const node: SelectChain = Object.assign(Promise.resolve().then(read), {
         leftJoin: (joined: unknown) => {
           joins.add(joined);
           return node;
@@ -220,32 +230,28 @@ function commentsDatabase(world: CommentWorld): Database {
         limit: () => node,
         for: () => node,
         $dynamic: () => node,
-        then: (onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
-          Promise.resolve(read()).then(onFulfilled, onRejected),
-      };
+      });
       return node;
     },
   });
   const insert = () => ({
     values: (values: McpCommentInsert & { revisionId: string | null }) => ({
-      returning: () => ({
-        then: (onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) => {
-          const id = `comment-${world.comments.length + 1}`;
-          world.comments.push({
-            id,
-            authorId: values.authorId,
-            authorName: null,
-            authorImage: null,
-            anchor: values.anchor,
-            body: values.body,
-            parentId: values.parentId,
-            resolvedAt: null,
-            createdAt: NOW,
-            artifactId: values.artifactId,
-          });
-          return Promise.resolve([{ id }]).then(onFulfilled, onRejected);
-        },
-      }),
+      returning: (): Promise<unknown[]> => {
+        const id = `comment-${world.comments.length + 1}`;
+        world.comments.push({
+          id,
+          authorId: values.authorId,
+          authorName: null,
+          authorImage: null,
+          anchor: values.anchor,
+          body: values.body,
+          parentId: values.parentId,
+          resolvedAt: null,
+          createdAt: NOW,
+          artifactId: values.artifactId,
+        });
+        return Promise.resolve([{ id }]);
+      },
     }),
   });
   const db = {

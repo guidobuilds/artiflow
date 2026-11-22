@@ -55,8 +55,16 @@ type World = {
   objects: Map<string, Uint8Array>;
 };
 
-type Chain = Record<string, unknown> & {
-  then: (ok?: (value: unknown) => unknown, error?: (reason: unknown) => unknown) => Promise<unknown>;
+type Chain = Promise<unknown[]> & {
+  from?: (next: unknown) => Chain;
+  leftJoin?: () => Chain;
+  innerJoin?: () => Chain;
+  orderBy?: () => Chain;
+  groupBy?: () => Chain;
+  limit?: () => Chain;
+  where?: (expression: unknown) => Chain;
+  onConflictDoNothing?: () => Chain;
+  returning?: () => Chain;
 };
 
 const providerError = (status: number): Error =>
@@ -157,40 +165,39 @@ const stateRows = (state: World, params: unknown[]): unknown[] => {
 function databaseOf(state: World): Database {
   const select = (): Chain => {
     let table: unknown = null;
-    const query: Chain = {
-      from: (next: unknown) => {
-        table = next;
-        return query;
-      },
-      leftJoin: () => query,
-      innerJoin: () => query,
-      orderBy: () => query,
-      groupBy: () => query,
-      limit: () => query,
-      where: (expression: unknown) => {
-        const compiled = dialect.sqlToQuery(expression as SQL);
-        state.statements.push({ sql: compiled.sql, params: compiled.params });
-        rows =
-          table === artifacts
-            ? compiled.sql.includes('"artifactShares"')
-              ? accessRows(state, compiled.params)
-              : stateRows(state, compiled.params)
-            : assetRows(state, compiled.params);
-        return query;
-      },
-      then: (ok?: (value: unknown) => unknown, error?: (reason: unknown) => unknown) =>
-        Promise.resolve(rows).then(ok, error),
-    };
     let rows: unknown[] = [];
+    const query: Chain = Object.assign(
+      Promise.resolve().then(() => rows),
+      {
+        from: (next: unknown) => {
+          table = next;
+          return query;
+        },
+        leftJoin: () => query,
+        innerJoin: () => query,
+        orderBy: () => query,
+        groupBy: () => query,
+        limit: () => query,
+        where: (expression: unknown) => {
+          const compiled = dialect.sqlToQuery(expression as SQL);
+          state.statements.push({ sql: compiled.sql, params: compiled.params });
+          rows =
+            table === artifacts
+              ? compiled.sql.includes('"artifactShares"')
+                ? accessRows(state, compiled.params)
+                : stateRows(state, compiled.params)
+              : assetRows(state, compiled.params);
+          return query;
+        },
+      },
+    );
     return query;
   };
   const insert = (table: unknown) => ({
     values: (values: Record<string, unknown>): Chain => {
       const record: Insert = { table, values };
-      const chain: Chain = {
-        onConflictDoNothing: () => chain,
-        returning: () => chain,
-        then: (ok?: (value: unknown) => unknown, error?: (reason: unknown) => unknown) => {
+      const chain: Chain = Object.assign(
+        Promise.resolve().then(() => {
           state.inserts.push(record);
           const stored = table === assets ? [values] : [{}];
           if (table === assets)
@@ -208,12 +215,16 @@ function databaseOf(state: World): Database {
             const known = state.references.some(
               (row) => row.artifactId === reference.artifactId && row.assetSha256 === reference.assetSha256,
             );
-            if (known) return Promise.resolve([]).then(ok, error);
+            if (known) return [];
             state.references.push(reference);
           }
-          return Promise.resolve(stored).then(ok, error);
+          return stored;
+        }),
+        {
+          onConflictDoNothing: () => chain,
+          returning: () => chain,
         },
-      };
+      );
       return chain;
     },
   });

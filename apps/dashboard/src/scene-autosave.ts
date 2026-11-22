@@ -24,7 +24,6 @@ export type SceneAutosaveDocument = {
 };
 
 const IN_FLIGHT: readonly SceneSaveStatus[] = ["saving", "restoring"];
-const WRITE_REFUSED: readonly SceneSaveStatus[] = ["readonly", "conflict"];
 const FLUSHABLE: readonly SceneSaveStatus[] = ["unsaved", "saved"];
 const IGNORED_EDITS: readonly SceneSaveStatus[] = ["readonly", "restoring"];
 const HELD_EDITS: readonly SceneSaveStatus[] = ["conflict", "error", "saving"];

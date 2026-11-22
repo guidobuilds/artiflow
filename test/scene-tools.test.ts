@@ -334,7 +334,11 @@ function canvasWorkspace(seed: { ownerId?: string; kind?: string; text: string }
       };
     },
   };
-  const sceneOfDraft = (): Scene => (drafts.get(ARTIFACT)?.state as { scene: Scene }).scene;
+  const sceneOfDraft = (): Scene => {
+    const state = drafts.get(ARTIFACT)?.state as { scene: Scene } | undefined;
+    assert.ok(state, "a draft for the artifact exists");
+    return state.scene;
+  };
   return { backend, storage, drafts, operations, revisions, sceneOfDraft };
 }
 

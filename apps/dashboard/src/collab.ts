@@ -195,7 +195,7 @@ export function openCollabSession(input: OpenCollabInput): Promise<CollabOutcome
     const onClosed = ({ code, reason }: { code: number; reason: string }): void => {
       const fallback = refusedFallback(code, reason ?? "");
       if (!settled) abandon(fallback);
-      else for (const listener of [...listeners]) listener(fallback);
+      else for (const listener of Array.from(listeners)) listener(fallback);
     };
     const detach = (): void => {
       provider.off("sync", onSync);

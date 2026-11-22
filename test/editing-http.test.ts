@@ -160,28 +160,31 @@ type RouteArtifact = {
 type RouteRevision = SnapshotRecord & { id: string; revision: number };
 type RouteOperation = OperationRecord & { id: string };
 
+type Query = Promise<unknown[]> & Record<string, unknown>;
+
 const builder = (results: () => unknown[]) => {
-  const query: Record<string, unknown> = {};
-  const chain = () => query;
-  for (const name of [
-    "select",
-    "from",
-    "leftJoin",
-    "innerJoin",
-    "where",
-    "orderBy",
-    "limit",
-    "for",
-    "set",
-    "values",
-    "returning",
-    "insert",
-    "update",
-  ])
-    query[name] = chain;
-  query.then = (onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
-    Promise.resolve(results()).then(onFulfilled, onRejected);
-  return query;
+  const chain = (): Query => {
+    const methods: Record<string, unknown> = {};
+    const query: Query = Object.assign(Promise.resolve().then(results), methods);
+    for (const name of [
+      "select",
+      "from",
+      "leftJoin",
+      "innerJoin",
+      "where",
+      "orderBy",
+      "limit",
+      "for",
+      "set",
+      "values",
+      "returning",
+      "insert",
+      "update",
+    ])
+      query[name] = () => query;
+    return query;
+  };
+  return { select: chain, insert: chain, update: chain };
 };
 
 function routeWorld(options: { kind?: string; text?: string; snapshotAgeMs?: number } = {}) {

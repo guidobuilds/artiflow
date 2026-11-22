@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Icon, IconAction } from "@/components/ui/icon.tsx";
 import { Logo } from "@/components/ui/logo.tsx";

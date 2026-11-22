@@ -4,8 +4,13 @@ import { test } from "node:test";
 
 import { Hono } from "hono";
 
-import { SCENE_FORMAT_VERSION, type RectNode, type Scene, type SceneFrame } from "@artiflow/domain/scene";
-import { canonicalScene } from "@artiflow/domain/scene";
+import {
+  SCENE_FORMAT_VERSION,
+  canonicalScene,
+  type RectNode,
+  type Scene,
+  type SceneFrame,
+} from "@artiflow/domain/scene";
 
 import type { Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
@@ -28,23 +33,35 @@ const MARKDOWN_SOURCE = "# Notas\n\nUn p\u00e1rrafo con **negrita**\n";
 
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
+type Query = Promise<unknown> & {
+  from: () => Query;
+  leftJoin: () => Query;
+  innerJoin: () => Query;
+  where: () => Query;
+  orderBy: () => Query;
+  limit: () => Query;
+  $dynamic: () => Query;
+};
+
 const queryBuilder = (results: readonly unknown[], onRead: () => void) => {
   let next = 0;
-  const query = {
-    select: () => query,
-    from: () => query,
-    leftJoin: () => query,
-    innerJoin: () => query,
-    where: () => query,
-    orderBy: () => query,
-    limit: () => query,
-    $dynamic: () => query,
-    then: (onFulfilled?: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown): Promise<unknown> => {
-      onRead();
-      return Promise.resolve(results[next++]).then(onFulfilled, onRejected);
-    },
+  const read = (): unknown => {
+    onRead();
+    return results[next++];
   };
-  return query;
+  const chain = (): Query => {
+    const query: Query = Object.assign(Promise.resolve().then(read), {
+      from: () => query,
+      leftJoin: () => query,
+      innerJoin: () => query,
+      where: () => query,
+      orderBy: () => query,
+      limit: () => query,
+      $dynamic: () => query,
+    });
+    return query;
+  };
+  return { select: chain };
 };
 
 const storageWith = (bytes: Uint8Array): Storage =>
