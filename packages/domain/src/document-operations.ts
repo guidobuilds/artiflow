@@ -399,6 +399,40 @@ function applySingle(text: string, operation: DocumentOperation, index: number):
   }
 }
 
+function positionOf(text: string, offset: number): DocumentPosition {
+  const offsets = lineOffsets(text);
+  let line = 1;
+  for (let index = 1; index < offsets.length; index += 1) {
+    if ((offsets[index] as number) > offset) break;
+    line = index + 1;
+  }
+  return { line, column: offset - (offsets[line - 1] as number) + 1 };
+}
+
+export function diffDocumentOperations(previous: string, next: string): DocumentOperation[] {
+  if (previous === next) return [];
+  const limit = Math.min(previous.length, next.length);
+  let prefix = 0;
+  while (prefix < limit && previous[prefix] === next[prefix]) prefix += 1;
+  let suffix = 0;
+  while (suffix < limit - prefix && previous[previous.length - suffix - 1] === next[next.length - suffix - 1])
+    suffix += 1;
+  const removed = previous.slice(prefix, previous.length - suffix);
+  const inserted = next.slice(prefix, next.length - suffix);
+  const operations: DocumentOperation[] = [];
+  if (removed.length > 0)
+    operations.push({
+      op: "delete_range",
+      start: positionOf(previous, prefix),
+      end: positionOf(previous, previous.length - suffix),
+    });
+  if (inserted.length > 0) {
+    const remaining = previous.slice(0, prefix) + previous.slice(previous.length - suffix);
+    operations.push({ op: "insert_text", text: inserted, at: positionOf(remaining, prefix) });
+  }
+  return operations;
+}
+
 export function applyDocumentOperations(
   document: MarkdownDocument,
   operations: readonly DocumentOperation[],

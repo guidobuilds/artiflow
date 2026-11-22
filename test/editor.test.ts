@@ -236,8 +236,13 @@ const doc = {
   revisionId: "r1",
   revisionNumber: 1,
   text: "old",
+  seq: 4,
+  publishedSeq: 2,
 };
-const ok = (revisionId = "r2") => ({ ok: true as const, value: { revisionId, revisionNumber: 2 } });
+const ok = (revisionId = "r2", seq?: number) => ({
+  ok: true as const,
+  value: { revisionId, revisionNumber: 2, ...(seq === undefined ? {} : { seq }) },
+});
 const failure = (code: string) => ({ ok: false as const, code, error: "Failed", signInRequired: false });
 const flush = async () => {
   await Promise.resolve();
@@ -381,6 +386,7 @@ for (const transition of ["mount", "restore", "reload"] as const) {
         text,
         revisionId: transition === "mount" ? "r1" : "r2",
         revisionNumber: transition === "mount" ? 1 : 2,
+        seq: 4,
         dirty: false,
         status: "saved",
         ...(transition === "mount" ? {} : { code: undefined }),
@@ -713,7 +719,7 @@ test("editing requests reuse same-origin JSON/Origin conventions and retain type
   try {
     assert.deepEqual(await getDocument("a"), { ok: true, value: doc });
     assert.equal((await listRevisions("a")).ok, true);
-    assert.equal((await saveDocument("a", "next", "r1")).ok, true);
+    assert.equal((await saveDocument("a", "next", "r1", 4)).ok, true);
     assert.equal((await restoreRevision("a", "r1", "r2")).ok, true);
     assert.deepEqual(
       calls.map((c) => [c.url, c.init.method]),
@@ -731,7 +737,11 @@ test("editing requests reuse same-origin JSON/Origin conventions and retain type
         accept: "application/json",
         origin: "http://127.0.0.1:5173",
       });
-    assert.deepEqual(JSON.parse(calls[2]!.init.body as string), { text: "next", expectedRevisionId: "r1" });
+    assert.deepEqual(JSON.parse(calls[2]!.init.body as string), {
+      text: "next",
+      expectedRevisionId: "r1",
+      expectedSeq: 4,
+    });
     assert.deepEqual(JSON.parse(calls[3]!.init.body as string), { expectedRevisionId: "r2" });
     for (const [status, error] of [
       [409, "concurrent_edit"],
@@ -739,7 +749,7 @@ test("editing requests reuse same-origin JSON/Origin conventions and retain type
       [403, "forbidden"],
     ] as const) {
       globalThis.fetch = (async () => Response.json({ error }, { status })) as typeof fetch;
-      const result = await saveDocument("a", "local", "r1");
+      const result = await saveDocument("a", "local", "r1", 4);
       assert.equal(result.ok, false);
       if (!result.ok) assert.equal(result.code, error);
     }
@@ -768,6 +778,98 @@ test("library Open resolves markdown to the editor, HTML keeps its viewer, and f
       );
       assert.equal(href, expected);
     }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test("autosave sends the sequence it read and adopts the sequence the save reports", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const calls: unknown[] = [];
+  const session = new Autosave(
+    doc,
+    async (text, revision, expectedSeq) => {
+      calls.push([text, revision, expectedSeq]);
+      return ok("r2", 5);
+    },
+    () => {},
+    () => {},
+  );
+  try {
+    session.change("edited");
+    t.mock.timers.tick(AUTOSAVE_MS);
+    await flush();
+    assert.deepEqual(calls, [["edited", "r1", 4]], "the save carries the sequence that was read");
+    assert.equal(session.state.seq, 5, "the save response advances the remembered sequence");
+    session.change("edited again");
+    t.mock.timers.tick(AUTOSAVE_MS);
+    await flush();
+    assert.deepEqual(calls[1], ["edited again", "r2", 5], "the next save uses the adopted sequence and revision");
+  } finally {
+    session.dispose();
+  }
+});
+
+test("a conflict keeps the sequence and the local text for the retry", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const session = new Autosave(
+    doc,
+    async () => failure("concurrent_edit"),
+    () => {},
+    () => assert.fail("history must not refresh"),
+  );
+  try {
+    session.change("local text");
+    t.mock.timers.tick(AUTOSAVE_MS);
+    await flush();
+    assert.deepEqual(
+      [session.state.status, session.state.text, session.state.seq, session.state.revisionId],
+      ["conflict", "local text", 4, "r1"],
+      "the conflict path keeps what the person wrote and the position they wrote against",
+    );
+  } finally {
+    session.dispose();
+  }
+});
+
+test("reload and remote replacement adopt the sequence of the document they read", () => {
+  const session = new Autosave(
+    doc,
+    async () => ok(),
+    () => {},
+    () => {},
+  );
+  try {
+    session.replace({ ...doc, text: "restored", revisionId: "r9", revisionNumber: 9, seq: 31, publishedSeq: 30 });
+    assert.equal(session.state.seq, 31, "the read sequence replaces the old one");
+  } finally {
+    session.dispose();
+  }
+});
+
+test("the page passes the read sequence to the save and the remote sequence to the replacement", () => {
+  const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
+  assert.match(
+    page,
+    /\(text, revision, expectedSeq\) => saveDocument\(initial\.artifactId, text, revision, expectedSeq\)/,
+  );
+  assert.match(page, /seq: remote\.seq/);
+  assert.match(page, /seq: result\.value\.seq/);
+});
+
+test("the editor read and the save response carry the shared sequence and a read without it is refused", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => Response.json(doc)) as typeof fetch;
+    assert.deepEqual(await getDocument("a"), { ok: true, value: doc }, "the read keeps its sequence");
+    const { seq: _seq, publishedSeq: _publishedSeq, ...withoutSequence } = doc;
+    globalThis.fetch = (async () => Response.json(withoutSequence)) as typeof fetch;
+    assert.equal((await getDocument("a")).ok, false, "a document served without a sequence cannot be saved against");
+    globalThis.fetch = (async () => Response.json({ revisionId: "r2", revisionNumber: 2, seq: 9 })) as typeof fetch;
+    assert.deepEqual(await saveDocument("a", "next", "r1", 4), {
+      ok: true,
+      value: { revisionId: "r2", revisionNumber: 2, seq: 9 },
+    });
   } finally {
     globalThis.fetch = original;
   }

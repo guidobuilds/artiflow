@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { Hono, type Context } from "hono";
 import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
@@ -9,9 +9,18 @@ import { getRevisionBytes, putRevisionBytes, newRevisionStorageKey } from "../ad
 import { copyRevisionBytes } from "../domain/commit-flow.ts";
 import { setRevisionCas, type RevisionInput } from "../domain/commits.ts";
 import { editsDocumentInApp } from "@artiflow/domain/kinds";
+import { diffDocumentOperations } from "@artiflow/domain/document-operations";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { isJsonContentType, isUuid } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
+import {
+  applyOperations,
+  drizzleDocumentStore,
+  freezeIfDue,
+  openDraft,
+  textAt,
+  type DocumentStore,
+} from "../domain/documents/service.ts";
 import type { DocumentResponse, RevisionListResponse, SavedRevision } from "@artiflow/contracts/document";
 import type { createAuth } from "../auth.ts";
 import {
@@ -30,6 +39,7 @@ export type EditingOptions = {
   publicOrigin: string;
   principal?: true;
   maxArtifactBytes?: number;
+  documentStore?: DocumentStore;
 };
 
 const HISTORY_LIMIT = 200;
@@ -44,6 +54,7 @@ type DocRow = {
   revisionNumber: number | null;
   storageKey: string | null;
   sha256: string | null;
+  publishedSeq: number;
   access: string;
 };
 
@@ -59,6 +70,7 @@ async function documentFor(db: AppDb, userId: string, artifactId: string): Promi
         revisionNumber: artifactRevisions.revision,
         storageKey: artifactRevisions.storageKey,
         sha256: artifactRevisions.sha256,
+        publishedSeq: artifacts.publishedSeq,
         access: sql<string>`case when ${artifacts.ownerId} = ${userId} then 'owner' else coalesce(${artifactShares.role}, 'none') end`,
       })
       .from(artifacts)
@@ -116,6 +128,7 @@ export function createEditingApp(options: EditingOptions) {
   const { database, auth, storage, publicOrigin } = options;
   const db = database.db;
   const cap = maxBytes(options.maxArtifactBytes);
+  const documents = options.documentStore ?? drizzleDocumentStore(database);
   const app = new Hono();
 
   const sessionUserId = async (c: Context): Promise<string | null> => {
@@ -155,6 +168,21 @@ export function createEditingApp(options: EditingOptions) {
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
     if (noCurrent) return noCurrent;
+    const draft = await documents.readDraft(row.id);
+    if (draft) {
+      const resolved = await textAt({ store: documents, storage, artifactId: row.id, seq: draft.seq });
+      if (!resolved.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      return c.json({
+        artifactId: row.id,
+        title: row.title,
+        kind: row.kind as DocumentResponse["kind"],
+        revisionId: row.revisionId as string,
+        revisionNumber: row.revisionNumber as number,
+        text: resolved.value.text,
+        seq: draft.seq,
+        publishedSeq: row.publishedSeq,
+      } satisfies DocumentResponse);
+    }
     const read = await getRevisionBytes({
       storage,
       storageKey: row.storageKey as string,
@@ -171,6 +199,8 @@ export function createEditingApp(options: EditingOptions) {
       revisionId: row.revisionId as string,
       revisionNumber: row.revisionNumber as number,
       text: decoded.text,
+      seq: row.publishedSeq,
+      publishedSeq: row.publishedSeq,
     } satisfies DocumentResponse);
   });
 
@@ -179,22 +209,99 @@ export function createEditingApp(options: EditingOptions) {
     if (rejected) return rejected;
     const gate = await docGate(c);
     if (gate instanceof Response) return gate;
-    const { row } = gate;
+    const { userId, row } = gate;
     const wrongKind = requireMarkdown(c, row);
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
     if (noCurrent) return noCurrent;
     const notEditor = requireEditor(c, row);
     if (notEditor) return notEditor;
-    const body = (await c.req.json().catch(() => null)) as { text?: unknown; expectedRevisionId?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as {
+      text?: unknown;
+      expectedRevisionId?: unknown;
+      expectedSeq?: unknown;
+    } | null;
     if (typeof body?.text !== "string" || body.text.length === 0) return c.json({ error: "text_required" }, 400);
-    if (typeof body.expectedRevisionId !== "string" || body.expectedRevisionId.length === 0)
+    const expectedSeq = body.expectedSeq;
+    if (expectedSeq !== undefined && (!Number.isSafeInteger(expectedSeq) || (expectedSeq as number) < 0))
+      return c.json({ error: "expected_seq_invalid" }, 400);
+    const expectedRevisionId = body.expectedRevisionId;
+    if (expectedRevisionId !== undefined && (typeof expectedRevisionId !== "string" || expectedRevisionId.length === 0))
       return c.json({ error: "expected_revision_id_required" }, 400);
-    if (body.expectedRevisionId !== row.revisionId) {
+    const draft = await documents.readDraft(row.id);
+    const usesOperations = expectedSeq !== undefined || draft !== null;
+    if (!usesOperations && expectedRevisionId === undefined)
+      return c.json({ error: "expected_revision_id_required" }, 400);
+    if (expectedRevisionId !== undefined && expectedRevisionId !== row.revisionId)
       return c.json({ error: "concurrent_edit", currentRevisionId: row.revisionId }, 409);
-    }
     const bytes = Buffer.from(body.text, "utf8");
     if (bytes.length > cap) return c.json({ error: "too_large", maxBytes: cap }, 413);
+    if (usesOperations) {
+      const opened = await openDraft({ store: documents, storage, artifactId: row.id });
+      if (!opened.ok)
+        return opened.kind === "not_found"
+          ? c.json({ error: "not_found" }, 404)
+          : c.json({ error: "artifact_unavailable" }, 500);
+      const baseSeq = expectedSeq === undefined ? opened.value.seq : (expectedSeq as number);
+      if (baseSeq !== opened.value.seq)
+        return c.json(
+          { error: "concurrent_edit", currentSeq: opened.value.seq, currentRevisionId: row.revisionId },
+          409,
+        );
+      const operations = diffDocumentOperations(opened.value.text, body.text);
+      if (operations.length === 0)
+        return c.json({
+          artifactId: row.id,
+          revisionId: row.revisionId as string,
+          revisionNumber: row.revisionNumber as number,
+          seq: opened.value.seq,
+          publishedSeq: row.publishedSeq,
+        } satisfies SavedRevision);
+      const applied = await applyOperations({
+        store: documents,
+        storage,
+        artifactId: row.id,
+        authorKind: "person",
+        authorId: userId,
+        baseSeq,
+        idempotencyKey: randomUUID(),
+        ops: operations,
+      });
+      if (!applied.ok) {
+        if (applied.kind === "concurrent_edit")
+          return c.json(
+            { error: "concurrent_edit", currentSeq: applied.currentSeq, currentRevisionId: row.revisionId },
+            409,
+          );
+        if (applied.kind === "not_found") return c.json({ error: "not_found" }, 404);
+        return c.json({ error: "operation_rejected", kind: applied.kind, reason: applied.reason }, 409);
+      }
+      const frozen = await freezeIfDue({ store: documents, storage, artifactId: row.id });
+      if (
+        frozen.ok &&
+        frozen.value.frozen &&
+        frozen.value.revisionId !== null &&
+        frozen.value.revisionNumber !== null &&
+        frozen.value.sizeBytes !== null &&
+        frozen.value.sha256 !== null
+      )
+        return c.json({
+          artifactId: row.id,
+          revisionId: frozen.value.revisionId,
+          revisionNumber: frozen.value.revisionNumber,
+          sizeBytes: frozen.value.sizeBytes,
+          sha256: frozen.value.sha256,
+          seq: applied.value.seq,
+          publishedSeq: frozen.value.publishedSeq,
+        } satisfies SavedRevision);
+      return c.json({
+        artifactId: row.id,
+        revisionId: row.revisionId as string,
+        revisionNumber: row.revisionNumber as number,
+        seq: applied.value.seq,
+        publishedSeq: frozen.ok ? frozen.value.publishedSeq : row.publishedSeq,
+      } satisfies SavedRevision);
+    }
     const sha256 = sha256Of(bytes);
     const stored = await putRevisionBytes({ storage, storageKey: newRevisionStorageKey(), sha256, bytes });
     if (!stored.ok) return c.json({ error: "artifact_unavailable" }, 500);

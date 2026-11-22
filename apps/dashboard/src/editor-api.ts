@@ -10,14 +10,22 @@ export type Document = {
   revisionId: string;
   revisionNumber: number;
   text: string;
+  seq: number;
+  publishedSeq: number;
 };
 export type Revision = { id: string; revisionNumber: number; sizeBytes: number; createdAt: string };
-export type SavedRevision = { revisionId: string; revisionNumber: number };
+export type SavedRevision = { revisionId: string; revisionNumber: number; seq?: number };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isInteger(value) && value > 0;
+const sequence = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0;
 const saved = (body: unknown): SavedRevision | null =>
   record(body) && typeof body.revisionId === "string" && body.revisionId !== "" && positive(body.revisionNumber)
-    ? { revisionId: body.revisionId, revisionNumber: body.revisionNumber }
+    ? {
+        revisionId: body.revisionId,
+        revisionNumber: body.revisionNumber,
+        ...(sequence(body.seq) ? { seq: body.seq } : {}),
+      }
     : null;
 const path = (id: string) => `/api/artifacts/${encodeURIComponent(id)}`;
 
@@ -35,13 +43,17 @@ export const getDocument = (id: string) =>
       kind !== null &&
       typeof body.artifactId === "string" &&
       (body.title === null || typeof body.title === "string") &&
-      typeof body.text === "string"
+      typeof body.text === "string" &&
+      sequence(body.seq) &&
+      sequence(body.publishedSeq)
       ? {
           ...revision,
           kind,
           artifactId: body.artifactId,
           title: body.title || "Untitled document",
           text: body.text,
+          seq: body.seq,
+          publishedSeq: body.publishedSeq,
         }
       : null;
   });
@@ -82,8 +94,8 @@ export const getArtifactDetail = (id: string) =>
         }
       : null;
   });
-export const saveDocument = (id: string, text: string, expectedRevisionId: string) =>
-  manageRequest(`${path(id)}/document`, "PUT", saved, { text, expectedRevisionId });
+export const saveDocument = (id: string, text: string, expectedRevisionId: string, expectedSeq?: number) =>
+  manageRequest(`${path(id)}/document`, "PUT", saved, { text, expectedRevisionId, expectedSeq });
 export const restoreRevision = (id: string, revisionId: string, expectedRevisionId: string) =>
   manageRequest(`${path(id)}/revisions/${encodeURIComponent(revisionId)}/restore`, "POST", saved, {
     expectedRevisionId,

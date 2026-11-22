@@ -75,6 +75,7 @@ function editorWorld(options: { text?: string; dirty?: boolean } = {}) {
     documentReads: 0,
     buffer: text,
     writes: [] as string[],
+    sequences: [] as number[],
     notices: [] as (ArtifactMetadata | null)[],
     pending: null as ArtifactMetadata | null,
     dirty: options.dirty === true,
@@ -104,12 +105,13 @@ function depsOf(
       world.documentReads += 1;
       const text = world.texts.get(world.current.revisionId);
       if (text === undefined) throw new Error("content unavailable");
-      return { text, metadata: world.current } satisfies RemoteText;
+      return { text, metadata: world.current, seq: 7 } satisfies RemoteText;
     },
     isDirty: () => world.dirty,
     writeRemote: (remote) => {
       world.buffer = remote.text;
       world.writes.push(remote.text);
+      world.sequences.push(remote.seq);
     },
     onPending: (pending) => {
       world.pending = pending;
@@ -153,6 +155,7 @@ test("a clean editor applies the newer revision and moves the CAS base", async (
   await settle();
 
   assert.deepEqual(world.writes, ["remote text"]);
+  assert.deepEqual(world.sequences, [7], "the applied remote text carries the sequence it was read at");
   assert.equal(world.buffer, "remote text");
   assert.equal(world.pending, null);
   assert.equal(world.lastNotice(), null);
@@ -305,15 +308,15 @@ test("text is paired with the digest of the revision that served it, or not at a
     document: async () => {
       attempt += 1;
       return attempt === 1
-        ? { text: "stale text", revisionId: "rev-4", revisionNumber: 4 }
-        : { text: "remote text", revisionId: "rev-5", revisionNumber: 5 };
+        ? { text: "stale text", revisionId: "rev-4", revisionNumber: 4, seq: 6 }
+        : { text: "remote text", revisionId: "rev-5", revisionNumber: 5, seq: 7 };
     },
     detail: async () => md(5, "bytes-B"),
   });
-  assert.deepEqual(retried, { text: "remote text", metadata: md(5, "bytes-B") });
+  assert.deepEqual(retried, { text: "remote text", metadata: md(5, "bytes-B"), seq: 7 });
 
   const unpaired = await loadRemoteText({
-    document: async () => ({ text: "text", revisionId: "rev-4", revisionNumber: 4 }),
+    document: async () => ({ text: "text", revisionId: "rev-4", revisionNumber: 4, seq: 6 }),
     detail: async () => md(5, "bytes-B"),
   });
   assert.equal(unpaired, null);
@@ -321,7 +324,7 @@ test("text is paired with the digest of the revision that served it, or not at a
   assert.equal(await loadRemoteText({ document: async () => null, detail: async () => md(1, "bytes-A") }), null);
   assert.equal(
     await loadRemoteText({
-      document: async () => ({ text: "text", revisionId: "rev-1", revisionNumber: 1 }),
+      document: async () => ({ text: "text", revisionId: "rev-1", revisionNumber: 1, seq: 7 }),
       detail: async () => null,
     }),
     null,

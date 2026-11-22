@@ -5,6 +5,7 @@ import {
   DOCUMENT_FORMAT_VERSION,
   applyDocumentOperations,
   diffBlocks,
+  diffDocumentOperations,
   documentBlocks,
   canonicalBytes,
   canonicalMarkdown,
@@ -337,4 +338,103 @@ test("diffBlocks reports added, removed, changed and moved blocks by id only", (
     "a deletion moves the block after it and removes the deleted one",
   );
   assert.deepEqual(diffBlocks(before, before), [], "an unchanged document reports nothing");
+});
+
+const batchOf = (previous: string, next: string) => diffDocumentOperations(previous, next);
+const kindsOf = (operations: DocumentOperation[]) => operations.map((operation) => operation.op);
+
+test("diffDocumentOperations returns an empty batch for identical texts", () => {
+  assert.deepEqual(batchOf(DOC, DOC), [], "no operations when nothing changed");
+  assert.deepEqual(batchOf("", ""), []);
+});
+
+test("diffDocumentOperations turns one changed word into one delete_range plus one insert_text", () => {
+  const previous = "# Title\n\nintro paragraph\n\nlast line";
+  const next = "# Title\n\nchanged paragraph\n\nlast line";
+  const operations = batchOf(previous, next);
+  assert.deepEqual(kindsOf(operations), ["delete_range", "insert_text"], "a contiguous change is never a replace");
+  assert.deepEqual(operations, [
+    { op: "delete_range", start: { line: 3, column: 1 }, end: { line: 3, column: 6 } },
+    { op: "insert_text", text: "changed", at: { line: 3, column: 1 } },
+  ]);
+  assert.equal(applied(documentOf(previous), operations).text, next);
+  assert.equal(
+    operations.some((operation) => operation.op === "replace_document"),
+    false,
+  );
+});
+
+test("diffDocumentOperations keeps a multi-line change contiguous", () => {
+  const previous = "a\nb\nc\nd";
+  const next = "a\nB\nC\nd";
+  const operations = batchOf(previous, next);
+  assert.deepEqual(kindsOf(operations), ["delete_range", "insert_text"]);
+  assert.deepEqual(operations, [
+    { op: "delete_range", start: { line: 2, column: 1 }, end: { line: 3, column: 2 } },
+    { op: "insert_text", text: "B\nC", at: { line: 2, column: 1 } },
+  ]);
+  assert.equal(applied(documentOf(previous), operations).text, next);
+});
+
+test("diffDocumentOperations locates a change at the very start and at the very end", () => {
+  const atStart = batchOf("hello world", "Hello world");
+  assert.deepEqual(atStart, [
+    { op: "delete_range", start: { line: 1, column: 1 }, end: { line: 1, column: 2 } },
+    { op: "insert_text", text: "H", at: { line: 1, column: 1 } },
+  ]);
+  assert.equal(applied(documentOf("hello world"), atStart).text, "Hello world");
+  const atEnd = batchOf("hello", "hellO");
+  assert.deepEqual(atEnd, [
+    { op: "delete_range", start: { line: 1, column: 5 }, end: { line: 1, column: 6 } },
+    { op: "insert_text", text: "O", at: { line: 1, column: 5 } },
+  ]);
+  assert.equal(applied(documentOf("hello"), atEnd).text, "hellO");
+});
+
+test("diffDocumentOperations inserts without deleting and deletes without inserting", () => {
+  const insertion = batchOf("ac", "abc");
+  assert.deepEqual(kindsOf(insertion), ["insert_text"], "a pure insertion carries no delete_range");
+  assert.deepEqual(insertion, [{ op: "insert_text", text: "b", at: { line: 1, column: 2 } }]);
+  assert.equal(applied(documentOf("ac"), insertion).text, "abc");
+  const appendedLine = batchOf("a", "a\nb");
+  assert.deepEqual(kindsOf(appendedLine), ["insert_text"]);
+  assert.equal(applied(documentOf("a"), appendedLine).text, "a\nb");
+  const deletion = batchOf("abXc", "abc");
+  assert.deepEqual(kindsOf(deletion), ["delete_range"], "a pure deletion carries no insert_text");
+  assert.deepEqual(deletion, [{ op: "delete_range", start: { line: 1, column: 3 }, end: { line: 1, column: 4 } }]);
+  assert.equal(applied(documentOf("abXc"), deletion).text, "abc");
+});
+
+test("diffDocumentOperations round-trips every pair through the engine", () => {
+  const texts = [
+    "",
+    "a",
+    "\n",
+    "# Title",
+    "# Title\n",
+    "# Title\n\nbody",
+    "line one\nline two\nline three",
+    "línea ñ 表 🎯\n\nsecond block\n",
+    DOC,
+    `${DOC}\n\ntrailing paragraph\n`,
+    DOC.replace("- second", "- second edited"),
+  ];
+  for (const previous of texts) {
+    for (const next of texts) {
+      if (previous === next) {
+        assert.deepEqual(batchOf(previous, next), [], "identical texts need no operations");
+        continue;
+      }
+      const operations = batchOf(previous, next);
+      assert.ok(operations.length > 0, "a real change produces a batch");
+      assert.equal(operations.length <= 2, true, "the smallest batch is at most one delete and one insert");
+      const result = applyDocumentOperations(documentOf(previous), operations);
+      if (next.length === 0) {
+        assert.equal(result.ok, false, "an emptied document is refused by the engine");
+        continue;
+      }
+      assert.equal(result.ok, true, result.ok ? "" : `${result.reason} ${previous} -> ${next}`);
+      if (result.ok) assert.equal(result.value.text, next, `${JSON.stringify(previous)} -> ${JSON.stringify(next)}`);
+    }
+  }
 });

@@ -7,12 +7,15 @@ export const documentResponseSchema = z.object({
   revisionId: z.string().min(1),
   revisionNumber: z.number().int().positive(),
   text: z.string(),
+  seq: z.number().int().nonnegative().optional(),
+  publishedSeq: z.number().int().nonnegative().optional(),
 });
 export type DocumentResponse = z.infer<typeof documentResponseSchema>;
 
 export const saveDocumentRequestSchema = z.object({
   text: z.string(),
-  expectedRevisionId: z.string().min(1),
+  expectedRevisionId: z.string().min(1).optional(),
+  expectedSeq: z.number().int().nonnegative().optional(),
 });
 export type SaveDocumentRequest = z.infer<typeof saveDocumentRequestSchema>;
 
@@ -26,6 +29,8 @@ export const savedRevisionSchema = z.object({
   sizeBytes: z.number().optional(),
   sha256: z.string().optional(),
   restoredFrom: z.string().optional(),
+  seq: z.number().int().nonnegative().optional(),
+  publishedSeq: z.number().int().nonnegative().optional(),
 });
 export type SavedRevision = z.infer<typeof savedRevisionSchema>;
 

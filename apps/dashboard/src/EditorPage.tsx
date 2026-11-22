@@ -73,6 +73,7 @@ const readRemoteText = (artifactId: string, kind: Document["kind"]) =>
             text: result.value.text,
             revisionId: result.value.revisionId,
             revisionNumber: result.value.revisionNumber,
+            seq: result.value.seq,
           }
         : null;
     },
@@ -271,7 +272,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
     if (!editor) return;
     const controller = new Autosave(
       initial,
-      (text, revision) => saveDocument(initial.artifactId, text, revision),
+      (text, revision, expectedSeq) => saveDocument(initial.artifactId, text, revision, expectedSeq),
       setState,
       refreshHistory,
       editor.getMarkdown(),
@@ -305,6 +306,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
             revisionId: remote.metadata.revisionId,
             revisionNumber: remote.metadata.revisionNumber,
             text: remote.text,
+            seq: remote.seq,
           },
           editor.getMarkdown(),
         );
