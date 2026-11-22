@@ -57,7 +57,10 @@ survives a reader that does not know that property yet.
 
 ## How a person navigates it
 
-One frame is visible at a time, scaled to fit. Move between frames with the arrow keys, page up and
+From the dashboard, a canvas opens in an editor that speaks the same language as the viewer: one frame
+at a time, zoom to fit, drag to move, handles to resize, and a save that sends the sequence it read.
+
+In the read-only viewer, one frame is visible at a time, scaled to fit. Move between frames with the arrow keys, page up and
 down, home and end, by clicking the frame index, or by opening `?frame=<frame-id>`. Wheel zooms
 around the pointer, space-drag or middle-drag pans, and Fit resets the view; zoom and pan belong to
 the frame you are looking at.
@@ -67,8 +70,9 @@ network, keeps no storage and loads no external font or script.
 
 ## What it does not do yet
 
-- **No editor yet.** An agent edits a canvas by operation; the dashboard screen for editing it is the
-  next slice.
+- **Editing is young.** A person can move, resize, add, retype and delete nodes and save with the
+  sequence it read; there is no z-order control yet, because reordering would cost a whole replacement
+  until the difference engine learns it.
 - **No comments.** Node anchors arrive with the editing phase. The viewer mounts no comment panel,
   because a point anchor without a node would detach the moment the node moves.
 - **No shared layout engine.** Nodes carry absolute geometry. Automatic layout arrives with the
