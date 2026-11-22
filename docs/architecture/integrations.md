@@ -93,7 +93,7 @@ flowchart LR
 
 ### Frontend stack
 
-- React 19 + Vite 7 + Tailwind 4, Radix primitives, TipTap for markdown,
+- React 19 + Vite 8 + Tailwind 4, Radix primitives, TipTap for markdown,
   markdown-it 15 for server-side rendering.
 - The SPA makes only same-origin calls. There is no third-party runtime API, no
   analytics, no font CDN (Geist is bundled via `@fontsource-variable`).

@@ -28,8 +28,7 @@ stable id, and an ordered list of **revisions**.
 | `canvas`         | A versioned JSON scene of frames and nodes, rendered as a navigable document and editable in the dashboard. See [Canvas](../artifacts/canvas.md). |
 | `deck`           | The same scene format, with slides in order and a presentation view. See [Deck](../artifacts/deck.md).                                            |
 
-A canvas carries no comments yet; node anchors arrive with the editing phase, and until then the viewer
-mounts no comment panel for it.
+Canvas and deck comments anchor to a node. See [Canvas](../artifacts/canvas.md) and [Deck](../artifacts/deck.md).
 
 ## Limits
 
@@ -48,13 +47,13 @@ Artifacts are private to their owner until the owner shares them. Every request 
 an active grant against a live artifact, and a missing, deleted, foreign or revoked target answers the
 same not-found page, so the viewer never confirms that an artifact exists.
 
-| Who                  | How they get in                   | What they can do                                                      |
-| -------------------- | --------------------------------- | --------------------------------------------------------------------- |
-| Owner                | Signed-in session on the instance | Read, update through the agent, edit Markdown, comment, share, delete |
-| Invited account      | Email invitation from the owner   | Read only; the artifact appears under **Shared with me**              |
-| Anyone with the link | Owner turns on a public link      | Read the current revision, read only, no account needed               |
+| Who                  | How they get in                   | What they can do                                                                                                                                                                           |
+| -------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Owner                | Signed-in session on the instance | Read, update through the agent, edit where the kind allows, comment, share, delete                                                                                                         |
+| Invited account      | Email invitation from the owner   | The grant's role: `reader` views, `commenter` also comments, `editor` also edits kinds the dashboard can edit. A new invitation is a reader. The artifact appears under **Shared with me** |
+| Anyone with the link | Owner turns on a public link      | Read the current revision, no account needed                                                                                                                                               |
 
-Invitations grant view access. Editing and commenting in the browser stay with the owner today.
+A grant is `reader`, `commenter` or `editor`. The dashboard invitation creates a reader. An editor can edit kinds the dashboard can edit, and a commenter can comment. A public link stays view-only.
 
 ## URLs
 
@@ -63,7 +62,7 @@ Invitations grant view access. Editing and commenting in the browser stay with t
 | `https://artifacts.example.com/`                      | Library: artifacts you own plus those shared with you |
 | `https://artifacts.example.com/artifact/<artifactId>` | Viewer for the owner or an invited account            |
 | `https://artifacts.example.com/share/<token>`         | Public link, no session required                      |
-| `https://artifacts.example.com/edit/<artifactId>`     | Markdown editor, owner only                           |
+| `https://artifacts.example.com/edit/<artifactId>`     | Markdown editor for the owner or an editor grant      |
 
 `/artifact/<id>` accepts an `embed=1` query that drops the viewer bar when you need the artifact alone.
 A public link always serves the artifact's current revision, not the revision that existed when the

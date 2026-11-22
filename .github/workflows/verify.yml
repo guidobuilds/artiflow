@@ -43,6 +43,9 @@ jobs:
       - name: Boundaries
         run: bun run check:boundaries
 
+      - name: Docs
+        run: bun run check:docs
+
       - name: Install
         run: bun install --frozen-lockfile
 

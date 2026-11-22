@@ -64,19 +64,19 @@ The root suite runs on Node, not Bun: on Bun 1.3.10 the `node:test` shim ignores
 environment-gated suites execute instead of skipping, and `node:module` lacks
 `stripTypeScriptTypes`. Keep using `node --test`.
 
-| Command                    | What it runs                                                                                                                                              |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run test`             | Every `test/*.test.ts` under `node --test`. Unit and UI tests; no services required, gated suites self-skip.                                              |
-| `bun run test:integration` | Every `test/*.test.ts` and `test/*.integration.ts`, serially, using `test/integration-config.example`. Requires the disposable PostgreSQL + Garage stack. |
-| `bun run test:auth`        | `test/auth-http.integration.ts` against a disposable PostgreSQL.                                                                                          |
-| `bun run test:oauth`       | `test/oauth-http.integration.ts` against a disposable PostgreSQL.                                                                                         |
-| `bun run typecheck`        | The API TypeScript project and the dashboard workspace project.                                                                                           |
-| `bun run build`            | Docs link check, boundary check, dashboard production build and API type check.                                                                           |
-| `bun run check:boundaries` | Import boundaries between apps, packages and tests.                                                                                                       |
-| `bun run check:hygiene`    | Fails when a tracked file matches `.gitignore`.                                                                                                           |
-| `bun run check:changed`    | Prettier and oxlint on the files changed against `origin/main`. Pass a base ref to compare elsewhere.                                                     |
-| `bun run check:docs`       | Every relative link in `README.md` and `docs/` resolves to an existing file.                                                                              |
-| `bun run web:verify`       | `astro check`, the docs build, then the built-output verifier; the only docs check that reads `apps/web/dist`.                                            |
+| Command                    | What it runs                                                                                                                                                                                 |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run test`             | Every `test/*.test.ts` under `node --test`. Unit and UI tests; no services required, gated suites self-skip.                                                                                 |
+| `bun run test:integration` | Every `test/*.test.ts` and `test/*.integration.ts`, serially, using `test/integration-config.example`. Requires the disposable PostgreSQL + Garage stack.                                    |
+| `bun run test:auth`        | `test/auth-http.integration.ts` against a disposable PostgreSQL.                                                                                                                             |
+| `bun run test:oauth`       | `test/oauth-http.integration.ts` against a disposable PostgreSQL.                                                                                                                            |
+| `bun run typecheck`        | The API TypeScript project and the dashboard workspace project.                                                                                                                              |
+| `bun run build`            | Docs fact and link check, boundary check, dashboard production build and API type check.                                                                                                     |
+| `bun run check:boundaries` | Import boundaries between apps, packages and tests.                                                                                                                                          |
+| `bun run check:hygiene`    | Fails when a tracked file matches `.gitignore`.                                                                                                                                              |
+| `bun run check:changed`    | Prettier and oxlint on the files changed against `origin/main`. Pass a base ref to compare elsewhere.                                                                                        |
+| `bun run check:docs`       | Relative links in the scanned docs resolve, and those docs do not state a tool count or a kind list that contradicts `packages/mcp-server/src/server.ts` and `packages/domain/src/kinds.ts`. |
+| `bun run web:verify`       | `astro check`, the docs build, then the built-output verifier; the only docs check that reads `apps/web/dist`.                                                                               |
 
 The integration stack and its exact sequence live in `docs/runbook.md`; never point those commands at
 data you care about. The docs site has its own checks:
@@ -86,7 +86,7 @@ node --test test/web-docs.test.ts         # workspace config, sidebar groups and
 node --test test/web-validation.test.ts   # public CLI of the built-output link verifier
 node --test test/web-reference.test.ts    # public CLI of the configuration verifier
 bun run web:verify                        # astro check, the build, then both verifiers
-node scripts/check-docs.mjs               # relative links in README.md and docs/
+node scripts/check-docs.mjs               # links, plus tool and kind facts against server.ts and kinds.ts
 ```
 
 Two commands verify what the sources cannot prove, and `web:verify` runs both
