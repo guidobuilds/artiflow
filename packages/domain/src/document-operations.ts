@@ -74,7 +74,13 @@ type SingleOutcome = { ok: true; value: { text: string; occurrences: number } } 
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const HEADING = /^ {0,3}(#{1,6})(\s|$)/;
 const LIST_ITEM = /^(\s*)([-*+]|\d{1,9}[.)])\s/;
-const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const TABLE_CELL = /^:?-+:?$/;
+
+const isTableDelimiter = (line: string): boolean => {
+  const inner = line.trim().replace(/^\|/, "").replace(/\|$/, "");
+  const cells = inner.split("|");
+  return cells.length > 0 && cells.every((cell) => TABLE_CELL.test(cell.trim()));
+};
 
 const blank = (line: string): boolean => line.trim().length === 0;
 const indentOf = (line: string): number => line.length - line.replace(/^\s+/, "").length;
@@ -117,7 +123,7 @@ function isTableStart(lines: string[], index: number): boolean {
   const header = lines[index];
   const delimiter = lines[index + 1];
   if (header === undefined || delimiter === undefined) return false;
-  return header.includes("|") && delimiter.includes("|") && delimiter.includes("-") && TABLE_DELIMITER.test(delimiter);
+  return header.includes("|") && delimiter.includes("|") && delimiter.includes("-") && isTableDelimiter(delimiter);
 }
 
 function startsBlock(lines: string[], index: number, line: string): boolean {

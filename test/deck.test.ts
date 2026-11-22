@@ -79,7 +79,7 @@ const threeSlides = scene(
   frame({ id: "c", name: "C", x: 800 }),
 );
 
-const inlineScript = (html: string): string => html.match(/<script>([^]*?)<\/script>/)?.[1] ?? "";
+const inlineScript = (html: string): string => html.match(/<script>([^]*?)<\/script>/i)?.[1] ?? "";
 
 const frameTag = (html: string, id: string): string =>
   html.match(new RegExp(`<section[^>]*id="frame-${id}"[^>]*>`))?.[0] ?? "";
