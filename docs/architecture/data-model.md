@@ -183,7 +183,8 @@ normalization and degrades visibly to “outdated” instead of silently reattac
    application and asserted against the generated SQL by tests.
 5. **A live revision always has its object.** Bytes are written before the revision
    row that names them, the key belongs to exactly one revision and is never reused,
-   and a restore copies the bytes under a fresh key before inserting its own row.
+   and a restore publishes a new snapshot, writing the restored bytes under a fresh key
+   before inserting its own row.
    Two rows therefore never share a key by construction, so deleting one artifact's
    keys cannot remove another revision's bytes.
 6. **CAS for concurrency.** `currentRevisionId` is the optimistic lock. A stale

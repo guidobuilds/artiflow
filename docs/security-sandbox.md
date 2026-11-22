@@ -51,7 +51,7 @@ Selected suites, each mounted as its own file (the whole `test/` directory is ne
 | `test/comments-http.integration.ts`          | comments and editing routes against real PostgreSQL and S3                                            |
 | `test/artifact-tools.integration.ts`         | the MCP artifact tools over the bearer-only transport with earned OAuth tokens                        |
 | `test/docs-quickstart.integration.ts`        | the documented quickstart payload and viewer/sharing steps replayed over the public MCP transport     |
-| `test/editing-http.integration.ts`           | restore reads the pinned revision and stores it under a fresh key of its own                          |
+| `test/editing-http.integration.ts`           | restore reads the pinned revision, applies it as an operation and publishes a fresh snapshot          |
 | `test/i5c2-shared.test.ts`                   | the shared-with-me list and the sharing viewer against real services                                  |
 | `test/i5b3-share.test.ts`                    | the public `/share/:token` viewer over real HTTP, with each run's revision keys read from their rows  |
 | `test/artifact-viewer-bearer.integration.ts` | the cookie and bearer viewer paths, including `embed=1`, over the same composition                    |

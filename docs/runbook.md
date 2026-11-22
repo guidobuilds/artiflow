@@ -177,12 +177,12 @@ editors (`role = 'editor'`) can write; any grant can read. Mutations need the
 exact `Origin` and a JSON body, and every write appends a revision through the
 same CAS.
 
-| Route                            | Purpose                                                                                             |
-| -------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `GET .../document`               | Stored markdown + `revisionId`, `revisionNumber`, `title`; `409 wrong_kind` for HTML.               |
-| `PUT .../document`               | Autosave `{ text, expectedRevisionId }`; stale → `409 concurrent_edit`, oversize → `413 too_large`. |
-| `GET .../revisions`              | History, newest first (max 200).                                                                    |
-| `POST .../revisions/:id/restore` | Appends the pinned revision as a new revision (`restoredFrom`).                                     |
+| Route                            | Purpose                                                                                                                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET .../document`               | Stored markdown + `revisionId`, `revisionNumber`, `title`; `409 wrong_kind` for HTML.                                                                                                                   |
+| `PUT .../document`               | Autosave `{ text, expectedSeq }` (legacy `expectedRevisionId` still accepted); stale → `409 concurrent_edit`, a pending draft without a sequence → `409 sequence_required`, oversize → `413 too_large`. |
+| `GET .../revisions`              | History, newest first (max 200).                                                                                                                                                                        |
+| `POST .../revisions/:id/restore` | Applies the pinned revision's bytes as a `replace_document` operation and publishes it (`restoredFrom`).                                                                                                |
 
 ### Staging garbage collection
 

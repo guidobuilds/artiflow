@@ -211,8 +211,9 @@ sequenceDiagram
 ```
 
 Version history is read-only; **restore** reads a pinned revision's verified bytes and
-appends them as a _new_ revision under the same CAS, re-storing the bytes under a key of
-their own, so undo is itself undoable.
+applies them as a `replace_document` operation against the current draft sequence, then
+publishes a _new_ snapshot whose bytes are the restored ones, so undo is itself undoable
+and the operation log records who restored what.
 A conflict freezes autosave and keeps local edits until the user reloads explicitly.
 
 Modules: `editing.ts`, `artifacts/commits.ts`, `artifacts/s3.ts`, `web/editor-api.ts`,
