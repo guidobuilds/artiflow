@@ -90,13 +90,13 @@ untrusted.
 revision integer not null, updated_at timestamptz, updated_by text)` holds one row per
 setting document:
 
-| Key               | Document                                                    |
-| ----------------- | ----------------------------------------------------------- |
-| `access.methods`  | Password and social provider enablement, with provenance    |
-| `access.sso`      | The single connection: issuer, client id, scopes, policy     |
-| `password.policy` | Minimum length and the four composition requirements        |
+| Key               | Document                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------- |
+| `access.methods`  | Password and social provider enablement, with provenance                                                       |
+| `access.sso`      | The single connection: issuer, client id, scopes, policy                                                       |
+| `password.policy` | Minimum length and the four composition requirements                                                           |
 | `sessions.policy` | Session lifetime and idle refresh, declared in the store but not read or written by any endpoint in this build |
-| `bootstrap`       | Adoption markers: environment seed time, admin recovery use |
+| `bootstrap`       | Adoption markers: environment seed time, admin recovery use                                                    |
 
 Each document has a Zod schema in `packages/contracts`. Writers reject unknown keys, readers
 tolerate them, so a newer version of the application can add a field without a migration and
@@ -119,7 +119,7 @@ section 7.
 the administrator guard:
 
 - `GET /api/admin/access` answers `{ revision, passwordEnabled, providers: { google, github },
-  provenance }`, where each provider carries `{ enabled, clientId, credentialConfigured }`.
+provenance }`, where each provider carries `{ enabled, clientId, credentialConfigured }`.
   Presence is answered by a row lookup; the credential value and the ciphertext never appear.
   When the document is absent the answer is the environment-adopted state the first-boot seed
   would write, with `revision: null`.
@@ -299,7 +299,7 @@ so the invariant holds by construction. It is written to the audit log with both
 The user directory is read and edited through two routes behind the administrator guard:
 
 - `GET /api/admin/users?page=&pageSize=&search=&role=&status=` answers `{ users, total, page,
-  pageSize }`. A row carries `id`, `name`, `email`, `role`, `status` (the stored account status,
+pageSize }`. A row carries `id`, `name`, `email`, `role`, `status` (the stored account status,
   `active` or `deactivated`), `accessMethods` (the
   `providerId` of every `account` row of that person, credential included) and
   `lastActivityAt` (the newest `session.updatedAt`, `null` when the person never signed in).
@@ -657,14 +657,14 @@ build on that claim only.
 one named code per refusal, and the login page renders each in its own words through
 `ssoFailure`, never text the identity provider supplied:
 
-| Situation                                                                 | Refusal                    |
-| ------------------------------------------------------------------------- | -------------------------- |
-| a first sign-in while just-in-time provisioning is off                    | `sso_account_unknown`      |
-| a matched account that is deactivated                                     | `sso_account_deactivated`  |
-| an existing account with an unverified claim and a foreign domain          | `sso_email_unverified`     |
-| an address or an enterprise identity bound to another account              | `sso_identity_conflict`    |
-| a first sign-in on a domain outside the allowlist, without explicit acceptance | `sso_domain_not_allowed` |
-| a token from another tenant, or from an issuer this build did not pin      | `sso_tenant_mismatch`      |
+| Situation                                                                      | Refusal                   |
+| ------------------------------------------------------------------------------ | ------------------------- |
+| a first sign-in while just-in-time provisioning is off                         | `sso_account_unknown`     |
+| a matched account that is deactivated                                          | `sso_account_deactivated` |
+| an existing account with an unverified claim and a foreign domain              | `sso_email_unverified`    |
+| an address or an enterprise identity bound to another account                  | `sso_identity_conflict`   |
+| a first sign-in on a domain outside the allowlist, without explicit acceptance | `sso_domain_not_allowed`  |
+| a token from another tenant, or from an issuer this build did not pin          | `sso_tenant_mismatch`     |
 
 The domain refusal names the fix it needs: the administrator can allow the domain or turn the
 explicit any-account acceptance on. Every refusal leaves the stored rows untouched: no account,
@@ -721,18 +721,18 @@ path, not the alternative.
 **The connection document.** `access.sso` holds one document, written only through the
 administration routes of the next subsection and read leniently everywhere else:
 
-| Field               | Meaning                                                                |
-| ------------------- | ---------------------------------------------------------------------- |
-| `enabled`           | Whether the connection is published to the login surface               |
-| `displayName`       | The label the sign-in page shows                                       |
-| `issuer`            | The concrete HTTPS issuer of the application registration              |
-| `clientId`          | The non-secret client id                                               |
-| `clientSecretName`  | The name of the encrypted credential row, `access.sso.clientSecret`    |
-| `scopes`            | Requested scopes; `openid`, `profile` and `email` by default           |
-| `jitProvisioning`   | Whether a first authorized sign-in creates a member account            |
-| `allowedDomains`    | The bare hostnames the domain barrier admits                            |
-| `acceptAnyAccount`  | Explicit acceptance of every account the provider authenticates        |
-| `provenance`        | Which administrator wrote it and when                                   |
+| Field              | Meaning                                                             |
+| ------------------ | ------------------------------------------------------------------- |
+| `enabled`          | Whether the connection is published to the login surface            |
+| `displayName`      | The label the sign-in page shows                                    |
+| `issuer`           | The concrete HTTPS issuer of the application registration           |
+| `clientId`         | The non-secret client id                                            |
+| `clientSecretName` | The name of the encrypted credential row, `access.sso.clientSecret` |
+| `scopes`           | Requested scopes; `openid`, `profile` and `email` by default        |
+| `jitProvisioning`  | Whether a first authorized sign-in creates a member account         |
+| `allowedDomains`   | The bare hostnames the domain barrier admits                        |
+| `acceptAnyAccount` | Explicit acceptance of every account the provider authenticates     |
+| `provenance`       | Which administrator wrote it and when                               |
 
 The credential itself is a row of `instanceSecret` (section 7) and never appears in the
 document. A read answers `credentialConfigured` from that row's existence, so presence is
@@ -748,19 +748,19 @@ name still locks the alternative methods: the lock fails closed and only the lab
 **Save-time validation.** `PUT /api/admin/sso` refuses a document the instance could not
 safely publish, and each refusal is a named code the surface renders in its own words:
 
-| Refusal                                                                                  | Rule                                                                                                                                                                                                                                                                                                |
-| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sso_issuer_insecure`                                                                    | The issuer must be HTTPS.                                                                                                                                                                                                                                                                           |
-| `sso_issuer_invalid`                                                                     | The issuer must be one concrete URL, without template placeholders, query or fragment.                                                                                                                                                                                                              |
-| `sso_issuer_templated`                                                                   | The authority is multi-tenant — `/common`, `/organizations`, `/consumers`, or a discovery document advertising a `{tenantid}` issuer — so it does not name the authorized tenant. The message asks for a single-tenant registration or the tenant-scoped issuer.                                     |
-| `sso_discovery_unreachable`                                                              | Discovery at `<issuer>/.well-known/openid-configuration` failed, timed out or answered an error status. A network failure is a refusal, never a success.                                                                                                                                            |
-| `sso_discovery_invalid`                                                                  | The answer is not JSON or carries no `issuer`.                                                                                                                                                                                                                                                      |
-| `sso_issuer_mismatch`                                                                    | The advertised issuer differs from the address given.                                                                                                                                                                                                                                               |
-| `sso_display_name_required`, `sso_client_id_required`, `sso_credential_required`          | An enabled connection needs its label, its client id and either a stored credential or a supplied one.                                                                                                                                                                                              |
-| `sso_scopes_invalid`                                                                     | At least one requested scope.                                                                                                                                                                                                                                                                        |
-| `sso_domain_required`                                                                    | Just-in-time provisioning needs at least one allowed domain, and the any-account flag does not lift that requirement: the tenant is the first barrier and the domain list narrows it.                                                                                                                |
-| `sso_domain_invalid`                                                                     | Domains are bare hostnames — no scheme, path, wildcard or address — normalized to lower case and de-duplicated.                                                                                                                                                                                     |
-| `secret_encryption_unconfigured`                                                         | A credential cannot be stored without `ARTIFLOW_SECRET_ENCRYPTION_KEY`.                                                                                                                                                                                                                              |
+| Refusal                                                                          | Rule                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sso_issuer_insecure`                                                            | The issuer must be HTTPS.                                                                                                                                                                                                                                        |
+| `sso_issuer_invalid`                                                             | The issuer must be one concrete URL, without template placeholders, query or fragment.                                                                                                                                                                           |
+| `sso_issuer_templated`                                                           | The authority is multi-tenant — `/common`, `/organizations`, `/consumers`, or a discovery document advertising a `{tenantid}` issuer — so it does not name the authorized tenant. The message asks for a single-tenant registration or the tenant-scoped issuer. |
+| `sso_discovery_unreachable`                                                      | Discovery at `<issuer>/.well-known/openid-configuration` failed, timed out or answered an error status. A network failure is a refusal, never a success.                                                                                                         |
+| `sso_discovery_invalid`                                                          | The answer is not JSON or carries no `issuer`.                                                                                                                                                                                                                   |
+| `sso_issuer_mismatch`                                                            | The advertised issuer differs from the address given.                                                                                                                                                                                                            |
+| `sso_display_name_required`, `sso_client_id_required`, `sso_credential_required` | An enabled connection needs its label, its client id and either a stored credential or a supplied one.                                                                                                                                                           |
+| `sso_scopes_invalid`                                                             | At least one requested scope.                                                                                                                                                                                                                                    |
+| `sso_domain_required`                                                            | Just-in-time provisioning needs at least one allowed domain, and the any-account flag does not lift that requirement: the tenant is the first barrier and the domain list narrows it.                                                                            |
+| `sso_domain_invalid`                                                             | Domains are bare hostnames — no scheme, path, wildcard or address — normalized to lower case and de-duplicated.                                                                                                                                                  |
+| `secret_encryption_unconfigured`                                                 | A credential cannot be stored without `ARTIFLOW_SECRET_ENCRYPTION_KEY`.                                                                                                                                                                                          |
 
 Nothing but the code leaves the server: the discovery body, an advertised metadata field, a
 token and the credential are never logged and never returned. A refused save stores no
@@ -865,20 +865,20 @@ a typo in production: `role.granted`, `role.revoked`, `user.registered`, `user.u
 Every named operation of the specification emits exactly one line, written by the change it
 records:
 
-| Operation                        | Event                                                       | Written from                                 |
-| -------------------------------- | ----------------------------------------------------------- | -------------------------------------------- |
-| Sign-up through an invitation    | `user.registered`                                           | the registration completion endpoint         |
-| Name and email edit              | `user.updated`                                              | `apps/api/src/admin/users.ts`                |
-| Role change                      | `role.granted`, `role.revoked`                              | role endpoint, `admin:grant`, `admin:revoke` |
-| Activation and deactivation      | `user.reactivated`, `user.deactivated`                      | `apps/api/src/admin/lifecycle.ts`            |
-| Session closing                  | `session.revoked`, `sessions.revoked`                       | `apps/api/src/admin/sessions.ts`             |
-| Invitation issuance              | `invitation.created`, `invitation.revoked`, `invitation.regenerated` | `apps/api/src/admin/invitations.ts` |
-| Reset issuance                   | `password.reset.issued`                                     | `apps/api/src/admin/reset-links.ts`          |
-| Access method change             | `access.methods.updated`                                    | `PUT /api/admin/access`                      |
-| Password policy change           | `password.policy.updated`                                   | `PUT /api/admin/password-policy`             |
-| SSO connection and JIT change    | `access.sso.updated`                                        | `PUT /api/admin/sso`                         |
-| Purge                            | `user.purged`                                               | `apps/api/src/admin/purge.ts`                |
-| Emergency fallback               | `login.fallback.used`                                       | the lock's two enforcement points            |
+| Operation                     | Event                                                                | Written from                                 |
+| ----------------------------- | -------------------------------------------------------------------- | -------------------------------------------- |
+| Sign-up through an invitation | `user.registered`                                                    | the registration completion endpoint         |
+| Name and email edit           | `user.updated`                                                       | `apps/api/src/admin/users.ts`                |
+| Role change                   | `role.granted`, `role.revoked`                                       | role endpoint, `admin:grant`, `admin:revoke` |
+| Activation and deactivation   | `user.reactivated`, `user.deactivated`                               | `apps/api/src/admin/lifecycle.ts`            |
+| Session closing               | `session.revoked`, `sessions.revoked`                                | `apps/api/src/admin/sessions.ts`             |
+| Invitation issuance           | `invitation.created`, `invitation.revoked`, `invitation.regenerated` | `apps/api/src/admin/invitations.ts`          |
+| Reset issuance                | `password.reset.issued`                                              | `apps/api/src/admin/reset-links.ts`          |
+| Access method change          | `access.methods.updated`                                             | `PUT /api/admin/access`                      |
+| Password policy change        | `password.policy.updated`                                            | `PUT /api/admin/password-policy`             |
+| SSO connection and JIT change | `access.sso.updated`                                                 | `PUT /api/admin/sso`                         |
+| Purge                         | `user.purged`                                                        | `apps/api/src/admin/purge.ts`                |
+| Emergency fallback            | `login.fallback.used`                                                | the lock's two enforcement points            |
 
 The event is written inside the transaction that performs the change when the change owns
 one (role, edit, lifecycle, sessions, invitations, purge) and immediately after the write
@@ -996,14 +996,14 @@ Real Postgres per suite, throwaway database, the existing `test/` conventions: `
 for pure logic, `*.integration.ts` for HTTP and database behaviour, helpers in
 `test/helpers/`.
 
-| Layer       | Proves                                                                                                                         |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Unit        | Policy validation, trust matrix, config precedence, secret envelope round-trip, redaction shape                                |
-| HTTP + DB   | Every map-row below, including refusals and the state left behind                                                              |
-| Fake IdP    | One `test/helpers/oidc.ts` serving discovery, JWKS and token responses with switchable `iss`, `tid`, `email_verified`, `email` |
-| Fake provider | One `test/helpers/social-sign-in.ts` answering the GitHub token, profile and address endpoints with switchable `verified`                                    |
-| UI          | Login rendering with and without SSO, fallback rendering, admin surface gating                                                 |
-| Concurrency | Single-use invitation and reset consumption under two parallel completions                                                     |
+| Layer         | Proves                                                                                                                         |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Unit          | Policy validation, trust matrix, config precedence, secret envelope round-trip, redaction shape                                |
+| HTTP + DB     | Every map-row below, including refusals and the state left behind                                                              |
+| Fake IdP      | One `test/helpers/oidc.ts` serving discovery, JWKS and token responses with switchable `iss`, `tid`, `email_verified`, `email` |
+| Fake provider | One `test/helpers/social-sign-in.ts` answering the GitHub token, profile and address endpoints with switchable `verified`      |
+| UI            | Login rendering with and without SSO, fallback rendering, admin surface gating                                                 |
+| Concurrency   | Single-use invitation and reset consumption under two parallel completions                                                     |
 
 The discovery document is answered by a stub installed on the API suite's own event loop, so
 the save-time validation is exercised without reaching a network and a failing discovery is
@@ -1064,3 +1064,17 @@ product owner; the rest are technical calls recorded here with their reason.
 - **Purge.** Deleting an account touches owned artifacts, shares, comments and tokens; the
   reference graph must be enumerated against the real schema when that deliverable starts,
   and the reassignment path tested with both kinds of content.
+- **A mistyped invitation address, accepted deliberately.** Social linking trusts the address the
+  provider verifies, and invitation-completed accounts stay unverified because this product sends
+  no email, so an administrator who types the wrong address mints an account under it and whoever
+  controls that mailbox can open the same account through Google or GitHub. The exposure is bounded
+  and the sharp case does not arise: the account is the one just created, and inviting the address
+  of an existing account is refused at issuance. This is a consequence of the identity model, where
+  the address is the identity, combined with the specification's deliberate decision to require no
+  email verification in this version. It is recorded, not mitigated: a guard here would defend
+  against the operator rather than against an attacker. What is genuinely missing is the opposite
+  control, detaching an identity that is already linked, which an administrator needs to repair
+  their own mistake; it is not implemented.
+- **The social refusal has no page of its own.** A refused social sign-in lands on the library's
+  error page rather than a page of this product, so the person sees a raw code instead of an
+  explanation and an instruction.
