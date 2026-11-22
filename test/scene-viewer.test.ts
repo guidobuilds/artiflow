@@ -410,3 +410,104 @@ test("a frame with no nodes still shows its name and its dimensions", () => {
   assert.ok(html.includes('style="width:320px;height:640px"'));
   assert.equal(html.includes('class="scene-empty"'), false);
 });
+
+const DIGEST = "a".repeat(64);
+const OTHER_DIGEST = "b".repeat(64);
+const ORIGIN = "https://canvas.test";
+const imageScene = (node: Partial<ImageNode> = {}): Scene =>
+  scene(frame({ nodes: [image({ assetId: DIGEST, ...node })] }));
+const images = (
+  overrides: Partial<{ origin: string; artifactId: string; digests: ReadonlySet<string>; token: string }> = {},
+) => ({
+  origin: ORIGIN,
+  artifactId: "artifact-one",
+  digests: new Set([DIGEST]),
+  ...overrides,
+});
+const policyOf = (html: string): string => /content-security-policy" content="([^"]*)"/.exec(html)?.[1] ?? "";
+const imageTags = (html: string): string[] => html.match(/<img\b[^>]*>/g) ?? [];
+
+test("the scene document allows images from exactly one origin and no other source", () => {
+  const policy = policyOf(renderSceneDocument(imageScene(), undefined, images()));
+  assert.equal(
+    policy,
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https://canvas.test; base-uri 'none'; form-action 'none'",
+    "the policy adds img-src with the configured origin and keeps every other directive",
+  );
+  assert.equal((policy.match(/img-src/g) ?? []).length, 1, "exactly one image directive");
+  const imageSources = (policy.split("; ").find((directive) => directive.startsWith("img-src")) ?? "")
+    .split(" ")
+    .slice(1);
+  assert.deepEqual(imageSources, [ORIGIN], "the only image source is the configured origin");
+});
+
+test("a scene without an image source keeps the policy it has today", () => {
+  assert.equal(
+    policyOf(renderSceneDocument(twoFrames)),
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+  );
+});
+
+test("a referenced asset renders one real image with the delivery url and the node box", () => {
+  const html = renderSceneDocument(imageScene(), undefined, images());
+  const tags = imageTags(html);
+  assert.equal(tags.length, 1, html);
+  const tag = tags[0] ?? "";
+  assert.ok(tag.includes(`src="${ORIGIN}/artifact/artifact-one/asset/${DIGEST}"`), tag);
+  assert.ok(tag.includes('data-node-id="image-1"'), tag);
+  assert.ok(tag.includes("left:0px;top:0px;width:120px;height:80px"), tag);
+  assert.ok(tag.includes("object-fit:contain"), tag);
+  assert.ok(tag.includes('alt="image-1"'), tag);
+  assert.equal(html.includes('<span class="node-image-label">'), false, "a real image draws no placeholder beside it");
+  assert.equal(html.includes(`<code class="node-image-id">${DIGEST}</code>`), false, "and no digest label");
+});
+
+test("an asset the artifact does not reference keeps the labelled placeholder", () => {
+  const html = renderSceneDocument(imageScene(), undefined, images({ digests: new Set([OTHER_DIGEST]) }));
+  assert.deepEqual(imageTags(html), [], "no image is fetched for an unreferenced digest");
+  assert.ok(html.includes('class="node node-image" data-node-id="image-1"'), html);
+  assert.ok(html.includes('<span class="node-image-label">Image</span>'), "the placeholder stays diagnosable");
+  assert.ok(html.includes(`<code class="node-image-id">${DIGEST}</code>`), "and names the missing asset");
+});
+
+test("an asset id that is not a sha256 digest degrades to the placeholder", () => {
+  for (const assetId of [
+    "asset-42",
+    "A".repeat(64),
+    `${"a".repeat(63)}g`,
+    `${"a".repeat(64)}/../x`,
+    `"><script>alert(1)</script>`,
+  ]) {
+    const html = renderSceneDocument(
+      scene(frame({ nodes: [image({ assetId })] })),
+      undefined,
+      images({
+        digests: new Set([assetId]),
+      }),
+    );
+    assert.deepEqual(imageTags(html), [], `${assetId} never reaches the url`);
+    assert.ok(html.includes('class="node node-image"'), `${assetId} degrades to the placeholder`);
+  }
+});
+
+test("a public link's token rides on the image url the delivery route reads", () => {
+  const token = "t".repeat(43);
+  const html = renderSceneDocument(imageScene(), undefined, images({ token }));
+  const tag = imageTags(html)[0] ?? "";
+  assert.ok(tag.includes(`src="${ORIGIN}/artifact/artifact-one/asset/${DIGEST}?token=${token}"`), tag);
+  assert.equal(renderSceneDocument(imageScene(), undefined, images()).includes("token="), false);
+});
+
+test("the alt text is a scene string and markup in it is escaped", () => {
+  const hostile = '"><script>alert(1)</script>';
+  const html = renderSceneDocument(
+    scene(frame({ nodes: [image({ id: hostile, assetId: DIGEST })] })),
+    undefined,
+    images(),
+  );
+  const tag = imageTags(html)[0] ?? "";
+  assert.ok(tag.includes('alt="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"'), tag);
+  assert.equal(html.includes(hostile), false, "the raw node id never reaches the document");
+  assert.equal(/<[a-z][^>]*\son[a-z]+\s*=/i.test(tag), false, "an image carries no event handler attribute");
+  assert.equal((tag.match(/\son[a-z]+=/gi) ?? []).length, 0);
+});

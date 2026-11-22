@@ -108,9 +108,11 @@ cargar imágenes ni fuentes externas. Es el precio de que un HTML de un agente n
 tocar la aplicación. Markdown tiene otro régimen: no se enmarca, se renderiza en la propia
 página con HTML crudo deshabilitado, y sí puede mostrar imágenes.
 
-**Consecuencia aritmética:** hoy un artefacto HTML **no puede mostrar ninguna imagen**, ni
-por URL ni embebida en el propio archivo, porque el marco no habilita ninguna fuente de
-imagen. No es un fallo de render: es el aislamiento funcionando.
+**Consecuencia aritmética:** un artefacto HTML no puede mostrar imágenes externas ni embebidas como
+`data:`, porque el marco solo habilita el propio origen (`img-src 'self'`) y hasta F4 no existía
+ningún lugar donde alojar un binario. No es un fallo de render: es el aislamiento funcionando. Con la
+llegada de la vía de assets (F4) el canvas sí muestra imágenes, y lo hace con una política que
+nombra **un solo origen**, el de la instancia, nunca un tercero.
 
 ### 2.4 Quién puede ver y quién puede tocar
 

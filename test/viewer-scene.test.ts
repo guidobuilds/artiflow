@@ -89,6 +89,30 @@ const scene: Scene = {
 const SCENE_TEXT = canonicalScene(scene);
 const SCENE_BYTES = new TextEncoder().encode(SCENE_TEXT);
 
+const IMAGE_DIGEST = "c".repeat(64);
+const SCENE_PAGE_POLICY =
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src http://localhost; base-uri 'none'; form-action 'none'; connect-src 'self'";
+
+const imageScene = (assetId: string, id = "shot"): Scene => ({
+  formatVersion: SCENE_FORMAT_VERSION,
+  frames: [
+    {
+      ...frame("home", "Home"),
+      nodes: [{ id, type: "image", x: 10, y: 20, w: 200, h: 120, assetId }],
+    },
+  ],
+});
+const imageSceneBytes = (assetId = IMAGE_DIGEST, id = "shot"): Uint8Array =>
+  new TextEncoder().encode(canonicalScene(imageScene(assetId, id)));
+
+const servedScene = (frameId?: string): string =>
+  renderSceneDocument(scene, frameId, { origin: "http://localhost", artifactId: ARTIFACT_ID, digests: new Set() });
+
+const metaPolicyOf = (document: string): string =>
+  /content-security-policy" content="([^"]*)"/.exec(document)?.[1] ?? "";
+
+const imageTagsOf = (document: string): string[] => document.match(/<img\b[^>]*>/g) ?? [];
+
 type Revision = { storageKey: string; sha256: string; revisionNumber: number; sizeBytes: number };
 
 const revisionOf = (bytes: Uint8Array): Revision => ({
@@ -105,11 +129,16 @@ const ownerView = async (input: {
   kind: string;
   query?: string;
   commentResults?: readonly unknown[];
+  assetResults?: readonly unknown[];
 }): Promise<Probe> => {
   const revision = revisionOf(input.bytes);
   let queries = 0;
   const rows = queryBuilder(
-    [[{ id: ARTIFACT_ID, title: TITLE, kind: input.kind, ...revision }], ...(input.commentResults ?? [])],
+    [
+      [{ id: ARTIFACT_ID, title: TITLE, kind: input.kind, ...revision }],
+      ...(input.assetResults ?? []),
+      ...(input.commentResults ?? []),
+    ],
     () => {
       queries += 1;
     },
@@ -140,6 +169,7 @@ const shareView = async (input: {
   kind: string;
   query?: string;
   showComments?: boolean;
+  assetResults?: readonly unknown[];
 }): Promise<Probe> => {
   const revision = revisionOf(input.bytes);
   let queries = 0;
@@ -153,6 +183,7 @@ const shareView = async (input: {
           ...revision,
         },
       ],
+      ...(input.assetResults ?? []),
       [],
     ],
     () => {
@@ -194,12 +225,12 @@ const frameTag = (html: string, id: string): string =>
 test("the owner viewer of a canvas serves the rendered scene inside the one sandboxed frame", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
   assert.equal(reply.status, 200);
-  assert.equal(reply.csp, VIEWER_CSP, "the canvas inherits the viewer policy unchanged");
+  assert.equal(reply.csp, SCENE_PAGE_POLICY, "the canvas page adds one image source and keeps the rest");
   assert.equal(reply.contentType, "text/html; charset=UTF-8");
   assert.equal((reply.body.match(/<iframe /g) ?? []).length, 1, "exactly one frame");
   assert.ok(reply.body.includes(`sandbox="${SANDBOX}"`), "the frame keeps its opaque origin");
   assert.equal(reply.body.includes("allow-same-origin"), false);
-  assert.equal(srcdocOf(reply.body), renderSceneDocument(scene), "the frame carries the rendered document");
+  assert.equal(srcdocOf(reply.body), servedScene(), "the frame carries the rendered document");
   assert.ok(srcdocOf(reply.body).includes('id="frame-home"'), "the wrapper is the same wrapper");
   assert.equal(reply.body.includes("/api/artifacts/" + ARTIFACT_ID + '"'), true, "and the same refresh poller");
 });
@@ -220,7 +251,7 @@ test("?frame selects the initially visible frame server-side", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=checkout" });
   assert.equal(reply.status, 200);
   const document = srcdocOf(reply.body);
-  assert.equal(document, renderSceneDocument(scene, "checkout"));
+  assert.equal(document, servedScene("checkout"));
   assert.ok(frameTag(document, "home").includes("hidden"), "the first frame is hidden");
   assert.equal(frameTag(document, "checkout").includes("hidden"), false);
   assert.ok(document.includes('data-target="checkout" aria-current="true"'), "the index follows the deep link");
@@ -230,7 +261,7 @@ test("a canvas with an unknown ?frame still renders, opening the first frame", a
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=missing" });
   assert.equal(reply.status, 200);
   const document = srcdocOf(reply.body);
-  assert.equal(document, renderSceneDocument(scene), "the unknown id falls back to the first frame");
+  assert.equal(document, servedScene(), "the unknown id falls back to the first frame");
   assert.equal(frameTag(document, "home").includes("hidden"), false);
   assert.ok(frameTag(document, "checkout").includes("hidden"));
   assert.equal((document.match(/data-target="/g) ?? []).length, 2, "both frames stay reachable");
@@ -240,7 +271,7 @@ test("the public link serves the same canvas document with the same navigation",
   const owner = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=checkout" });
   const shared = await shareView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=checkout", showComments: true });
   assert.equal(shared.status, 200);
-  assert.equal(shared.csp, VIEWER_CSP);
+  assert.equal(shared.csp, SCENE_PAGE_POLICY);
   assert.equal(srcdocOf(shared.body), srcdocOf(owner.body), "one renderer, one document");
   const document = srcdocOf(shared.body);
   assert.ok(document.includes('data-frame-id="checkout"'), "the public frame is rendered markup");
@@ -356,4 +387,116 @@ test("PRESERVE: a markdown artifact keeps its exact page bytes", async () => {
     ),
     "the markdown path is byte-identical to the page it served before the scene branch existed",
   );
+});
+
+test("the canvas page allows images from exactly this instance's origin", async () => {
+  const reply = await ownerView({
+    bytes: imageSceneBytes(),
+    kind: "canvas",
+    assetResults: [[{ sha256: IMAGE_DIGEST }]],
+  });
+  assert.equal(reply.status, 200);
+  assert.equal(reply.csp, SCENE_PAGE_POLICY, "one image source, every other directive unchanged");
+  assert.equal((reply.csp?.match(/img-src/g) ?? []).length, 1);
+  for (const widened of ["img-src *", "data:", "blob:", "https:"]) assert.equal(reply.csp?.includes(widened), false);
+  assert.equal(
+    metaPolicyOf(srcdocOf(reply.body)),
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src http://localhost; base-uri 'none'; form-action 'none'",
+    "the rendered document carries the same single image source",
+  );
+  assert.equal(reply.queries, 2, "the reference table is read once");
+});
+
+test("PRESERVE: html and markdown keep their exact policy strings", async () => {
+  assert.equal(
+    VIEWER_CSP,
+    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'",
+    "the viewer policy is byte for byte the one it was before the canvas gained images",
+  );
+  const html = await ownerView({
+    bytes: new TextEncoder().encode(HTML_SOURCE),
+    kind: "html",
+    commentResults: [[{ access: "owner" }], []],
+  });
+  assert.equal(html.csp, VIEWER_CSP, "the html page keeps the viewer policy");
+  const markdown = await ownerView({
+    bytes: new TextEncoder().encode(MARKDOWN_SOURCE),
+    kind: "markdown",
+    commentResults: [[{ access: "owner" }], []],
+  });
+  assert.equal(markdown.csp, VIEWER_CSP, "the markdown page keeps the viewer policy");
+});
+
+test("the owner viewer emits the delivery url for a referenced asset and no share token", async () => {
+  const reply = await ownerView({
+    bytes: imageSceneBytes(),
+    kind: "canvas",
+    assetResults: [[{ sha256: IMAGE_DIGEST }]],
+  });
+  const document = srcdocOf(reply.body);
+  const tags = imageTagsOf(document);
+  assert.equal(tags.length, 1, document);
+  const tag = tags[0] ?? "";
+  assert.equal(
+    tag,
+    `<img class="node node-image node-image-asset" data-node-id="shot" alt="shot" src="http://localhost/artifact/${ARTIFACT_ID}/asset/${IMAGE_DIGEST}" style="left:10px;top:20px;width:200px;height:120px;object-fit:contain">`,
+    "one image, at the delivery route, in the node's box",
+  );
+  assert.equal(document.includes("token="), false, "the owner page never embeds a link's token");
+  assert.equal(/<[a-z][^>]*\son[a-z]+\s*=/i.test(document), false, "the image carries no event handler");
+});
+
+test("the public link renders images the same token can fetch", async () => {
+  const shared = await shareView({
+    bytes: imageSceneBytes(),
+    kind: "canvas",
+    assetResults: [[{ sha256: IMAGE_DIGEST }]],
+  });
+  assert.equal(shared.status, 200);
+  assert.equal(shared.csp, SCENE_PAGE_POLICY);
+  const document = srcdocOf(shared.body);
+  const tags = imageTagsOf(document);
+  assert.equal(tags.length, 1, document);
+  assert.ok(
+    (tags[0] ?? "").includes(
+      `src="http://localhost/artifact/${ARTIFACT_ID}/asset/${IMAGE_DIGEST}?token=${SHARE_TOKEN}"`,
+    ),
+    tags[0] ?? "",
+  );
+});
+
+test("an image the artifact does not reference stays a labelled placeholder on both viewers", async () => {
+  const owner = await ownerView({ bytes: imageSceneBytes(), kind: "canvas", assetResults: [[]] });
+  const shared = await shareView({ bytes: imageSceneBytes(), kind: "canvas", assetResults: [[]] });
+  for (const document of [srcdocOf(owner.body), srcdocOf(shared.body)]) {
+    assert.deepEqual(imageTagsOf(document), [], "no bytes are fetched for an unreferenced digest");
+    assert.ok(document.includes(`<code class="node-image-id">${IMAGE_DIGEST}</code>`), "the placeholder named it");
+    assert.ok(document.includes('class="node node-image"'));
+  }
+});
+
+test("an asset id that is not a digest degrades to the placeholder, never to a url", async () => {
+  const hostile = `"><script>alert(1)</script>`;
+  const reply = await ownerView({
+    bytes: imageSceneBytes(hostile),
+    kind: "canvas",
+    assetResults: [[{ sha256: hostile }]],
+  });
+  const document = srcdocOf(reply.body);
+  assert.deepEqual(imageTagsOf(document), []);
+  assert.ok(document.includes('class="node node-image"'), document);
+  assert.equal(document.includes("<script>alert(1)</script>"), false);
+});
+
+test("alt text taken from the scene is escaped on the served page", async () => {
+  const hostile = `"><script>alert(1)</script>`;
+  const reply = await ownerView({
+    bytes: imageSceneBytes(IMAGE_DIGEST, hostile),
+    kind: "canvas",
+    assetResults: [[{ sha256: IMAGE_DIGEST }]],
+  });
+  const document = srcdocOf(reply.body);
+  const tag = imageTagsOf(document)[0] ?? "";
+  assert.ok(tag.includes('alt="&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"'), tag);
+  assert.equal(document.includes(hostile), false);
 });

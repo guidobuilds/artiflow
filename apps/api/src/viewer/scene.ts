@@ -9,11 +9,19 @@ import {
   type TextNode,
 } from "@artiflow/domain/scene";
 
-import { escapeAttribute } from "./html.ts";
+import { escapeAttribute, originOf, sceneDocumentCsp } from "./html.ts";
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const FUNCTIONAL_COLOR = /^(?:rgb|rgba|hsl|hsla)\(\s*[0-9.,%\s/+-]*\)$/;
 const NAMED_COLOR = /^[a-zA-Z]{3,24}$/;
+const HEX_SHA256 = /^[0-9a-f]{64}$/;
+
+export type SceneImages = {
+  origin: string;
+  artifactId: string;
+  digests: ReadonlySet<string>;
+  token?: string;
+};
 
 const safeColor = (value: string | undefined): string | null => {
   if (value === undefined) return null;
@@ -55,8 +63,18 @@ const renderText = (node: TextNode): string => {
   return `<div class="node node-text" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)};font-size:${px(size)};font-weight:${weight};color:${escapeAttribute(color)};text-align:${align}">${escapeAttribute(node.text)}</div>`;
 };
 
-const renderImage = (node: ImageNode): string =>
-  `<div class="node node-image" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)}"><span class="node-image-label">Image</span><code class="node-image-id">${escapeAttribute(node.assetId)}</code></div>`;
+const imageUrl = (node: ImageNode, images: SceneImages): string | null => {
+  if (!HEX_SHA256.test(node.assetId) || !images.digests.has(node.assetId)) return null;
+  const token = images.token === undefined ? "" : `?token=${encodeURIComponent(images.token)}`;
+  return `${images.origin}/artifact/${encodeURIComponent(images.artifactId)}/asset/${node.assetId}${token}`;
+};
+
+const renderImage = (node: ImageNode, images?: SceneImages): string => {
+  const url = images === undefined ? null : imageUrl(node, images);
+  if (url === null)
+    return `<div class="node node-image" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)}"><span class="node-image-label">Image</span><code class="node-image-id">${escapeAttribute(node.assetId)}</code></div>`;
+  return `<img class="node node-image node-image-asset" data-node-id="${escapeAttribute(node.id)}" alt="${escapeAttribute(node.id)}" src="${escapeAttribute(url)}" style="${geometry(node)};object-fit:contain">`;
+};
 
 const renderPath = (node: PathNode): string => {
   if (!(node.w > 0) || !(node.h > 0)) return "";
@@ -71,19 +89,19 @@ const renderPath = (node: PathNode): string => {
   return `<svg class="node node-path" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)}" viewBox="0 0 ${num(node.w)} ${num(node.h)}" fill="none" aria-hidden="true"><path d="${escapeAttribute(node.d)}" fill="${escapeAttribute(fill)}"${strokeAttributes}/></svg>`;
 };
 
-const renderNode = (node: SceneNode): string => {
+const renderNode = (node: SceneNode, images?: SceneImages): string => {
   if (node.type === "rect") return renderRect(node);
   if (node.type === "text") return renderText(node);
-  if (node.type === "image") return renderImage(node);
+  if (node.type === "image") return renderImage(node, images);
   if (node.type === "path") return renderPath(node);
   return "";
 };
 
-const renderFrame = (frame: SceneFrame, visible: boolean): string => {
+const renderFrame = (frame: SceneFrame, visible: boolean, images?: SceneImages): string => {
   const label = `${frame.name}, ${num(frame.w)} by ${num(frame.h)}`;
   return `<section class="scene-frame" id="frame-${escapeAttribute(frame.id)}" data-frame-id="${escapeAttribute(frame.id)}" data-frame-w="${num(frame.w)}" data-frame-h="${num(frame.h)}"${visible ? "" : " hidden"} aria-label="${escapeAttribute(label)}">
 <p class="scene-frame-name">${escapeAttribute(frame.name)}<span class="scene-frame-size">${num(frame.w)} × ${num(frame.h)}</span></p>
-<div class="scene-frame-body" style="width:${px(frame.w)};height:${px(frame.h)}">${frame.nodes.map(renderNode).join("")}</div>
+<div class="scene-frame-body" style="width:${px(frame.w)};height:${px(frame.h)}">${frame.nodes.map((node) => renderNode(node, images)).join("")}</div>
 </section>`;
 };
 
@@ -109,6 +127,7 @@ body{display:flex;flex-direction:column;overflow:hidden;background:#141414;color
 .node-image{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;overflow:hidden;border:1px dashed #b3b9bf;border-radius:4px;background:repeating-linear-gradient(45deg,#f5f6f7,#f5f6f7 6px,#eceef0 6px,#eceef0 12px);color:#5c636a}
 .node-image-label{font-size:9px;letter-spacing:.08em;text-transform:uppercase}
 .node-image-id{max-width:100%;overflow:hidden;font:11px ui-monospace,SFMono-Regular,Consolas,monospace;text-overflow:ellipsis;white-space:nowrap}
+.node-image-asset{display:block;border:0;border-radius:0;background:none;object-fit:contain}
 .scene-tools{position:absolute;top:12px;right:12px;z-index:2;display:flex;gap:6px}
 .scene-tools button{height:28px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#f4f4f2;font:500 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
 .scene-tools button:hover{background:#2c2c2c}
@@ -310,7 +329,13 @@ const SCENE_SCRIPT = `(() => {
   }
 })();`;
 
-export function renderSceneDocument(scene: Scene, frameId?: string): string {
+const BASE_DOCUMENT_CSP =
+  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
+
+export function renderSceneDocument(scene: Scene, frameId?: string, images?: SceneImages): string {
+  const origin = images === undefined ? null : originOf(images.origin);
+  const source = images !== undefined && origin !== null ? { ...images, origin } : undefined;
+  const policy = source === undefined ? BASE_DOCUMENT_CSP : sceneDocumentCsp(source.origin);
   const empty = scene.frames.length === 0;
   const title = scene.frames[0]?.name ?? "Canvas";
   const selected = scene.frames.find((frame) => frame.id === frameId) ?? scene.frames[0];
@@ -322,11 +347,11 @@ export function renderSceneDocument(scene: Scene, frameId?: string): string {
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
     : `<div class="scene-stage" id="stage">
 <div class="scene-tools"><button type="button" id="fit" title="Fit the frame to the screen">Fit</button></div>
-${scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId)).join("\n")}
+${scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId, source)).join("\n")}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene, selectedId)}</nav>`;
   return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeAttribute(title)}</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
 <style>
 ${DOCUMENT_CSS}
 </style></head>

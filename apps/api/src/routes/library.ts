@@ -13,7 +13,7 @@ import {
 } from "../adapters/postgres/db/artifact-schema.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { deleteArtifact, type DeletionWiring } from "../domain/deletion.ts";
-import { readableArtifactPredicate } from "../routes/sharing.ts";
+import { readableArtifactPredicate, sceneAssetDigests } from "../routes/sharing.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import type { McpBearerVerifier } from "../mcp/mount.ts";
 import type {
@@ -22,7 +22,15 @@ import type {
   ArtifactSummary,
   SharedArtifactListResponse,
 } from "@artiflow/contracts/artifacts";
-import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE, VIEWER_HEADERS, wrapperPage } from "../viewer/html.ts";
+import {
+  escapeAttribute,
+  NOT_FOUND_HEADERS,
+  NOT_FOUND_PAGE,
+  originOf,
+  sceneHeaders,
+  VIEWER_HEADERS,
+  wrapperPage,
+} from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
 import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
@@ -32,7 +40,7 @@ import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene } from "@artiflow/domain/scene";
 import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
-import { renderSceneDocument } from "../viewer/scene.ts";
+import { renderSceneDocument, type SceneImages } from "../viewer/scene.ts";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -245,18 +253,23 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       const scene = readScene(new TextDecoder().decode(read.value.bytes));
       if (!scene.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const frame = c.req.query("frame");
+      const origin = originOf(c.req.url);
+      const images: SceneImages | undefined =
+        origin === null
+          ? undefined
+          : { origin, artifactId: row.id, digests: await sceneAssetDigests(db, row.id, scene.value) };
       const srcdocUrl =
         frame === undefined ? `/artifact/${row.id}` : `/artifact/${row.id}?frame=${encodeURIComponent(frame)}`;
       return c.html(
         wrapperPage(
-          escapeAttribute(renderSceneDocument(scene.value, frame)),
+          escapeAttribute(renderSceneDocument(scene.value, frame, images)),
           embed ? undefined : "/",
           { title: row.title, version: row.revisionNumber },
           embed,
           { ...refresh, srcdocUrl },
         ),
         200,
-        VIEWER_HEADERS,
+        sceneHeaders(origin),
       );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));

@@ -8,6 +8,7 @@ import {
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
   SANDBOX,
+  sceneCsp,
   THEME_BOOTSTRAP,
   VIEWER_CSP,
   VIEWER_HEADERS,
@@ -504,8 +505,14 @@ test("the markdown page keeps its own policy and the fragment can only add text"
 
 test("the public share 200s all spread the widened viewer headers", () => {
   const source = readFileSync(new URL("../apps/api/src/routes/sharing.ts", import.meta.url), "utf8");
-  assert.equal([...source.matchAll(/\.\.\.VIEWER_HEADERS/g)].length, 3, "the markdown, HTML and scene share 200s");
+  assert.equal([...source.matchAll(/\.\.\.VIEWER_HEADERS/g)].length, 2, "the markdown and HTML share 200s");
+  assert.equal([...source.matchAll(/sceneHeaders\(origin\)/g)].length, 1, "the scene share 200 gets its own list");
   assert.equal(source.includes("WRAPPER_CSP"), false, "the share viewer never serves the narrow policy");
+  assert.equal(
+    sceneCsp("https://canvas.test"),
+    VIEWER_CSP.replace("img-src 'self'", "img-src https://canvas.test"),
+    "the scene list is the viewer list with one explicit image source",
+  );
   assert.equal(
     [...source.matchAll(/"x-robots-tag": "noindex"/g)].length,
     5,
