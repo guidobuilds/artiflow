@@ -191,7 +191,8 @@ export type RestoreDocumentInput = OpenDraftInput & {
   authorKind: DocumentAuthorKind;
   authorId: string;
   idempotencyKey: string;
-  text: string;
+  text?: string;
+  scene?: Scene;
 };
 
 export type RestoredDocument = {
@@ -547,19 +548,41 @@ async function freeze(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>
 const replaceWholeDocument = (formatVersion: number, text: string) =>
   applyDocumentOperations({ formatVersion, text: "" }, [{ op: "replace_document", text }]);
 
-export async function restoreDocument(input: RestoreDocumentInput): Promise<DocumentResult<RestoredDocument>> {
+const replaceWholeScene = (scene: Scene, replacement: Scene) =>
+  applySceneOperations(scene, [{ op: "replace_scene", scene: replacement }]);
+
+const restored = (input: {
+  artifactId: string;
+  seq: number;
+  revision: SnapshotRecord;
+  revisionId: string;
+  revisionNumber: number;
+  sha256: string;
+}): RestoredDocument => ({
+  artifactId: input.artifactId,
+  seq: input.seq,
+  publishedSeq: input.seq,
+  seqFrom: input.revision.seqFrom,
+  seqTo: input.revision.seqTo,
+  revisionId: input.revisionId,
+  revisionNumber: input.revisionNumber,
+  storageKey: input.revision.storageKey,
+  sha256: input.sha256,
+  sizeBytes: input.revision.sizeBytes,
+});
+
+const pendingChanges = (baseSeq: number, artifact: ArtifactDocumentState): DocumentFailure | null =>
+  baseSeq > artifact.publishedSeq ? fail("concurrent_edit", "pending_changes", { currentSeq: baseSeq }) : null;
+
+async function restoreText(
+  input: RestoreDocumentInput,
+  artifact: ArtifactDocumentState,
+): Promise<DocumentResult<RestoredDocument>> {
   const { store, storage, artifactId, authorKind, authorId, idempotencyKey, text } = input;
-  if (!isIdentifier(artifactId)) return fail("validation", "artifact_id_required");
-  if (!isIdentifier(authorId)) return fail("validation", "author_id_required");
-  if (!(DOCUMENT_AUTHOR_KINDS as readonly string[]).includes(authorKind))
-    return fail("validation", "unknown_author_kind");
-  if (!isIdentifier(idempotencyKey)) return fail("validation", "idempotency_key_required");
   if (typeof text !== "string") return fail("validation", "text_required");
-  const artifact = await store.readArtifact(artifactId);
-  if (!artifact) return fail("not_found", "artifact_not_found");
   const draft = await store.readDraft(artifactId);
-  if (draft && draft.seq > artifact.publishedSeq)
-    return fail("concurrent_edit", "pending_changes", { currentSeq: draft.seq });
+  const pending = pendingChanges(draft?.seq ?? artifact.publishedSeq, artifact);
+  if (pending) return pending;
   const baseSeq = draft?.seq ?? artifact.publishedSeq;
   const seq = baseSeq + 1;
   const formatVersion = draft?.formatVersion ?? artifact.latestSnapshot?.formatVersion ?? DOCUMENT_FORMAT_VERSION;
@@ -613,18 +636,108 @@ export async function restoreDocument(input: RestoreDocumentInput): Promise<Docu
     const current = await store.readDraft(artifactId);
     return fail("concurrent_edit", "snapshot_raced", { currentSeq: current?.seq ?? baseSeq });
   }
-  return ok({
+  return ok(
+    restored({
+      artifactId,
+      seq,
+      revision,
+      revisionId: committed.revisionId,
+      revisionNumber: committed.revisionNumber,
+      sha256,
+    }),
+  );
+}
+
+async function restoreScene(
+  input: RestoreDocumentInput,
+  artifact: ArtifactDocumentState,
+): Promise<DocumentResult<RestoredDocument>> {
+  const { store, storage, artifactId, authorKind, authorId, idempotencyKey } = input;
+  const pinned = input.scene;
+  if (pinned === undefined) return fail("validation", "scene_required");
+  const checked = validateScene(pinned);
+  if (!checked.ok) return fail("validation", "scene_invalid");
+  const now = input.now ?? new Date();
+  const opened = await openDraft({ store, storage, artifactId, now });
+  if (!opened.ok) return opened;
+  const current = opened.value;
+  if (current.scene === null) return fail("error", "draft_state_invalid");
+  const pending = pendingChanges(current.seq, artifact);
+  if (pending) return pending;
+  const baseSeq = current.seq;
+  const seq = baseSeq + 1;
+  const applied = replaceWholeScene(current.scene, checked.value);
+  if (!applied.ok) return fail("operation_rejected", applied.reason, { currentSeq: baseSeq, opIndex: applied.opIndex });
+  const scene = { formatVersion: applied.value.formatVersion, scene: applied.value.scene };
+  const bytes = sceneBytes(scene.scene);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const storageKey = newRevisionStorageKey();
+  const stored = await putRevisionBytes({ storage, storageKey, sha256, bytes });
+  if (!stored.ok) return fail(storageKind(stored.kind), stored.reason);
+  const revision: SnapshotRecord = {
+    artifactId,
+    formatVersion: scene.formatVersion,
+    seqFrom: seq,
+    seqTo: seq,
+    sizeBytes: stored.value.sizeBytes,
+    sha256,
+    storageKey: stored.value.storageKey,
+    blockIndex: sceneBlockIndex(scene.scene),
+    createdAt: now,
+  };
+  const operations: SceneOperation[] = [{ op: "replace_scene", scene: checked.value }];
+  const operation: OperationRecord = {
     artifactId,
     seq,
-    publishedSeq: seq,
-    seqFrom: revision.seqFrom,
-    seqTo: revision.seqTo,
-    revisionId: committed.revisionId,
-    revisionNumber: committed.revisionNumber,
-    storageKey: revision.storageKey,
-    sha256,
-    sizeBytes: revision.sizeBytes,
+    baseSeq,
+    authorKind,
+    authorId,
+    ops: operations,
+    result: "applied",
+    idempotencyKey,
+    createdAt: now,
+  };
+  const nextDraft: DraftRecord = {
+    artifactId,
+    seq,
+    formatVersion: scene.formatVersion,
+    state: { formatVersion: scene.formatVersion, scene: scene.scene },
+    updatedByUserId: authorKind === "person" ? authorId : null,
+    updatedAt: now,
+  };
+  const committed = await store.commitSnapshot({
+    revision,
+    expectedPublishedSeq: artifact.publishedSeq,
+    expectedDraftSeq: baseSeq,
+    operation,
+    draft: nextDraft,
   });
+  if (!committed.committed || committed.revisionId === null || committed.revisionNumber === null) {
+    const latest = await store.readDraft(artifactId);
+    return fail("concurrent_edit", "snapshot_raced", { currentSeq: latest?.seq ?? baseSeq });
+  }
+  return ok(
+    restored({
+      artifactId,
+      seq,
+      revision,
+      revisionId: committed.revisionId,
+      revisionNumber: committed.revisionNumber,
+      sha256,
+    }),
+  );
+}
+
+export async function restoreDocument(input: RestoreDocumentInput): Promise<DocumentResult<RestoredDocument>> {
+  const { store, artifactId, authorId, authorKind, idempotencyKey } = input;
+  if (!isIdentifier(artifactId)) return fail("validation", "artifact_id_required");
+  if (!isIdentifier(authorId)) return fail("validation", "author_id_required");
+  if (!(DOCUMENT_AUTHOR_KINDS as readonly string[]).includes(authorKind))
+    return fail("validation", "unknown_author_kind");
+  if (!isIdentifier(idempotencyKey)) return fail("validation", "idempotency_key_required");
+  const artifact = await store.readArtifact(artifactId);
+  if (!artifact) return fail("not_found", "artifact_not_found");
+  return kindOf(artifact) === "canvas" ? restoreScene(input, artifact) : restoreText(input, artifact);
 }
 
 export async function freezeIfDue(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>> {

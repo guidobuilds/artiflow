@@ -127,6 +127,7 @@ export const ARTIFACT_TOOL_NAMES = [
   "document_publish",
   "scene_outline",
   "scene_read",
+  "scene_apply",
   "asset_upload",
 ] as const;
 export type ArtifactToolName = (typeof ARTIFACT_TOOL_NAMES)[number];
@@ -142,7 +143,7 @@ export const DOCUMENT_TOOL_NAMES = [
 ] as const;
 export type DocumentToolName = (typeof DOCUMENT_TOOL_NAMES)[number];
 
-export const SCENE_TOOL_NAMES = ["scene_outline", "scene_read"] as const;
+export const SCENE_TOOL_NAMES = ["scene_outline", "scene_read", "scene_apply"] as const;
 export type SceneToolName = (typeof SCENE_TOOL_NAMES)[number];
 
 export const ASSET_TOOL_NAMES = ["asset_upload"] as const;

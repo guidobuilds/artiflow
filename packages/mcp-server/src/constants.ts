@@ -23,6 +23,7 @@ export const MAX_DOCUMENT_READ_LINES = 200;
 export const MAX_DOCUMENT_READ_BYTES = 65_536;
 export const MAX_DOCUMENT_QUERY_RESULTS = 50;
 export const MAX_DOCUMENT_APPLY_OPS = 50;
+export const MAX_SCENE_APPLY_OPS = 50;
 export const MAX_DOCUMENT_DIFF_ENTRIES = 200;
 export const MAX_SCENE_READ_NODES = 200;
 export const MAX_SCENE_READ_BYTES = 65_536;

@@ -12,7 +12,16 @@ import {
   type DocumentBlock,
   type DocumentOperation,
 } from "@artiflow/domain/document-operations";
-import { readScene, sceneOutline, sceneSubtree, type Scene } from "@artiflow/domain/scene";
+import {
+  NODE_TYPES,
+  SCENE_MAX_FRAMES,
+  SCENE_MAX_NODES,
+  readScene,
+  sceneOutline,
+  sceneSubtree,
+  type Scene,
+} from "@artiflow/domain/scene";
+import type { SceneOperation } from "@artiflow/domain/scene-operations";
 import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
 import {
   McpRollback,
@@ -45,6 +54,7 @@ import {
   MAX_DOCUMENT_READ_LINES,
   MAX_MCP_ASSET_BASE64_CHARS,
   MAX_MCP_ASSET_BYTES,
+  MAX_SCENE_APPLY_OPS,
   MAX_SCENE_READ_BYTES,
   MAX_SCENE_READ_NODES,
   digestOf,
@@ -66,6 +76,7 @@ type DocumentRefusal = {
   opIndex?: number;
   artifactKind?: string;
 };
+
 class RollbackReply extends McpRollback<ToolReply> {}
 
 const refusal = pkgRefusal;
@@ -963,28 +974,38 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       },
     );
 
+    const sceneFailure = (failure: DocumentRefusal, artifactId: string): ToolReply =>
+      failure.kind === "error"
+        ? refusal(
+            "invalid_scene",
+            failure.reason === "snapshot_is_not_valid_scene" ? "malformed_scene" : failure.reason,
+            {
+              artifactId,
+            },
+          )
+        : documentFailure(failure, artifactId);
     const canvasScene = async (
       userId: string,
       artifactId: string,
-    ): Promise<{ revisionId: string; scene: Scene } | ToolReply> => {
+    ): Promise<{ revisionId: string; seq: number; scene: Scene } | ToolReply> => {
       const row = await selectReadRevision(undefined, userId, artifactId);
       if (!row) return refusal("not_found", "artifact_not_visible_to_owner", { artifactId });
       if (row.deletedAt) return refusal("gone", "artifact_deleted", { artifactId });
       if (row.kind !== "canvas")
         return refusal("wrong_kind", "artifact_is_not_a_canvas", { artifactId, kind: row.kind });
-      if (!row.id || !row.sha256 || !row.storageKey) return refusal("not_found", "revision_not_found", { artifactId });
-      const read = await getRevisionBytes({ storageKey: row.storageKey, maxBytes: MAX_ARTIFACT_BYTES });
-      if (!read.ok) return refusalOf(read);
-      const parsed = readScene(new TextDecoder().decode(read.value.bytes));
+      if (!row.id) return refusal("not_found", "revision_not_found", { artifactId });
+      const draft = await backend.documentDraft(userId, artifactId);
+      if (!draft.ok) return sceneFailure(draft, artifactId);
+      const parsed = readScene(draft.value.text);
       if (!parsed.ok) return refusal("invalid_scene", parsed.reason, { artifactId, path: parsed.path });
-      return { revisionId: row.id, scene: parsed.value };
+      return { revisionId: row.id, seq: draft.value.seq, scene: parsed.value };
     };
     server.registerTool(
       "scene_outline",
       {
         title: "Outline a canvas scene",
         annotations: { readOnlyHint: true },
-        description: `Return the frame index of one owned canvas's current revision: one entry per frame with its id, name, node count and bbox, plus the scene format version — never the node bodies, so a canvas with hundreds of nodes costs one line per frame. Requires ${readScope}. The frame ids are what scene_read accepts; any artifact kind that is not a canvas refuses with wrong_kind.`,
+        description: `Return the frame index of one owned canvas's current draft: one entry per frame with its id, name, node count and bbox, plus the scene format version and the draft sequence — never the node bodies, so a canvas with hundreds of nodes costs one line per frame. Requires ${readScope}. The frame ids are what scene_read accepts; any artifact kind that is not a canvas refuses with wrong_kind.`,
         inputSchema: { artifactId: documentIdSchema },
       },
       async ({ artifactId }) => {
@@ -996,6 +1017,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         return reply({
           artifactId,
           revisionId: loaded.revisionId,
+          seq: loaded.seq,
           formatVersion: loaded.scene.formatVersion,
           frameCount: frames.length,
           frames,
@@ -1007,7 +1029,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       {
         title: "Read one canvas frame",
         annotations: { readOnlyHint: true },
-        description: `Read one frame of one owned canvas's current revision: its id, name, geometry, bbox and nodes, narrowed to nodeIds when given. Requires ${readScope}. One read returns at most ${MAX_SCENE_READ_NODES} nodes and at most ${MAX_SCENE_READ_BYTES} bytes of frame JSON; a wider request refuses with too_large and its named reason instead of truncating, so narrow it with nodeIds or read another frame. An id the scene does not hold refuses with unknown_frame or unknown_node, and any artifact kind that is not a canvas refuses with wrong_kind.`,
+        description: `Read one frame of one owned canvas's current draft: its id, name, geometry, bbox and nodes, narrowed to nodeIds when given. Requires ${readScope}. One read returns at most ${MAX_SCENE_READ_NODES} nodes and at most ${MAX_SCENE_READ_BYTES} bytes of frame JSON; a wider request refuses with too_large and its named reason instead of truncating, so narrow it with nodeIds or read another frame. An id the scene does not hold refuses with unknown_frame or unknown_node, and any artifact kind that is not a canvas refuses with wrong_kind.`,
         inputSchema: {
           artifactId: documentIdSchema,
           frameId: z.string().min(1).max(200),
@@ -1053,7 +1075,127 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             maxBytes: MAX_SCENE_READ_BYTES,
             observedBytes,
           });
-        return reply({ artifactId, revisionId: loaded.revisionId, frame: projected });
+        return reply({ artifactId, revisionId: loaded.revisionId, seq: loaded.seq, frame: projected });
+      },
+    );
+    const sceneId = z.string().min(1).max(200);
+    const sceneNode = z.looseObject({
+      id: sceneId,
+      type: z.enum(NODE_TYPES),
+      x: z.number(),
+      y: z.number(),
+      w: z.number(),
+      h: z.number(),
+    });
+    const sceneFrame = z.looseObject({
+      id: sceneId,
+      name: z.string().min(1).max(200),
+      x: z.number(),
+      y: z.number(),
+      w: z.number(),
+      h: z.number(),
+      nodes: z.array(sceneNode).max(SCENE_MAX_NODES),
+    });
+    const sceneDocument = z.looseObject({
+      formatVersion: z.number().int().min(1),
+      frames: z.array(sceneFrame).max(SCENE_MAX_FRAMES),
+    });
+    const sceneFramePatch = z.looseObject({
+      name: z.string().min(1).max(200).optional(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      w: z.number().optional(),
+      h: z.number().optional(),
+    });
+    const sceneNodePatch = z.looseObject({
+      x: z.number().optional(),
+      y: z.number().optional(),
+      w: z.number().optional(),
+      h: z.number().optional(),
+      type: z.string().min(1).optional(),
+      fill: z.string().min(1).optional(),
+      radius: z.number().min(0).optional(),
+      text: z.string().optional(),
+      assetId: z.string().min(1).optional(),
+      d: z.string().min(1).optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.number().optional(),
+      style: z.record(z.string(), z.unknown()).optional(),
+    });
+    const sceneOp = z.discriminatedUnion("op", [
+      z.object({ op: z.literal("add_frame"), frame: sceneFrame }),
+      z.object({ op: z.literal("update_frame"), id: sceneId, props: sceneFramePatch }),
+      z.object({ op: z.literal("remove_frame"), id: sceneId }),
+      z.object({ op: z.literal("add_node"), frameId: sceneId, node: sceneNode }),
+      z.object({ op: z.literal("update_node"), id: sceneId, props: sceneNodePatch }),
+      z.object({
+        op: z.literal("move_node"),
+        id: sceneId,
+        x: z.number(),
+        y: z.number(),
+        w: z.number().optional(),
+        h: z.number().optional(),
+      }),
+      z.object({ op: z.literal("remove_node"), id: sceneId }),
+      z.object({ op: z.literal("replace_scene"), scene: sceneDocument }),
+    ]);
+    server.registerTool(
+      "scene_apply",
+      {
+        title: "Apply operations to a canvas scene",
+        description: `Apply a batch of id-addressed operations to one owned canvas in one atomic call, instead of resending the scene. Requires ${scope}. baseSeq is the draft sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: add_frame, update_frame, remove_frame, add_node, update_node, move_node, remove_node and replace_scene (the escape hatch that replaces the whole scene). A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged scene. The reply carries the new sequence, how many operations applied, the computed box of every touched node so the result can be judged without pixels, the violations the scene engine reports, and whether this call froze a snapshot: published reports whether it froze one and revisionId names it.`,
+        inputSchema: {
+          artifactId: documentIdSchema,
+          baseSeq: z.number().int().min(0),
+          idempotencyKey: z.string().min(1).max(100),
+          ops: z.array(sceneOp).min(1).max(MAX_SCENE_APPLY_OPS),
+        },
+        outputSchema: {
+          artifactId: z.string(),
+          baseSeq: z.number().int(),
+          seq: z.number().int(),
+          applied: z.number().int(),
+          replayed: z.boolean(),
+          published: z.boolean(),
+          revisionId: z.string().nullable(),
+          boxes: z.array(
+            z.object({
+              id: z.string(),
+              frameId: z.string(),
+              x: z.number(),
+              y: z.number(),
+              w: z.number(),
+              h: z.number(),
+            }),
+          ),
+          violations: z.array(z.looseObject({ reason: z.string(), path: z.string() })),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        const applied = await backend.sceneApply({
+          artifactId: input.artifactId,
+          ownerId: access.userId,
+          authorKind: "agent",
+          authorId: access.userId,
+          baseSeq: input.baseSeq,
+          idempotencyKey: input.idempotencyKey,
+          ops: input.ops as SceneOperation[],
+        });
+        if (!applied.ok) return documentFailure(applied, input.artifactId);
+        const value = {
+          artifactId: input.artifactId,
+          baseSeq: input.baseSeq,
+          seq: applied.value.seq,
+          applied: applied.value.applied,
+          replayed: applied.value.replayed,
+          published: applied.value.published,
+          revisionId: applied.value.revisionId,
+          boxes: applied.value.boxes,
+          violations: applied.value.violations,
+        };
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
       },
     );
 

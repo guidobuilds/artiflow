@@ -67,7 +67,8 @@ network, keeps no storage and loads no external font or script.
 
 ## What it does not do yet
 
-- **No editor.** A canvas is published whole by an agent; nothing in the dashboard changes it.
+- **No editor yet.** An agent edits a canvas by operation; the dashboard screen for editing it is the
+  next slice.
 - **No comments.** Node anchors arrive with the editing phase. The viewer mounts no comment panel,
   because a point anchor without a node would detach the moment the node moves.
 - **No shared layout engine.** Nodes carry absolute geometry. Automatic layout arrives with the
@@ -79,4 +80,9 @@ network, keeps no storage and loads no external font or script.
 
 `scene_outline` returns the frames only — id, name, node count and bounds — and `scene_read` returns
 one frame with its nodes, optionally narrowed by node ids. That is deliberate: a scene of a few
-hundred nodes is not something to pull down in full on every turn of a conversation.
+hundred nodes is not something to pull down in full on every turn of a conversation. Both read the
+current draft when there is one, so an agent sees what it just changed.
+
+`scene_apply` is the write tool: a batch of id-addressed operations against a base sequence, atomic,
+and its answer carries the absolute box of every node the batch touched plus any violation the final
+validation found — the closest thing to eyes an agent gets without a renderer.

@@ -1143,3 +1143,128 @@ test("publishing a canvas writes the canonical scene bytes with the scene index 
   const reopened = await openDraft({ store: seeded.store, storage, artifactId: "c1" });
   assert.deepEqual(reopened.ok && reopened.value.scene, scene, "the published snapshot describes the same scene");
 });
+
+test("restoring a canvas applies one replace_scene and publishes the pinned scene bytes", async () => {
+  const seeded = fakeStore({ artifactId: "c1", kind: "canvas" });
+  const storage = fakeStorage();
+  const pinned = canonicalScene(CANVAS_SCENE);
+  seeded.seedSnapshot(storage, pinned);
+  const pinnedRevision = seeded.revisions[0] as FakeRevision;
+  const edited = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "person",
+    authorId: "u1",
+    baseSeq: 0,
+    idempotencyKey: "canvas-edit",
+    ops: [{ op: "move_node", id: "n1", x: 40, y: 30 }],
+    now: NOW,
+  });
+  assert.equal(edited.ok, true, edited.ok ? "" : edited.reason);
+  const published = await publish({ store: seeded.store, storage, artifactId: "c1", now: NOW });
+  assert.equal(published.ok && published.value.frozen, true, published.ok ? "" : published.reason);
+  const rewound = await restoreDocument({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "person",
+    authorId: "u1",
+    idempotencyKey: "canvas-restore",
+    scene: CANVAS_SCENE,
+    now: NOW,
+  });
+  assert.equal(rewound.ok, true, rewound.ok ? "" : rewound.reason);
+  if (!rewound.ok) return;
+  assert.deepEqual(
+    [rewound.value.seq, rewound.value.publishedSeq, rewound.value.seqFrom, rewound.value.seqTo],
+    [2, 2, 2, 2],
+    "the restore is one operation published at once",
+  );
+  assert.equal(rewound.value.revisionNumber, 3);
+  const operation = seeded.operations[1] as FakeOperation;
+  assert.deepEqual([operation.seq, operation.baseSeq, operation.result], [2, 1, "applied"]);
+  assert.deepEqual(operation.ops, [{ op: "replace_scene", scene: CANVAS_SCENE }], "one replace_scene lands");
+  const revision = seeded.revisions[2] as FakeRevision;
+  assert.equal(rewound.value.revisionId, revision.id);
+  assert.equal(revision.sha256, pinnedRevision.sha256, "the restored bytes keep the pinned scene's digest");
+  assert.equal(
+    new TextDecoder().decode(storage.objects.get(revision.storageKey) as Uint8Array),
+    pinned,
+    "the published object is the pinned revision's scene",
+  );
+  assert.deepEqual(revision.blockIndex, sceneBlockIndex(CANVAS_SCENE), "the block index is the restored scene");
+  assert.deepEqual(
+    draftOf(seeded, "c1").state,
+    { formatVersion: SCENE_FORMAT_VERSION, scene: CANVAS_SCENE },
+    "the draft carries the restored scene, not bytes",
+  );
+  assert.equal(draftOf(seeded, "c1").seq, 2);
+  assert.deepEqual(
+    [seeded.artifacts.get("c1")?.publishedSeq, seeded.artifacts.get("c1")?.currentRevisionId],
+    [2, revision.id],
+  );
+  const reopened = await openDraft({ store: seeded.store, storage, artifactId: "c1" });
+  assert.deepEqual(reopened.ok && reopened.value.scene, CANVAS_SCENE, "the applier opens the restored draft");
+});
+
+test("a canvas restore refuses a text restore instead of writing a text draft", async () => {
+  const seeded = fakeStore({ artifactId: "c1", kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const refusedRestore = await restoreDocument({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "person",
+    authorId: "u1",
+    idempotencyKey: "canvas-restore",
+    text: PUBLISHED,
+    now: NOW,
+  });
+  assert.equal(refusedRestore.ok, false);
+  if (refusedRestore.ok) return;
+  assert.equal(refusedRestore.kind, "validation");
+  assert.equal(refusedRestore.reason, "scene_required");
+  assert.equal(seeded.operations.length, 0, "the refusal appends no operation row");
+  assert.equal(seeded.revisions.length, 1, "the refusal writes no snapshot");
+  assert.equal(seeded.drafts.size, 0, "the refusal writes no text draft the applier would reject");
+  assert.equal(storage.objects.size, 1, "the refusal stores no object");
+});
+
+test("a canvas restore refuses an unpublished draft and leaves its scene alone", async () => {
+  const seeded = fakeStore({ artifactId: "c1", kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const edited = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "person",
+    authorId: "someone-else",
+    baseSeq: 0,
+    idempotencyKey: "canvas-edit",
+    ops: [{ op: "move_node", id: "n1", x: 40, y: 30 }],
+    now: NOW,
+  });
+  assert.equal(edited.ok, true, edited.ok ? "" : edited.reason);
+  const scene = canonicalScene(canvasSceneOf(seeded));
+  const refusedRestore = await restoreDocument({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "person",
+    authorId: "u1",
+    idempotencyKey: "canvas-restore",
+    scene: CANVAS_SCENE,
+    now: NOW,
+  });
+  assert.equal(refusedRestore.ok, false);
+  if (refusedRestore.ok) return;
+  assert.equal(refusedRestore.kind, "concurrent_edit");
+  assert.equal(refusedRestore.reason, "pending_changes");
+  assert.equal(refusedRestore.currentSeq, 1);
+  assert.equal(seeded.operations.length, 1, "the refusal appends no operation row");
+  assert.equal(seeded.revisions.length, 1, "the refusal writes no snapshot");
+  assert.equal(canonicalScene(canvasSceneOf(seeded)), scene, "the unpublished scene survives");
+});

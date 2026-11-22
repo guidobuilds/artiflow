@@ -7,9 +7,12 @@ import {
   type McpCommentRow,
   type McpDocumentApplyInput,
   type McpDocumentCreateInput,
+  type McpDocumentDraft,
   type McpDocumentState,
   type McpExecutor,
   type McpResult,
+  type McpSceneApplied,
+  type McpSceneApplyInput,
   type McpUploadRow,
   McpRollback,
 } from "@artiflow/mcp-server/ports";
@@ -63,10 +66,15 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
   const db = database.db;
   const documents = drizzleDocumentStore(database);
   const executorOf = (executor: McpExecutor): AppDb | AppTx => (executor ?? db) as AppDb;
-  const documentOf = async (ownerId: string, artifactId: string): Promise<McpResult<{ kind: string }>> => {
+  const ownedState = async (ownerId: string, artifactId: string) => {
     const state = await getCurrentState(db, artifactId, ownerId);
-    if (!state.ok) return { ok: false, kind: state.kind, reason: state.reason };
-    if (state.value.deletedAt) return { ok: false, kind: "gone", reason: "artifact_deleted" };
+    if (!state.ok) return { ok: false as const, kind: state.kind, reason: state.reason };
+    if (state.value.deletedAt) return { ok: false as const, kind: "gone", reason: "artifact_deleted" };
+    return { ok: true as const, value: state.value };
+  };
+  const documentOf = async (ownerId: string, artifactId: string): Promise<McpResult<{ kind: string }>> => {
+    const state = await ownedState(ownerId, artifactId);
+    if (!state.ok) return state;
     if (!acceptsTextOperations(state.value.kind))
       return {
         ok: false,
@@ -74,6 +82,13 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
         reason: "artifact_is_not_a_markdown_document",
         artifactKind: state.value.kind,
       };
+    return { ok: true, value: { kind: state.value.kind } };
+  };
+  const canvasOf = async (ownerId: string, artifactId: string): Promise<McpResult<{ kind: string }>> => {
+    const state = await ownedState(ownerId, artifactId);
+    if (!state.ok) return state;
+    if (state.value.kind !== "canvas")
+      return { ok: false, kind: "wrong_kind", reason: "artifact_is_not_a_canvas", artifactKind: state.value.kind };
     return { ok: true, value: { kind: state.value.kind } };
   };
   const digestOfKey = async (storageKey: string): Promise<string | null> =>
@@ -167,6 +182,16 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
         },
       };
     },
+    documentDraft: async (ownerId: string, artifactId: string): Promise<McpResult<McpDocumentDraft>> => {
+      const state = await ownedState(ownerId, artifactId);
+      if (!state.ok) return state;
+      const opened = await openDraft({ store: documents, storage, artifactId });
+      if (!opened.ok) return { ok: false, kind: opened.kind, reason: opened.reason };
+      return {
+        ok: true,
+        value: { artifactId, kind: state.value.kind, seq: opened.value.seq, text: opened.value.text },
+      };
+    },
     documentTextAt: async (ownerId: string, artifactId: string, seq: number) => {
       const described = await documentOf(ownerId, artifactId);
       if (!described.ok) return described;
@@ -223,6 +248,41 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
           revisionNumber: value.revisionNumber,
           seqFrom: value.seqFrom,
           seqTo: value.publishedSeq,
+        },
+      };
+    },
+    sceneApply: async (input: McpSceneApplyInput): Promise<McpResult<McpSceneApplied>> => {
+      const described = await canvasOf(input.ownerId, input.artifactId);
+      if (!described.ok) return described;
+      const applied = await applyOperationsAndFreeze({
+        store: documents,
+        storage,
+        artifactId: input.artifactId,
+        authorKind: input.authorKind,
+        authorId: input.authorId,
+        baseSeq: input.baseSeq,
+        idempotencyKey: input.idempotencyKey,
+        ops: input.ops,
+      });
+      if (!applied.ok)
+        return {
+          ok: false,
+          kind: applied.kind,
+          reason: applied.reason,
+          currentSeq: applied.currentSeq,
+          opIndex: applied.opIndex,
+        };
+      return {
+        ok: true,
+        value: {
+          artifactId: input.artifactId,
+          seq: applied.value.seq,
+          applied: applied.value.applied,
+          replayed: applied.value.replayed,
+          published: applied.value.published,
+          revisionId: applied.value.revisionId,
+          boxes: applied.value.boxes,
+          violations: applied.value.violations,
         },
       };
     },
