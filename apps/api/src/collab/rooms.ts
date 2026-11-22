@@ -1,3 +1,4 @@
+import { MARKDOWN_DOC_FIELD, readMarkdownFromFragment, replaceMarkdownInFragment } from "@artiflow/domain/markdown-doc";
 import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import * as Y from "yjs";
 
@@ -6,7 +7,7 @@ import { onOperationsApplied, openDraft, type DocumentStore } from "../domain/do
 import { flushDocumentText, type FlushBase, type FlushOutcome } from "./flush.ts";
 
 export const COLLAB_DEBOUNCE_MS = 1_500;
-export const COLLAB_MARKDOWN_FIELD = "markdown";
+export const COLLAB_MARKDOWN_FIELD = MARKDOWN_DOC_FIELD;
 
 const LOAD_ORIGIN = "collab:load";
 const INVALIDATE_ORIGIN = "collab:invalidate";
@@ -23,6 +24,7 @@ export type Room = {
   awareness: Awareness;
   clients: Set<RoomConnection>;
   lastFlushed: FlushBase;
+  baseline: string;
   authorId: string;
   timer: ReturnType<typeof setTimeout> | null;
   flushing: Promise<unknown>;
@@ -56,24 +58,10 @@ export function createRooms(input: RoomsInput): Rooms {
   const log = input.log ?? ((line: string): void => console.error(line));
   const now = input.now ?? ((): Date => new Date());
 
-  const markdownOf = (room: Room): string => room.doc.getText(COLLAB_MARKDOWN_FIELD).toString();
+  const markdownOf = (room: Room): string => readMarkdownFromFragment(room.doc.getXmlFragment(COLLAB_MARKDOWN_FIELD));
 
-  function writeText(room: Room, next: string, origin: string): void {
-    const text = room.doc.getText(COLLAB_MARKDOWN_FIELD);
-    const current = text.toString();
-    if (current === next) return;
-    const limit = Math.min(current.length, next.length);
-    let prefix = 0;
-    while (prefix < limit && current[prefix] === next[prefix]) prefix += 1;
-    let suffix = 0;
-    while (suffix < limit - prefix && current[current.length - 1 - suffix] === next[next.length - 1 - suffix])
-      suffix += 1;
-    room.doc.transact(() => {
-      const removed = current.length - prefix - suffix;
-      if (removed > 0) text.delete(prefix, removed);
-      const inserted = next.slice(prefix, next.length - suffix);
-      if (inserted.length > 0) text.insert(prefix, inserted);
-    }, origin);
+  function writeMarkdown(room: Room, next: string, origin: string): void {
+    room.doc.transact(() => replaceMarkdownInFragment(room.doc.getXmlFragment(COLLAB_MARKDOWN_FIELD), next), origin);
   }
 
   function schedule(room: Room): void {
@@ -95,6 +83,7 @@ export function createRooms(input: RoomsInput): Rooms {
         awareness: new Awareness(doc),
         clients: new Set(),
         lastFlushed: { text: opened.value.text, seq: opened.value.seq },
+        baseline: "",
         authorId: userId,
         timer: null,
         flushing: Promise.resolve(),
@@ -127,9 +116,8 @@ export function createRooms(input: RoomsInput): Rooms {
           }
         },
       );
-      if (opened.value.text.length > 0) {
-        doc.transact(() => doc.getText(COLLAB_MARKDOWN_FIELD).insert(0, opened.value.text), LOAD_ORIGIN);
-      }
+      if (opened.value.text.length > 0) writeMarkdown(room, opened.value.text, LOAD_ORIGIN);
+      room.baseline = markdownOf(room);
       rooms.set(artifactId, room);
       return { ok: true as const, room };
     });
@@ -162,6 +150,7 @@ export function createRooms(input: RoomsInput): Rooms {
     const run = async (): Promise<FlushOutcome> => {
       try {
         const text = markdownOf(room);
+        if (text === room.baseline) return { status: "unchanged", seq: room.lastFlushed.seq };
         const outcome = await flushDocumentText({
           store,
           storage,
@@ -171,7 +160,10 @@ export function createRooms(input: RoomsInput): Rooms {
           base: room.lastFlushed,
           now: now(),
         });
-        if (outcome.status === "applied") room.lastFlushed = { text: outcome.text, seq: outcome.seq };
+        if (outcome.status === "applied") {
+          room.lastFlushed = { text: outcome.text, seq: outcome.seq };
+          room.baseline = outcome.text;
+        }
         if (outcome.status === "failed")
           log(`[collab] flush of ${room.artifactId} failed: ${outcome.reason} after ${outcome.attempts} attempt(s)`);
         return outcome;
@@ -212,7 +204,7 @@ export function createRooms(input: RoomsInput): Rooms {
     try {
       const room = rooms.get(artifactId);
       if (room === undefined) return;
-      if (markdownOf(room) !== room.lastFlushed.text) await flush(room);
+      if (markdownOf(room) !== room.baseline) await flush(room);
       const opened = await openDraft({ store, storage, artifactId, now: now() });
       if (!opened.ok) {
         log(`[collab] cannot invalidate ${artifactId}: ${opened.reason}`);
@@ -221,7 +213,8 @@ export function createRooms(input: RoomsInput): Rooms {
       const current = rooms.get(artifactId);
       if (current !== room) return;
       room.lastFlushed = { text: opened.value.text, seq: opened.value.seq };
-      writeText(room, opened.value.text, INVALIDATE_ORIGIN);
+      writeMarkdown(room, opened.value.text, INVALIDATE_ORIGIN);
+      room.baseline = markdownOf(room);
     } catch (error) {
       log(`[collab] invalidation of ${artifactId} threw: ${error instanceof Error ? error.name : "unknown error"}`);
     }

@@ -12,6 +12,7 @@ import {
   type OperationRecord,
   type SnapshotRecord,
 } from "../apps/api/src/domain/documents/service.ts";
+import { readMarkdownFromFragment, replaceMarkdownInFragment } from "@artiflow/domain/markdown-doc";
 import {
   COLLAB_DEBOUNCE_MS,
   COLLAB_MARKDOWN_FIELD,
@@ -223,6 +224,12 @@ const textOf = (seeded: Seeded, artifactId = "a1"): string => {
   return (draft.state as { text: string }).text;
 };
 
+const roomText = (room: Room): string => readMarkdownFromFragment(room.doc.getXmlFragment(COLLAB_MARKDOWN_FIELD));
+
+function editRoom(room: Room, text: string): void {
+  room.doc.transact(() => replaceMarkdownInFragment(room.doc.getXmlFragment(COLLAB_MARKDOWN_FIELD), text), null);
+}
+
 async function waitFor(check: () => boolean, label: string, timeoutMs = 4000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -276,7 +283,7 @@ test("the first join loads the current draft and a second join shares the same r
   seeded.seedSnapshot(storage, START);
   const rooms = createRooms({ store: seeded.store, storage, debounceMs: 20, log: (): void => undefined });
   const first = await joined(seeded, rooms, "person-1");
-  assert.equal(first.room.doc.getText(COLLAB_MARKDOWN_FIELD).toString(), START, "the room loads the draft text");
+  assert.equal(roomText(first.room), START, "the room loads the draft text into its fragment");
   const second = await joined(seeded, rooms, "person-2");
   assert.equal(second.room, first.room, "one room per artifact");
   assert.equal(rooms.size(), 1);
@@ -287,13 +294,33 @@ test("the first join loads the current draft and a second join shares the same r
   await rooms.closeAll();
 });
 
+test("opening and closing a document whose stored text is not canonical appends no operation", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  const raw = "| A | B |\n| --- | --- |\n| 1 | 2 |\n";
+  seeded.drafts.set("a1", {
+    artifactId: "a1",
+    seq: 0,
+    formatVersion: 1,
+    state: { formatVersion: 1, text: raw },
+    updatedByUserId: null,
+    updatedAt: NOW,
+  });
+  const rooms = createRooms({ store: seeded.store, storage, debounceMs: 20, log: (): void => undefined });
+  const { room, socket } = await joined(seeded, rooms, "person-1");
+  assert.notEqual(roomText(room), raw, "the fixture is a stored text the editor serialises differently");
+  await rooms.leave({ room, connection: socket });
+  assert.equal(seeded.operations.length, 0, "joining a document does not rewrite its stored bytes");
+  assert.equal(seeded.revisions.length, 0);
+});
+
 test("an edit is flushed once at quiescence and appends no snapshot", async () => {
   const seeded = fakeStore({ artifactId: "a1" });
   const storage = fakeStorage();
   await openDraft({ store: seeded.store, storage, artifactId: "a1", now: NOW });
   const rooms = createRooms({ store: seeded.store, storage, debounceMs: 20, log: (): void => undefined });
   const { room } = await joined(seeded, rooms, "person-1");
-  room.doc.getText(COLLAB_MARKDOWN_FIELD).insert(0, EDITED);
+  editRoom(room, EDITED);
   await waitFor(() => seeded.operations.length === 1, "the debounced flush");
   await new Promise((resolve) => setTimeout(resolve, 60));
   assert.equal(seeded.operations.length, 1, "quiescence appends exactly one row");
@@ -310,7 +337,7 @@ test("the last leave flushes the room, destroys it, and the store keeps the clie
   await openDraft({ store: seeded.store, storage, artifactId: "a1", now: NOW });
   const rooms = createRooms({ store: seeded.store, storage, debounceMs: 60_000, log: (): void => undefined });
   const { room, socket } = await joined(seeded, rooms, "person-1");
-  room.doc.getText(COLLAB_MARKDOWN_FIELD).insert(0, EDITED);
+  editRoom(room, EDITED);
   await rooms.leave({ room, connection: socket });
   assert.equal(rooms.size(), 0, "the room is gone with its last client");
   assert.equal(rooms.room("a1"), undefined);
@@ -325,7 +352,7 @@ test("a room whose final flush is still in flight survives a rejoin", async () =
   await openDraft({ store: seeded.store, storage, artifactId: "a1", now: NOW });
   const rooms = createRooms({ store: seeded.store, storage, debounceMs: 60_000, log: (): void => undefined });
   const { room, socket } = await joined(seeded, rooms, "person-1");
-  room.doc.getText(COLLAB_MARKDOWN_FIELD).insert(0, EDITED);
+  editRoom(room, EDITED);
   const release = seeded.holdCommits();
   const leaving = rooms.leave({ room, connection: socket });
   await waitFor(() => room.clients.size === 0, "the last client leaving");
@@ -336,7 +363,7 @@ test("a room whose final flush is still in flight survives a rejoin", async () =
   release();
   await leaving;
   assert.equal(rooms.room("a1"), room, "the room survives because a client came back");
-  assert.equal(room.doc.getText(COLLAB_MARKDOWN_FIELD).toString(), EDITED);
+  assert.equal(roomText(room), EDITED);
   await rooms.closeAll();
   assert.equal(rooms.size(), 0);
 });
@@ -360,7 +387,7 @@ test("an agent write invalidates the room, reaches its clients and is not flushe
     now: NOW,
   });
   assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
-  await waitFor(() => room.doc.getText(COLLAB_MARKDOWN_FIELD).toString() === AGENT, "the invalidated room text");
+  await waitFor(() => roomText(room) === AGENT, "the invalidated room text");
   assert.ok(socket.updates.length > 0, "the invalidation is broadcast as an update");
   assert.deepEqual([room.lastFlushed.text, room.lastFlushed.seq], [AGENT, 1]);
   await new Promise((resolve) => setTimeout(resolve, 80));

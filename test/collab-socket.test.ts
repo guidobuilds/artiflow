@@ -8,6 +8,8 @@ import * as Y from "yjs";
 import { WebsocketProvider } from "y-websocket";
 import OriginWebSocket from "ws";
 
+import { readMarkdownFromFragment, replaceMarkdownInFragment } from "@artiflow/domain/markdown-doc";
+
 import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
 import {
   applyOperations,
@@ -223,6 +225,23 @@ const authorizer: CollabAuthorizer = documentAuthorizer({
   documentAccess: async (userId: string, artifactId: string) => ACCESS.get(`${userId}:${artifactId}`) ?? null,
 });
 
+const documentText = (doc: Y.Doc): string => readMarkdownFromFragment(doc.getXmlFragment(COLLAB_MARKDOWN_FIELD));
+
+function writeDocument(doc: Y.Doc, text: string): void {
+  doc.transact(() => replaceMarkdownInFragment(doc.getXmlFragment(COLLAB_MARKDOWN_FIELD), text), "test-client");
+}
+
+function paragraphText(doc: Y.Doc): Y.XmlText {
+  const paragraph = doc
+    .getXmlFragment(COLLAB_MARKDOWN_FIELD)
+    .toArray()
+    .find((item) => item instanceof Y.XmlElement && item.nodeName === "paragraph");
+  assert.ok(paragraph instanceof Y.XmlElement, "the room document has a paragraph to type into");
+  const text = paragraph.get(0);
+  assert.ok(text instanceof Y.XmlText, "the paragraph carries text");
+  return text;
+}
+
 async function waitFor(check: () => boolean, label: string, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -309,19 +328,60 @@ test("two clients join the same document, load its draft and converge on an upda
   try {
     await waitFor(() => firstProvider.synced, "the first client to sync");
     await waitFor(() => secondProvider.synced, "the second client to sync");
-    assert.equal(first.getText(COLLAB_MARKDOWN_FIELD).toString(), START, "the room loads the draft text");
-    assert.equal(second.getText(COLLAB_MARKDOWN_FIELD).toString(), START);
+    assert.equal(documentText(first), START, "the room loads the draft text");
+    assert.equal(documentText(second), START);
     assert.equal(rooms.size(), 1, "both clients share one room");
-    first.getText(COLLAB_MARKDOWN_FIELD).insert(START.length, "\n\nwritten by the first client");
+    writeDocument(first, `${START}\n\nwritten by the first client`);
     await waitFor(
-      () => second.getText(COLLAB_MARKDOWN_FIELD).toString().includes("written by the first client"),
+      () => documentText(second).includes("written by the first client"),
       "the update to reach the second client",
     );
-    second.getText(COLLAB_MARKDOWN_FIELD).insert(0, "reply\n");
+    writeDocument(second, `reply\n${START}\n\nwritten by the first client`);
+    await waitFor(() => documentText(first).startsWith("reply\n"), "the update to reach the first client");
+  } finally {
+    firstProvider.destroy();
+    secondProvider.destroy();
+    first.destroy();
+    second.destroy();
+    await harness.close();
+  }
+});
+
+test("two clients typing at once merge into a single flushed operation that carries both edits", async () => {
+  const seeded = fakeStore({ artifactId: "a1" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, START);
+  const rooms = createRooms({ store: seeded.store, storage, debounceMs: 400, log: (): void => undefined });
+  const harness = await startHarness(rooms);
+  const first = new Y.Doc();
+  const second = new Y.Doc();
+  const firstProvider = new WebsocketProvider(harness.baseUrl, "a1", first, {
+    disableBc: true,
+    WebSocketPolyfill: socketFor("person-1") as never,
+  });
+  const secondProvider = new WebsocketProvider(harness.baseUrl, "a1", second, {
+    disableBc: true,
+    WebSocketPolyfill: socketFor("person-2") as never,
+  });
+  const draftText = (): string => (seeded.drafts.get("a1")?.state as { text: string } | undefined)?.text ?? "";
+  try {
+    await waitFor(() => firstProvider.synced && secondProvider.synced, "both clients to sync");
+    assert.equal(documentText(first), START);
+    paragraphText(first).insert(0, "first writer: ");
+    paragraphText(second).insert(0, "second writer: ");
     await waitFor(
-      () => first.getText(COLLAB_MARKDOWN_FIELD).toString().startsWith("reply\n"),
-      "the update to reach the first client",
+      () => documentText(first).includes("first writer: ") && documentText(first).includes("second writer: "),
+      "the two concurrent edits to merge in the first client",
     );
+    await waitFor(() => seeded.operations.length === 1, "the merged flush");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(seeded.operations.length, 1, "one operation carries both concurrent edits");
+    assert.ok(
+      draftText().includes("first writer: ") && draftText().includes("second writer: "),
+      `the stored text keeps both edits: ${JSON.stringify(draftText())}`,
+    );
+    const ops = JSON.stringify(seeded.operations[0]?.ops);
+    assert.ok(ops.includes("first writer: ") && ops.includes("second writer: "), "the operation itself names both");
   } finally {
     firstProvider.destroy();
     secondProvider.destroy();
@@ -362,7 +422,7 @@ test("an agent write reaches the room and its connected clients after invalidati
   });
   try {
     await waitFor(() => provider.synced, "the human client to sync");
-    doc.getText(COLLAB_MARKDOWN_FIELD).insert(0, "typed before the agent\n");
+    writeDocument(doc, `typed before the agent\n${START}`);
     await waitFor(() => seeded.operations.length === 1, "the human edit to flush");
     const applied = await applyOperations({
       store: seeded.store,
@@ -376,7 +436,7 @@ test("an agent write reaches the room and its connected clients after invalidati
       now: NOW,
     });
     assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
-    await waitFor(() => doc.getText(COLLAB_MARKDOWN_FIELD).toString() === AGENT, "the agent text to reach the client");
+    await waitFor(() => documentText(doc) === AGENT, "the agent text to reach the client");
   } finally {
     detach();
     provider.destroy();
@@ -397,7 +457,7 @@ test("a human flush that landed first makes the racing agent write refuse instea
   });
   try {
     await waitFor(() => provider.synced, "the human client to sync");
-    doc.getText(COLLAB_MARKDOWN_FIELD).insert(0, "the human wrote first\n");
+    writeDocument(doc, `the human wrote first\n${START}`);
     await waitFor(() => seeded.operations.length === 1, "the human edit to flush");
     const refused = await applyOperations({
       store: seeded.store,

@@ -1,20 +1,6 @@
 import type { ChainedCommands, Editor } from "@tiptap/core";
-import StarterKit from "@tiptap/starter-kit";
-import { TableKit } from "@tiptap/extension-table";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import Image from "@tiptap/extension-image";
-import { Markdown, MarkdownManager } from "@tiptap/markdown";
 
-export const markdownExtensions = [
-  StarterKit.configure({ underline: false, link: { openOnClick: false } }),
-  TableKit,
-  TaskList,
-  TaskItem.configure({ nested: true }),
-  Image,
-  Markdown,
-];
-export const markdown = new MarkdownManager({ extensions: markdownExtensions });
+export { markdown, markdownExtensions } from "@artiflow/domain/markdown-doc";
 
 type Action = {
   label: string;

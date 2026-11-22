@@ -1,7 +1,7 @@
 import type { ManageResult } from "./auth-client.ts";
 import type { Document, SavedRevision } from "./editor-api.ts";
 
-export type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "readonly" | "error" | "restoring";
+export type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "readonly" | "error" | "restoring" | "live";
 export type SaveState = SavedRevision & { text: string; status: SaveStatus; dirty: boolean; code?: string };
 export type AutosaveDocument = Partial<Document> & Pick<Document, "text" | "revisionId" | "revisionNumber">;
 export const AUTOSAVE_MS = 1500;

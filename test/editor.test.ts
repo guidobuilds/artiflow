@@ -249,7 +249,7 @@ const flush = async () => {
   await Promise.resolve();
 };
 
-function editorWiring(session: Autosave, text: string) {
+function editorWiring(session: Autosave | null, text: string, collab: object | null = null) {
   const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
   const update = page.match(/onUpdate:\s*(\([^\n]+\) => \{[^]*?\}),/)!;
   const editable = page.match(
@@ -257,7 +257,11 @@ function editorWiring(session: Autosave, text: string) {
   )!;
   assert.ok(update, "page update callback exists");
   assert.ok(editable, "page editable-state effect exists");
-  const onUpdate = compileFunction(`return ${update[1]}`, ["session"])({ current: session });
+  const onUpdate = compileFunction(`return ${update[1]}`, ["session", "collab", "setState"])(
+    { current: session },
+    collab,
+    () => {},
+  );
   const editor = new Editor({ element: null, extensions: markdownExtensions, content: markdown.parse(text), onUpdate });
   return {
     editor,
@@ -408,6 +412,39 @@ for (const transition of ["mount", "restore", "reload"] as const) {
     }
   });
 }
+
+test("a live collaboration session keeps the HTTP autosave idle while the fallback still saves", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const initial = { ...doc, text: "# Notes\n\nOriginal paragraph.\n" };
+  const saves: unknown[] = [];
+  const session = new Autosave(
+    initial,
+    async (text, revision) => {
+      saves.push([text, revision]);
+      return ok("r2");
+    },
+    () => {},
+    () => {},
+  );
+  try {
+    const live = editorWiring(session, initial.text, { doc: null });
+    live.editor.view.dispatch(live.editor.state.tr.insertText("Live ", 1));
+    t.mock.timers.tick(AUTOSAVE_MS + 1000);
+    await flush();
+    assert.deepEqual(saves, [], "a live session never reaches the HTTP save");
+    assert.deepEqual([session.state.status, session.state.dirty], ["saved", false]);
+    assert.equal(live.editor.getText().includes("Live"), true, "the edit still reaches the editor");
+
+    const fallback = editorWiring(session, initial.text, null);
+    fallback.editor.view.dispatch(fallback.editor.state.tr.insertText("Offline ", 1));
+    assert.equal(session.state.status, "unsaved", "without a session the edit is the autosave path");
+    t.mock.timers.tick(AUTOSAVE_MS);
+    await flush();
+    assert.equal(saves.length, 1, "the HTTP autosave is the one in use without a socket");
+  } finally {
+    session.dispose();
+  }
+});
 
 test("comment decoration and bubble dismissal transactions never dirty or schedule autosave", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
