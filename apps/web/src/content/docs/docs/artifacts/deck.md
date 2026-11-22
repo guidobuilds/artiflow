@@ -28,6 +28,6 @@ edited by the same `scene_apply` / `scene_outline` / `scene_read` path a canvas 
 
 - **No editor screen.** A person can present a deck and an agent can edit it by operation, but the
   dashboard screen for editing a deck is not there.
-- **No PDF export.** Export needs a decision: this stack has no headless browser, so producing a PDF
-  means either a new dependency or the browser's own print.
+- **No file export, and none planned.** A deck is presented in the app. If you need a file, print from
+  presentation mode with the browser; there is no PDF pipeline behind it.
 - **No transitions, templates or speaker notes.** Slides are frames, nothing more.

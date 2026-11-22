@@ -537,7 +537,7 @@ Todas le preguntan al registro. La matriz de 8.4 es el contrato.
 | Editar en la aplicación | sí, vivo | sí, vivo                  | sí, vivo      | nunca       |
 | Ver                     | sí       | sí, con zoom y navegación | sí, presentar | sí, aislado |
 | Comentar                | sí       | sí                        | sí            | sí          |
-| Exportar                | `.md`    | `.json`, `.svg`           | `.pdf`        | ninguno     |
+| Exportar                | `.md`    | `.json`, `.svg`           | ninguno       | ninguno     |
 | Imágenes                | sí       | sí                        | sí            | no          |
 
 Una fila por capacidad, un test por fila. "Soportado" pasa a ser verificable, y "agent-first"
@@ -1041,12 +1041,11 @@ presupuesto de bytes y de llamadas.
 **Entregado en su primera mitad:** el tipo existe, presenta una slide a la vez con contador, teclado,
 controles y toggle de índice, y `slide-point` dejó de ser un ancla inalcanzable. Las compuertas de
 escena dejaron de nombrar un tipo: preguntan si el tipo renderiza una escena, así que un deck abre
-borrador, aplica lotes, restaura y publica por el mismo camino que un canvas. Faltan el editor y el
-export a PDF, que necesita su propia decisión porque no hay navegador headless acá.
+borrador, aplica lotes, restaura y publica por el mismo camino que un canvas. Falta el editor de deck; el export a PDF **no está planificado**: no salió de ningún requisito, y si
+hiciera falta un archivo alcanza con la impresión del navegador desde el modo presentación.
 
 - Deck = escena con marcos ordenados y modo presentación; hereda operaciones, assets,
   comentarios y borrador.
-- Exportar a PDF.
 
 **Terminado cuando:** la matriz pasa con las cuatro filas y ninguna superficie consulta el tipo
 por fuera del registro.
