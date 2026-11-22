@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import {
-  ArtiflowAuth,
-  authorizationUrl,
-  registrationBody,
-  type SavedAuth,
-} from "@artiflow/plugin-core/auth";
+import { ArtiflowAuth, authorizationUrl, registrationBody, type SavedAuth } from "@artiflow/plugin-core/auth";
 
 const base = "https://artifacts.example";
 const resource = `${base}/api/v1`;
@@ -99,10 +94,7 @@ test("viewer refresh shares tool serialization and persists rotating credentials
     },
     fail("no consent"),
   );
-  assert.deepEqual(await Promise.all([auth.viewerToken(), auth.api((api) => api.probe())]), [
-    "fresh",
-    undefined,
-  ]);
+  assert.deepEqual(await Promise.all([auth.viewerToken(), auth.api((api) => api.probe())]), ["fresh", undefined]);
   assert.equal(refreshes, 1);
   assert.deepEqual(store.writes, [{ key: sdkKey, value: saved("fresh", "rotated") }]);
 });
@@ -126,7 +118,12 @@ for (const failure of ["http", "network"])
 
 test("viewer rejected token without refresh falls back without consent or storage mutation", async () => {
   const store = storage({ [sdkKey]: saved("expired") });
-  const auth = new ArtiflowAuth(base, store, async () => new Response(null, { status: 401 }), fail("no viewer consent"));
+  const auth = new ArtiflowAuth(
+    base,
+    store,
+    async () => new Response(null, { status: 401 }),
+    fail("no viewer consent"),
+  );
   assert.equal(await auth.viewerToken(), null);
   assert.deepEqual(store.writes, []);
 });
@@ -210,7 +207,8 @@ test("consent replaces a dead credential under the SDK key and the viewer then l
     store,
     async (url, init) => {
       if (url === `${base}/api/auth/oauth2/token`) return new Response(null, { status: 400 });
-      if (new Headers(init?.headers).get("authorization") !== "Bearer consented") return new Response(null, { status: 401 });
+      if (new Headers(init?.headers).get("authorization") !== "Bearer consented")
+        return new Response(null, { status: 401 });
       assert.equal(store.writes.length, 1);
       return Response.json({ artifacts: [] });
     },
@@ -250,13 +248,17 @@ test("failed refresh leaves persisted state untouched and does not retry a write
   const store = storage({ [sdkKey]: saved("expired", "revoked") });
   let calls = 0;
   const auth = new ArtiflowAuth(base, store, async (url) => {
-    if (url === `${base}/api/auth/oauth2/token`) return Response.json({ error: "sensitive-server-detail" }, { status: 400 });
+    if (url === `${base}/api/auth/oauth2/token`)
+      return Response.json({ error: "sensitive-server-detail" }, { status: 400 });
     calls++;
     return new Response(null, { status: 401 });
   });
-  await assert.rejects(auth.api((api) => api.write({ text: "text" })), {
-    message: "Artiflow OAuth token request failed (HTTP 400)",
-  });
+  await assert.rejects(
+    auth.api((api) => api.write({ text: "text" })),
+    {
+      message: "Artiflow OAuth token request failed (HTTP 400)",
+    },
+  );
   assert.equal(calls, 1);
   assert.deepEqual(store.writes, []);
 });

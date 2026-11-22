@@ -8,8 +8,10 @@ import { registrationInvite } from "../adapters/postgres/db/invite-schema.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { ConfigError, loadConfig } from "../config.ts";
 import { canonicalizeEmail, createInviteToken, inviteUrl, isEmailAddress } from "../invites/token.ts";
+import { recordConsoleAdminEvent } from "../logging/admin-events.ts";
 
 const USAGE = "usage: bun run user:invite EMAIL";
+const CONSOLE_ACTOR_ID = "console";
 const HELP = `${USAGE}
 Print one single-use registration URL for EMAIL. The link expires in 24 hours.
 An existing account is refused: this command never resets a password.`;
@@ -52,11 +54,19 @@ async function invite(email: string): Promise<number> {
     }
 
     const issued = createInviteToken();
+    const invitationId = randomUUID();
     await db.insert(registrationInvite).values({
-      id: randomUUID(),
+      id: invitationId,
       email,
       tokenHash: issued.tokenHash,
       expiresAt: issued.expiresAt,
+    });
+    recordConsoleAdminEvent({
+      event: "invitation.created",
+      actorId: CONSOLE_ACTOR_ID,
+      actorRole: "console",
+      subjectId: invitationId,
+      outcome: "applied",
     });
     process.stdout.write(`${inviteUrl(config.publicOrigin, issued.token)}\n`);
     return 0;

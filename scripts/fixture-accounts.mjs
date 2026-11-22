@@ -84,9 +84,7 @@ export async function ensureFixtureSession({
     "a fixture display name is required to complete a registration invitation",
   );
 
-  const token = tokenFromInvitationUrl(
-    issueInvitationUrl({ origin, email: credentials.email, databaseUrl, bun }),
-  );
+  const token = tokenFromInvitationUrl(issueInvitationUrl({ origin, email: credentials.email, databaseUrl, bun }));
   const completion = await request(base, "/api/auth/registration/complete", {
     method: "POST",
     headers: { "content-type": "application/json", origin },

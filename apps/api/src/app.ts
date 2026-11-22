@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import { bodyLimit } from "./http/body-limit.ts";
 
 import { createArtifactTools } from "./mcp/artifact-tools.ts";
-import { createAuth, createAuthApp } from "./auth.ts";
+import { createAuthApp } from "./auth.ts";
+import { createAuthHolder, type AuthHolder } from "./auth-holder.ts";
 import { resolveMcpNetwork, type AppConfig } from "./config.ts";
 import { MAX_ARTIFACT_BYTES } from "./adapters/postgres/db/artifact-schema.ts";
+import { createAdminApp } from "./routes/admin.ts";
+import { createAccountSessionsApp } from "./routes/sessions.ts";
 import { createEditingApp } from "./routes/editing.ts";
 import { createCommentsApp } from "./routes/comments.ts";
 import { createHealthApp } from "./routes/health.ts";
@@ -18,6 +21,8 @@ import { createArtifactsV1App } from "./routes/v1/create.ts";
 import { createArtifactBytesV1App } from "./routes/v1/bytes.ts";
 import { createArtifactUpdateV1App } from "./routes/v1/update.ts";
 import { encodePrincipal, PRINCIPAL_HEADER, principalFromClaims } from "./http/principal.ts";
+import { accountIsActive } from "./identity/accounts.ts";
+import { readPasswordPolicyView } from "./password-policy/policy.ts";
 
 import { jsonError } from "./http/index.ts";
 import { createShareViewerApp, createSharingApp } from "./routes/sharing.ts";
@@ -39,9 +44,10 @@ export type ApiAppDeps = {
     checkBucket: () => Promise<void>;
     destroy: () => void;
   };
+  auth?: AuthHolder;
 };
 
-export function createApiApp({ config, database, storage }: ApiAppDeps) {
+export function createApiApp({ config, database, storage, auth: suppliedAuth }: ApiAppDeps) {
   const mcpNetwork = resolveMcpNetwork(config);
   const databaseView = database as unknown as Database;
   const storageView = storage as unknown as Storage;
@@ -70,8 +76,12 @@ export function createApiApp({ config, database, storage }: ApiAppDeps) {
     }),
   );
 
-  const auth = createAuth(config, databaseView);
-  app.route("/", createAuthApp(auth, config));
+  const holder = suppliedAuth ?? createAuthHolder({ config, database: databaseView });
+  const auth = holder.auth;
+  app.route(
+    "/",
+    createAuthApp(auth, config, holder.snapshot, () => readPasswordPolicyView(databaseView.db)),
+  );
 
   app.use("/api/artifacts/*/document", async (c, next) => {
     if (c.req.method !== "PUT") return next();
@@ -88,14 +98,18 @@ export function createApiApp({ config, database, storage }: ApiAppDeps) {
     resource: publicResource(config),
     issuer: publicIssuer(config),
     challengeScopes: ["artifacts:read", "artifacts:write"],
+    isAccountActive: (userId: string) => accountIsActive(databaseView.db, userId),
   };
   const apiAuthOptions = {
     jwksUrl: mcpNetwork.jwksUrl,
     resource: publicApiResource(config),
     issuer: publicIssuer(config),
     challengeScopes: [...API_RESOURCE_SCOPES],
+    isAccountActive: (userId: string) => accountIsActive(databaseView.db, userId),
   };
 
+  app.route("/", createAdminApp({ database: databaseView, auth, publicOrigin: config.publicOrigin, config }));
+  app.route("/", createAccountSessionsApp({ database: databaseView, auth, publicOrigin: config.publicOrigin }));
   app.route("/", createSharingApp({ database: databaseView, auth, publicOrigin: config.publicOrigin }));
   app.route(
     "/",

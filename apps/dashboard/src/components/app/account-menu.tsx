@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { signOut, type AuthUser } from "../../auth-client.ts";
+import { administrationEntryVisible } from "../../admin-entry.ts";
 import { useTheme } from "@/components/app/theme-provider.tsx";
 import { Avatar, UserAvatar } from "@/components/ui/avatar.tsx";
 import { cn } from "@/lib/utils.ts";
@@ -42,6 +43,11 @@ export function AccountMenu({ user, active }: { user: AuthUser | null; active?: 
       {user ? (
         <MenuItem icon="users" onClick={() => window.location.assign("/account")}>
           Account
+        </MenuItem>
+      ) : null}
+      {administrationEntryVisible(user) ? (
+        <MenuItem icon="lock" onClick={() => window.location.assign("/admin/users")}>
+          Administration
         </MenuItem>
       ) : null}
       <MenuItem icon="moon" onClick={() => setTheme(nextTheme)}>

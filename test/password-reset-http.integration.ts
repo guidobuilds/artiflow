@@ -39,7 +39,7 @@ after(async () => {
 });
 
 function newPassword(): string {
-  return `reset-password-${randomUUID()}`;
+  return `Reset-Password-${randomUUID()}`;
 }
 
 async function accountWithLink(): Promise<{ userId: string; email: string; password: string; token: string }> {

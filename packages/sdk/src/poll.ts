@@ -49,11 +49,7 @@ export type PollerFreshness = {
   advanceReference(state: PollerFreshnessState, observed: PolledMetadata): PollerAdvanceResult;
   applyReference(state: PollerFreshnessState, applied: PolledMetadata): PollerApplyResult;
   beginFetch(state: PollerFreshnessState, target: PolledMetadata): PollerBeginFetchResult;
-  resolveFetch(
-    state: PollerFreshnessState,
-    token: PollerFetchToken,
-    result: PollerFetchOutcome,
-  ): PollerFetchResolution;
+  resolveFetch(state: PollerFreshnessState, token: PollerFetchToken, result: PollerFetchOutcome): PollerFetchResolution;
   stopFreshness(state: PollerFreshnessState): PollerFreshnessState;
 };
 
@@ -143,7 +139,7 @@ export function createArtifactPoller<TContent>(options: PollerOptions<TContent>)
       : { artifactId: options.target.artifactId, revisionId: options.target.revisionId };
 
   const emit = (update: PollerUpdate<TContent>) => {
-    for (const listener of [...listeners]) listener(update);
+    for (const listener of Array.from(listeners)) listener(update);
   };
 
   const alreadyDelivered = (pending: PolledMetadata): boolean =>

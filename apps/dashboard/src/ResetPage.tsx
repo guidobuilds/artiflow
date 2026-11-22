@@ -4,12 +4,14 @@ import {
   completePasswordReset,
   previewPasswordReset,
   resetPasswordError,
+  RESET_PASSWORD_MISMATCH,
   RESET_REFUSED,
   tokenFromFragment,
 } from "./auth-client.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
+import { PasswordPolicyNotice, usePasswordPolicyReading } from "@/components/ui/password-policy-notice.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 
 type State =
@@ -33,6 +35,7 @@ function Notice({ children }: { children: ReactNode }) {
 
 export default function ResetPage({ hash = window.location.hash }: { hash?: string } = {}) {
   const [token] = useState(() => tokenFromFragment(hash));
+  const policy = usePasswordPolicyReading();
   const [state, setState] = useState<State>(() =>
     token === null ? { kind: "refused", message: INCOMPLETE_LINK } : { kind: "checking" },
   );
@@ -49,8 +52,7 @@ export default function ResetPage({ hash = window.location.hash }: { hash?: stri
         if (!live) return;
         setState(result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error });
       })
-      .catch(() => {
-      });
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -61,7 +63,7 @@ export default function ResetPage({ hash = window.location.hash }: { hash?: stri
     if (submitting.current || token === null) return;
     setError("");
     const problem = resetPasswordError(values.password, values.confirmation);
-    if (problem !== null) {
+    if (problem === RESET_PASSWORD_MISMATCH) {
       setError(problem);
       return;
     }
@@ -140,7 +142,8 @@ export default function ResetPage({ hash = window.location.hash }: { hash?: stri
           aria-busy={busy}
           aria-describedby={error ? "reset-error" : undefined}
         >
-          <Field label="New password" htmlFor="reset-password" hint="At least 8 characters, at most 128.">
+          <PasswordPolicyNotice reading={policy} />
+          <Field label="New password" htmlFor="reset-password">
             <Input
               id="reset-password"
               name="new-password"

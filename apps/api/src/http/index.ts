@@ -22,10 +22,27 @@ export const jsonError = (
   status: 400 | 401 | 403 | 404 | 405 | 409 | 413 | 415 | 500,
 ): Response => c.json({ error }, status);
 
-export const sessionUserId = async (
-  auth: { api: { getSession(args: { headers: Headers }): Promise<{ user?: { id?: unknown } } | null> } },
+export type AuthenticatedSession = { userId: string; sessionId: string };
+
+type SessionReader = {
+  api: {
+    getSession(args: { headers: Headers }): Promise<{ user?: { id?: unknown }; session?: { id?: unknown } } | null>;
+  };
+};
+
+export const authenticatedSession = async (
+  auth: SessionReader,
   headers: Headers,
-): Promise<string | null> => {
+): Promise<AuthenticatedSession | null> => {
+  const session = await auth.api.getSession({ headers });
+  const userId = session?.user?.id;
+  const sessionId = session?.session?.id;
+  if (typeof userId !== "string" || userId.length === 0) return null;
+  if (typeof sessionId !== "string" || sessionId.length === 0) return null;
+  return { userId, sessionId };
+};
+
+export const sessionUserId = async (auth: SessionReader, headers: Headers): Promise<string | null> => {
   const session = await auth.api.getSession({ headers });
   const id = session?.user?.id;
   return typeof id === "string" && id.length > 0 ? id : null;

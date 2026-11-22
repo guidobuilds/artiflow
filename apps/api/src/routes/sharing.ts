@@ -23,6 +23,7 @@ import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comment
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
+import { ACTIVE_ACCOUNT_STATUS } from "../identity/account-status.ts";
 import { readPrincipal } from "../http/principal.ts";
 import type { LinkListResponse, LinkReveal, ShareListResponse } from "@artiflow/contracts/shares";
 
@@ -64,7 +65,7 @@ async function findRecipient(db: AppDb, email: string) {
     await db
       .select({ id: user.id, email: user.email })
       .from(user)
-      .where(sql`lower(${user.email}) = lower(${email})`)
+      .where(and(sql`lower(${user.email}) = lower(${email})`, eq(user.status, ACTIVE_ACCOUNT_STATUS)))
   )[0];
 }
 

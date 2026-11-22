@@ -1,14 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import AuthScreen from "./AuthScreen.tsx";
-import {
-  completeInvitation,
-  INVITE_REFUSED,
-  previewInvitation,
-  signIn,
-  tokenFromFragment,
-} from "./auth-client.ts";
+import { completeInvitation, INVITE_REFUSED, previewInvitation, signIn, tokenFromFragment } from "./auth-client.ts";
 import { Logo } from "@/components/ui/logo.tsx";
+import { usePasswordPolicyReading } from "@/components/ui/password-policy-notice.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 
 type State =
@@ -35,6 +30,7 @@ function Notice({ children }: { children: ReactNode }) {
 
 export default function RegisterPage({ hash = window.location.hash }: { hash?: string } = {}) {
   const [token] = useState(() => tokenFromFragment(hash));
+  const policy = usePasswordPolicyReading();
   const [state, setState] = useState<State>(() =>
     token === null ? { kind: "refused", message: INCOMPLETE_LINK } : { kind: "checking" },
   );
@@ -45,12 +41,9 @@ export default function RegisterPage({ hash = window.location.hash }: { hash?: s
     void previewInvitation(token)
       .then((result) => {
         if (!live) return;
-        setState(
-          result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error },
-        );
+        setState(result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error });
       })
-      .catch(() => {
-      });
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -100,6 +93,7 @@ export default function RegisterPage({ hash = window.location.hash }: { hash?: s
       invitation={{
         email: state.email,
         created: state.kind === "created",
+        policy,
         submit,
       }}
     />

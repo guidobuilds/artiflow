@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { hashPassword } from "better-auth/crypto";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 
@@ -18,7 +19,6 @@ import {
   invitationCredential,
   invitePost,
   inviteRequest,
-  seedCredentialUser,
   sessionCookie,
   signInEmail,
   startInvitationHarness,
@@ -33,6 +33,39 @@ const LEGACY_MIGRATION_COUNT = 10;
 type JournalEntry = { idx: number; version: string; when: number; tag: string; breakpoints: boolean };
 type Journal = { version: string; dialect: string; entries: JournalEntry[] };
 type Identity = { id?: string; email?: string; name?: string; emailVerified?: boolean };
+type AccountRow = { id: string; name: string; email: string; emailVerified: boolean };
+type AccountCounts = { users: number; accounts: number };
+
+async function readAccountRow(target: InvitationHarness, email: string): Promise<AccountRow[]> {
+  const { rows } = await target.database.pool.query<AccountRow>(
+    `SELECT "id", "name", "email", "emailVerified" FROM "user" WHERE "email" = $1`,
+    [email],
+  );
+  return rows;
+}
+
+async function countAccountRows(target: InvitationHarness): Promise<AccountCounts | undefined> {
+  const { rows } = await target.database.pool.query<AccountCounts>(
+    `SELECT (SELECT count(*)::int FROM "user") AS "users", (SELECT count(*)::int FROM "account") AS "accounts"`,
+  );
+  return rows[0];
+}
+
+async function seedLegacyCredentialUser(target: InvitationHarness, email: string, password: string): Promise<string> {
+  const userId = randomUUID();
+  const now = new Date();
+  await target.database.pool.query(
+    `INSERT INTO "user" ("id", "name", "email", "emailVerified", "createdAt", "updatedAt")
+     VALUES ($1, $2, $3, false, $4, $4)`,
+    [userId, "Existing Owner", email, now],
+  );
+  await target.database.pool.query(
+    `INSERT INTO "account" ("id", "userId", "providerId", "accountId", "password", "createdAt", "updatedAt")
+     VALUES ($1, $2, 'credential', $2, $3, $4, $4)`,
+    [randomUUID(), userId, await hashPassword(password), now],
+  );
+  return userId;
+}
 
 async function legacyMigrationsFolder(): Promise<string> {
   const journal = JSON.parse(await readFile(join(CURRENT_MIGRATIONS, "meta/_journal.json"), "utf8")) as Journal;
@@ -78,15 +111,19 @@ test(
 
       const email = `upgrade-${randomUUID()}@example.test`;
       const password = `upgrade-password-${randomUUID()}`;
-      await seedCredentialUser(target, email, password);
-
-      const signedIn = await signInEmail(target, email, password);
-      assert.equal(signedIn.status, 200, "the seeded identity signs in on the legacy schema");
-      const cookie = sessionCookie(signedIn);
-      const before = await session(cookie);
+      const seededUserId = await seedLegacyCredentialUser(target, email, password);
+      const legacyRows = await readAccountRow(target, email);
+      assert.equal(legacyRows.length, 1, "the legacy stage holds exactly one row for the seeded account");
+      const before = legacyRows[0];
+      assert.equal(before?.id, seededUserId, "the legacy identity keeps the id it was seeded with");
+      assert.equal(before?.name, "Existing Owner");
       assert.equal(before?.email, email);
       assert.equal(before?.emailVerified, false);
-      assert.equal(typeof before?.id, "string");
+      assert.deepEqual(
+        await countAccountRows(target),
+        { users: 1, accounts: 1 },
+        "the legacy stage holds one account row and its one credential row",
+      );
 
       const refusedEmail = `legacy-${randomUUID()}@example.test`;
       let refusal = "";
@@ -96,28 +133,39 @@ test(
         refusal = error instanceof Error ? error.message : String(error);
       }
       assert.equal(
-        refusal.includes("invitation: the database is unavailable; check DATABASE_URL and that migrations are applied."),
+        refusal.includes(
+          "invitation: the database is unavailable; check DATABASE_URL and that migrations are applied.",
+        ),
         true,
         `the operator command must be refused on the 0009 schema, got: ${refusal}`,
       );
       assert.equal(refusal.includes("#token="), false, "a refused command prints no invitation URL");
       assert.equal(refusal.length < 600, true, "the refusal stays one bounded line");
-      const absent = await signInEmail(target, refusedEmail, `no-account-${randomUUID()}`);
-      assert.equal(absent.status >= 400, true, "the refused invitation created no account");
-      assertNoSession(absent);
+      const absent = await readAccountRow(target, refusedEmail);
+      assert.equal(absent.length, 0, "the refused invitation created no account");
+      assert.deepEqual(
+        await countAccountRows(target),
+        { users: 1, accounts: 1 },
+        "the refused invitation added no row of any kind",
+      );
 
       await migrate(drizzle(target.database.pool), { migrationsFolder: CURRENT_MIGRATIONS });
 
-      const carried = await session(cookie);
-      assert.equal(carried?.id, before?.id, "the pre-upgrade session keeps its user id");
-      assert.equal(carried?.name, before?.name, "the pre-upgrade session keeps its name");
-      assert.equal(carried?.email, email, "the pre-upgrade session keeps its email");
+      const upgradedRows = await readAccountRow(target, email);
+      assert.equal(upgradedRows.length, 1, "the upgrade keeps exactly one row for the pre-existing account");
+      assert.deepEqual(
+        upgradedRows[0],
+        before,
+        "the pre-existing account keeps its id, name, email and unverified state through the upgrade",
+      );
 
       const again = await signInEmail(target, email, password);
-      assert.equal(again.status, 200, "the existing password still signs in after the upgrade");
+      assert.equal(again.status, 200, "the pre-upgrade password still signs in after the upgrade");
       const againUser = await session(sessionCookie(again));
-      assert.equal(againUser?.id, before?.id, "the existing account keeps its identity");
-      assert.equal(againUser?.name, before?.name);
+      assert.equal(againUser?.id, before?.id, "the pre-existing account keeps its id through the upgrade");
+      assert.equal(againUser?.name, before?.name, "the pre-existing account keeps its name through the upgrade");
+      assert.equal(againUser?.email, email, "the pre-existing account keeps its email through the upgrade");
+      assert.equal(againUser?.emailVerified, false, "the upgrade never verifies the pre-existing account");
 
       const issued = target.issue(`  Upgraded-${randomUUID()}@Example.TEST  `);
       assert.equal(issued.token.length, 43);

@@ -69,7 +69,7 @@ function fakeVisibility(initiallyHidden: boolean) {
     port,
     set(next: boolean) {
       hidden = next;
-      for (const listener of [...listeners]) listener();
+      for (const listener of Array.from(listeners)) listener();
     },
     listenerCount: () => listeners.size,
   };
@@ -187,11 +187,7 @@ test("a newer revision that carries the same bytes, or only a new revisionId, ne
 
 test("an older or divergent revision never reloads the page", async () => {
   const scheduler = fakeScheduler();
-  const observed = [
-    md(5, "bytes-E"),
-    md(4, "bytes-D"),
-    { ...md(5, "bytes-E"), sha256: "bytes-other" },
-  ];
+  const observed = [md(5, "bytes-E"), md(4, "bytes-D"), { ...md(5, "bytes-E"), sha256: "bytes-other" }];
   const fake = fakeMetadata(async () => observed.shift() ?? md(5, "bytes-E"));
   const reloads: unknown[] = [];
   const errors: unknown[] = [];
@@ -390,7 +386,10 @@ test("the watcher consumes the real v1 detail: same bytes never reload, new byte
   assert.equal(reloads.length, 1);
   assert.deepEqual(errors, []);
   assert.equal(fake.urls.length, 4);
-  assert.deepEqual(fake.urls, Array.from({ length: 4 }, () => `${base}/api/v1/artifacts/art-1`));
+  assert.deepEqual(
+    fake.urls,
+    Array.from({ length: 4 }, () => `${base}/api/v1/artifacts/art-1`),
+  );
   watcher.stop();
 });
 

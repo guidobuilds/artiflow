@@ -3,12 +3,25 @@ import type { BetterAuthPlugin } from "better-auth";
 import { APIError, createAuthEndpoint } from "better-auth/api";
 import { z } from "zod";
 
+import {
+  defaultPasswordPolicySource,
+  passwordPolicyMessage,
+  validatePassword,
+  type PasswordPolicySource,
+} from "../password-policy/policy.ts";
+import { setAccountPassword } from "../password-reset/service.ts";
 import { canonicalizeEmail, hashInviteToken } from "./token.ts";
 
 const INVITE_MODEL = "registrationInvite";
 const REFUSAL = { code: "INVALID_INVITATION", message: "This invitation is invalid, expired or already used." };
 
-type InvitationRow = { email: string; expiresAt: Date | string; consumedAt: Date | string | null };
+type InvitationRow = {
+  email: string;
+  userId: string | null;
+  expiresAt: Date | string;
+  consumedAt: Date | string | null;
+  revokedAt: Date | string | null;
+};
 
 function refused(): APIError {
   return APIError.from("BAD_REQUEST", REFUSAL);
@@ -22,7 +35,7 @@ function asResponseError(error: unknown): APIError {
 function isUsable(invitation: InvitationRow): boolean {
   const expiresAt =
     invitation.expiresAt instanceof Date ? invitation.expiresAt.getTime() : Date.parse(invitation.expiresAt);
-  return invitation.consumedAt === null && expiresAt > Date.now();
+  return invitation.consumedAt === null && invitation.revokedAt === null && expiresAt > Date.now();
 }
 
 const preview = createAuthEndpoint(
@@ -44,68 +57,81 @@ const preview = createAuthEndpoint(
   },
 );
 
-const complete = createAuthEndpoint(
-  "/registration/complete",
-  { method: "POST", body: z.object({ token: z.string(), name: z.string(), password: z.string() }) },
-  async (ctx) => {
-    const name = ctx.body.name.trim();
-    const { password } = ctx.body;
-    const { minPasswordLength, maxPasswordLength } = ctx.context.password.config;
-    if (name.length === 0) throw APIError.from("BAD_REQUEST", { code: "INVALID_NAME", message: "A name is required." });
-    if (password.length < minPasswordLength || password.length > maxPasswordLength) {
-      throw APIError.from("BAD_REQUEST", {
-        code: "INVALID_PASSWORD",
-        message: `The password must be between ${minPasswordLength} and ${maxPasswordLength} characters.`,
-      });
-    }
+const completeEndpoint = (policy: PasswordPolicySource) =>
+  createAuthEndpoint(
+    "/registration/complete",
+    { method: "POST", body: z.object({ token: z.string(), name: z.string(), password: z.string() }) },
+    async (ctx) => {
+      const name = ctx.body.name.trim();
+      const { password } = ctx.body;
+      if (name.length === 0)
+        throw APIError.from("BAD_REQUEST", { code: "INVALID_NAME", message: "A name is required." });
 
-    const tokenHash = hashInviteToken(ctx.body.token);
-    const passwordHash = await ctx.context.password.hash(password);
+      const tokenHash = hashInviteToken(ctx.body.token);
 
-    try {
-      await runWithTransaction(ctx.context.adapter, async () => {
-        const adapter = await getCurrentAdapter(ctx.context.adapter);
-        const consumed = await adapter.updateMany({
-          model: INVITE_MODEL,
-          where: [
-            { field: "tokenHash", value: tokenHash },
-            { field: "consumedAt", value: null },
-            { field: "expiresAt", operator: "gt", value: new Date() },
-          ],
-          update: { consumedAt: new Date() },
+      try {
+        const current = await policy();
+        const missing = validatePassword(password, current);
+        if (missing.length > 0) {
+          throw new APIError("BAD_REQUEST", {
+            code: "INVALID_PASSWORD",
+            message: passwordPolicyMessage(missing, current),
+            missing,
+          });
+        }
+
+        const passwordHash = await ctx.context.password.hash(password);
+
+        await runWithTransaction(ctx.context.adapter, async () => {
+          const adapter = await getCurrentAdapter(ctx.context.adapter);
+          const consumed = await adapter.updateMany({
+            model: INVITE_MODEL,
+            where: [
+              { field: "tokenHash", value: tokenHash },
+              { field: "consumedAt", value: null },
+              { field: "revokedAt", value: null },
+              { field: "expiresAt", operator: "gt", value: new Date() },
+            ],
+            update: { consumedAt: new Date() },
+          });
+          if (consumed !== 1) throw refused();
+
+          const invitation = await adapter.findOne<InvitationRow>({
+            model: INVITE_MODEL,
+            where: [{ field: "tokenHash", value: tokenHash }],
+          });
+          if (!invitation) throw refused();
+
+          if (typeof invitation.userId === "string" && invitation.userId.length > 0) {
+            if ((await ctx.context.internalAdapter.findUserById(invitation.userId)) === null) throw refused();
+            await setAccountPassword(ctx.context, invitation.userId, passwordHash);
+            return;
+          }
+
+          const email = canonicalizeEmail(invitation.email);
+          if (await ctx.context.internalAdapter.findUserByEmail(email)) throw refused();
+
+          const created = await ctx.context.internalAdapter.createUser(
+            { email, name, emailVerified: false },
+            { method: "email-password" },
+          );
+          await ctx.context.internalAdapter.linkAccount({
+            userId: created.id,
+            providerId: "credential",
+            accountId: created.id,
+            password: passwordHash,
+          });
         });
-        if (consumed !== 1) throw refused();
+      } catch (error) {
+        throw asResponseError(error);
+      }
+      ctx.setHeader("cache-control", "no-store");
+      ctx.setHeader("pragma", "no-cache");
+      return ctx.json({ ok: true });
+    },
+  );
 
-        const invitation = await adapter.findOne<InvitationRow>({
-          model: INVITE_MODEL,
-          where: [{ field: "tokenHash", value: tokenHash }],
-        });
-        if (!invitation) throw refused();
-
-        const email = canonicalizeEmail(invitation.email);
-        if (await ctx.context.internalAdapter.findUserByEmail(email)) throw refused();
-
-        const created = await ctx.context.internalAdapter.createUser(
-          { email, name, emailVerified: false },
-          { method: "email-password" },
-        );
-        await ctx.context.internalAdapter.linkAccount({
-          userId: created.id,
-          providerId: "credential",
-          accountId: created.id,
-          password: passwordHash,
-        });
-      });
-    } catch (error) {
-      throw asResponseError(error);
-    }
-    ctx.setHeader("cache-control", "no-store");
-    ctx.setHeader("pragma", "no-cache");
-    return ctx.json({ ok: true });
-  },
-);
-
-export const registrationInvites = (): BetterAuthPlugin => ({
+export const registrationInvites = (input: { policy?: PasswordPolicySource } = {}): BetterAuthPlugin => ({
   id: "registration-invites",
   schema: {
     registrationInvite: {
@@ -114,10 +140,13 @@ export const registrationInvites = (): BetterAuthPlugin => ({
         email: { type: "string", required: true },
         expiresAt: { type: "date", required: true },
         consumedAt: { type: "date", required: false },
+        revokedAt: { type: "date", required: false },
+        createdBy: { type: "string", required: false },
+        userId: { type: "string", required: false },
         createdAt: { type: "date", required: true },
       },
       disableMigration: true,
     },
   },
-  endpoints: { preview, complete },
+  endpoints: { preview, complete: completeEndpoint(input.policy ?? defaultPasswordPolicySource) },
 });

@@ -17,8 +17,7 @@ export function resolveInitialTheme(): ThemeChoice {
   try {
     const stored = parseStoredTheme(browser.localStorage?.getItem(STORAGE_KEY) ?? null);
     if (stored) return stored;
-  } catch {
-  }
+  } catch {}
   const prefersLight = browser.matchMedia?.("(prefers-color-scheme: light)")?.matches === true;
   return prefersLight ? "light" : "dark";
 }
@@ -31,8 +30,7 @@ export function applyTheme(theme: ThemeChoice): void {
 export function persistTheme(theme: ThemeChoice): void {
   try {
     browser.localStorage?.setItem(STORAGE_KEY, theme);
-  } catch {
-  }
+  } catch {}
 }
 
 export function hasStoredTheme(): boolean {

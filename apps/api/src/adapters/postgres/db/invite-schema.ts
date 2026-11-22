@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
+import { user } from "./schema.ts";
+
 const date = (name: string) => timestamp(name, { withTimezone: true, mode: "date" });
 
 export const registrationInvite = pgTable(
@@ -11,6 +13,9 @@ export const registrationInvite = pgTable(
     tokenHash: text("tokenHash").notNull().unique(),
     expiresAt: date("expiresAt").notNull(),
     consumedAt: date("consumedAt"),
+    revokedAt: date("revokedAt"),
+    createdBy: text("createdBy").references(() => user.id, { onDelete: "set null" }),
+    userId: text("userId").references(() => user.id, { onDelete: "cascade" }),
     createdAt: date("createdAt").notNull().defaultNow(),
   },
   (table) => [

@@ -1,5 +1,12 @@
-export type AuthUser = { id: string; name: string; email: string; image: string | null };
-export type Capabilities = { emailPassword: boolean; registration: boolean; socialProviders: string[] };
+export type AuthRole = "member" | "administrator";
+export type AuthUser = { id: string; name: string; email: string; image: string | null; role?: AuthRole };
+export type SsoAccess = { displayName: string | null; fallbackAvailable: boolean };
+export type Capabilities = {
+  emailPassword: boolean;
+  registration: boolean;
+  socialProviders: string[];
+  sso?: SsoAccess;
+};
 export type Credentials = { email: string; password: string };
 export type SignUpInput = Credentials & { name: string };
 export type AuthResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -16,11 +23,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toUser(value: unknown): AuthUser | null {
   if (!isRecord(value) || !isRecord(value.user)) return null;
-  const { id, name, email, image } = value.user;
+  const { id, name, email, image, role } = value.user;
   if (typeof id !== "string" || id === "") return null;
   if (typeof name !== "string" || name === "") return null;
   if (typeof email !== "string" || email === "") return null;
-  return { id, name, email, image: typeof image === "string" && image !== "" ? image : null };
+  const parsedRole = role === "administrator" || role === "member" ? role : null;
+  return {
+    id,
+    name,
+    email,
+    image: typeof image === "string" && image !== "" ? image : null,
+    ...(parsedRole === null ? {} : { role: parsedRole }),
+  };
 }
 
 async function call(path: string, init: RequestInit): Promise<Response | null> {
@@ -56,6 +70,12 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
+function toSsoAccess(value: unknown): SsoAccess | null {
+  if (!isRecord(value) || typeof value.fallbackAvailable !== "boolean") return null;
+  const name = typeof value.displayName === "string" ? value.displayName.trim() : "";
+  return { displayName: name === "" ? null : name, fallbackAvailable: value.fallbackAvailable };
+}
+
 export async function getCapabilities(): Promise<AuthResult<Capabilities>> {
   const response = await read("/capabilities");
   if (!response) return { ok: false, error: NETWORK };
@@ -70,12 +90,15 @@ export async function getCapabilities(): Promise<AuthResult<Capabilities>> {
   ) {
     return { ok: false, error: UNEXPECTED };
   }
+  const sso = body.sso === undefined ? null : toSsoAccess(body.sso);
+  if (body.sso !== undefined && sso === null) return { ok: false, error: UNEXPECTED };
   return {
     ok: true,
     value: {
       emailPassword: body.emailPassword,
       registration: body.registration === true,
       socialProviders: body.socialProviders,
+      ...(sso === null ? {} : { sso }),
     },
   };
 }
@@ -127,6 +150,16 @@ export async function socialSignIn(provider: string, callbackURL: string): Promi
   const response = await send("/sign-in/social", { provider, callbackURL });
   if (!response) return { ok: false, error: NETWORK, restartable: false };
   if (!response.ok) return { ok: false, error: UNEXPECTED, restartable: false };
+  return toContinuation(await readJson(response));
+}
+
+export const SSO_PROVIDER_ID = "artiflow";
+const SSO_UNREACHABLE = "Could not start the single sign-on sign-in. Reload the page and try again.";
+
+export async function ssoSignIn(callbackURL: string, errorCallbackURL: string): Promise<Continuation> {
+  const response = await send("/sign-in/sso", { providerId: SSO_PROVIDER_ID, callbackURL, errorCallbackURL });
+  if (!response) return { ok: false, error: NETWORK, restartable: false };
+  if (!response.ok) return { ok: false, error: SSO_UNREACHABLE, restartable: false };
   return toContinuation(await readJson(response));
 }
 
@@ -568,6 +601,18 @@ const INVITE_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 export const INVITE_REFUSED = "This invitation is invalid, expired or already used. Ask the operator for a new one.";
 export const INVITE_NAME = "Enter your name before creating the account.";
 export const INVITE_PASSWORD = "Passwords have at least 8 characters and at most 128.";
+const PASSWORD_POLICY_REFUSED = "That password does not meet the policy.";
+
+function refusedPasswordMessage(body: unknown, fallback: string): string {
+  const missing = isRecord(body) ? body.missing : undefined;
+  if (!Array.isArray(missing) || missing.length === 0) return fallback;
+  const named: string[] = [];
+  for (const rule of missing) {
+    if (!isRecord(rule) || typeof rule.message !== "string" || rule.message === "") return fallback;
+    named.push(rule.message);
+  }
+  return `${PASSWORD_POLICY_REFUSED} ${named.join(" ")}`;
+}
 
 export function tokenFromFragment(hash: string): string | null {
   if (!hash.startsWith("#")) return null;
@@ -594,7 +639,7 @@ export async function completeInvitation(input: InvitationInput): Promise<AuthRe
     const body = await readJson(response);
     const code = isRecord(body) && typeof body.code === "string" ? body.code : "";
     if (code === "INVALID_NAME") return { ok: false, error: INVITE_NAME };
-    if (code === "INVALID_PASSWORD") return { ok: false, error: INVITE_PASSWORD };
+    if (code === "INVALID_PASSWORD") return { ok: false, error: refusedPasswordMessage(body, INVITE_PASSWORD) };
     return { ok: false, error: INVITE_REFUSED };
   }
   if (!response.ok) return { ok: false, error: UNEXPECTED };
@@ -633,7 +678,8 @@ export async function completePasswordReset(token: string, newPassword: string):
   if (response.status === 400) {
     const body = await readJson(response);
     const code = isRecord(body) && typeof body.code === "string" ? body.code : "";
-    return { ok: false, error: code === "PASSWORD_INVALID" ? RESET_PASSWORD : RESET_REFUSED };
+    if (code === "PASSWORD_INVALID") return { ok: false, error: refusedPasswordMessage(body, RESET_PASSWORD) };
+    return { ok: false, error: RESET_REFUSED };
   }
   if (!response.ok) return { ok: false, error: UNEXPECTED };
   const body = await readJson(response);

@@ -120,7 +120,14 @@ Current state:
 - Startup lines and auth-mode line on stdout (`[api] …`).
 - Config failures print a redacted reason and exit 1.
 - GC summary once per sweep.
-- Better Auth logging disabled; no access log; no request id; no metrics or traces.
+- Structured administration lines: one JSON object per line on stdout for each operation of
+  section 12 of [authentication and access](authentication-and-access.md#12-structured-logging-d12)
+  — role changes, sign-up, edits, activation, session closing, invitation and reset issuance,
+  access and SSO configuration, password policy, purge, and every use of the emergency fallback.
+  The shape is closed: no password, token, link, secret or request body ever appears in it,
+  `user.updated` carries the address a person moved from and to, and a refused fallback names no
+  address at all. The console commands that print a link write their line to stderr instead.
+- Better Auth logging disabled; no access log; no metrics or traces.
 - Caddy has no access log configured.
 
 This is sufficient for a single-node self-hosted deployment but not for
@@ -157,6 +164,19 @@ open one artifact, run a read and a commit.
 - **Rotation:** changing `ARTIFLOW_AUTH_SECRET` invalidates sessions; changing
   `ARTIFLOW_PUBLIC_ORIGIN` invalidates registered OAuth clients and issued tokens
   (issuer, resource and discovery all move). This is a documented deployment step.
+- **Stored credentials:** `ARTIFLOW_SECRET_ENCRYPTION_KEY` protects the client secrets saved from the
+  interface. A credential encrypted under another key cannot be decrypted, so the provider or the
+  connection it belongs to stops being offered and the credential has to be re-entered; there is no
+  rotation command, so keep the key stable and in the same backup as the database.
+- **Access configuration:** the social provider pairs are read once, on the first boot of an instance
+  with no stored access configuration, and ignored afterwards. Providers, the password policy and the
+  enterprise connection change in the administration area, not in the environment.
+- **Provider registration:** `/admin/access` shows the JavaScript origin to authorise and one redirect
+  URI per social provider, each with a copy action, all derived from `ARTIFLOW_PUBLIC_ORIGIN`. Nothing
+  there is derived by hand, and none of it carries a client id or a credential. Because the addresses
+  follow that variable, changing it means re-registering both callbacks at Google and GitHub in the same
+  deployment step — and an administrator has to reopen the page after the change, since the addresses it
+  shows are the configured origin of the process serving it.
 - **Exposure:** the API has no published port in production; only Caddy reaches it.
 - **Bucket:** private by default; no public ACL is requested.
 
@@ -178,7 +198,64 @@ open one artifact, run a read and a commit.
 | 502 from Caddy                    | API not ready                        | API healthcheck and `depends_on`                                                                                                                                                                                                                                                         |
 | staging objects accumulate        | GC row-driven or storage failures    | GC log line, `failed` count                                                                                                                                                                                                                                                              |
 
-## 10. Capacity notes
+## 10. Console operator commands
+
+Run from the repository root with the API's environment loaded — `DATABASE_URL` and the
+`ARTIFLOW_S3_*` values are required by every command, as they are by the API process — in the same
+`bun run <name>` style as the deployment scripts. They print to stdout and exit non-zero on refusal,
+with the reason on stderr. What each command does, and what it refuses, is written for operators in
+[Recover access and remove a person](https://artiflow.dev/docs/self-hosting/recovery/) and
+[Administer accounts and sign-in](https://artiflow.dev/docs/self-hosting/administration/); the
+syntax, exit statuses and every refusal of each one are in
+[Console commands](https://artiflow.dev/docs/reference/console-commands/). The
+behaviour itself is defined in section 13 of
+[authentication and access](authentication-and-access.md#13-operations-d13).
+
+| Command                                | Purpose                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| `admin:grant EMAIL`                    | Make an existing account an administrator (first administrator, recovery) |
+| `admin:revoke EMAIL`                   | Return an administrator to the member role                                |
+| `admin:list`                           | Print one email per administrator, sorted; empty and exit 0 when none     |
+| `user:invite EMAIL`                    | Print one single-use registration URL                                     |
+| `user:reset-password EMAIL`            | Print one single-use password reset URL                                   |
+| `user:purge EMAIL --reassign-to EMAIL` | Delete an account, handing its content to another existing account        |
+| `user:purge EMAIL --delete-content`    | Delete an account together with its content                               |
+| `user:deactivate EMAIL`                | Cut the access of an account without deleting anything                    |
+| `user:activate EMAIL`                  | Clear the deactivated state of an account                                 |
+
+`admin:grant` never creates an account: an unknown address is refused and the
+message names `user:invite`, because only the invitation path lets the person
+choose a password. Nothing protects the last administrator, so an instance can
+be left with none and recovered with `admin:grant`. Each role change writes one
+structured event line with `actorRole: "console"` and `outcome: "applied"`; the
+event shape carries no secret, token or link, and `admin:list` records nothing.
+
+`user:deactivate` and `user:activate` call the same lifecycle functions as
+`POST /api/admin/users/:id/status`, so the console applies the whole transaction of
+section 9: the status, the deletion of the account's sessions, the revocation of the
+tokens issued to it and the revocation of the public links of the artifacts it owns,
+with one `user.deactivated` line; activation clears the status with one
+`user.reactivated` line and restores neither sessions nor links. Both refuse an
+unknown address and a transition to the state the account already holds, with one
+line on stderr and exit status 1, changing nothing and recording nothing. Nothing on
+either path deletes content: the artifacts, revisions, comments and share grants keep
+their rows, and `user:purge` is the only console operation that removes a person.
+
+`user:purge` takes the address and exactly one content choice, and asks for the
+address to be typed again unless `--yes` is passed. It refuses an unknown
+address, an unknown reassignment target, the account itself as its own target,
+neither or both content choices, and an unconfirmed or mismatched confirmation,
+with the reason on stderr and exit status 1. It removes the account row, its
+identities, sessions, issued tokens, pending invitation and reset links and the
+share grants it held as a recipient. With `--reassign-to` the artifacts and their
+revisions, public links, comments and grants follow the target, and the comments
+and grants the person wrote on other people's artifacts keep working under the
+target as their author and issuer; with `--delete-content` the artifacts go with
+their comments, links and grants, and the comments the person wrote elsewhere and
+the grants they issued there go with them. The purge writes one `user.purged`
+line and is never reachable from the interface.
+
+## 11. Capacity notes
 
 - One API process holds at most 4 PostgreSQL connections.
 - The staging GC and HTTP requests share that pool.

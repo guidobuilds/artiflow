@@ -107,15 +107,17 @@ async function seedCredentialUser(email: string, password: string): Promise<stri
   await db()
     .db.insert(user)
     .values({ id, name: "Policy Test Owner", email, emailVerified: false, createdAt: now, updatedAt: now });
-  await db().db.insert(account).values({
-    id: randomUUID(),
-    userId: id,
-    providerId: "credential",
-    accountId: id,
-    password: await hashPassword(password),
-    createdAt: now,
-    updatedAt: now,
-  });
+  await db()
+    .db.insert(account)
+    .values({
+      id: randomUUID(),
+      userId: id,
+      providerId: "credential",
+      accountId: id,
+      password: await hashPassword(password),
+      createdAt: now,
+      updatedAt: now,
+    });
   return id;
 }
 

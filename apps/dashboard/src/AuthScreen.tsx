@@ -1,10 +1,23 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { getCapabilities, signIn, signUp, socialSignIn } from "./auth-client.ts";
+import { getCapabilities, signIn, signUp, socialSignIn, ssoSignIn, type Capabilities } from "./auth-client.ts";
+import {
+  CONNECTION_ERROR_PATH,
+  EMERGENCY_TITLE,
+  FALLBACK_PATH,
+  METHODS_UNAVAILABLE,
+  loginSurface,
+  ssoFailure,
+  type ConnectionNotice,
+  type EmergencyNotice,
+} from "./login-methods.ts";
 import { safeInternalPath } from "./lib/utils.ts";
+import { providerLabel } from "./provider-marks.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
+import { PasswordPolicyNotice, type PasswordPolicyReading } from "@/components/ui/password-policy-notice.tsx";
+import { ProviderMark } from "@/components/ui/provider-mark.tsx";
 import { Terminal, TerminalOutput, TerminalPrompt, TerminalTool } from "@/components/ui/terminal.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 
@@ -27,9 +40,43 @@ function HowItWorks() {
   );
 }
 
+export function ConnectionPanel({
+  notice,
+  fallback,
+  busy,
+  start,
+  fallbackHref = FALLBACK_PATH,
+}: {
+  notice: ConnectionNotice;
+  fallback: boolean;
+  busy: boolean;
+  start: () => void;
+  fallbackHref?: string;
+}) {
+  return (
+    <div className="grid gap-2 border border-line px-3 py-2.5">
+      <Button type="button" variant="primary" className="w-full" disabled={busy} onClick={start}>
+        Sign in with {notice.label}
+      </Button>
+      {notice.access === null ? null : <p className="text-[13px] text-fg-muted">{notice.access}</p>}
+      {fallback ? <TextLink href={fallbackHref}>{EMERGENCY_TITLE}</TextLink> : null}
+    </div>
+  );
+}
+
+export function EmergencyPanel({ notice }: { notice: EmergencyNotice }) {
+  return (
+    <div className="grid gap-1 border border-line px-3 py-2.5">
+      <p className="text-[13px] font-medium">{notice.title}</p>
+      <p className="text-[13px] text-fg-muted">{notice.copy}</p>
+    </div>
+  );
+}
+
 export type InvitationMode = {
   email: string;
   created?: boolean;
+  policy: PasswordPolicyReading;
   submit: (name: string, password: string) => Promise<{ error: string } | null>;
 };
 
@@ -38,26 +85,34 @@ export default function AuthScreen({
   invitation,
 }: { search?: string; invitation?: InvitationMode } = {}) {
   const returnPath = safeInternalPath(new URLSearchParams(search).get("return") ?? "") ?? "/";
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
   const [registrationAvailable, setRegistrationAvailable] = useState(false);
-  const [socialProviders, setSocialProviders] = useState<string[]>([]);
+  const [readError, setReadError] = useState("");
   const [signup, setSignup] = useState(false);
   const [values, setValues] = useState({ name: "", email: "", password: "" });
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => ssoFailure(search));
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const newAccount = signup || invitation !== undefined;
   const created = invitation !== undefined && invitation.created === true;
+  const surface = loginSurface(capabilities, search);
+  const socialProviders = surface.providers;
+  const signInForm = surface.password || newAccount;
 
   useEffect(() => {
     let live = true;
     void getCapabilities()
       .then((result) => {
         if (!live) return;
-        setRegistrationAvailable(result.ok && result.value.registration === true);
-        setSocialProviders(result.ok ? result.value.socialProviders : []);
+        if (!result.ok) {
+          setReadError(METHODS_UNAVAILABLE);
+          return;
+        }
+        setReadError("");
+        setCapabilities(result.value);
+        setRegistrationAvailable(result.value.registration === true);
       })
-      .catch(() => {
-      });
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -72,7 +127,7 @@ export default function AuthScreen({
       setError("Enter an email address like name@company.com.");
       return;
     }
-    if (newAccount && values.password.length < 8) {
+    if (newAccount && invitation === undefined && values.password.length < 8) {
       setError("Passwords have at least 8 characters.");
       return;
     }
@@ -112,6 +167,21 @@ export default function AuthScreen({
     setBusy(false);
   };
 
+  const connectionSignIn = async () => {
+    if (busy || submitting.current) return;
+    setError("");
+    setBusy(true);
+    const refused =
+      returnPath === "/" ? CONNECTION_ERROR_PATH : `${CONNECTION_ERROR_PATH}?return=${encodeURIComponent(returnPath)}`;
+    const result = await ssoSignIn(returnPath, refused);
+    if (result.ok) {
+      window.location.assign(result.url);
+      return;
+    }
+    setError(result.error);
+    setBusy(false);
+  };
+
   const label = newAccount ? "Create account" : "Sign in";
   return (
     <main className="grid min-h-dvh min-[960px]:grid-cols-2">
@@ -132,6 +202,20 @@ export default function AuthScreen({
                   : `Welcome back to ${window.location.host}.`}
             </p>
           </div>
+          {readError ? (
+            <p role="alert" className="text-[13px] text-danger-text">
+              {readError}
+            </p>
+          ) : null}
+          {surface.connection ? (
+            <ConnectionPanel
+              notice={surface.connection}
+              fallback={surface.fallbackLink}
+              busy={busy}
+              start={() => void connectionSignIn()}
+            />
+          ) : null}
+          {surface.emergency ? <EmergencyPanel notice={surface.emergency} /> : null}
           {invitation === undefined && socialProviders.length > 0 ? (
             <>
               <div className="grid gap-2.5">
@@ -143,14 +227,16 @@ export default function AuthScreen({
                     disabled={busy}
                     onClick={() => void providerSignIn(provider)}
                   >
-                    Continue with{" "}
-                    {provider === "github" ? "GitHub" : provider.charAt(0).toUpperCase() + provider.slice(1)}
+                    <ProviderMark provider={provider} />
+                    Continue with {providerLabel(provider)}
                   </Button>
                 ))}
               </div>
-              <p className="flex items-center gap-3 text-[12px] text-fg-subtle before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">
-                or with email
-              </p>
+              {signInForm ? (
+                <p className="flex items-center gap-3 text-[12px] text-fg-subtle before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">
+                  or with email
+                </p>
+              ) : null}
             </>
           ) : null}
           {created ? (
@@ -160,7 +246,7 @@ export default function AuthScreen({
               </p>
               <TextLink href="/login">Go to sign in</TextLink>
             </div>
-          ) : (
+          ) : signInForm ? (
             <form
               className="grid gap-4"
               onSubmit={submit}
@@ -195,12 +281,13 @@ export default function AuthScreen({
                   required
                 />
               </Field>
+              {invitation !== undefined ? <PasswordPolicyNotice reading={invitation.policy} /> : null}
               <Field label="Password" htmlFor="auth-password">
                 <Input
                   id="auth-password"
                   name="password"
                   type="password"
-                  placeholder="At least 8 characters"
+                  placeholder={undefined}
                   autoComplete={newAccount ? "new-password" : "current-password"}
                   value={values.password}
                   onChange={(event) => setValues({ ...values, password: event.target.value })}
@@ -217,7 +304,7 @@ export default function AuthScreen({
                 {label}
               </Button>
             </form>
-          )}
+          ) : null}
           {registrationAvailable && invitation === undefined ? (
             <p className="text-[13px] text-fg-muted">
               {signup ? "Already have an account?" : "New here?"}{" "}

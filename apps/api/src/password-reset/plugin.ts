@@ -3,7 +3,13 @@ import { APIError, createAuthEndpoint } from "better-auth/api";
 import { z } from "zod";
 
 import { canonicalizeEmail } from "../invites/token.ts";
-import { consumePasswordReset } from "./service.ts";
+import {
+  defaultPasswordPolicySource,
+  passwordPolicyMessage,
+  validatePassword,
+  type PasswordPolicySource,
+} from "../password-policy/policy.ts";
+import { consumePasswordReset, resetTokenIsUsable } from "./service.ts";
 import { hashResetToken } from "./token.ts";
 
 export const PASSWORD_RESET_MODEL = "passwordResetToken";
@@ -47,32 +53,39 @@ const preview = createAuthEndpoint(
   },
 );
 
-const complete = createAuthEndpoint(
-  "/password-reset/complete",
-  { method: "POST", body: z.object({ token: z.string(), newPassword: z.string() }) },
-  async (ctx) => {
-    const { newPassword } = ctx.body;
-    const { minPasswordLength, maxPasswordLength } = ctx.context.password.config;
-    if (newPassword.length < minPasswordLength || newPassword.length > maxPasswordLength) {
-      throw APIError.from("BAD_REQUEST", {
-        code: "PASSWORD_INVALID",
-        message: `The password must be between ${minPasswordLength} and ${maxPasswordLength} characters.`,
-      });
-    }
+const completeEndpoint = (policy: PasswordPolicySource) =>
+  createAuthEndpoint(
+    "/password-reset/complete",
+    { method: "POST", body: z.object({ token: z.string(), newPassword: z.string() }) },
+    async (ctx) => {
+      try {
+        if (!(await resetTokenIsUsable(ctx.context, ctx.body.token))) throw refused();
 
-    try {
-      const result = await consumePasswordReset(ctx.context, { token: ctx.body.token, newPassword });
-      if (result.kind === "invalid") throw refused();
-    } catch (error) {
-      throw asResponseError(error);
-    }
-    ctx.setHeader("cache-control", "no-store");
-    ctx.setHeader("pragma", "no-cache");
-    return ctx.json({ status: "ok" });
-  },
-);
+        const current = await policy();
+        const missing = validatePassword(ctx.body.newPassword, current);
+        if (missing.length > 0) {
+          throw new APIError("BAD_REQUEST", {
+            code: "PASSWORD_INVALID",
+            message: passwordPolicyMessage(missing, current),
+            missing,
+          });
+        }
 
-export const passwordReset = (): BetterAuthPlugin => ({
+        const result = await consumePasswordReset(ctx.context, {
+          token: ctx.body.token,
+          newPassword: ctx.body.newPassword,
+        });
+        if (result.kind === "invalid") throw refused();
+      } catch (error) {
+        throw asResponseError(error);
+      }
+      ctx.setHeader("cache-control", "no-store");
+      ctx.setHeader("pragma", "no-cache");
+      return ctx.json({ status: "ok" });
+    },
+  );
+
+export const passwordReset = (input: { policy?: PasswordPolicySource } = {}): BetterAuthPlugin => ({
   id: "password-reset",
   schema: {
     [PASSWORD_RESET_MODEL]: {
@@ -81,10 +94,11 @@ export const passwordReset = (): BetterAuthPlugin => ({
         tokenHash: { type: "string", required: true },
         expiresAt: { type: "date", required: true },
         consumedAt: { type: "date", required: false },
+        createdBy: { type: "string", required: false },
         createdAt: { type: "date", required: true },
       },
       disableMigration: true,
     },
   },
-  endpoints: { resetPreview: preview, resetComplete: complete },
+  endpoints: { resetPreview: preview, resetComplete: completeEndpoint(input.policy ?? defaultPasswordPolicySource) },
 });

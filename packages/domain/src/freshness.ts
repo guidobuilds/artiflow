@@ -39,10 +39,7 @@ const identityOf = (metadata: MetadataIdentity): MetadataIdentity => ({
 const isSameIdentity = (left: MetadataIdentity, right: MetadataIdentity): boolean =>
   left.revisionId === right.revisionId && left.revisionNumber === right.revisionNumber && left.sha256 === right.sha256;
 
-const keepPendingAhead = (
-  pending: MetadataIdentity | null,
-  reference: MetadataIdentity,
-): MetadataIdentity | null =>
+const keepPendingAhead = (pending: MetadataIdentity | null, reference: MetadataIdentity): MetadataIdentity | null =>
   pending === null || pending.revisionNumber <= reference.revisionNumber ? null : pending;
 
 const moveReference = (state: FreshnessState, applied: MetadataIdentity): FreshnessState => {
@@ -153,10 +150,7 @@ export type DirtyDecision = {
   intent: "apply" | "keep" | "idle";
 };
 
-export function decideAfterDirtyResolution(
-  state: FreshnessState,
-  resolution: DirtyResolution,
-): DirtyDecision {
+export function decideAfterDirtyResolution(state: FreshnessState, resolution: DirtyResolution): DirtyDecision {
   if (state.pending === null) return { state, intent: "idle" };
   return { state, intent: resolution === "accept-remote" ? "apply" : "keep" };
 }

@@ -18,16 +18,36 @@ export type McpBearerVerifier = (
   handler: (request: Request, claims: McpClaims) => Response | Promise<Response>,
 ) => Promise<Response>;
 
-export type McpBearerOptions = Pick<McpAppOptions, "resource" | "issuer" | "jwksUrl" | "challengeScopes">;
+export type McpBearerOptions = Pick<
+  McpAppOptions,
+  "resource" | "issuer" | "jwksUrl" | "challengeScopes" | "isAccountActive"
+>;
+
+function invalidTokenResponse(): Response {
+  return new Response(JSON.stringify({ error: "invalid_token" }), {
+    status: 401,
+    headers: { "content-type": "application/json", "www-authenticate": 'Bearer error="invalid_token"' },
+  });
+}
 
 export function createMcpBearerVerifier(auth: McpAuth, options: McpBearerOptions): McpBearerVerifier {
+  const isAccountActive = options.isAccountActive;
   return (request, handler) =>
-    requireMcpAuth(auth, (verifiedRequest, claims) => handler(verifiedRequest, toMcpClaims(claims)), {
-      resource: options.resource,
-      issuer: options.issuer,
-      jwksUrl: options.jwksUrl,
-      challengeScopes: options.challengeScopes,
-    })(request);
+    requireMcpAuth(
+      auth,
+      async (verifiedRequest, claims) => {
+        const resolved = toMcpClaims(claims);
+        if (isAccountActive !== undefined && (resolved.userId === null || !(await isAccountActive(resolved.userId))))
+          return invalidTokenResponse();
+        return handler(verifiedRequest, resolved);
+      },
+      {
+        resource: options.resource,
+        issuer: options.issuer,
+        jwksUrl: options.jwksUrl,
+        challengeScopes: options.challengeScopes,
+      },
+    )(request);
 }
 
 export function createMultiAudienceBearerVerifier(
@@ -58,6 +78,7 @@ export type McpAppOptions = {
   resource: string;
   issuer: string;
   challengeScopes: readonly string[];
+  isAccountActive?: (userId: string) => Promise<boolean>;
   mcpServerFactory?: (claims: McpClaims) => McpServer;
 };
 

@@ -118,11 +118,7 @@ export function createArtifactApi(options: ArtifactApiOptions) {
     return parsed.success ? parsed.data : refusal("unreadable_response", extra);
   };
 
-  const read = async <T>(
-    schema: Schema<T>,
-    path: string,
-    extra: Record<string, unknown>,
-  ): Promise<T> => {
+  const read = async <T>(schema: Schema<T>, path: string, extra: Record<string, unknown>): Promise<T> => {
     const response = await send(path);
     if (!response.ok) return failure(response.payload, response.status);
     return parse(schema, response.payload, extra);
@@ -140,11 +136,9 @@ export function createArtifactApi(options: ArtifactApiOptions) {
   };
 
   const kindOf = async (artifactId: string): Promise<string> => {
-    const detail = await read<ArtifactDetail>(
-      artifactDetailSchema,
-      `/artifacts/${encodeURIComponent(artifactId)}`,
-      { artifactId },
-    );
+    const detail = await read<ArtifactDetail>(artifactDetailSchema, `/artifacts/${encodeURIComponent(artifactId)}`, {
+      artifactId,
+    });
     if (detail.kind === "unknown") return refusal("wrong_kind", { artifactId });
     return detail.kind;
   };
@@ -156,9 +150,13 @@ export function createArtifactApi(options: ArtifactApiOptions) {
     },
 
     async metadata(input: { artifactId: string }): Promise<ArtifactMetadata> {
-      const detail = await read<ArtifactDetail>(artifactDetailSchema, `/artifacts/${encodeURIComponent(input.artifactId)}`, {
-        artifactId: input.artifactId,
-      });
+      const detail = await read<ArtifactDetail>(
+        artifactDetailSchema,
+        `/artifacts/${encodeURIComponent(input.artifactId)}`,
+        {
+          artifactId: input.artifactId,
+        },
+      );
       const { revision } = detail;
       if (revision === null) return refusal("no_current_revision", { artifactId: input.artifactId });
       if (detail.kind === "unknown") return refusal("wrong_kind", { artifactId: input.artifactId });
@@ -222,7 +220,10 @@ export function createArtifactApi(options: ArtifactApiOptions) {
       });
       if (!response.ok) {
         if (object(response.payload).error === "concurrent_edit")
-          return refusal("concurrent_edit", { artifactId: input.artifactId, ...(await currentRevision(input.artifactId)) });
+          return refusal("concurrent_edit", {
+            artifactId: input.artifactId,
+            ...(await currentRevision(input.artifactId)),
+          });
         return failure(response.payload, response.status);
       }
       const saved = parse<SavedRevision>(savedRevisionSchema, response.payload, { artifactId: input.artifactId });

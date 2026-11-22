@@ -61,8 +61,11 @@ curl -s http://127.0.0.1:8787/api/health
 ```
 
 `/api/health` is 200 only when both probes pass and 503 with `"status":"degraded"`
-otherwise. Create a local account at `http://127.0.0.1:5173/` (email/password,
-development profile only), then open `/library`.
+otherwise. Registration is closed in every profile, so the first account comes from the
+console: `bun run user:invite you@example.com` prints a single-use URL that expires in
+24 hours, and `bun run admin:grant you@example.com` makes that account an
+administrator once it exists, which is what opens the administration surfaces under
+`/admin` on `http://127.0.0.1:5173/`.
 
 All local secrets live in `.env.local` (mode `0600`, git-ignored): database URL,
 S3 credentials and auth signing secret. Never commit, print or paste them; service
@@ -222,6 +225,23 @@ Sign in at `http://127.0.0.1:5173/`, then open `/library`.
 - **Delete** requires two presses. It is a soft delete; the artifact stops
   resolving immediately and its own revision objects are deleted best effort.
 
+### Administration
+
+An administrator reaches `/admin/users`, `/admin/access`, `/admin/sso`,
+`/admin/password-policy` and `/admin/invitations` from the account menu of the
+library; every `/api/admin/*` route sits behind one server-side guard. The
+console counterpart is `bun run admin:grant|admin:revoke|admin:list` plus
+`user:invite`, `user:reset-password` and `user:purge`, run with the API's
+environment loaded.
+
+The rules and refusals live in
+[authentication and access](architecture/authentication-and-access.md). The
+operator documentation is `apps/web/src/content/docs/docs/self-hosting/administration.md`
+(surfaces, access methods, policy, invitations, sessions, the administration log),
+`.../identity-providers.md` (the OIDC connection, Entra ID tenant pinning, Google
+and GitHub restrictions, the emergency fallback) and `.../recovery.md` (no
+administrator, deactivate versus purge, offboarding).
+
 ### Comments and editor
 
 Open a markdown document at `/edit/:id`. Select text and use **Comment**; Enter
@@ -245,7 +265,9 @@ keeps local text; **Reload from server** discards it only after confirmation.
 - No rate limiting on `/share`; public links rely on 256-bit tokens.
 - Storage failures on the public path answer the same `404` as a missing artifact.
 - Recipient metadata is owner-only; recipients use the shared listing and viewer.
-- Access tokens are self-contained 900-second JWTs and cannot be revoked early.
+- Access tokens are self-contained 900-second JWTs and cannot be revoked one by
+  one, but deactivating an account revokes every token issued to it and both
+  bearer surfaces refuse it from the next request.
 - Public links never expire; revoke or rotate them.
 
 External services are a prerequisite, not a product limit: `bun run check:local`
