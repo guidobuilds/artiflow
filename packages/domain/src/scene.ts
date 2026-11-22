@@ -75,6 +75,8 @@ export type SceneResult<T> = { ok: true; value: T } | SceneRefusal;
 export type SceneBBox = { x: number; y: number; w: number; h: number };
 export type SceneNodeLocation = { frameId: string; type: NodeType; x: number; y: number; w: number; h: number };
 export type SceneNodeIndex = Record<string, SceneNodeLocation>;
+export type SceneFrameLocation = { frameId: string; name: string; nodeCount: number };
+export type SceneBlockIndex = Record<string, SceneNodeLocation | SceneFrameLocation>;
 export type SceneOutlineEntry = { id: string; name: string; nodeCount: number; bbox: SceneBBox };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -234,6 +236,13 @@ export function sceneIndex(scene: Scene): SceneNodeIndex {
     for (const node of frame.nodes)
       index[node.id] = { frameId: frame.id, type: node.type, x: node.x, y: node.y, w: node.w, h: node.h };
   return index;
+}
+
+export function sceneBlockIndex(scene: Scene): SceneBlockIndex {
+  const index: SceneBlockIndex = {};
+  for (const frame of scene.frames)
+    index[frame.id] = { frameId: frame.id, name: frame.name, nodeCount: frame.nodes.length };
+  return Object.assign(index, sceneIndex(scene));
 }
 
 const frameBBox = (frame: SceneFrame): SceneBBox => {

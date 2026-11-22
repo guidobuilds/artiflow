@@ -24,6 +24,21 @@ import {
   indexBlocks,
   type DocumentOperation,
 } from "@artiflow/domain/document-operations";
+import {
+  SCENE_FORMAT_VERSION,
+  canonicalScene,
+  readScene,
+  sceneBlockIndex,
+  sceneBytes,
+  validateScene,
+  type Scene,
+} from "@artiflow/domain/scene";
+import {
+  applySceneOperations,
+  type SceneNodeBox,
+  type SceneOperation,
+  type SceneViolation,
+} from "@artiflow/domain/scene-operations";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 
 export const FREEZE_OPERATION_THRESHOLD = 100;
@@ -43,8 +58,14 @@ export type DocumentFailure = {
 };
 export type DocumentResult<T> = { ok: true; value: T } | DocumentFailure;
 
+export type DocumentOperationsBatch = DocumentOperation[] | SceneOperation[];
+export type DraftTextContent = { formatVersion: number; text: string };
+export type DraftSceneContent = { formatVersion: number; scene: Scene };
+export type DocumentDraftContent = DraftTextContent | DraftSceneContent;
+
 export type ArtifactDocumentState = {
   artifactId: string;
+  kind?: string;
   publishedSeq: number;
   currentRevisionId: string | null;
   revisionCount: number;
@@ -71,7 +92,7 @@ export type OperationRecord = {
   baseSeq: number;
   authorKind: DocumentAuthorKind;
   authorId: string;
-  ops: DocumentOperation[];
+  ops: DocumentOperationsBatch;
   result: "applied" | "rejected";
   idempotencyKey: string;
   createdAt: Date;
@@ -112,14 +133,28 @@ export type DocumentStore = {
   }): Promise<CommitSnapshotOutcome>;
 };
 
-export type OpenedDraft = { artifactId: string; seq: number; formatVersion: number; text: string };
+export type OpenedDraft = {
+  artifactId: string;
+  seq: number;
+  formatVersion: number;
+  kind: string;
+  text: string;
+  scene: Scene | null;
+};
 export type SnapshotAtSeq = {
   seqTo: number;
   storageKey: string;
   sha256: string;
   formatVersion: number;
 };
-export type AppliedOperations = { artifactId: string; seq: number; applied: number; replayed: boolean };
+export type AppliedOperations = {
+  artifactId: string;
+  seq: number;
+  applied: number;
+  replayed: boolean;
+  boxes: SceneNodeBox[];
+  violations: SceneViolation[];
+};
 export type AppliedAndFrozen = AppliedOperations & {
   published: boolean;
   revisionId: string | null;
@@ -145,7 +180,7 @@ export type ApplyOperationsInput = OpenDraftInput & {
   authorId: string;
   baseSeq: number;
   idempotencyKey: string;
-  ops: DocumentOperation[];
+  ops: DocumentOperationsBatch;
 };
 
 export type FreezeInput = OpenDraftInput & { force?: boolean };
@@ -179,13 +214,37 @@ const fail = (
   extra: { currentSeq?: number; opIndex?: number } = {},
 ): DocumentFailure => ({ ok: false, kind, reason, ...extra });
 const isIdentifier = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 const storageKind = (kind: StorageErrorKind): DocumentErrorKind =>
   kind === "not_found" ? "not_found" : kind === "validation" ? "validation" : "storage";
 
-const textOf = (record: DraftRecord): DocumentResult<{ formatVersion: number; text: string }> => {
-  const state = record.state as { text?: unknown } | null;
-  if (typeof state !== "object" || state === null || typeof state.text !== "string")
-    return fail("error", "draft_state_invalid");
+const isSceneContent = (content: DocumentDraftContent): content is DraftSceneContent => "scene" in content;
+const kindOf = (artifact: ArtifactDocumentState): string => artifact.kind ?? "markdown";
+const contentMatchesKind = (kind: string, content: DocumentDraftContent): boolean =>
+  (kind === "canvas") === isSceneContent(content);
+
+const openedOf = (artifactId: string, seq: number, kind: string, content: DocumentDraftContent): OpenedDraft =>
+  isSceneContent(content)
+    ? {
+        artifactId,
+        seq,
+        formatVersion: content.formatVersion,
+        kind,
+        text: canonicalScene(content.scene),
+        scene: content.scene,
+      }
+    : { artifactId, seq, formatVersion: content.formatVersion, kind, text: content.text, scene: null };
+
+const draftContentOf = (record: DraftRecord): DocumentResult<DocumentDraftContent> => {
+  const state = record.state;
+  if (!isRecord(state)) return fail("error", "draft_state_invalid");
+  if ("scene" in state) {
+    const checked = validateScene(state.scene);
+    if (!checked.ok) return fail("error", "draft_state_invalid");
+    return ok({ formatVersion: record.formatVersion, scene: checked.value });
+  }
+  if (typeof state.text !== "string") return fail("error", "draft_state_invalid");
   return ok({ formatVersion: record.formatVersion, text: state.text });
 };
 
@@ -196,8 +255,8 @@ async function materialise(input: {
   now: Date;
 }): Promise<DocumentResult<OpenedDraft>> {
   const { store, storage, artifact, now } = input;
-  let text = "";
-  let formatVersion = DOCUMENT_FORMAT_VERSION;
+  const kind = kindOf(artifact);
+  let content: DocumentDraftContent = { formatVersion: DOCUMENT_FORMAT_VERSION, text: "" };
   if (artifact.latestSnapshot) {
     const read = await getRevisionBytes({
       storage,
@@ -207,26 +266,29 @@ async function materialise(input: {
     if (!read.ok) return fail(storageKind(read.kind), read.reason);
     const decoded = decodeMarkdownText(read.value.bytes);
     if (!decoded.ok) return fail("error", "snapshot_is_not_valid_utf8");
-    text = decoded.text;
-    formatVersion = artifact.latestSnapshot.formatVersion;
+    const formatVersion = artifact.latestSnapshot.formatVersion;
+    if (kind === "canvas") {
+      const parsed = readScene(decoded.text);
+      if (!parsed.ok) return fail("error", "snapshot_is_not_valid_scene");
+      content = { formatVersion, scene: parsed.value };
+    } else {
+      content = { formatVersion, text: decoded.text };
+    }
+  } else if (kind === "canvas") {
+    content = { formatVersion: SCENE_FORMAT_VERSION, scene: { formatVersion: SCENE_FORMAT_VERSION, frames: [] } };
   }
   const record: DraftRecord = {
     artifactId: artifact.artifactId,
     seq: artifact.publishedSeq,
-    formatVersion,
-    state: { formatVersion, text },
+    formatVersion: content.formatVersion,
+    state: content,
     updatedByUserId: null,
     updatedAt: now,
   };
   const stored = await store.insertDraftIfAbsent(record);
-  const state = textOf(stored);
-  if (!state.ok) return state;
-  return ok({
-    artifactId: stored.artifactId,
-    seq: stored.seq,
-    formatVersion: state.value.formatVersion,
-    text: state.value.text,
-  });
+  const draft = draftContentOf(stored);
+  if (!draft.ok) return draft;
+  return ok(openedOf(stored.artifactId, stored.seq, kind, draft.value));
 }
 
 export async function openDraft(input: OpenDraftInput): Promise<DocumentResult<OpenedDraft>> {
@@ -236,9 +298,9 @@ export async function openDraft(input: OpenDraftInput): Promise<DocumentResult<O
   if (!artifact) return fail("not_found", "artifact_not_found");
   const draft = await store.readDraft(artifactId);
   if (!draft) return materialise({ store, storage, artifact, now: input.now ?? new Date() });
-  const state = textOf(draft);
-  if (!state.ok) return state;
-  return ok({ artifactId, seq: draft.seq, formatVersion: state.value.formatVersion, text: state.value.text });
+  const content = draftContentOf(draft);
+  if (!content.ok) return content;
+  return ok(openedOf(artifactId, draft.seq, kindOf(artifact), content.value));
 }
 
 export async function textAt(input: TextAtInput): Promise<DocumentResult<OpenedDraft>> {
@@ -247,13 +309,14 @@ export async function textAt(input: TextAtInput): Promise<DocumentResult<OpenedD
   if (!Number.isSafeInteger(seq) || seq < 0) return fail("validation", "sequence_out_of_range");
   const artifact = await store.readArtifact(artifactId);
   if (!artifact) return fail("not_found", "artifact_not_found");
+  const kind = kindOf(artifact);
   const draft = await store.readDraft(artifactId);
   const current = draft?.seq ?? artifact.publishedSeq;
   if (seq > current) return fail("validation", "sequence_ahead_of_the_draft", { currentSeq: current });
   if (draft && draft.seq === seq) {
-    const state = textOf(draft);
-    if (!state.ok) return state;
-    return ok({ artifactId, seq, formatVersion: state.value.formatVersion, text: state.value.text });
+    const content = draftContentOf(draft);
+    if (!content.ok) return content;
+    return ok(openedOf(artifactId, seq, kind, content.value));
   }
   const snapshot = await store.readSnapshotAtOrBefore(artifactId, seq);
   let text = "";
@@ -267,16 +330,16 @@ export async function textAt(input: TextAtInput): Promise<DocumentResult<OpenedD
     formatVersion = snapshot.formatVersion;
   }
   let cursor = snapshot?.seqTo ?? 0;
-  if (cursor === seq) return ok({ artifactId, seq, formatVersion, text });
+  if (cursor === seq) return ok(openedOf(artifactId, seq, kind, { formatVersion, text }));
   for (const row of await store.readAppliedOperations(artifactId, cursor, seq)) {
     if (row.seq !== cursor + 1) return fail("validation", "sequence_not_recorded", { currentSeq: current });
-    const applied = applyDocumentOperations({ formatVersion, text }, row.ops);
+    const applied = applyDocumentOperations({ formatVersion, text }, row.ops as DocumentOperation[]);
     if (!applied.ok) return fail("error", "recorded_operation_no_longer_applies");
     text = applied.value.text;
     cursor = row.seq;
   }
   if (cursor !== seq) return fail("validation", "sequence_not_recorded", { currentSeq: current });
-  return ok({ artifactId, seq, formatVersion, text });
+  return ok(openedOf(artifactId, seq, kind, { formatVersion, text }));
 }
 
 const replayOf = (record: OperationRecord): AppliedOperations => ({
@@ -284,7 +347,45 @@ const replayOf = (record: OperationRecord): AppliedOperations => ({
   seq: record.seq,
   applied: Array.isArray(record.ops) ? record.ops.length : 0,
   replayed: true,
+  boxes: [],
+  violations: [],
 });
+
+type AttemptedBatch =
+  | {
+      ok: true;
+      content: DocumentDraftContent;
+      applied: number;
+      boxes: SceneNodeBox[];
+      violations: SceneViolation[];
+    }
+  | { ok: false; reason: string; opIndex: number };
+
+function attemptBatch(draft: OpenedDraft, ops: DocumentOperationsBatch): AttemptedBatch {
+  if (draft.scene === null) {
+    const applied = applyDocumentOperations(
+      { formatVersion: draft.formatVersion, text: draft.text },
+      ops as DocumentOperation[],
+    );
+    if (!applied.ok) return { ok: false, reason: applied.reason, opIndex: applied.opIndex };
+    return {
+      ok: true,
+      content: { formatVersion: applied.value.formatVersion, text: applied.value.text },
+      applied: applied.value.applied,
+      boxes: [],
+      violations: [],
+    };
+  }
+  const applied = applySceneOperations(draft.scene, ops as SceneOperation[]);
+  if (!applied.ok) return { ok: false, reason: applied.reason, opIndex: applied.opIndex };
+  return {
+    ok: true,
+    content: { formatVersion: applied.value.formatVersion, scene: applied.value.scene },
+    applied: applied.value.applied,
+    boxes: applied.value.boxes,
+    violations: applied.value.violations,
+  };
+}
 
 export async function applyOperations(input: ApplyOperationsInput): Promise<DocumentResult<AppliedOperations>> {
   const { store, storage, artifactId, authorKind, authorId, baseSeq, idempotencyKey, ops } = input;
@@ -303,8 +404,9 @@ export async function applyOperations(input: ApplyOperationsInput): Promise<Docu
   const opened = await openDraft({ store, storage, artifactId, now: input.now });
   if (!opened.ok) return opened;
   const draft = opened.value;
+  if ((draft.kind === "canvas") !== (draft.scene !== null)) return fail("error", "draft_state_invalid");
   if (baseSeq !== draft.seq) return fail("concurrent_edit", "base_sequence_is_stale", { currentSeq: draft.seq });
-  const applied = applyDocumentOperations({ formatVersion: draft.formatVersion, text: draft.text }, ops);
+  const applied = attemptBatch(draft, ops);
   const now = input.now ?? new Date();
   const seq = draft.seq + 1;
   const operation: OperationRecord = {
@@ -322,8 +424,8 @@ export async function applyOperations(input: ApplyOperationsInput): Promise<Docu
     ? {
         artifactId,
         seq,
-        formatVersion: applied.value.formatVersion,
-        state: { formatVersion: applied.value.formatVersion, text: applied.value.text },
+        formatVersion: applied.content.formatVersion,
+        state: applied.content,
         updatedByUserId: authorKind === "person" ? authorId : null,
         updatedAt: now,
       }
@@ -340,7 +442,14 @@ export async function applyOperations(input: ApplyOperationsInput): Promise<Docu
   }
   if (!applied.ok)
     return fail("operation_rejected", applied.reason, { currentSeq: draft.seq, opIndex: applied.opIndex });
-  return ok({ artifactId, seq, applied: applied.value.applied, replayed: false });
+  return ok({
+    artifactId,
+    seq,
+    applied: applied.applied,
+    replayed: false,
+    boxes: applied.boxes,
+    violations: applied.violations,
+  });
 }
 
 export async function applyOperationsAndFreeze(input: ApplyOperationsInput): Promise<DocumentResult<AppliedAndFrozen>> {
@@ -391,23 +500,25 @@ async function freeze(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>
   const pending = draftSeq - artifact.publishedSeq;
   if (input.force !== true && pending < FREEZE_OPERATION_THRESHOLD && elapsed < FREEZE_INTERVAL_MS)
     return unfrozen(artifactId, artifact, draftSeq);
-  const state = textOf(draft);
+  const state = draftContentOf(draft);
   if (!state.ok) return state;
-  const document = { formatVersion: state.value.formatVersion, text: state.value.text };
-  const bytes = canonicalBytes(document);
+  if (!contentMatchesKind(kindOf(artifact), state.value)) return fail("error", "draft_state_invalid");
+  const bytes = isSceneContent(state.value)
+    ? sceneBytes(state.value.scene)
+    : canonicalBytes({ formatVersion: state.value.formatVersion, text: state.value.text });
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const storageKey = newRevisionStorageKey();
   const stored = await putRevisionBytes({ storage, storageKey, sha256, bytes });
   if (!stored.ok) return fail(storageKind(stored.kind), stored.reason);
   const revision: SnapshotRecord = {
     artifactId,
-    formatVersion: document.formatVersion,
+    formatVersion: state.value.formatVersion,
     seqFrom: artifact.publishedSeq + 1,
     seqTo: draftSeq,
     sizeBytes: stored.value.sizeBytes,
     sha256,
     storageKey: stored.value.storageKey,
-    blockIndex: indexBlocks(document.text),
+    blockIndex: isSceneContent(state.value) ? sceneBlockIndex(state.value.scene) : indexBlocks(state.value.text),
     createdAt: now,
   };
   const committed = await store.commitSnapshot({
@@ -530,6 +641,7 @@ export function drizzleDocumentStore(database: Database): DocumentStore {
     async readArtifact(artifactId) {
       const rows = await db
         .select({
+          kind: artifacts.kind,
           publishedSeq: artifacts.publishedSeq,
           currentRevisionId: artifacts.currentRevisionId,
         })
@@ -558,6 +670,7 @@ export function drizzleDocumentStore(database: Database): DocumentStore {
         : null;
       return {
         artifactId,
+        kind: artifact.kind,
         publishedSeq: artifact.publishedSeq,
         currentRevisionId: artifact.currentRevisionId,
         revisionCount: counts[0]?.count ?? 0,

@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
+import { SCENE_FORMAT_VERSION, canonicalScene, sceneBlockIndex, sceneBytes, type Scene } from "@artiflow/domain/scene";
+
 import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
 import {
   FREEZE_INTERVAL_MS,
@@ -22,6 +24,20 @@ import {
 
 const NOW = new Date("2026-11-21T12:00:00.000Z");
 const PUBLISHED = "# Published\n\nbody";
+const CANVAS_SCENE: Scene = {
+  formatVersion: SCENE_FORMAT_VERSION,
+  frames: [
+    {
+      id: "f1",
+      name: "Home",
+      x: 100,
+      y: 50,
+      w: 200,
+      h: 100,
+      nodes: [{ id: "n1", type: "rect", x: 10, y: 20, w: 30, h: 40, fill: "#ffffff" }],
+    },
+  ],
+};
 const digitOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 type FakeRevision = SnapshotRecord & { id: string; revision: number };
@@ -64,8 +80,10 @@ function fakeStorage(): Storage & { objects: Map<string, Uint8Array> } {
   };
 }
 
-function fakeStore(seed: { artifactId: string; publishedSeq?: number; snapshotText?: string } = { artifactId: "a1" }) {
-  const artifacts = new Map<string, { publishedSeq: number; currentRevisionId: string | null }>();
+function fakeStore(
+  seed: { artifactId: string; publishedSeq?: number; snapshotText?: string; kind?: string } = { artifactId: "a1" },
+) {
+  const artifacts = new Map<string, { publishedSeq: number; currentRevisionId: string | null; kind: string }>();
   const drafts = new Map<string, DraftRecord>();
   const operations: FakeOperation[] = [];
   const revisions: FakeRevision[] = [];
@@ -86,6 +104,7 @@ function fakeStore(seed: { artifactId: string; publishedSeq?: number; snapshotTe
       const current = mine.find((revision) => revision.id === artifact.currentRevisionId);
       return {
         artifactId,
+        kind: artifact.kind,
         publishedSeq: artifact.publishedSeq,
         currentRevisionId: artifact.currentRevisionId,
         revisionCount: mine.length,
@@ -165,7 +184,11 @@ function fakeStore(seed: { artifactId: string; publishedSeq?: number; snapshotTe
         return { committed: true, revisionId: id, revisionNumber };
       }),
   };
-  artifacts.set(seed.artifactId, { publishedSeq: seed.publishedSeq ?? 0, currentRevisionId: null });
+  artifacts.set(seed.artifactId, {
+    publishedSeq: seed.publishedSeq ?? 0,
+    currentRevisionId: null,
+    kind: seed.kind ?? "markdown",
+  });
   return {
     store,
     artifacts,
@@ -177,7 +200,11 @@ function fakeStore(seed: { artifactId: string; publishedSeq?: number; snapshotTe
       const bytes = new TextEncoder().encode(text);
       const storageKey = `artifacts/revision-${revisions.length + 1}`;
       storage.objects.set(storageKey, bytes);
-      const artifact = artifacts.get(artifactId) as { publishedSeq: number; currentRevisionId: string | null };
+      const artifact = artifacts.get(artifactId) as {
+        publishedSeq: number;
+        currentRevisionId: string | null;
+        kind: string;
+      };
       const id = `revision-${revisions.length + 1}`;
       revisions.push({
         id,
@@ -214,7 +241,14 @@ test("openDraft materialises a draft from the current snapshot at the published 
   const opened = await openDraft({ store: seeded.store, storage, artifactId: "a1" });
   assert.equal(opened.ok, true);
   if (!opened.ok) return;
-  assert.deepEqual(opened.value, { artifactId: "a1", seq: 3, formatVersion: 1, text: PUBLISHED });
+  assert.deepEqual(opened.value, {
+    artifactId: "a1",
+    seq: 3,
+    formatVersion: 1,
+    kind: "markdown",
+    text: PUBLISHED,
+    scene: null,
+  });
   assert.equal(draftOf(seeded).seq, 3, "the draft starts at the published sequence");
   const reopened = await openDraft({ store: seeded.store, storage, artifactId: "a1" });
   assert.equal(reopened.ok && reopened.value.text, PUBLISHED);
@@ -225,7 +259,10 @@ test("openDraft on a document with no snapshot starts empty at sequence zero and
   const seeded = fakeStore({ artifactId: "a1" });
   const storage = fakeStorage();
   const opened = await openDraft({ store: seeded.store, storage, artifactId: "a1" });
-  assert.deepEqual(opened, { ok: true, value: { artifactId: "a1", seq: 0, formatVersion: 1, text: "" } });
+  assert.deepEqual(opened, {
+    ok: true,
+    value: { artifactId: "a1", seq: 0, formatVersion: 1, kind: "markdown", text: "", scene: null },
+  });
   const missing = await openDraft({ store: seeded.store, storage, artifactId: "nope" });
   assert.equal(missing.ok, false);
   if (missing.ok) return;
@@ -248,7 +285,7 @@ test("applyOperations appends exactly one operation row and advances the draft w
   });
   assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
   if (!applied.ok) return;
-  assert.deepEqual(applied.value, { artifactId: "a1", seq: 1, applied: 1, replayed: false });
+  assert.deepEqual(applied.value, { artifactId: "a1", seq: 1, applied: 1, replayed: false, boxes: [], violations: [] });
   assert.equal(seeded.operations.length, 1, "one row per accepted write");
   const row = seeded.operations[0] as FakeOperation;
   assert.deepEqual(
@@ -305,7 +342,7 @@ test("replaying the same idempotencyKey applies once and appends one row", async
   assert.equal(first.ok && first.value.replayed, false);
   assert.equal(replay.ok, true, replay.ok ? "" : replay.reason);
   if (!replay.ok || !first.ok) return;
-  assert.deepEqual(replay.value, { artifactId: "a1", seq: 1, applied: 1, replayed: true });
+  assert.deepEqual(replay.value, { artifactId: "a1", seq: 1, applied: 1, replayed: true, boxes: [], violations: [] });
   assert.equal(seeded.operations.length, 1, "the replay adds no row");
   assert.equal(textOf(seeded), "# Once", "the text is applied exactly once");
 });
@@ -708,7 +745,7 @@ test("textAt resolves the published sequence, an intermediate one and the live d
   const atPublished = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 3 });
   assert.deepEqual(atPublished, {
     ok: true,
-    value: { artifactId: "a1", seq: 3, formatVersion: 1, text: PUBLISHED },
+    value: { artifactId: "a1", seq: 3, formatVersion: 1, kind: "markdown", text: PUBLISHED, scene: null },
   });
   const atFour = await textAt({ store: seeded.store, storage, artifactId: "a1", seq: 4 });
   assert.equal(atFour.ok, true);
@@ -860,4 +897,249 @@ test("applyOperationsAndFreeze publishes on the operation that crosses the thres
   assert.deepEqual([revision.seqFrom, revision.seqTo], [1, 100]);
   assert.equal(seeded.artifacts.get("a1")?.publishedSeq, 100);
   assert.equal(seeded.artifacts.get("a1")?.currentRevisionId, revision.id);
+});
+
+const canvasSceneOf = (store: ReturnType<typeof fakeStore>, artifactId = "c1"): Scene => {
+  const state = draftOf(store, artifactId).state as { scene: Scene };
+  return state.scene;
+};
+
+test("a canvas draft opens from the published scene snapshot at the published sequence", async () => {
+  const seeded = fakeStore({ artifactId: "c1", publishedSeq: 3, kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const opened = await openDraft({ store: seeded.store, storage, artifactId: "c1" });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) return;
+  assert.deepEqual(
+    [opened.value.seq, opened.value.kind, opened.value.formatVersion],
+    [3, "canvas", SCENE_FORMAT_VERSION],
+  );
+  assert.deepEqual(opened.value.scene, CANVAS_SCENE, "the draft carries the scene, not the bytes");
+  assert.equal(opened.value.text, canonicalScene(CANVAS_SCENE), "the draft text is the canonical scene text");
+  assert.deepEqual(draftOf(seeded, "c1").state, { formatVersion: SCENE_FORMAT_VERSION, scene: CANVAS_SCENE });
+  const again = await openDraft({ store: seeded.store, storage, artifactId: "c1" });
+  assert.deepEqual(again.ok && again.value.scene, CANVAS_SCENE, "the draft is materialised once");
+});
+
+test("a canvas draft with no snapshot starts from an empty scene", async () => {
+  const seeded = fakeStore({ artifactId: "c1", kind: "canvas" });
+  const storage = fakeStorage();
+  const opened = await openDraft({ store: seeded.store, storage, artifactId: "c1" });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) return;
+  assert.deepEqual(opened.value.scene, { formatVersion: SCENE_FORMAT_VERSION, frames: [] });
+  const applied = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "person",
+    authorId: "u1",
+    baseSeq: 0,
+    idempotencyKey: "canvas-1",
+    ops: [
+      {
+        op: "add_frame",
+        frame: {
+          id: "f1",
+          name: "Home",
+          x: 0,
+          y: 0,
+          w: 200,
+          h: 100,
+          nodes: [{ id: "n1", type: "rect", x: 10, y: 20, w: 30, h: 40, fill: "#ffffff" }],
+        },
+      },
+    ],
+    now: NOW,
+  });
+  assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
+  if (!applied.ok) return;
+  assert.deepEqual(applied.value.boxes, [{ id: "n1", frameId: "f1", x: 10, y: 20, w: 30, h: 40 }]);
+  assert.deepEqual(
+    canvasSceneOf(seeded).frames.map((frame) => frame.id),
+    ["f1"],
+  );
+});
+
+test("one canvas batch appends one operation row and returns the touched boxes and violations", async () => {
+  const seeded = fakeStore({ artifactId: "c1", publishedSeq: 3, kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const ops = [
+    { op: "add_node", frameId: "f1", node: { id: "n2", type: "rect", x: 5, y: 6, w: 7, h: 8, fill: "#0af" } },
+  ] as const;
+  const applied = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "agent",
+    authorId: "agent-1",
+    baseSeq: 3,
+    idempotencyKey: "canvas-1",
+    ops: [...ops],
+    now: NOW,
+  });
+  assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
+  if (!applied.ok) return;
+  assert.deepEqual(applied.value, {
+    artifactId: "c1",
+    seq: 4,
+    applied: 1,
+    replayed: false,
+    boxes: [{ id: "n2", frameId: "f1", x: 105, y: 56, w: 7, h: 8 }],
+    violations: [],
+  });
+  assert.equal(seeded.operations.length, 1, "one row per accepted write");
+  assert.deepEqual(seeded.operations[0]?.ops, [...ops], "the typed operations are stored as sent");
+  assert.deepEqual(
+    canvasSceneOf(seeded).frames[0]?.nodes.map((node) => node.id),
+    ["n1", "n2"],
+  );
+  assert.equal(draftOf(seeded, "c1").seq, 4);
+});
+
+test("a stale canvas base refuses with the current sequence and appends no row", async () => {
+  const seeded = fakeStore({ artifactId: "c1", publishedSeq: 3, kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const base = {
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "person" as const,
+    authorId: "u1",
+    now: NOW,
+  };
+  const first = await applyOperations({
+    ...base,
+    baseSeq: 3,
+    idempotencyKey: "canvas-1",
+    ops: [{ op: "move_node", id: "n1", x: 40, y: 30 }],
+  });
+  assert.equal(first.ok, true, first.ok ? "" : first.reason);
+  const before = canonicalScene(canvasSceneOf(seeded));
+  const stale = await applyOperations({
+    ...base,
+    baseSeq: 3,
+    idempotencyKey: "canvas-2",
+    ops: [{ op: "move_node", id: "n1", x: 0, y: 0 }],
+  });
+  assert.equal(stale.ok, false);
+  if (stale.ok) return;
+  assert.equal(stale.kind, "concurrent_edit");
+  assert.equal(stale.reason, "base_sequence_is_stale");
+  assert.equal(stale.currentSeq, 4);
+  assert.equal(seeded.operations.length, 1, "a refused write appends no row");
+  assert.equal(canonicalScene(canvasSceneOf(seeded)), before, "the draft scene is untouched");
+});
+
+test("a canvas idempotency replay applies once and appends one row", async () => {
+  const seeded = fakeStore({ artifactId: "c1", publishedSeq: 3, kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const input = {
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "agent" as const,
+    authorId: "agent-1",
+    baseSeq: 3,
+    idempotencyKey: "canvas-same",
+    ops: [{ op: "move_node" as const, id: "n1", x: 40, y: 30 }],
+    now: NOW,
+  };
+  const first = await applyOperations(input);
+  const replay = await applyOperations(input);
+  assert.equal(first.ok, true, first.ok ? "" : first.reason);
+  assert.equal(replay.ok, true, replay.ok ? "" : replay.reason);
+  if (!first.ok || !replay.ok) return;
+  assert.equal(first.value.replayed, false);
+  assert.deepEqual(replay.value, {
+    artifactId: "c1",
+    seq: 4,
+    applied: 1,
+    replayed: true,
+    boxes: [],
+    violations: [],
+  });
+  assert.equal(seeded.operations.length, 1, "the replay adds no row");
+  assert.deepEqual(
+    canvasSceneOf(seeded).frames[0]?.nodes[0],
+    { id: "n1", type: "rect", x: 40, y: 30, w: 30, h: 40, fill: "#ffffff" },
+    "the scene is applied exactly once",
+  );
+});
+
+test("a rejected canvas batch names the failing index and leaves the scene byte-identical", async () => {
+  const seeded = fakeStore({ artifactId: "c1", publishedSeq: 3, kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const opened = await openDraft({ store: seeded.store, storage, artifactId: "c1" });
+  assert.equal(opened.ok, true);
+  const before = canonicalScene(canvasSceneOf(seeded));
+  const rejected = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "agent",
+    authorId: "agent-1",
+    baseSeq: 3,
+    idempotencyKey: "canvas-rejected",
+    ops: [
+      { op: "move_node", id: "n1", x: 40, y: 30 },
+      { op: "move_node", id: "n1", x: 500, y: 0 },
+    ],
+    now: NOW,
+  });
+  assert.equal(rejected.ok, false);
+  if (rejected.ok) return;
+  assert.equal(rejected.kind, "operation_rejected");
+  assert.equal(rejected.reason, "outside_frame_bounds");
+  assert.equal(rejected.opIndex, 1);
+  assert.equal(rejected.currentSeq, 3);
+  assert.equal(seeded.operations.length, 1, "the refused batch is logged");
+  assert.equal(seeded.operations[0]?.result, "rejected");
+  assert.equal(draftOf(seeded, "c1").seq, 3, "the rejected batch does not advance the sequence");
+  assert.equal(canonicalScene(canvasSceneOf(seeded)), before, "the rejected batch does not touch the scene");
+  assert.equal(seeded.revisions.length, 1, "the rejected batch writes no snapshot");
+  assert.equal(storage.objects.size, 1, "the rejected batch stores no object");
+});
+
+test("publishing a canvas writes the canonical scene bytes with the scene index as the block index", async () => {
+  const seeded = fakeStore({ artifactId: "c1", publishedSeq: 3, kind: "canvas" });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, canonicalScene(CANVAS_SCENE));
+  const applied = await applyOperations({
+    store: seeded.store,
+    storage,
+    artifactId: "c1",
+    authorKind: "agent",
+    authorId: "agent-1",
+    baseSeq: 3,
+    idempotencyKey: "canvas-1",
+    ops: [{ op: "add_node", frameId: "f1", node: { id: "n2", type: "text", x: 5, y: 6, w: 20, h: 10, text: "hi" } }],
+    now: NOW,
+  });
+  assert.equal(applied.ok, true, applied.ok ? "" : applied.reason);
+  const frozen = await publish({ store: seeded.store, storage, artifactId: "c1", now: NOW });
+  assert.equal(frozen.ok, true, frozen.ok ? "" : frozen.reason);
+  if (!frozen.ok) return;
+  const scene = canvasSceneOf(seeded);
+  const revision = seeded.revisions[1] as FakeRevision;
+  assert.deepEqual([revision.seqFrom, revision.seqTo], [4, 4]);
+  assert.equal(frozen.value.sha256, digitOf(sceneBytes(scene)), "the snapshot is the canonical scene");
+  assert.equal(
+    new TextDecoder().decode(storage.objects.get(revision.storageKey) as Uint8Array),
+    canonicalScene(scene),
+    "the published object is the scene JSON, not markdown",
+  );
+  assert.deepEqual(revision.blockIndex, sceneBlockIndex(scene), "the block index is the scene index");
+  assert.deepEqual(Object.keys(revision.blockIndex as Record<string, unknown>).sort(), ["f1", "n1", "n2"]);
+  assert.deepEqual(
+    [seeded.artifacts.get("c1")?.publishedSeq, seeded.artifacts.get("c1")?.currentRevisionId],
+    [4, revision.id],
+  );
+  const reopened = await openDraft({ store: seeded.store, storage, artifactId: "c1" });
+  assert.deepEqual(reopened.ok && reopened.value.scene, scene, "the published snapshot describes the same scene");
 });

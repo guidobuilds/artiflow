@@ -15,7 +15,8 @@
     "./kinds": "./src/kinds.ts",
     "./freshness": "./src/freshness.ts",
     "./markdown": "./src/markdown.ts",
-    "./scene": "./src/scene.ts"
+    "./scene": "./src/scene.ts",
+    "./scene-operations": "./src/scene-operations.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"
