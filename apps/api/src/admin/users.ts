@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import {
   accountStatusSchema,
+  adminUserAccessMethodSchema,
   userRoleSchema,
   type AccountStatus,
   type AdminUser,
@@ -26,6 +27,7 @@ export const adminUserListQuerySchema = z.object({
   search: z.string().default(""),
   role: userRoleSchema.optional(),
   status: accountStatusSchema.optional(),
+  method: adminUserAccessMethodSchema.optional(),
 });
 
 export type AdminUserListQuery = z.infer<typeof adminUserListQuerySchema>;
@@ -110,6 +112,11 @@ function conditionsOf(query: AdminUserListQuery): SQL[] {
   }
   if (query.role !== undefined) conditions.push(eq(user.role, query.role));
   if (query.status !== undefined) conditions.push(eq(user.status, query.status));
+  if (query.method !== undefined) {
+    conditions.push(
+      sql`exists (select 1 from ${account} where ${account.userId} = ${user.id} and ${account.providerId} = ${query.method})`,
+    );
+  }
   return conditions;
 }
 

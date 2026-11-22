@@ -303,18 +303,23 @@ so the invariant holds by construction. It is written to the audit log with both
 
 The user directory is read and edited through two routes behind the administrator guard:
 
-- `GET /api/admin/users?page=&pageSize=&search=&role=&status=` answers `{ users, total, page,
+- `GET /api/admin/users?page=&pageSize=&search=&role=&status=&method=` answers `{ users, total, page,
 pageSize }`. A row carries `id`, `name`, `email`, `role`, `status` (the stored account status,
   `active` or `deactivated`), `accessMethods` (the
   `providerId` of every `account` row of that person, credential included) and
   `lastActivityAt` (the newest `session.updatedAt`, `null` when the person never signed in).
   Pages default to 20 rows and are capped at 100; `search` is a case-insensitive substring
   match over name and email, `role` filters on the stored role, `status` filters on the stored
-  account status (`active` or `deactivated`), both filters combine with each other and with
-  `search`, and a page past the end answers an empty list with the real total rather than an
+  account status (`active` or `deactivated`), `method` keeps the people who hold an `account`
+  row with that `providerId` — the same values `accessMethods` answers, `credential`, `google`,
+  `github` or `artiflow` for enterprise SSO — and every filter combines with the others and
+  with `search`. A value outside that list answers `invalid_query` (400) like any other
+  malformed query, and a page past the end answers an empty list with the real total rather than an
   error. The page and the total are
   two statements, and the access methods and last activity are aggregated inside the page
-  statement, so the number of queries does not grow with the rows returned.
+  statement, so the number of queries does not grow with the rows returned or with the filter
+  that is applied: `method` is an `exists` subquery over `account`, correlated to the person, and
+  never a second read of the identities.
 - `PATCH /api/admin/users/:id` takes `{ name, email }`, requires the public origin like every
   cookie mutation, and answers `{ user }` with the updated row. The name is trimmed, the
   address is canonicalized exactly as the invitation flow does, and `account` rows are never
@@ -460,10 +465,10 @@ anything is enabled here. Nothing in it is derived in the dashboard: the origin 
 configured public origin, not the address the API process listens on, so a development instance shows
 the proxied origin an administrator actually browses.
 
-`/admin/users` is the directory of section 8. Search, the role filter, the status filter
-and the page are server-side: the page sends `page`, `pageSize`, `search`, `role` and
-`status` to `GET /api/admin/users` and never loads the whole directory to filter it
-locally. A row
+`/admin/users` is the directory of section 8. Search, the role filter, the status filter,
+the access method filter and the page are server-side: the page sends `page`, `pageSize`,
+`search`, `role`, `status` and `method` to `GET /api/admin/users` and never loads the whole
+directory to filter it locally. A row
 shows name, email, role, status, access methods and last activity, and the footer shows the total
 with the page it belongs to. An empty answer names the next step instead of showing a
 blank table: the console command that issues the first invitation, or the filter to
