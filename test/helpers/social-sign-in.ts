@@ -103,17 +103,15 @@ export async function seedSocialIdentity(
   const providerAccountId = `gh-${randomUUID()}`;
   const email = `social-${randomUUID()}@example.test`;
   const now = new Date();
-  await database.db
-    .insert(user)
-    .values({
-      id: userId,
-      name: input.name,
-      email,
-      emailVerified: true,
-      role: input.role,
-      createdAt: now,
-      updatedAt: now,
-    });
+  await database.db.insert(user).values({
+    id: userId,
+    name: input.name,
+    email,
+    emailVerified: true,
+    role: input.role,
+    createdAt: now,
+    updatedAt: now,
+  });
   await database.db.insert(account).values({
     id: randomUUID(),
     userId,

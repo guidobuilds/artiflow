@@ -67,17 +67,15 @@ function setStatus(userId: string, status: "active" | "deactivated"): Promise<Re
 async function seedArtifact(ownerId: string, title: string): Promise<string> {
   const artifactId = `artifact-${randomUUID()}`;
   const now = new Date();
-  await target()
-    .database.db.insert(artifacts)
-    .values({
-      id: artifactId,
-      ownerId,
-      title,
-      kind: "markdown",
-      observedSizeBytes: 12,
-      createdAt: now,
-      updatedAt: now,
-    });
+  await target().database.db.insert(artifacts).values({
+    id: artifactId,
+    ownerId,
+    title,
+    kind: "markdown",
+    observedSizeBytes: 12,
+    createdAt: now,
+    updatedAt: now,
+  });
   return artifactId;
 }
 
