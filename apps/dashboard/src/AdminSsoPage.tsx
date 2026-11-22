@@ -123,13 +123,13 @@ export default function AdminSsoPage() {
     setError(result.error);
   };
 
-  if (configuration === null || draft === null) return <AdminShell section="access" gate={load} />;
+  if (configuration === null || draft === null) return <AdminShell section="sso" gate={load} />;
 
   const readiness = readinessStatement(configuration.readiness);
   const setDraftField = (patch: Partial<SsoConnectionDraft>) => setDraft({ ...draft, ...patch });
 
   return (
-    <AdminShell section="access" gate={load}>
+    <AdminShell section="sso" gate={load}>
       <section className="grid w-full max-w-[780px] gap-[18px] px-7 pt-[30px] pb-10 max-[760px]:px-4 max-[760px]:pt-[22px]">
         <div className="grid gap-1.5">
           <Eyebrow>Sign-in methods</Eyebrow>

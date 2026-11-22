@@ -99,9 +99,9 @@ test("the administration surface has its own route, before the 404, and stays ou
 
   const page = read(PAGE);
   const adminShell = read(ADMIN_SHELL);
-  assert.match(adminShell, /BareShell/);
+  assert.doesNotMatch(adminShell, /BareShell/);
   assert.doesNotMatch(adminShell, /<AppShell|LIBRARY_LINKS/);
-  assert.match(adminShell, /Instance administration/);
+  assert.match(adminShell, />Administration</);
   assert.match(adminShell, /aria-label="Administration"/);
   assert.doesNotMatch(page, /BareShell/);
   assert.match(page, /<AdminShell section="access" gate=\{load\}/);
@@ -123,8 +123,8 @@ test("a non-administrator sees a refusal with a way back to the product, never t
   const refusedAt = adminShell.indexOf('gate.kind !== "ready"');
   assert.ok(refusedAt > 0, "the shell answers a gate that is not ready instead of rendering the page");
   assert.ok(
-    refusedAt < adminShell.indexOf("<AdminHeader") && refusedAt < adminShell.indexOf("{children}"),
-    "the refusal is decided before the administration header or any page content renders",
+    refusedAt < adminShell.indexOf("<AdminFrame section={section}>"),
+    "the refusal is decided before the administration navigation or any page content renders",
   );
   assert.match(adminShell, /<p role="alert"/);
   assert.match(adminShell, /This area is for administrators\./);
