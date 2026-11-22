@@ -32,7 +32,7 @@ const kindCheckMigrations = journal.entries
   .filter((migration) => migration.sql.includes("artifacts_kind_check"));
 
 test("artifact kind is a defaulted, database-checked enum", () => {
-  assert.deepEqual([...ARTIFACT_KINDS], ["html", "markdown", "canvas"]);
+  assert.deepEqual([...ARTIFACT_KINDS], ["html", "markdown", "canvas", "deck"]);
   const latestCheck = kindCheckMigrations.at(-1);
   assert.ok(latestCheck, "a migration keeps the kind check current");
   const stored = [...(/CHECK \("kind" in \(([^)]*)\)\)/.exec(latestCheck.sql)?.[1] ?? "").matchAll(/'([^']+)'/g)].map(

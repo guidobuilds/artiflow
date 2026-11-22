@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 
 import { diffSceneOperations } from "@artiflow/domain/scene-operations";
+import { rendersScene } from "@artiflow/domain/kinds";
 import { validateScene } from "@artiflow/domain/scene";
 import type { SceneDraftResponse, SavedScene } from "@artiflow/contracts/scene";
 import {
@@ -22,8 +23,8 @@ import {
   type DocumentErrorKind,
 } from "../domain/documents/service.ts";
 
-const requireCanvas = (c: Context, row: DocRow): Response | null =>
-  row.kind === "canvas" ? null : c.json({ error: "wrong_kind" }, 409);
+const requireScene = (c: Context, row: DocRow): Response | null =>
+  rendersScene(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
 
 const unavailable = (c: Context, kind: DocumentErrorKind): Response =>
   kind === "not_found" ? c.json({ error: "not_found" }, 404) : c.json({ error: "artifact_unavailable" }, 500);
@@ -44,7 +45,7 @@ export function createSceneApp(options: EditingOptions) {
     const gate = await docGate(c);
     if (gate instanceof Response) return gate;
     const row = gate.row;
-    const wrongKind = requireCanvas(c, row);
+    const wrongKind = requireScene(c, row);
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
     if (noCurrent) return noCurrent;
@@ -69,7 +70,7 @@ export function createSceneApp(options: EditingOptions) {
     const gate = await docGate(c);
     if (gate instanceof Response) return gate;
     const row = gate.row;
-    const wrongKind = requireCanvas(c, row);
+    const wrongKind = requireScene(c, row);
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
     if (noCurrent) return noCurrent;

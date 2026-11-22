@@ -7,7 +7,7 @@ export type TitleSource = "html-title" | "first-heading" | "frame-name";
 export const KIND_VIEWERS: readonly KindViewer[] = ["sandboxed-html", "inline-markdown", "scene"];
 export const AGENT_WRITE_MODES: readonly AgentWriteMode[] = ["replace-document", "text-operations"];
 export const TITLE_SOURCES: readonly TitleSource[] = ["html-title", "first-heading", "frame-name"];
-export const KIND_ICONS = ["page", "document", "canvas", "unknown"] as const;
+export const KIND_ICONS = ["page", "document", "canvas", "slides", "unknown"] as const;
 export type KindIcon = (typeof KIND_ICONS)[number];
 
 export type KindCapabilities = {
@@ -23,7 +23,7 @@ export type KindCapabilities = {
   extensions: readonly string[];
 };
 
-export const ARTIFACT_KINDS = ["html", "markdown", "canvas"] as const;
+export const ARTIFACT_KINDS = ["html", "markdown", "canvas", "deck"] as const;
 export type ArtifactKind = (typeof ARTIFACT_KINDS)[number];
 export const UNKNOWN_KIND = "unknown";
 export type WireKind = ArtifactKind | typeof UNKNOWN_KIND;
@@ -66,6 +66,18 @@ export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
     appEdit: true,
     extensions: [".canvas", ".scene.json"],
   },
+  deck: {
+    label: "Deck",
+    plural: "Decks",
+    icon: "slides",
+    viewer: "scene",
+    anchors: ["slide-point"],
+    comments: true,
+    agentWrite: "replace-document",
+    titleSource: "frame-name",
+    appEdit: false,
+    extensions: [".deck"],
+  },
 };
 
 const UNKNOWN_LABEL = "Unknown";
@@ -81,6 +93,8 @@ export const capabilitiesFor = (kind: string): KindCapabilities | null =>
 export const wireNameFor = (kind: string): WireKind => (isArtifactKind(kind) ? kind : UNKNOWN_KIND);
 
 export const anchorKindsFor = (kind: string): readonly CommentAnchorKind[] => capabilitiesFor(kind)?.anchors ?? [];
+
+export const presentsSlides = (kind: string): boolean => anchorKindsFor(kind).includes("slide-point");
 
 export const acceptsComments = (kind: string): boolean => capabilitiesFor(kind)?.comments === true;
 
@@ -104,11 +118,13 @@ export const rendersSandboxedHtml = (kind: string): boolean => viewerFor(kind) =
 
 export const rendersInlineMarkdown = (kind: string): boolean => viewerFor(kind) === "inline-markdown";
 
+export const rendersScene = (kind: string): boolean => viewerFor(kind) === "scene";
+
 export const acceptsTextOperations = (kind: string): boolean => agentWriteFor(kind) === "text-operations";
 
 export const editsDocumentInApp = (kind: string): boolean => canEditInApp(kind) && acceptsTextOperations(kind);
 
-export const editsSceneInApp = (kind: string): boolean => canEditInApp(kind) && viewerFor(kind) === "scene";
+export const editsSceneInApp = (kind: string): boolean => canEditInApp(kind) && rendersScene(kind);
 
 export const kindForExtension = (
   extension: string,

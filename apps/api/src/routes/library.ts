@@ -283,7 +283,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         frame === undefined ? `/artifact/${row.id}` : `/artifact/${row.id}?frame=${encodeURIComponent(frame)}`;
       return c.html(
         wrapperPage(
-          escapeAttribute(renderSceneDocument(scene.value, frame, images, config.threads)),
+          escapeAttribute(renderSceneDocument(scene.value, frame, images, config.threads, row.kind)),
           embed ? undefined : "/",
           { title: row.title, version: row.revisionNumber },
           embed,

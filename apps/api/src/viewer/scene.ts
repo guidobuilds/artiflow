@@ -9,6 +9,7 @@ import {
   type TextNode,
 } from "@artiflow/domain/scene";
 
+import { presentsSlides } from "@artiflow/domain/kinds";
 import { escapeAttribute, originOf, sceneDocumentCsp } from "./html.ts";
 import { sceneThreadPlacement, type SceneThreadOrphan, type SceneThreadPin } from "./comments-data.ts";
 
@@ -129,6 +130,9 @@ const renderFrame = (
 </section>`;
 };
 
+const renderCounter = (selectedIndex: number, total: number): string =>
+  `<p class="scene-counter" id="frame-counter" aria-live="polite">${selectedIndex + 1} / ${total}</p>`;
+
 const renderIndex = (scene: Scene, selectedId: string | null): string =>
   scene.frames
     .map(
@@ -170,6 +174,9 @@ body{display:flex;flex-direction:column;overflow:hidden;background:#141414;color
 .scene-orphans ul{margin:0;padding-left:16px}
 .scene-orphans li{margin:2px 0}
 @media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important}}`;
+
+const SLIDES_CSS = `.scene-slides{background-image:none}
+.scene-counter{margin:0;display:grid;place-content:center;height:28px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#c3c8cd;font:500 12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}`;
 
 const SCENE_SCRIPT = `(() => {
   const stage = document.getElementById("stage");
@@ -359,6 +366,137 @@ const SCENE_SCRIPT = `(() => {
   }
 })();`;
 
+const SLIDES_SCRIPT = `(() => {
+  const stage = document.getElementById("stage");
+  const index = document.getElementById("frame-index");
+  const back = document.getElementById("prev");
+  const forward = document.getElementById("next");
+  const strip = document.getElementById("strip");
+  const counter = document.getElementById("frame-counter");
+  const frames = Array.from(document.querySelectorAll("[data-frame]"));
+  const tabs = index === null ? [] : Array.from(index.querySelectorAll("button[data-target]"));
+  const HASH_PREFIX = "#frame-";
+  const MIN_SCALE = 0.02;
+  const MAX_SCALE = 12;
+  const FIT_RATIO = 0.86;
+  let active = null;
+
+  const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+  const idOf = (frame) => frame.getAttribute("data-frame-id");
+
+  const sizeOf = (frame) => {
+    const w = Number(frame.getAttribute("data-frame-w"));
+    const h = Number(frame.getAttribute("data-frame-h"));
+    return { w: Number.isFinite(w) && w > 0 ? w : 1, h: Number.isFinite(h) && h > 0 ? h : 1 };
+  };
+
+  const fit = (frame) => {
+    const size = sizeOf(frame);
+    const width = stage.clientWidth || 1;
+    const height = stage.clientHeight || 1;
+    const scale = clamp(Math.min(width / size.w, height / size.h) * FIT_RATIO, MIN_SCALE, MAX_SCALE);
+    frame.style.transform =
+      "translate(" + (width - size.w * scale) / 2 + "px," + (height - size.h * scale) / 2 + "px) scale(" + scale + ")";
+  };
+
+  const count = () => {
+    if (counter === null) return;
+    const at = frames.findIndex((frame) => idOf(frame) === active);
+    counter.textContent = (at < 0 ? 0 : at + 1) + " / " + frames.length;
+  };
+
+  const readHash = () => {
+    try {
+      const hash = location.hash;
+      return hash.indexOf(HASH_PREFIX) === 0 ? decodeURIComponent(hash.slice(HASH_PREFIX.length)) : "";
+    } catch (error) {
+      return "";
+    }
+  };
+
+  const writeHash = (id) => {
+    try {
+      const next = HASH_PREFIX + encodeURIComponent(id);
+      if (location.hash !== next) history.replaceState(null, "", next);
+    } catch (error) {
+      return;
+    }
+  };
+
+  const show = (id, sync) => {
+    const target = frames.find((frame) => idOf(frame) === id) || frames[0];
+    if (target === undefined) return;
+    active = idOf(target);
+    for (const frame of frames) frame.hidden = frame !== target;
+    for (const tab of tabs) {
+      if (tab.getAttribute("data-target") === active) tab.setAttribute("aria-current", "true");
+      else tab.removeAttribute("aria-current");
+    }
+    fit(target);
+    count();
+    if (sync) writeHash(active);
+  };
+
+  const step = (delta) => {
+    const at = frames.findIndex((frame) => idOf(frame) === active);
+    if (at < 0) return;
+    const next = frames[clamp(at + delta, 0, frames.length - 1)];
+    if (next !== undefined) show(idOf(next), true);
+  };
+
+  document.addEventListener("keydown", (event) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const key = event.key;
+    if (key === " " || key === "Spacebar") {
+      event.preventDefault();
+      step(event.shiftKey ? -1 : 1);
+      return;
+    }
+    const delta = key === "ArrowRight" || key === "PageDown" ? 1 : key === "ArrowLeft" || key === "PageUp" ? -1 : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    step(delta);
+  });
+
+  if (back !== null) back.addEventListener("click", () => step(-1));
+  if (forward !== null) forward.addEventListener("click", () => step(1));
+
+  if (strip !== null && index !== null) {
+    strip.addEventListener("click", () => {
+      const opening = index.hidden;
+      index.hidden = !opening;
+      strip.setAttribute("aria-pressed", opening ? "true" : "false");
+    });
+  }
+
+  if (index !== null) {
+    index.addEventListener("click", (event) => {
+      const target = event.target;
+      const tab = target !== null && typeof target.closest === "function" ? target.closest("button[data-target]") : null;
+      if (tab === null) return;
+      const id = tab.getAttribute("data-target");
+      if (id !== null) show(id, true);
+    });
+  }
+
+  window.addEventListener("hashchange", () => {
+    const id = readHash();
+    if (id !== "") show(id, false);
+  });
+
+  window.addEventListener("resize", () => {
+    const frame = frames.find((candidate) => idOf(candidate) === active);
+    if (frame !== undefined) fit(frame);
+  });
+
+  if (frames.length > 0) {
+    const wanted = readHash();
+    const known = frames.some((frame) => idOf(frame) === wanted);
+    const rendered = frames.find((frame) => !frame.hidden) || frames[0];
+    show(known ? wanted : idOf(rendered), false);
+  }
+})();`;
+
 const BASE_DOCUMENT_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
@@ -367,36 +505,51 @@ export function renderSceneDocument(
   frameId?: string,
   images?: SceneImages,
   threads: readonly { id: string; anchor?: unknown }[] = [],
+  kind = "canvas",
 ): string {
+  const slides = presentsSlides(kind);
   const origin = images === undefined ? null : originOf(images.origin);
   const source = images !== undefined && origin !== null ? { ...images, origin } : undefined;
   const policy = source === undefined ? BASE_DOCUMENT_CSP : sceneDocumentCsp(source.origin);
   const empty = scene.frames.length === 0;
-  const title = scene.frames[0]?.name ?? "Canvas";
+  const title = scene.frames[0]?.name ?? (slides ? "Deck" : "Canvas");
   const selected = scene.frames.find((frame) => frame.id === frameId) ?? scene.frames[0];
   const selectedId = selected === undefined ? null : selected.id;
+  const selectedIndex = selected === undefined ? 0 : scene.frames.indexOf(selected);
   const placement = sceneThreadPlacement(scene, threads);
   const orphans = renderOrphans(placement.orphans);
   const pinsOf = (id: string): SceneThreadPin[] => placement.pins.filter((pin) => pin.frameId === id);
+  const slidesOf = scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id)));
   const chrome = empty
-    ? `<div class="scene-stage" id="stage">
+    ? slides
+      ? `<div class="scene-stage scene-slides" id="stage">
+<p class="scene-empty">This deck has no slides yet.</p>
+</div>
+<nav class="scene-index" id="frame-index" aria-label="Slides" hidden></nav>`
+      : `<div class="scene-stage" id="stage">
 <p class="scene-empty">This canvas has no frames yet.</p>
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
-    : `<div class="scene-stage" id="stage">
+    : slides
+      ? `<div class="scene-stage scene-slides" id="stage">
+<div class="scene-tools"><button type="button" id="prev" title="Previous slide">Back</button><button type="button" id="next" title="Next slide">Forward</button><button type="button" id="strip" aria-pressed="false" title="Show the slide list">Slides</button>${renderCounter(selectedIndex, scene.frames.length)}</div>
+${slidesOf.join("\n")}
+</div>
+<nav class="scene-index" id="frame-index" aria-label="Slides" hidden>${renderIndex(scene, selectedId)}</nav>`
+      : `<div class="scene-stage" id="stage">
 <div class="scene-tools"><button type="button" id="fit" title="Fit the frame to the screen">Fit</button></div>
-${scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id))).join("\n")}
+${slidesOf.join("\n")}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene, selectedId)}</nav>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
 <style>
-${DOCUMENT_CSS}
+${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : DOCUMENT_CSS}
 </style></head>
 <body>
 ${chrome}${orphans === "" ? "" : `\n${orphans}`}
 <script>
-${SCENE_SCRIPT}
+${slides ? SLIDES_SCRIPT : SCENE_SCRIPT}
 </script>
 </body></html>`;
 }

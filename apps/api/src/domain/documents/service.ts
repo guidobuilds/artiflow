@@ -40,6 +40,7 @@ import {
   type SceneViolation,
 } from "@artiflow/domain/scene-operations";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { rendersScene } from "@artiflow/domain/kinds";
 
 export const FREEZE_OPERATION_THRESHOLD = 100;
 export const FREEZE_INTERVAL_MS = 600_000;
@@ -223,7 +224,7 @@ const storageKind = (kind: StorageErrorKind): DocumentErrorKind =>
 const isSceneContent = (content: DocumentDraftContent): content is DraftSceneContent => "scene" in content;
 const kindOf = (artifact: ArtifactDocumentState): string => artifact.kind ?? "markdown";
 const contentMatchesKind = (kind: string, content: DocumentDraftContent): boolean =>
-  (kind === "canvas") === isSceneContent(content);
+  rendersScene(kind) === isSceneContent(content);
 
 const openedOf = (artifactId: string, seq: number, kind: string, content: DocumentDraftContent): OpenedDraft =>
   isSceneContent(content)
@@ -268,14 +269,14 @@ async function materialise(input: {
     const decoded = decodeMarkdownText(read.value.bytes);
     if (!decoded.ok) return fail("error", "snapshot_is_not_valid_utf8");
     const formatVersion = artifact.latestSnapshot.formatVersion;
-    if (kind === "canvas") {
+    if (rendersScene(kind)) {
       const parsed = readScene(decoded.text);
       if (!parsed.ok) return fail("error", "snapshot_is_not_valid_scene");
       content = { formatVersion, scene: parsed.value };
     } else {
       content = { formatVersion, text: decoded.text };
     }
-  } else if (kind === "canvas") {
+  } else if (rendersScene(kind)) {
     content = { formatVersion: SCENE_FORMAT_VERSION, scene: { formatVersion: SCENE_FORMAT_VERSION, frames: [] } };
   }
   const record: DraftRecord = {
@@ -405,7 +406,7 @@ export async function applyOperations(input: ApplyOperationsInput): Promise<Docu
   const opened = await openDraft({ store, storage, artifactId, now: input.now });
   if (!opened.ok) return opened;
   const draft = opened.value;
-  if ((draft.kind === "canvas") !== (draft.scene !== null)) return fail("error", "draft_state_invalid");
+  if (rendersScene(draft.kind) !== (draft.scene !== null)) return fail("error", "draft_state_invalid");
   if (baseSeq !== draft.seq) return fail("concurrent_edit", "base_sequence_is_stale", { currentSeq: draft.seq });
   const applied = attemptBatch(draft, ops);
   const now = input.now ?? new Date();
@@ -737,7 +738,7 @@ export async function restoreDocument(input: RestoreDocumentInput): Promise<Docu
   if (!isIdentifier(idempotencyKey)) return fail("validation", "idempotency_key_required");
   const artifact = await store.readArtifact(artifactId);
   if (!artifact) return fail("not_found", "artifact_not_found");
-  return kindOf(artifact) === "canvas" ? restoreScene(input, artifact) : restoreText(input, artifact);
+  return rendersScene(kindOf(artifact)) ? restoreScene(input, artifact) : restoreText(input, artifact);
 }
 
 export async function freezeIfDue(input: FreezeInput): Promise<DocumentResult<FreezeOutcome>> {

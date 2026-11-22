@@ -182,7 +182,7 @@ test("kind rides the summary: a known kind stays itself and an unrecognised one 
       artifact("doc", { kind: "markdown" }),
       artifact("page", { kind: "html" }),
       artifact("legacy", {}),
-      artifact("foreign", { kind: "deck" }),
+      artifact("foreign", { kind: "pptx" }),
     ],
   });
   assert.deepEqual(

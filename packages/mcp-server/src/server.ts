@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { ARTIFACT_KINDS, acceptsTextOperations } from "@artiflow/domain/kinds";
+import { ARTIFACT_KINDS, acceptsTextOperations, rendersScene } from "@artiflow/domain/kinds";
 import { applyLineOps, decodeMarkdownText, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
 import {
   BLOCK_KINDS,
@@ -995,7 +995,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       const row = await selectReadRevision(undefined, userId, artifactId);
       if (!row) return refusal("not_found", "artifact_not_visible_to_owner", { artifactId });
       if (row.deletedAt) return refusal("gone", "artifact_deleted", { artifactId });
-      if (row.kind !== "canvas")
+      if (!rendersScene(row.kind))
         return refusal("wrong_kind", "artifact_is_not_a_canvas", { artifactId, kind: row.kind });
       if (!row.id) return refusal("not_found", "revision_not_found", { artifactId });
       const draft = await backend.documentDraft(userId, artifactId);

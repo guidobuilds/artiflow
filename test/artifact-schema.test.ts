@@ -376,7 +376,7 @@ test("the 0017 migration only adds the asset tables, their keys and their index"
     entries: { idx: number; tag: string }[];
   };
   assert.deepEqual(
-    journal.entries.slice(17).map((entry) => [entry.idx, entry.tag]),
+    journal.entries.slice(17, 18).map((entry) => [entry.idx, entry.tag]),
     [[17, "0017_public_dark_beast"]],
     "the journal records a contiguous seventeenth migration",
   );
@@ -668,6 +668,44 @@ test("the 0015 migration adds the operation log, the draft and the snapshot colu
   ]);
 });
 
+test("the 0018 migration widens the stored kind to the deck row in one statement", () => {
+  assert.deepEqual(
+    readdirSync(drizzleDir).filter((name) => /^0018_.*\.sql$/.test(name)),
+    ["0018_deck_kind.sql"],
+  );
+  const sql0018 = readFileSync(new URL("0018_deck_kind.sql", drizzleDir), "utf8");
+  const statements = sql0018
+    .split("--> statement-breakpoint")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  assert.deepEqual(statements, [
+    `ALTER TABLE "artifacts" DROP CONSTRAINT "artifacts_kind_check", ADD CONSTRAINT "artifacts_kind_check" CHECK ("kind" in ('html', 'markdown', 'canvas', 'deck'));`,
+  ]);
+  assert.equal(statements.length, 1, "the drop and the add are one statement, so kind is never left unconstrained");
+  assert.equal(sql0018.includes("artifacts_publishedSeq_check"), false, "the other artifact checks are untouched");
+  assert.equal(/^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(sql0018), false, "no table or data change");
+  const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
+    entries: { idx: number; tag: string }[];
+  };
+  assert.deepEqual(
+    journal.entries.slice(0, 19).map((entry) => [entry.idx, entry.tag]),
+    [...journal.entries.slice(0, 18).map((entry, index) => [index, entry.tag]), [18, "0018_deck_kind"]],
+    "the journal records a contiguous nineteenth migration",
+  );
+  const snapshot = JSON.parse(readFileSync(new URL("meta/0018_snapshot.json", drizzleDir), "utf8")) as {
+    prevId: string;
+    tables: Record<string, { checkConstraints: Record<string, { value: string }> }>;
+  };
+  const previous = JSON.parse(readFileSync(new URL("meta/0017_snapshot.json", drizzleDir), "utf8")) as { id: string };
+  assert.equal(snapshot.prevId, previous.id, "the snapshot chains onto the previous one");
+  const stored = [
+    ...(snapshot.tables["public.artifacts"]?.checkConstraints["artifacts_kind_check"]?.value ?? "").matchAll(
+      /'([^']+)'/g,
+    ),
+  ].map((match) => match[1]);
+  assert.deepEqual(stored, [...ARTIFACT_KINDS], "the snapshot check and the registry agree on the four stored kinds");
+});
+
 test("the 0016 migration widens the stored kind to the scene row in one statement", () => {
   assert.deepEqual(
     readdirSync(drizzleDir).filter((name) => /^0016_.*\.sql$/.test(name)),
@@ -698,5 +736,9 @@ test("the 0016 migration widens the stored kind to the scene row in one statemen
       /'([^']+)'/g,
     ),
   ].map((match) => match[1]);
-  assert.deepEqual(stored, [...ARTIFACT_KINDS], "the snapshot check and the registry agree on the stored kinds");
+  assert.deepEqual(
+    stored,
+    ["html", "markdown", "canvas"],
+    "the snapshot records exactly the three kinds this migration widened the check to",
+  );
 });

@@ -6,6 +6,7 @@ const PLUGIN_ICONS: Record<KindIcon, UiIconProps["name"]> = {
   page: "globe",
   document: "file-document",
   canvas: "dot-grid",
+  slides: "expand",
   unknown: "stop",
 };
 export const artifactIcon = (kind?: string): UiIconProps["name"] => PLUGIN_ICONS[iconFor(kind ?? "")];

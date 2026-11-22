@@ -142,8 +142,8 @@ test("an unknown kind is a validation refusal before any database or storage acc
     const { storage, requests } = stubStorage();
     const result =
       entry === "write"
-        ? await writeArtifact({ database, storage, ownerId: "owner-1", bytes, kind: "deck" })
-        : await commitUpload({ database, storage, ownerId: "owner-1", uploadId: "upload-1", bytes, kind: "deck" });
+        ? await writeArtifact({ database, storage, ownerId: "owner-1", bytes, kind: "pptx" })
+        : await commitUpload({ database, storage, ownerId: "owner-1", uploadId: "upload-1", bytes, kind: "pptx" });
     assert.deepEqual(
       result,
       { ok: false, kind: "validation", reason: "unknown_artifact_kind" },

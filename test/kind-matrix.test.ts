@@ -30,6 +30,7 @@ import {
   pluralFor,
   rendersInlineMarkdown,
   rendersSandboxedHtml,
+  rendersScene,
   titleSourceFor,
   viewerFor,
   wireNameFor,
@@ -91,6 +92,18 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
     titleSource: "frame-name",
     appEdit: true,
     extensions: [".canvas", ".scene.json"],
+  },
+  deck: {
+    label: "Deck",
+    plural: "Decks",
+    icon: "slides",
+    viewer: "scene",
+    anchors: ["slide-point"],
+    comments: true,
+    agentWrite: "replace-document",
+    titleSource: "frame-name",
+    appEdit: false,
+    extensions: [".deck"],
   },
 };
 
@@ -193,9 +206,9 @@ test("each surface names a known kind rather than the unknown fallback", () => {
     assert.notEqual(wireNameFor(kind), UNKNOWN_KIND);
   }
   assert.equal(wireNameFor(""), UNKNOWN_KIND);
-  assert.equal(wireNameFor("deck"), UNKNOWN_KIND);
+  assert.equal(wireNameFor("pptx"), UNKNOWN_KIND);
   assert.equal(capabilitiesFor(UNKNOWN_KIND), null);
-  assert.equal(capabilitiesFor("deck"), null);
+  assert.equal(capabilitiesFor("pptx"), null);
 });
 
 test("every shipped kind declares exactly the capabilities the product promises", () => {
@@ -234,8 +247,12 @@ test("an icon outside the registry vocabulary is a gap, not a wrong picture", ()
 });
 
 test("every kind carries its own icon and its own plural, not the html ones", () => {
-  assert.deepEqual(ARTIFACT_KINDS.map(iconFor), ["page", "document", "canvas"], "a new kind gets its own icon");
-  assert.deepEqual(ARTIFACT_KINDS.map(pluralFor), ["Pages", "Docs", "Canvases"]);
+  assert.deepEqual(
+    ARTIFACT_KINDS.map(iconFor),
+    ["page", "document", "canvas", "slides"],
+    "a new kind gets its own icon",
+  );
+  assert.deepEqual(ARTIFACT_KINDS.map(pluralFor), ["Pages", "Docs", "Canvases", "Decks"]);
   for (const kind of ARTIFACT_KINDS)
     assert.ok((KIND_ICONS as readonly string[]).includes(iconFor(kind)), `${kind} names a registry icon`);
   assert.notEqual(
@@ -244,7 +261,7 @@ test("every kind carries its own icon and its own plural, not the html ones", ()
     "a kind declares its plural instead of appending an s",
   );
   assert.equal(pluralFor(UNKNOWN_KIND), "Unknown");
-  assert.equal(pluralFor("deck"), "Unknown");
+  assert.equal(pluralFor("pptx"), "Unknown");
 });
 
 test("a canvas write derives its title from the first frame name", () => {
@@ -378,9 +395,24 @@ test("the composed predicates answer for every kind and fail closed for unknown 
       assert.equal(predicate(kind), false, `${predicate.name} is false for ${JSON.stringify(kind)}`);
 });
 
+test("the scene gate is the registry viewer, and a deck is a scene", () => {
+  assert.deepEqual(
+    ARTIFACT_KINDS.filter(rendersScene),
+    ["canvas", "deck"],
+    "the scene gate names every kind whose viewer is the scene renderer, and only those",
+  );
+  for (const kind of ARTIFACT_KINDS) assert.equal(rendersScene(kind), viewerFor(kind) === "scene", kind);
+  for (const kind of ["", "pptx", UNKNOWN_KIND]) assert.equal(rendersScene(kind), false, JSON.stringify(kind));
+  assert.equal(editsSceneInApp("deck"), false, "a deck is presented and edited by an agent, not in the app yet");
+});
+
 test("the contracts kind enum stays pinned to the registry plus unknown", () => {
   assert.deepEqual([...artifactKindSchema.options].sort(), [...ARTIFACT_KINDS, UNKNOWN_KIND].sort());
-  assert.deepEqual([...artifactKindSchema.options], ["html", "markdown", "canvas", "unknown"], "canvas is pinned");
+  assert.deepEqual(
+    [...artifactKindSchema.options],
+    ["html", "markdown", "canvas", "deck", "unknown"],
+    "four kinds and the unknown fallback are pinned",
+  );
 });
 
 test("every anchor kind the registry accepts is declared by the comment contract", () => {
@@ -491,6 +523,31 @@ test("a kind that declares comments must accept an anchor, and losing the canvas
   assert.ok(
     auditKindMatrix(undeclared).some((gap) => gap.startsWith("canvas:") && gap.includes("comments")),
     "a kind that never says whether it has comments is a gap",
+  );
+});
+
+test("the shipped matrix is green with four kinds and refuses a deck without its row or its anchor", () => {
+  assert.deepEqual(auditKindMatrix(KIND_CAPABILITIES), [], "the shipped matrix is green");
+  assert.equal(ARTIFACT_KINDS.length, 4, "four kinds ship");
+  assert.equal(acceptsComments("deck"), true);
+  assert.deepEqual(anchorKindsFor("deck"), ["slide-point"]);
+  assert.equal(anchorKindsFor("deck").includes("slide-point"), true, "slide-point is reachable now");
+
+  const removed = matrixGaps(withoutRow("deck"));
+  assert.notEqual(removed.length, 0, "a deck with no row must be a gap");
+  assert.ok(
+    removed.some((gap) => gap === "deck: ARTIFACT_KINDS declares a row this registry does not have"),
+    "the gap names deck",
+  );
+  assert.ok(
+    auditKindMatrix(withoutRow("deck")).some((gap) => gap.startsWith("deck:")),
+    "the audit itself names deck",
+  );
+
+  const anchorless = { ...KIND_CAPABILITIES, deck: { ...KIND_CAPABILITIES.deck, anchors: [] as never } };
+  assert.ok(
+    matrixGaps(anchorless).some((gap) => gap.startsWith("deck:") && gap.includes("anchor")),
+    "a deck that keeps comments but loses slide-point is a gap",
   );
 });
 

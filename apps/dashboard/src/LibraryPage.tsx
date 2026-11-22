@@ -55,6 +55,7 @@ const DASHBOARD_ICONS: Record<KindIcon, IconName> = {
   page: "html",
   document: "markdown",
   canvas: "frame",
+  slides: "max",
   unknown: "doc",
 };
 const KINDS: { value: Kind; label: string }[] = [

@@ -309,6 +309,53 @@ test("a canvas reads its threads for the pins and still mounts no comments panel
   assert.equal(shared.body.includes("data-artiflow-bridge"), false);
 });
 
+test("a deck renders as slides with the counter and no strip, on both viewers", async () => {
+  const deck = renderSceneDocument(
+    scene,
+    undefined,
+    { origin: "http://localhost", artifactId: ARTIFACT_ID, digests: new Set() },
+    [],
+    "deck",
+  );
+  const owner = await ownerView({ bytes: SCENE_BYTES, kind: "deck" });
+  assert.equal(owner.status, 200);
+  assert.equal(owner.csp, SCENE_PAGE_POLICY, "the deck keeps the canvas policy unchanged");
+  assert.ok(owner.body.includes(`sandbox="${SANDBOX}"`), "the deck keeps the same sandbox");
+  assert.equal(srcdocOf(owner.body), deck, "the viewer hands the kind to the renderer");
+  assert.ok(srcdocOf(owner.body).includes('class="scene-counter"'), "the counter is visible");
+  assert.ok(/<nav class="scene-index"[^>]*hidden/.test(srcdocOf(owner.body)), "no index strip by default");
+  const shared = await shareView({ bytes: SCENE_BYTES, kind: "deck" });
+  assert.equal(shared.status, 200);
+  assert.equal(srcdocOf(shared.body), deck, "the public link presents the same deck");
+});
+
+test("a deck's ?frame deep link picks the slide and its counter", async () => {
+  const reply = await ownerView({ bytes: SCENE_BYTES, kind: "deck", query: "?frame=checkout" });
+  assert.equal(reply.status, 200);
+  const document = srcdocOf(reply.body);
+  assert.equal(
+    document,
+    renderSceneDocument(
+      scene,
+      "checkout",
+      { origin: "http://localhost", artifactId: ARTIFACT_ID, digests: new Set() },
+      [],
+      "deck",
+    ),
+  );
+  assert.ok(document.includes('aria-live="polite">2 / 2</p>'), document);
+  assert.ok(frameTag(document, "home").includes("hidden"));
+  assert.equal(frameTag(document, "checkout").includes("hidden"), false);
+});
+
+test("the canvas path still passes its kind and keeps the index strip and no counter", async () => {
+  const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
+  const document = srcdocOf(reply.body);
+  assert.equal(document, servedScene(), "the canvas document is the same document it served before the deck");
+  assert.equal(document.includes('class="scene-counter"'), false);
+  assert.equal(/<nav class="scene-index"[^>]*hidden/.test(document), false, "the canvas index strip stays visible");
+});
+
 test("a canvas whose stored bytes are not a scene is refused instead of rendered blank", async () => {
   const owner = await ownerView({ bytes: new TextEncoder().encode("not a scene"), kind: "canvas" });
   assert.deepEqual([owner.status, owner.body], [500, JSON.stringify({ error: "artifact_unavailable" })]);

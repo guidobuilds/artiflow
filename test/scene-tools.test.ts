@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 
 import { ARTIFACT_TOOL_NAMES, DOCUMENT_TOOL_NAMES, SCENE_TOOL_NAMES } from "@artiflow/contracts/artifacts";
+import { rendersScene } from "@artiflow/domain/kinds";
 import { SCENE_FORMAT_VERSION, canonicalScene, type Scene } from "@artiflow/domain/scene";
 import { MAX_SCENE_READ_BYTES, MAX_SCENE_READ_NODES } from "@artiflow/mcp-server/constants";
 import type {
@@ -265,7 +266,7 @@ function canvasWorkspace(seed: { ownerId?: string; kind?: string; text: string }
     if (!artifact || artifact.ownerId !== ownerId)
       return { ok: false, kind: "not_found", reason: "artifact_not_visible_to_owner" };
     if (artifact.deletedAt) return { ok: false, kind: "gone", reason: "artifact_deleted" };
-    if (artifact.kind !== "canvas")
+    if (!rendersScene(artifact.kind))
       return { ok: false, kind: "wrong_kind", reason: "artifact_is_not_a_canvas", artifactKind: artifact.kind };
     return { ok: true, value: { kind: artifact.kind } };
   };
@@ -510,19 +511,91 @@ test("scene_read refuses an unknown frame id by name", async () => {
   assert.equal(payload.frameId, "missing");
 });
 
-test("the scene tools refuse every kind that is not canvas with wrong_kind", async () => {
+test("the scene tools refuse every kind that is not a scene with wrong_kind", async () => {
   const markdown = canvasText([frameOf("home", "Home", [rectNode("a")])]);
-  const { callTool } = await connect(canvasWorkspace({ kind: "markdown", text: markdown }).backend);
-  for (const [name, args] of [
-    ["scene_outline", { artifactId: ARTIFACT }],
-    ["scene_read", { artifactId: ARTIFACT, frameId: "home" }],
-    ["scene_apply", { artifactId: ARTIFACT, baseSeq: 0, idempotencyKey: "k", ops: [{ op: "remove_node", id: "a" }] }],
-  ] as [string, ToolPayload][]) {
-    const payload = refused(await callTool(name, args), "wrong_kind");
-    assert.equal(payload.message, "artifact_is_not_a_canvas", `${name} names the reason`);
-    assert.equal(payload.kind, "markdown", `${name} names the refused kind`);
-    assert.equal(payload.artifactId, ARTIFACT);
+  for (const kind of ["markdown", "html"] as const) {
+    const { callTool } = await connect(canvasWorkspace({ kind, text: markdown }).backend);
+    for (const [name, args] of [
+      ["scene_outline", { artifactId: ARTIFACT }],
+      ["scene_read", { artifactId: ARTIFACT, frameId: "home" }],
+      ["scene_apply", { artifactId: ARTIFACT, baseSeq: 0, idempotencyKey: "k", ops: [{ op: "remove_node", id: "a" }] }],
+    ] as [string, ToolPayload][]) {
+      const payload = refused(await callTool(name, args), "wrong_kind");
+      assert.equal(payload.message, "artifact_is_not_a_canvas", `${name} names its existing reason`);
+      assert.equal(payload.kind, kind, `${name} names the refused kind`);
+      assert.equal(payload.artifactId, ARTIFACT);
+    }
   }
+});
+
+test("a deck opens its scene draft, applies one batch and reads it back through scene_outline", async () => {
+  const workspace = canvasWorkspace({ kind: "deck", text: canvasText([HOME()]) });
+  const { callTool } = await connect(workspace.backend);
+  const before = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.equal(before.seq, 0, "the deck opens the same draft a canvas opens");
+  assert.equal(before.formatVersion, SCENE_FORMAT_VERSION);
+  assert.deepEqual(
+    (before.frames as ToolPayload[]).map((entry) => entry.id),
+    ["f1"],
+    "the deck's slides are its frames, in order",
+  );
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: before.seq,
+      idempotencyKey: "deck-1",
+      ops: [
+        { op: "move_node", id: "n1", x: 40, y: 30 },
+        { op: "add_node", frameId: "f1", node: { id: "n2", type: "rect", x: 5, y: 6, w: 7, h: 8, fill: "#0af" } },
+      ],
+    }),
+  );
+  assert.equal(applied.seq, 1, "the batch advances the deck draft once");
+  assert.equal(applied.applied, 2);
+  assert.equal(applied.replayed, false);
+  assert.equal(applied.published, false, "one small batch publishes nothing");
+  assert.deepEqual(applied.boxes, [
+    { id: "n1", frameId: "f1", x: 140, y: 30, w: 10, h: 10 },
+    { id: "n2", frameId: "f1", x: 105, y: 6, w: 7, h: 8 },
+  ]);
+  assert.deepEqual(applied.violations, []);
+  const outline = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.equal(outline.seq, 1, "the outline reads the deck draft, not the published snapshot");
+  assert.equal((outline.frames as ToolPayload[])[0]?.nodeCount, 2, "the added node is in the deck's slide");
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  assert.deepEqual(
+    ((read.frame as ToolPayload).nodes as ToolPayload[]).map((node) => node.id),
+    ["n1", "n2"],
+    "the read shows what the deck accepted",
+  );
+  assert.equal(workspace.operations.length, 1, "one operation row per accepted deck batch");
+  assert.equal(workspace.revisions.length, 1, "below the freeze threshold a deck publishes nothing");
+});
+
+test("a deck accepts the replace_scene escape hatch the canvas accepts", async () => {
+  const workspace = canvasWorkspace({ kind: "deck", text: canvasText([HOME()]) });
+  const { callTool } = await connect(workspace.backend);
+  const replacement = [frameOf("slide-2", "Second", [rectNode("n9")]), frameOf("slide-1", "First", [])];
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "deck-restore",
+      ops: [{ op: "replace_scene", scene: sceneOf(replacement) }],
+    }),
+  );
+  assert.equal(applied.applied, 1);
+  assert.deepEqual(
+    applied.boxes,
+    [{ id: "n9", frameId: "slide-2", x: 0, y: 0, w: 10, h: 10 }],
+    "the escape hatch reports the boxes of the whole new deck",
+  );
+  const outline = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.deepEqual(
+    (outline.frames as ToolPayload[]).map((entry) => entry.id),
+    ["slide-2", "slide-1"],
+    "the deck keeps the order the replacement named",
+  );
 });
 
 test("the scene tools refuse an artifact the caller does not own", async () => {

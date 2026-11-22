@@ -18,7 +18,7 @@ import {
 } from "@artiflow/mcp-server/ports";
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { acceptsTextOperations } from "@artiflow/domain/kinds";
+import { acceptsTextOperations, rendersScene } from "@artiflow/domain/kinds";
 import {
   commentDocument,
   currentRevision,
@@ -87,7 +87,7 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
   const canvasOf = async (ownerId: string, artifactId: string): Promise<McpResult<{ kind: string }>> => {
     const state = await ownedState(ownerId, artifactId);
     if (!state.ok) return state;
-    if (state.value.kind !== "canvas")
+    if (!rendersScene(state.value.kind))
       return { ok: false, kind: "wrong_kind", reason: "artifact_is_not_a_canvas", artifactKind: state.value.kind };
     return { ok: true, value: { kind: state.value.kind } };
   };

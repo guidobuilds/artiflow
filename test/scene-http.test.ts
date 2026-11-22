@@ -9,6 +9,7 @@ import { createSceneApp } from "../apps/api/src/routes/scene.ts";
 import type { EditingOptions } from "../apps/api/src/routes/editing.ts";
 import {
   FREEZE_INTERVAL_MS,
+  restoreDocument,
   type ArtifactDocumentState,
   type DocumentStore,
   type DraftRecord,
@@ -486,6 +487,89 @@ test("a markdown artifact refuses with wrong_kind on both routes", async () => {
   assert.equal(world.operations.length, 0);
   assert.equal(world.drafts.size, 0, "neither refusal opens a draft");
   assert.equal(world.storage.objects.size, 1);
+});
+
+test("a deck opens the same scene draft and saves through the same route", async () => {
+  const world = routeWorld({ kind: "deck" });
+  const response = await read(world);
+  assert.equal(response.status, 200, "the deck route is the scene route");
+  const body = await bodyOf(response);
+  assert.deepEqual([body.seq, body.publishedSeq], [0, 0]);
+  assert.deepEqual(body.scene, PUBLISHED, "the deck's slides are the published scene");
+  assert.equal(world.drafts.size, 1, "reading a deck materialises its draft");
+  const saved = await save(world, { scene: DRAGGED, expectedSeq: 0 });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(await bodyOf(saved), {
+    artifactId: CANVAS_ID,
+    seq: 1,
+    publishedSeq: 0,
+    frozen: false,
+    applied: 1,
+    revisionId: world.artifact.revisionId,
+  });
+  assert.deepEqual(world.operations[0]?.ops, [{ op: "move_node", id: "n1", x: 120, y: 60 }]);
+  assert.deepEqual(world.draftScene(), DRAGGED, "the deck draft holds the slide the editor saved");
+});
+
+test("a deck restore applies one replace_scene and publishes it", async () => {
+  const world = routeWorld({ kind: "deck" });
+  const restored = await restoreDocument({
+    store: world.documents,
+    storage: world.storage,
+    artifactId: CANVAS_ID,
+    authorKind: "person",
+    authorId: OWNER_ID,
+    idempotencyKey: "restore-deck",
+    scene: REORDERED,
+  });
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+  if (!restored.ok) return;
+  assert.equal(world.operations.length, 1, "a restore appends exactly one operation row");
+  assert.deepEqual(
+    world.operations[0]?.ops,
+    [{ op: "replace_scene", scene: REORDERED }],
+    "the deck restore is one replace_scene, never a text replacement",
+  );
+  assert.equal(world.revisions.length, 2, "a restore publishes exactly one snapshot");
+  assert.equal(world.artifact.publishedSeq, restored.value.seq, "the restore publishes the deck it restored");
+  assert.equal(
+    new TextDecoder().decode(world.storage.objects.get((world.revisions[1] as { storageKey: string }).storageKey)),
+    canonicalScene(REORDERED),
+    "the published bytes are the restored deck",
+  );
+  assert.deepEqual(world.draftScene(), REORDERED);
+});
+
+test("a markdown restore still rewinds text instead of a scene", async () => {
+  const world = routeWorld({ kind: "markdown" });
+  const sceneOnly = await restoreDocument({
+    store: world.documents,
+    storage: world.storage,
+    artifactId: CANVAS_ID,
+    authorKind: "person",
+    authorId: OWNER_ID,
+    idempotencyKey: "restore-markdown-scene",
+    scene: REORDERED,
+  });
+  assert.equal(!sceneOnly.ok ? sceneOnly.reason : null, "text_required", "a markdown restore wants text");
+  assert.equal(world.operations.length, 0);
+  const restored = await restoreDocument({
+    store: world.documents,
+    storage: world.storage,
+    artifactId: CANVAS_ID,
+    authorKind: "person",
+    authorId: OWNER_ID,
+    idempotencyKey: "restore-markdown",
+    text: "# Rewound\n",
+  });
+  assert.equal(restored.ok, true, JSON.stringify(restored));
+  assert.equal(world.operations.length, 1);
+  assert.equal(
+    (world.operations[0]?.ops as { op: string }[])[0]?.op,
+    "replace_document",
+    "a markdown restore replaces its document, never a scene",
+  );
+  assert.equal(world.revisions.length, 2);
 });
 
 test("a caller without the editor grant refuses with forbidden on both routes", async () => {

@@ -522,7 +522,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
             };
       return c.html(
         wrapperPage(
-          escapeAttribute(renderSceneDocument(scene.value, c.req.query("frame"), images)),
+          escapeAttribute(renderSceneDocument(scene.value, c.req.query("frame"), images, [], row.kind)),
           undefined,
           undefined,
           false,
