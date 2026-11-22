@@ -353,6 +353,10 @@ vista** sobre un plano grande (zoom y desplazamiento) o **recorrer pantallas** d
 mismo artefacto. La primera exige interacción en el cliente; la segunda se resuelve en el
 servidor. Elegir una u otra cambia el trabajo por semanas.
 
+**Resuelto y entregado en F3:** las dos cosas. Una sola pantalla visible a la vez con zoom de rueda
+y paneo por arrastre, navegación por teclado, por índice de marcos y por `?frame=<id>` en la URL, y
+el mismo documento en las dos rutas del visor y en el enlace público.
+
 ---
 
 ## 5. Las tres deudas de diseño
@@ -1090,8 +1094,8 @@ Tres pruebas que no se pueden maquillar:
 
 1. **¿Editable en el navegador, o solo por agentes?** Resuelto en 8.2: los cuatro tipos; HTML
    nunca. Confirmado.
-2. **¿Navegable es mover la vista, o recorrer pantallas?** Propuesta: las dos, con el orden de
-   F3 (navegación entre marcos) y F5 (zoom y edición).
+2. **¿Navegable es mover la vista, o recorrer pantallas?** Entregado en F3: las dos, en el visor de
+   solo lectura.
 3. **¿Las imágenes entran en v1?** Propuesta: no en F3, sí desde F4.
 4. **¿Comentarios de canvas en v1?** Propuesta: en F5, junto con la edición.
 

@@ -101,7 +101,7 @@ JSON
 | Field   | Required | Rules                                                                  |
 | ------- | -------- | ---------------------------------------------------------------------- |
 | `text`  | yes      | Non-empty UTF-8 text, up to 16 MiB (16,777,216 bytes) in this one call |
-| `kind`  | no       | `html` (default) or `markdown`                                         |
+| `kind`  | no       | `html` (default), `markdown`, or `canvas`                              |
 | `title` | no       | 1–200 characters                                                       |
 
 This route takes the whole document in one request, so its cap is the artifact cap, not the 1 MiB
@@ -141,8 +141,8 @@ Refusals specific to this route:
 ```
 
 Newest first, at most 100 rows, no pagination parameters. `title` and `observedSizeBytes` are `null`
-until an artifact has one, and `kind` reads `unknown` for a stored value that is neither `html` nor
-`markdown`.
+until an artifact has one, and `kind` reads `unknown` for a stored value that is not one of the declared
+kinds (`html`, `markdown`, `canvas`).
 
 `GET /artifacts/shared` lists what other accounts invited you to, at most 200 rows, each row adding
 `sharedBy: {"email": "owner@example.com"}`.

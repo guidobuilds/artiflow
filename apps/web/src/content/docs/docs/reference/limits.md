@@ -11,15 +11,17 @@ either.
 
 ## Size caps
 
-| Cap                            | Value                         | Where it applies                                                           |
-| ------------------------------ | ----------------------------- | -------------------------------------------------------------------------- |
-| One artifact                   | **16 MiB** (16,777,216 bytes) | Create, document save, restore, staged commit, and every delivery read     |
-| One `artifact_write` call      | **1 MiB** (1,048,576 bytes)   | The MCP single-call tool; larger content needs the staged upload tools     |
-| One staged upload chunk        | **1 MiB** (1,048,576 bytes)   | `artifact_put_chunk`; a full artifact is therefore at most 16 chunks       |
-| Open staged upload             | **60 minutes**                | After expiry the upload and its chunks are purged and cannot be committed  |
-| Request body, document save    | **16 MiB**                    | Declared `Content-Length` above the cap is refused before the body is read |
-| Request body, comment creation | **64 KiB**                    | Declared length on the dashboard comment endpoint                          |
-| Request body, `/mcp`           | **2 MiB**                     | Declared length on the MCP transport                                       |
+| Cap                            | Value                           | Where it applies                                                           |
+| ------------------------------ | ------------------------------- | -------------------------------------------------------------------------- |
+| One artifact                   | **16 MiB** (16,777,216 bytes)   | Create, document save, restore, staged commit, and every delivery read     |
+| One `artifact_write` call      | **1 MiB** (1,048,576 bytes)     | The MCP single-call tool; larger content needs the staged upload tools     |
+| One canvas scene               | 200 frames, 2000 nodes, depth 2 | Validated before storage; a scene past these is refused, not truncated     |
+| `scene_read` window            | 200 nodes or 64 KiB             | Both caps refuse with a named reason instead of truncating                 |
+| One staged upload chunk        | **1 MiB** (1,048,576 bytes)     | `artifact_put_chunk`; a full artifact is therefore at most 16 chunks       |
+| Open staged upload             | **60 minutes**                  | After expiry the upload and its chunks are purged and cannot be committed  |
+| Request body, document save    | **16 MiB**                      | Declared `Content-Length` above the cap is refused before the body is read |
+| Request body, comment creation | **64 KiB**                      | Declared length on the dashboard comment endpoint                          |
+| Request body, `/mcp`           | **2 MiB**                       | Declared length on the MCP transport                                       |
 
 The artifact cap includes inline CSS, JavaScript and images, because an HTML artifact is one
 self-contained document. Sizes are counted in bytes of the stored text, not characters.

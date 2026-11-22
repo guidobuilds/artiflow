@@ -21,13 +21,14 @@ stable id, and an ordered list of **revisions**.
 
 ## Kinds available today
 
-| Kind             | What you get                                                                                                  |
-| ---------------- | ------------------------------------------------------------------------------------------------------------- |
-| `html` (default) | One self-contained page. Inline CSS and JavaScript run inside a sandboxed frame.                              |
-| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well. |
+| Kind             | What you get                                                                                                                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `html` (default) | One self-contained page. Inline CSS and JavaScript run inside a sandboxed frame.                                                                                                                            |
+| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well.                                                                                               |
+| `canvas`         | A versioned JSON scene of frames and nodes, rendered as a navigable document. Read-only today: an agent publishes it, a person looks at it and moves between screens. See [Canvas](../artifacts/canvas.md). |
 
-Canvas and other document kinds belong to the product's direction. They are not available, so no page
-here presents them as a feature.
+A canvas carries no comments yet; node anchors arrive with the editing phase, and until then the viewer
+mounts no comment panel for it.
 
 ## Limits
 
