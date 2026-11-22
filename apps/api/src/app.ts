@@ -10,6 +10,8 @@ import { MAX_ARTIFACT_BYTES } from "./adapters/postgres/db/artifact-schema.ts";
 import { createAdminApp } from "./routes/admin.ts";
 import { createAccountSessionsApp } from "./routes/sessions.ts";
 import { createEditingApp } from "./routes/editing.ts";
+import { createSceneApp } from "./routes/scene.ts";
+import { createAssetsApp } from "./routes/assets.ts";
 import { createCommentsApp } from "./routes/comments.ts";
 import { createHealthApp } from "./routes/health.ts";
 import { createLibraryApp } from "./routes/library.ts";
@@ -87,6 +89,10 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
     if (c.req.method !== "PUT") return next();
     return bodyLimit({ kind: "document-save", limitBytes: MAX_ARTIFACT_BYTES })(c, next);
   });
+  app.use("/api/artifacts/*/scene", async (c, next) => {
+    if (c.req.method !== "PUT") return next();
+    return bodyLimit({ kind: "document-save", limitBytes: MAX_ARTIFACT_BYTES })(c, next);
+  });
   app.use("/api/artifacts/*/comments", async (c, next) => {
     if (c.req.method !== "POST") return next();
     return bodyLimit({ kind: "comment", limitBytes: 64 * 1024 })(c, next);
@@ -117,7 +123,15 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
   );
   app.route(
     "/",
+    createSceneApp({ database: databaseView, auth, storage: storageView, publicOrigin: config.publicOrigin }),
+  );
+  app.route(
+    "/",
     createCommentsApp({ database: databaseView, auth, storage: storageView, publicOrigin: config.publicOrigin }),
+  );
+  app.route(
+    "/",
+    createAssetsApp({ database: databaseView, auth, storage: storageView, publicOrigin: config.publicOrigin }),
   );
   app.route(
     "/",

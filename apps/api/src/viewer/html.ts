@@ -10,6 +10,28 @@ export const VIEWER_HEADERS = {
 } as const;
 export const SANDBOX = "allow-scripts";
 
+export const originOf = (url: string): string | null => {
+  try {
+    const origin = new URL(url).origin;
+    return origin === "null" ? null : origin;
+  } catch {
+    return null;
+  }
+};
+
+export const sceneCsp = (origin: string): string =>
+  `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src ${origin}; base-uri 'none'; form-action 'none'; connect-src 'self'`;
+
+export const sceneDocumentCsp = (origin: string): string =>
+  `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${origin}; base-uri 'none'; form-action 'none'`;
+
+export const sceneHeaders = (origin: string | null) =>
+  ({
+    "content-security-policy": origin === null ? VIEWER_CSP : sceneCsp(origin),
+    "x-content-type-options": "nosniff",
+    "cache-control": "no-store",
+  }) as const;
+
 export const escapeAttribute = (value: string): string =>
   value
     .replaceAll("&", "&amp;")

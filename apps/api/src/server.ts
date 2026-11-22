@@ -1,12 +1,15 @@
 import { serve } from "@hono/node-server";
 
-import { startRevisionGcLoop, startStagingGcLoop } from "./domain/gc.ts";
+import { startAssetGcLoop, startRevisionGcLoop, startStagingGcLoop } from "./domain/gc.ts";
 import { ConfigError, loadConfig } from "./config.ts";
 import { emailPasswordEnabled } from "./auth.ts";
 import { createAuthHolder } from "./auth-holder.ts";
+import { attachRoomsToDocumentWrites, createRooms } from "./collab/rooms.ts";
+import { COLLAB_PATH, attachCollabServer, createSessionAuthorizer } from "./collab/socket.ts";
 import { createDatabase } from "./adapters/postgres/db/client.ts";
 import { createApiApp } from "./app.ts";
 import { createStorage } from "./adapters/storage/client.ts";
+import { drizzleDocumentStore } from "./domain/documents/service.ts";
 import { seedAccessMethods } from "./settings/seed.ts";
 import { seedPasswordPolicy } from "./password-policy/seed.ts";
 
@@ -66,11 +69,21 @@ const server = serve(
     console.log(
       `[api] access methods from the stored configuration: password ${access.passwordEnabled ? "enabled" : "disabled"}, social providers ${socialProviders.length === 0 ? "none" : socialProviders.join(", ")}`,
     );
+    console.log(`[api] live document sessions on ws://${config.apiHost}:${info.port}${COLLAB_PATH}/:artifactId`);
   },
 );
 
+const rooms = createRooms({ store: drizzleDocumentStore(database), storage });
+const collab = attachCollabServer({
+  server,
+  rooms,
+  authorize: createSessionAuthorizer({ database, auth: holder.auth }),
+});
+const detachRoomInvalidation = attachRoomsToDocumentWrites(rooms);
+
 const stagingGc = startStagingGcLoop({ database, storage });
 const revisionGc = startRevisionGcLoop({ database, storage });
+const assetGc = startAssetGcLoop({ database, storage });
 
 let shuttingDown = false;
 
@@ -79,11 +92,15 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   console.log(`[api] ${signal} received, shutting down`);
 
+  detachRoomInvalidation();
+  await collab.close();
+  await rooms.closeAll();
   await new Promise<void>((resolve) => {
     server.close(() => resolve());
   });
   stagingGc.stop();
   revisionGc.stop();
+  assetGc.stop();
   await database.close().catch((error: unknown) => {
     console.error(`[api] database pool shutdown failed: ${error instanceof Error ? error.name : "unknown error"}`);
   });

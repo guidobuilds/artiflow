@@ -8,13 +8,11 @@ import { artifacts, artifactRevisions, MAX_ARTIFACT_BYTES } from "../../adapters
 import { readableArtifactPredicate } from "../sharing.ts";
 import { isUuid } from "../../http/index.ts";
 import { readPrincipal } from "../../http/principal.ts";
-import type { ArtifactKind } from "@artiflow/contracts/artifacts";
 import { v1ArtifactBytesResponseSchema, type V1ArtifactBytesResponse } from "@artiflow/contracts/artifacts";
+import { wireNameFor } from "@artiflow/domain/kinds";
 import type { Storage } from "../../adapters/storage/client.ts";
 
 type Options = { database: Database; storage: Storage };
-
-const wireKind = (kind: string): ArtifactKind => (kind === "html" || kind === "markdown" ? kind : "unknown");
 
 async function readableRevision(
   db: AppDb,
@@ -78,7 +76,7 @@ export function createArtifactBytesV1App({ database, storage }: Options): Hono {
       artifactId: row.id,
       revisionId: row.revisionId,
       revisionNumber: row.revisionNumber,
-      kind: wireKind(row.kind),
+      kind: wireNameFor(row.kind),
       sha256: row.sha256,
       sizeBytes: read.value.sizeBytes,
       contentBase64: Buffer.from(read.value.bytes).toString("base64"),

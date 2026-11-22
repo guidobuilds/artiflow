@@ -101,7 +101,7 @@ JSON
 | Field   | Required | Rules                                                                  |
 | ------- | -------- | ---------------------------------------------------------------------- |
 | `text`  | yes      | Non-empty UTF-8 text, up to 16 MiB (16,777,216 bytes) in this one call |
-| `kind`  | no       | `html` (default) or `markdown`                                         |
+| `kind`  | no       | `html` (default), `markdown`, `canvas`, or `deck`                      |
 | `title` | no       | 1–200 characters                                                       |
 
 This route takes the whole document in one request, so its cap is the artifact cap, not the 1 MiB
@@ -141,8 +141,8 @@ Refusals specific to this route:
 ```
 
 Newest first, at most 100 rows, no pagination parameters. `title` and `observedSizeBytes` are `null`
-until an artifact has one, and `kind` reads `unknown` for a stored value that is neither `html` nor
-`markdown`.
+until an artifact has one, and `kind` reads `unknown` for a stored value that is not one of the declared
+kinds (`html`, `markdown`, `canvas`, `deck`).
 
 `GET /artifacts/shared` lists what other accounts invited you to, at most 200 rows, each row adding
 `sharedBy: {"email": "owner@example.com"}`.
@@ -287,8 +287,10 @@ undoable for the same reason, and an old revision id that is not this artifact's
 ## Comments
 
 A comment is a generic entity whose anchor is discriminated by `kind`. Markdown accepts
-`text-range` anchors; `html` accepts `element` and `page-point`. An anchor that does not belong to
-the artifact's kind is refused with `400 unsupported_anchor_kind`. A root comment always carries an
+`text-range` anchors, `html` accepts `element` and `page-point`, and `canvas` accepts `board-point`.
+An anchor that does not belong to the artifact's kind is refused with `400 unsupported_anchor_kind`.
+A scene anchor is resolved against the current scene before it is stored, so a node the scene does not
+hold is `400 unknown_node`; a thread whose node is gone is listed with `orphaned: true`. A root comment always carries an
 anchor, a reply never does: a root without one is `400 root_requires_anchor` and a reply that sends
 one is `400 reply_has_no_anchor`.
 
@@ -297,8 +299,8 @@ one is `400 reply_has_no_anchor`.
 | `text-range`  | `{startLine, startCol, endLine, endCol, quotedText}` — 1-indexed, end-exclusive, over the Markdown source | Markdown |
 | `element`     | `{selector, point:{x,y} in 0–1, textHint (≤120 chars), viewportWidth}`                                    | HTML     |
 | `page-point`  | `{x in 0–1, y in pixels, viewportWidth}`                                                                  | HTML     |
-| `board-point` | `{boardId, x, y}` — reserved                                                                              | future   |
-| `slide-point` | `{slideId, x, y}` — reserved                                                                              | future   |
+| `board-point` | `{boardId (frame), nodeId, x, y}` — x and y are fractions of the node's own box                           | Canvas   |
+| `slide-point` | `{slideId, nodeId, x, y}` — same rules as `board-point`                                                   | Deck     |
 
 `GET /artifacts/{artifactId}/comments` returns threads for anyone who can read the artifact. The
 author is an entity: `{ id, name, image }`, never an email of another participant.

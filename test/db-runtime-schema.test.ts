@@ -28,9 +28,13 @@ const PRODUCT_TABLES = [
   "artifactRevisions",
   "artifactUploads",
   "artifactChunks",
+  "assets",
+  "artifactAssets",
   "artifactShares",
   "artifactPublicLinks",
   "artifactComments",
+  "documentDrafts",
+  "documentOperations",
 ];
 
 test("the runtime aggregate exposes every auth, oauth and product table", () => {

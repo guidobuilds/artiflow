@@ -1,4 +1,6 @@
 import type { AnyCommentAnchor } from "@artiflow/domain/comment-anchors";
+import type { DocumentOperation } from "@artiflow/domain/document-operations";
+import type { SceneNodeBox, SceneOperation, SceneViolation } from "@artiflow/domain/scene-operations";
 import { UUID_RE, HEX_SHA256, BASE64 } from "./constants.ts";
 
 export type McpExecutor = unknown;
@@ -11,7 +13,17 @@ export type McpCaps = {
 };
 
 export type McpResult<T> =
-  { ok: true; value: T } | { ok: false; kind: string; reason: string; currentRevisionId?: string | null };
+  | { ok: true; value: T }
+  | {
+      ok: false;
+      kind: string;
+      reason: string;
+      currentRevisionId?: string | null;
+      currentSeq?: number;
+      opIndex?: number;
+      artifactKind?: string;
+      maxBytes?: number;
+    };
 
 export type McpUploadRow = {
   id: string;
@@ -121,6 +133,73 @@ export type McpCommentInsert = {
   body: string;
 };
 
+export type McpDocumentAuthorKind = "agent" | "person";
+export type McpDocumentCreateInput = { ownerId: string; title: string; kind?: string; text?: string };
+export type McpDocumentCreated = {
+  artifactId: string;
+  revisionId: string;
+  revisionNumber: number;
+  sizeBytes: number;
+  observedSizeBytes: number;
+  sha256: string;
+  seq: number;
+};
+export type McpDocumentState = { artifactId: string; kind: string; seq: number; text: string };
+export type McpDocumentDraft = McpDocumentState;
+export type McpDocumentText = { artifactId: string; seq: number; text: string };
+export type McpDocumentApplyInput = {
+  artifactId: string;
+  ownerId: string;
+  authorKind: McpDocumentAuthorKind;
+  authorId: string;
+  baseSeq: number;
+  idempotencyKey: string;
+  ops: DocumentOperation[];
+};
+export type McpDocumentApplied = {
+  artifactId: string;
+  seq: number;
+  applied: number;
+  replayed: boolean;
+  published: boolean;
+  revisionId: string | null;
+};
+export type McpDocumentPublished = {
+  artifactId: string;
+  revisionId: string;
+  revisionNumber: number;
+  seqFrom: number;
+  seqTo: number;
+};
+
+export type McpSceneApplyInput = {
+  artifactId: string;
+  ownerId: string;
+  authorKind: McpDocumentAuthorKind;
+  authorId: string;
+  baseSeq: number;
+  idempotencyKey: string;
+  ops: SceneOperation[];
+};
+export type McpSceneApplied = {
+  artifactId: string;
+  seq: number;
+  applied: number;
+  replayed: boolean;
+  published: boolean;
+  revisionId: string | null;
+  boxes: SceneNodeBox[];
+  violations: SceneViolation[];
+};
+
+export type McpAssetUploadInput = {
+  ownerId: string;
+  artifactId: string;
+  contentType: string;
+  bytes: Uint8Array;
+};
+export type McpAssetStored = { sha256: string; sizeBytes: number; contentType: string };
+
 export class McpRollback<T> extends Error {
   readonly carried: T;
   constructor(carried: T) {
@@ -174,6 +253,14 @@ export type McpBackend = {
     requireMatching: boolean,
   ): Promise<{ id: string; storageKey: string; sha256: string } | null>;
   commentTransaction<T>(run: (executor: McpExecutor) => Promise<T>): Promise<T>;
+  documentCreate(input: McpDocumentCreateInput): Promise<McpResult<McpDocumentCreated>>;
+  documentOpen(ownerId: string, artifactId: string): Promise<McpResult<McpDocumentState>>;
+  documentDraft(ownerId: string, artifactId: string): Promise<McpResult<McpDocumentDraft>>;
+  documentTextAt(ownerId: string, artifactId: string, seq: number): Promise<McpResult<McpDocumentText>>;
+  documentApply(input: McpDocumentApplyInput): Promise<McpResult<McpDocumentApplied>>;
+  documentPublish(ownerId: string, artifactId: string): Promise<McpResult<McpDocumentPublished>>;
+  sceneApply(input: McpSceneApplyInput): Promise<McpResult<McpSceneApplied>>;
+  uploadAsset(input: McpAssetUploadInput): Promise<McpResult<McpAssetStored>>;
 };
 
 export { UUID_RE, HEX_SHA256, BASE64 };

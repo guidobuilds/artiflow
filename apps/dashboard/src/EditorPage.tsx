@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { Extension } from "@tiptap/core";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import { Icon, IconAction } from "@/components/ui/icon.tsx";
@@ -14,6 +16,7 @@ import {
   selectionMenuVisible,
   sourceBlockSpan,
 } from "@artiflow/domain/comment-anchors";
+import { MARKDOWN_DOC_FIELD } from "@artiflow/domain/markdown-doc";
 import type { CommentList } from "./comments-api.ts";
 import { TextLink } from "@/components/ui/text-link.tsx";
 import type { PollerVisibility } from "@artiflow/sdk/poll";
@@ -33,6 +36,17 @@ import {
   type EditorFreshness,
 } from "./lib/editor-freshness.ts";
 import { Autosave, type SaveState } from "./editor-autosave.ts";
+import {
+  COLLAB_UNAVAILABLE_MESSAGE,
+  openCollabSession,
+  presenceCursor,
+  presenceSelection,
+  type CollabFallback,
+  type CollabOutcome,
+  type CollabSession,
+  type CursorMarkup,
+} from "./collab.ts";
+import { getSession } from "./auth-client.ts";
 import { blockTypes, currentBlockType, toolbarGroups, markdownExtensions } from "./editor-markdown.ts";
 import MarkdownComments, { type CommentSelection } from "./components/comments/markdown-comments.tsx";
 import { revealCommentsForHash } from "./comment-thread-navigation.ts";
@@ -46,8 +60,33 @@ const labels = {
   readonly: "Read-only",
   error: "Unsaved",
   restoring: "Loading",
+  live: "Live",
 };
 const markerKey = new PluginKey("commentMarkers");
+
+const presenceOf = (user: Record<string, unknown>): { name: string; color: string } => ({
+  name: typeof user.name === "string" && user.name !== "" ? user.name : "Someone",
+  color: typeof user.color === "string" && /^#[0-9a-fA-F]{6}$/.test(user.color) ? user.color : "#2f6fd0",
+});
+
+const renderCursorMarkup = (markup: CursorMarkup): HTMLElement => {
+  const element = window.document.createElement(markup.tag);
+  element.className = markup.className;
+  Object.assign(element.style, markup.style);
+  if (markup.text !== undefined) element.textContent = markup.text;
+  for (const child of markup.children) element.appendChild(renderCursorMarkup(child));
+  return element;
+};
+
+const collabExtensions = (session: CollabSession) => [
+  Collaboration.configure({ document: session.doc, field: MARKDOWN_DOC_FIELD }),
+  CollaborationCaret.configure({
+    provider: { awareness: session.awareness },
+    user: session.user,
+    render: (user: Record<string, unknown>) => renderCursorMarkup(presenceCursor(presenceOf(user))),
+    selectionRender: (user: Record<string, unknown>) => presenceSelection(presenceOf(user)),
+  }),
+];
 
 const documentVisibility = (): PollerVisibility => ({
   hidden: () => document.hidden === true,
@@ -73,6 +112,7 @@ const readRemoteText = (artifactId: string, kind: Document["kind"]) =>
             text: result.value.text,
             revisionId: result.value.revisionId,
             revisionNumber: result.value.revisionNumber,
+            seq: result.value.seq,
           }
         : null;
     },
@@ -85,6 +125,7 @@ const readRemoteText = (artifactId: string, kind: Document["kind"]) =>
 export default function EditorPage({ artifactId }: { artifactId: string }) {
   const [document, setDocument] = useState<Document | null>(null);
   const [error, setError] = useState("");
+  const [collab, setCollab] = useState<CollabOutcome | null>(null);
   useEffect(() => {
     let cancelled = false;
     void getDocument(artifactId).then((result) => {
@@ -105,11 +146,50 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
       cancelled = true;
     };
   }, [artifactId]);
+  useEffect(() => {
+    if (document === null) return;
+    let cancelled = false;
+    let opened: CollabSession | null = null;
+    const unavailable: CollabOutcome = {
+      ok: false,
+      fallback: { reason: "unavailable", message: COLLAB_UNAVAILABLE_MESSAGE },
+    };
+    void getSession()
+      .then((result): Promise<CollabOutcome> | CollabOutcome =>
+        result.ok && result.value !== null
+          ? openCollabSession({ artifactId, origin: window.location.origin, user: result.value })
+          : unavailable,
+      )
+      .then((outcome) => {
+        if (!outcome.ok) {
+          setCollab(outcome);
+          return;
+        }
+        if (cancelled) {
+          outcome.session.destroy();
+          return;
+        }
+        opened = outcome.session;
+        setCollab(outcome);
+      })
+      .catch(() => {
+        if (!cancelled) setCollab(unavailable);
+      });
+    return () => {
+      cancelled = true;
+      opened?.destroy();
+    };
+  }, [artifactId, document]);
   return (
     <TooltipProvider>
       <div className="min-w-0 flex-1">
-        {document ? (
-          <DocumentEditor key={artifactId} initial={document} />
+        {document !== null && collab !== null ? (
+          <DocumentEditor
+            key={artifactId}
+            initial={document}
+            collab={collab.ok ? collab.session : null}
+            fallback={collab.ok ? null : collab.fallback}
+          />
         ) : (
           <section className="p-7" aria-busy={!error}>
             <TextLink href="/library">Back to library</TextLink>
@@ -124,9 +204,22 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
   );
 }
 
-function DocumentEditor({ initial }: { initial: Document }) {
+function DocumentEditor({
+  initial,
+  collab,
+  fallback,
+}: {
+  initial: Document;
+  collab: CollabSession | null;
+  fallback: CollabFallback | null;
+}) {
   const session = useRef<Autosave | null>(null);
-  const [state, setState] = useState<SaveState>({ ...initial, status: "saved", dirty: false });
+  const [state, setState] = useState<SaveState>({
+    ...initial,
+    status: collab === null ? "saved" : "live",
+    dirty: false,
+  });
+  const [notice, setNotice] = useState<CollabFallback | null>(fallback);
   const [history, setHistory] = useState<Revision[]>([]);
   const [pendingVersion, setPendingVersion] = useState<number | null>(null);
   const freshness = useRef<EditorFreshness | null>(null);
@@ -179,7 +272,9 @@ function DocumentEditor({ initial }: { initial: Document }) {
   };
   const editor = useEditor({
     extensions: [
-      ...markdownExtensions,
+      ...(collab === null
+        ? markdownExtensions
+        : [...markdownExtensions.filter((extension) => extension.name !== "undoRedo"), ...collabExtensions(collab)]),
       Extension.create({
         name: "commentMarkers",
         addProseMirrorPlugins: () => [
@@ -236,8 +331,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
         ],
       }),
     ],
-    content: initial.text,
-    contentType: "markdown",
+    ...(collab === null ? { content: initial.text, contentType: "markdown" as const } : {}),
     editorProps: {
       attributes: {
         class: "markdown-editor",
@@ -247,7 +341,9 @@ function DocumentEditor({ initial }: { initial: Document }) {
       },
     },
     onUpdate: ({ editor }) => {
-      session.current?.change(editor.getMarkdown());
+      const text = editor.getMarkdown();
+      if (collab !== null) setState((previous) => (previous.text === text ? previous : { ...previous, text }));
+      else session.current?.change(text);
     },
     onSelectionUpdate: () => {
       dismissed.current = false;
@@ -268,10 +364,10 @@ function DocumentEditor({ initial }: { initial: Document }) {
         : null,
   });
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || collab !== null) return;
     const controller = new Autosave(
       initial,
-      (text, revision) => saveDocument(initial.artifactId, text, revision),
+      (text, revision, expectedSeq) => saveDocument(initial.artifactId, text, revision, expectedSeq),
       setState,
       refreshHistory,
       editor.getMarkdown(),
@@ -284,9 +380,13 @@ function DocumentEditor({ initial }: { initial: Document }) {
       session.current = null;
       historyRun.current++;
     };
-  }, [editor, initial, refreshHistory]);
+  }, [collab, editor, initial, refreshHistory]);
   useEffect(() => {
-    if (!editor) return;
+    if (collab === null) return;
+    refreshHistory();
+  }, [collab, refreshHistory]);
+  useEffect(() => {
+    if (collab !== null || !editor) return;
     let cancelled = false;
     let handle: EditorFreshness | null = null;
     void createEditorFreshness({
@@ -305,6 +405,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
             revisionId: remote.metadata.revisionId,
             revisionNumber: remote.metadata.revisionNumber,
             text: remote.text,
+            seq: remote.seq,
           },
           editor.getMarkdown(),
         );
@@ -331,7 +432,14 @@ function DocumentEditor({ initial }: { initial: Document }) {
       handle?.stop();
       freshness.current = null;
     };
-  }, [editor, initial, refreshHistory]);
+  }, [collab, editor, initial, refreshHistory]);
+  useEffect(() => {
+    if (collab === null) return;
+    return collab.subscribe((refused) => {
+      setNotice(refused);
+      setState((previous) => ({ ...previous, status: "readonly", code: "forbidden" }));
+    });
+  }, [collab]);
   const adoptApplied = async () => {
     const current = freshness.current;
     if (!current) return;
@@ -378,6 +486,25 @@ function DocumentEditor({ initial }: { initial: Document }) {
     void adoptApplied();
   };
   const restore = async (revision: Revision) => {
+    if (collab !== null) {
+      if (
+        !window.confirm(
+          `Restore version ${revision.revisionNumber} as a new version? Everyone editing this document sees it immediately.`,
+        )
+      )
+        return;
+      const restored = await restoreRevision(initial.artifactId, revision.id, state.revisionId);
+      if (!restored.ok) {
+        setHistoryError(
+          restored.code === "concurrent_edit"
+            ? "This document changed since you opened it. Reload the page, then restore again."
+            : "Could not restore that version.",
+        );
+        return;
+      }
+      refreshHistory();
+      return;
+    }
     const controller = session.current;
     if (
       !controller ||
@@ -630,6 +757,11 @@ function DocumentEditor({ initial }: { initial: Document }) {
           </div>
         ) : null}
       </div>
+      {notice !== null ? (
+        <div role={notice.reason === "refused" ? "alert" : "status"} className="editor-notice">
+          <p className={notice.reason === "refused" ? undefined : "text-fg-muted"}>{notice.message}</p>
+        </div>
+      ) : null}
       {state.status === "conflict" ? (
         <div role="alert" className="editor-notice">
           <p>
@@ -674,9 +806,11 @@ function DocumentEditor({ initial }: { initial: Document }) {
               ? "This document is too large to save (maximum 16 MiB). Shorten it, then retry."
               : state.code === "reload_required"
                 ? "Restore succeeded, but the document could not be reloaded. Reload before editing again."
-                : "The save was not confirmed. Your local edits remain here. Retry, or reload to check the server version."}
+                : state.code === "restore_pending_changes"
+                  ? "This document has edits that are not published yet. Restoring now would discard them, so nothing changed. Publish the document, then restore."
+                  : "The save was not confirmed. Your local edits remain here. Retry, or reload to check the server version."}
           </p>
-          {state.code !== "reload_required" ? (
+          {state.code !== "reload_required" && state.code !== "restore_pending_changes" ? (
             <IconAction icon="refresh" label="Retry save" onClick={() => session.current?.retry()} />
           ) : null}
           <IconAction
@@ -808,7 +942,7 @@ function DocumentEditor({ initial }: { initial: Document }) {
               artifactId={initial.artifactId}
               source={state.text}
               revisionId={state.revisionId}
-              saved={!state.dirty && state.status !== "restoring" && state.status !== "conflict"}
+              saved={collab !== null || (!state.dirty && state.status !== "restoring" && state.status !== "conflict")}
               selection={commentSelection}
               readOnly={readOnly}
               visible={commentsVisible}

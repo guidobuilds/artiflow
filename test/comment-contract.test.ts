@@ -10,10 +10,18 @@ import {
 } from "@artiflow/contracts/comments";
 import {
   ANCHOR_KINDS_BY_DOCUMENT,
+  acceptsSceneAnchors,
   anchorIsCurrent,
   anchorKindAllowed,
   anchorShapeIsValid,
+  isSceneAnchor,
+  sceneAnchorIsOrphaned,
+  sceneAnchorRefusal,
+  type BoardPointAnchor,
+  type SlidePointAnchor,
 } from "@artiflow/domain/comment-anchors";
+import { SCENE_FORMAT_VERSION, type Scene } from "@artiflow/domain/scene";
+import { anchorKindsFor } from "@artiflow/domain/kinds";
 
 const textRange = { kind: "text-range", startLine: 1, startCol: 4, endLine: 1, endCol: 9, quotedText: "Hello" };
 const element = {
@@ -24,8 +32,43 @@ const element = {
   viewportWidth: 800,
 };
 const pagePoint = { kind: "page-point", x: 0.5, y: 420, viewportWidth: 800 };
-const boardPoint = { kind: "board-point", boardId: "b1", x: 12, y: -3 };
-const slidePoint = { kind: "slide-point", slideId: "s1", x: 0.5, y: 0.5 };
+const boardPoint: BoardPointAnchor = {
+  kind: "board-point",
+  boardId: "frame-home",
+  nodeId: "node-live",
+  x: 0.25,
+  y: 0.5,
+};
+const slidePoint: SlidePointAnchor = {
+  kind: "slide-point",
+  slideId: "slide-one",
+  nodeId: "node-live",
+  x: 0.5,
+  y: 0.5,
+};
+const scene: Scene = {
+  formatVersion: SCENE_FORMAT_VERSION,
+  frames: [
+    {
+      id: "frame-home",
+      name: "Home",
+      x: 0,
+      y: 0,
+      w: 400,
+      h: 300,
+      nodes: [{ id: "node-live", type: "rect", x: 40, y: 20, w: 100, h: 60, fill: "#ffffff" }],
+    },
+    {
+      id: "frame-away",
+      name: "Away",
+      x: 400,
+      y: 0,
+      w: 200,
+      h: 200,
+      nodes: [{ id: "node-away", type: "rect", x: 10, y: 10, w: 50, h: 50, fill: "#000000" }],
+    },
+  ],
+};
 
 const anchorIssues = (value: unknown): string[] => (commentAnchorSchema.safeParse(value).success ? [] : ["rejected"]);
 const createIssues = (value: unknown): string[] =>
@@ -74,8 +117,10 @@ test("malformed positional anchors are rejected", () => {
   assert.deepEqual(anchorIssues({ ...pagePoint, y: -1 }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...pagePoint, viewportWidth: 1.5 }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...boardPoint, boardId: "" }), ["rejected"]);
+  assert.deepEqual(anchorIssues({ ...boardPoint, nodeId: "" }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...boardPoint, x: Number.NaN }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...slidePoint, slideId: "" }), ["rejected"]);
+  assert.deepEqual(anchorIssues({ ...slidePoint, nodeId: "" }), ["rejected"]);
   assert.deepEqual(anchorIssues({ ...element, kind: "text-range" }), ["rejected"]);
   assert.deepEqual(anchorIssues({ kind: "unknown" }), ["rejected"]);
 });
@@ -91,11 +136,55 @@ test("create requests require an anchor on roots and refuse anchors on replies",
 test("the registry maps document kinds to accepted anchor kinds", () => {
   assert.deepEqual(ANCHOR_KINDS_BY_DOCUMENT.markdown, ["text-range"]);
   assert.deepEqual(ANCHOR_KINDS_BY_DOCUMENT.html, ["element", "page-point"]);
+  assert.deepEqual(ANCHOR_KINDS_BY_DOCUMENT.canvas, ["board-point"]);
   assert.equal(anchorKindAllowed("markdown", "text-range"), true);
   assert.equal(anchorKindAllowed("markdown", "element"), false);
   assert.equal(anchorKindAllowed("html", "page-point"), true);
   assert.equal(anchorKindAllowed("html", "text-range"), false);
+  assert.equal(anchorKindAllowed("canvas", "board-point"), true);
+  assert.equal(anchorKindAllowed("canvas", "slide-point"), false, "a canvas names a node, not a slide");
   assert.equal(anchorKindAllowed("pdf", "text-range"), false);
+});
+
+test("a board-point is a normalized point inside the node it names", () => {
+  assert.deepEqual(anchorIssues(boardPoint), []);
+  assert.deepEqual(anchorIssues(slidePoint), []);
+  for (const x of [1.5, -0.1, Number.NaN, Number.POSITIVE_INFINITY])
+    assert.deepEqual(anchorIssues({ ...boardPoint, x }), ["rejected"], `x ${String(x)} is outside 0..1`);
+  assert.deepEqual(anchorIssues({ ...boardPoint, y: 2 }), ["rejected"]);
+  assert.deepEqual(anchorIssues({ ...boardPoint, nodeId: undefined }), ["rejected"]);
+  assert.equal(anchorShapeIsValid(boardPoint), true);
+  assert.equal(anchorShapeIsValid({ ...boardPoint, nodeId: "" }), false);
+  assert.equal(anchorShapeIsValid({ ...boardPoint, x: 1.5 }), false);
+  assert.equal(anchorShapeIsValid({ ...slidePoint, nodeId: "" }), false);
+  assert.equal(anchorShapeIsValid({ ...slidePoint, y: Number.POSITIVE_INFINITY }), false);
+});
+
+test("a scene anchor resolves against the frame that holds its node", () => {
+  assert.equal(acceptsSceneAnchors("canvas"), true);
+  assert.equal(acceptsSceneAnchors("markdown"), false);
+  assert.equal(acceptsSceneAnchors("html"), false);
+  assert.equal(acceptsSceneAnchors("pdf"), false);
+  assert.equal(isSceneAnchor(boardPoint), true);
+  assert.equal(isSceneAnchor(slidePoint), true);
+  assert.equal(isSceneAnchor(pagePoint), false);
+  assert.equal(isSceneAnchor(null), false);
+  assert.equal(sceneAnchorRefusal(scene, boardPoint), null, "the node is in the frame the anchor names");
+  assert.equal(sceneAnchorRefusal(scene, { ...boardPoint, nodeId: "node-missing" }), "unknown_node");
+  assert.equal(sceneAnchorRefusal(scene, { ...boardPoint, boardId: "frame-missing" }), "unknown_node");
+  assert.equal(
+    sceneAnchorRefusal(scene, { ...boardPoint, nodeId: "node-away" }),
+    "unknown_node",
+    "a node that lives in another frame does not resolve",
+  );
+  assert.equal(sceneAnchorIsOrphaned(scene, boardPoint), false);
+  assert.equal(sceneAnchorIsOrphaned(scene, { ...boardPoint, nodeId: "node-missing" }), true);
+  assert.equal(sceneAnchorIsOrphaned(scene, pagePoint), false, "an anchor that names no node is never orphaned");
+  assert.equal(sceneAnchorIsOrphaned(scene, null), false);
+});
+
+test("every anchor kind a canvas accepts is a scene anchor", () => {
+  for (const anchor of anchorKindsFor("canvas")) assert.equal(isSceneAnchor({ kind: anchor }), true);
 });
 
 test("shape validation accepts stored anchors and refuses junk", () => {

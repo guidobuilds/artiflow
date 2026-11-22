@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { Hono, type Context } from "hono";
 import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
@@ -6,11 +6,21 @@ import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { AppDb, Database } from "../adapters/postgres/db/client.ts";
 
 import { getRevisionBytes, putRevisionBytes, newRevisionStorageKey } from "../adapters/storage/s3.ts";
-import { copyRevisionBytes } from "../domain/commit-flow.ts";
 import { setRevisionCas, type RevisionInput } from "../domain/commits.ts";
+import { editsDocumentInApp } from "@artiflow/domain/kinds";
+import { diffDocumentOperations } from "@artiflow/domain/document-operations";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { isJsonContentType, isUuid } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
+import {
+  applyOperations,
+  drizzleDocumentStore,
+  freezeIfDue,
+  openDraft,
+  restoreDocument,
+  textAt,
+  type DocumentStore,
+} from "../domain/documents/service.ts";
 import type { DocumentResponse, RevisionListResponse, SavedRevision } from "@artiflow/contracts/document";
 import type { createAuth } from "../auth.ts";
 import {
@@ -29,12 +39,13 @@ export type EditingOptions = {
   publicOrigin: string;
   principal?: true;
   maxArtifactBytes?: number;
+  documentStore?: DocumentStore;
 };
 
 const HISTORY_LIMIT = 200;
-const maxBytes = (cap?: number): number => Math.min(cap ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
+export const maxBytes = (cap?: number): number => Math.min(cap ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
 
-type DocRow = {
+export type DocRow = {
   id: string;
   ownerId: string;
   kind: string;
@@ -43,10 +54,11 @@ type DocRow = {
   revisionNumber: number | null;
   storageKey: string | null;
   sha256: string | null;
+  publishedSeq: number;
   access: string;
 };
 
-async function documentFor(db: AppDb, userId: string, artifactId: string): Promise<DocRow | undefined> {
+export async function documentFor(db: AppDb, userId: string, artifactId: string): Promise<DocRow | undefined> {
   return (
     await db
       .select({
@@ -58,6 +70,7 @@ async function documentFor(db: AppDb, userId: string, artifactId: string): Promi
         revisionNumber: artifactRevisions.revision,
         storageKey: artifactRevisions.storageKey,
         sha256: artifactRevisions.sha256,
+        publishedSeq: artifacts.publishedSeq,
         access: sql<string>`case when ${artifacts.ownerId} = ${userId} then 'owner' else coalesce(${artifactShares.role}, 'none') end`,
       })
       .from(artifacts)
@@ -107,44 +120,67 @@ async function pinnedRevision(db: AppDb, revisionId: string, artifactId: string)
   )[0];
 }
 
-const canEdit = (row: DocRow): boolean => row.access === "owner" || row.access === "editor";
+export type DocGate = { userId: string; row: DocRow };
+
+export type EditingSession = {
+  sessionUserId: (c: Context) => Promise<string | null>;
+  guard: (c: Context) => Response | null;
+};
+
+export function editingSession(options: Pick<EditingOptions, "auth" | "publicOrigin" | "principal">): EditingSession {
+  const { auth, publicOrigin } = options;
+  return {
+    sessionUserId: async (c: Context): Promise<string | null> => {
+      const bearerUserId = options.principal ? readPrincipal(c.req.raw.headers)?.userId : undefined;
+      if (bearerUserId) return bearerUserId;
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const id = session?.user?.id;
+      return typeof id === "string" && id.length > 0 ? id : null;
+    },
+    guard: (c: Context): Response | null => {
+      if (options.principal) return null;
+      if (c.req.header("origin") !== publicOrigin) return c.json({ error: "origin_not_allowed" }, 403);
+      if (!isJsonContentType(c.req.header("content-type"))) return c.json({ error: "json_content_type_required" }, 415);
+      return null;
+    },
+  };
+}
+
+export async function docGateFor(
+  c: Context,
+  db: AppDb,
+  sessionUserId: EditingSession["sessionUserId"],
+): Promise<DocGate | Response> {
+  const artifactId = c.req.param("id") ?? "";
+  if (!isUuid(artifactId)) return c.json({ error: "not_found" }, 404);
+  const userId = await sessionUserId(c);
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const row = await documentFor(db, userId, artifactId);
+  if (!row) return c.json({ error: "not_found" }, 404);
+  return { userId, row };
+}
+
+export const canEdit = (row: { access: string }): boolean => row.access === "owner" || row.access === "editor";
+
+export const requireEditor = (c: Context, row: DocRow): Response | null =>
+  canEdit(row) ? null : c.json({ error: "forbidden" }, 403);
+
+export const requireCurrent = (c: Context, row: DocRow): Response | null =>
+  row.revisionId && row.storageKey && row.sha256 ? null : c.json({ error: "no_current_revision" }, 409);
 
 const sha256Of = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 export function createEditingApp(options: EditingOptions) {
-  const { database, auth, storage, publicOrigin } = options;
+  const { database, storage } = options;
   const db = database.db;
   const cap = maxBytes(options.maxArtifactBytes);
+  const documents = options.documentStore ?? drizzleDocumentStore(database);
   const app = new Hono();
 
-  const sessionUserId = async (c: Context): Promise<string | null> => {
-    const bearerUserId = options.principal ? readPrincipal(c.req.raw.headers)?.userId : undefined;
-    if (bearerUserId) return bearerUserId;
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    const id = session?.user?.id;
-    return typeof id === "string" && id.length > 0 ? id : null;
-  };
-  const guard = (c: Context): Response | null => {
-    if (options.principal) return null;
-    if (c.req.header("origin") !== publicOrigin) return c.json({ error: "origin_not_allowed" }, 403);
-    if (!isJsonContentType(c.req.header("content-type"))) return c.json({ error: "json_content_type_required" }, 415);
-    return null;
-  };
-  const docGate = async (c: Context): Promise<{ userId: string; row: DocRow } | Response> => {
-    const artifactId = c.req.param("id") ?? "";
-    if (!isUuid(artifactId)) return c.json({ error: "not_found" }, 404);
-    const userId = await sessionUserId(c);
-    if (!userId) return c.json({ error: "unauthorized" }, 401);
-    const row = await documentFor(db, userId, artifactId);
-    if (!row) return c.json({ error: "not_found" }, 404);
-    return { userId, row };
-  };
+  const { sessionUserId, guard } = editingSession(options);
+  const docGate = (c: Context): Promise<DocGate | Response> => docGateFor(c, db, sessionUserId);
   const requireMarkdown = (c: Context, row: DocRow): Response | null =>
-    row.kind === "markdown" ? null : c.json({ error: "wrong_kind" }, 409);
-  const requireCurrent = (c: Context, row: DocRow): Response | null =>
-    row.revisionId && row.storageKey && row.sha256 ? null : c.json({ error: "no_current_revision" }, 409);
-  const requireEditor = (c: Context, row: DocRow): Response | null =>
-    canEdit(row) ? null : c.json({ error: "forbidden" }, 403);
+    editsDocumentInApp(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
 
   app.get("/api/artifacts/:id/document", async (c) => {
     const gate = await docGate(c);
@@ -154,6 +190,21 @@ export function createEditingApp(options: EditingOptions) {
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
     if (noCurrent) return noCurrent;
+    const draft = await documents.readDraft(row.id);
+    if (draft) {
+      const resolved = await textAt({ store: documents, storage, artifactId: row.id, seq: draft.seq });
+      if (!resolved.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      return c.json({
+        artifactId: row.id,
+        title: row.title,
+        kind: row.kind as DocumentResponse["kind"],
+        revisionId: row.revisionId as string,
+        revisionNumber: row.revisionNumber as number,
+        text: resolved.value.text,
+        seq: draft.seq,
+        publishedSeq: row.publishedSeq,
+      } satisfies DocumentResponse);
+    }
     const read = await getRevisionBytes({
       storage,
       storageKey: row.storageKey as string,
@@ -166,10 +217,12 @@ export function createEditingApp(options: EditingOptions) {
     return c.json({
       artifactId: row.id,
       title: row.title,
-      kind: "markdown",
+      kind: row.kind as DocumentResponse["kind"],
       revisionId: row.revisionId as string,
       revisionNumber: row.revisionNumber as number,
       text: decoded.text,
+      seq: row.publishedSeq,
+      publishedSeq: row.publishedSeq,
     } satisfies DocumentResponse);
   });
 
@@ -178,56 +231,141 @@ export function createEditingApp(options: EditingOptions) {
     if (rejected) return rejected;
     const gate = await docGate(c);
     if (gate instanceof Response) return gate;
-    const { row } = gate;
+    const { userId, row } = gate;
     const wrongKind = requireMarkdown(c, row);
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
     if (noCurrent) return noCurrent;
     const notEditor = requireEditor(c, row);
     if (notEditor) return notEditor;
-    const body = (await c.req.json().catch(() => null)) as { text?: unknown; expectedRevisionId?: unknown } | null;
+    const body = (await c.req.json().catch(() => null)) as {
+      text?: unknown;
+      expectedRevisionId?: unknown;
+      expectedSeq?: unknown;
+    } | null;
     if (typeof body?.text !== "string" || body.text.length === 0) return c.json({ error: "text_required" }, 400);
-    if (typeof body.expectedRevisionId !== "string" || body.expectedRevisionId.length === 0)
+    const expectedSeq = body.expectedSeq;
+    if (expectedSeq !== undefined && (!Number.isSafeInteger(expectedSeq) || (expectedSeq as number) < 0))
+      return c.json({ error: "expected_seq_invalid" }, 400);
+    const expectedRevisionId = body.expectedRevisionId;
+    if (expectedRevisionId !== undefined && (typeof expectedRevisionId !== "string" || expectedRevisionId.length === 0))
       return c.json({ error: "expected_revision_id_required" }, 400);
-    if (body.expectedRevisionId !== row.revisionId) {
-      return c.json({ error: "concurrent_edit", currentRevisionId: row.revisionId }, 409);
+    if (expectedSeq !== undefined && expectedRevisionId !== undefined)
+      return c.json({ error: "unexpected_revision_token" }, 400);
+    const draft = await documents.readDraft(row.id);
+    let baseSeqInput: number | undefined = expectedSeq as number | undefined;
+    if (expectedSeq === undefined && draft !== null && draft.seq !== row.publishedSeq)
+      return c.json({ error: "sequence_required", currentSeq: draft.seq, currentRevisionId: row.revisionId }, 409);
+    if (expectedSeq === undefined && draft !== null) baseSeqInput = draft.seq;
+    if (expectedSeq === undefined) {
+      if (draft === null && expectedRevisionId === undefined)
+        return c.json({ error: "expected_revision_id_required" }, 400);
+      if (expectedRevisionId !== row.revisionId)
+        return c.json(
+          { error: "concurrent_edit", currentSeq: row.publishedSeq, currentRevisionId: row.revisionId },
+          409,
+        );
     }
     const bytes = Buffer.from(body.text, "utf8");
     if (bytes.length > cap) return c.json({ error: "too_large", maxBytes: cap }, 413);
-    const sha256 = sha256Of(bytes);
-    const stored = await putRevisionBytes({ storage, storageKey: newRevisionStorageKey(), sha256, bytes });
-    if (!stored.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    const count = await revisionCount(db, row.id);
-    const next: RevisionInput = {
-      revision: count + 1,
-      sizeBytes: bytes.length,
-      sha256,
-      storageKey: stored.value.storageKey,
-      observedSizeBytes: bytes.length,
-    };
-    const advanced = await setRevisionCas(database.db, {
-      artifactId: row.id,
-      ownerId: row.ownerId,
-      expectedRevisionId: row.revisionId,
-      next,
-    });
-    if (!advanced.ok) {
-      if (advanced.kind === "error") return c.json({ error: "internal_error", reason: advanced.reason }, 500);
-      return c.json(
-        {
-          error: advanced.kind === "concurrent_commit" ? "concurrent_edit" : advanced.kind,
-          reason: advanced.reason,
-          currentRevisionId: advanced.currentRevisionId,
-        },
-        409,
-      );
+    if (baseSeqInput === undefined) {
+      const sha256 = sha256Of(bytes);
+      const stored = await putRevisionBytes({ storage, storageKey: newRevisionStorageKey(), sha256, bytes });
+      if (!stored.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      const count = await revisionCount(db, row.id);
+      const next: RevisionInput = {
+        revision: count + 1,
+        sizeBytes: bytes.length,
+        sha256,
+        storageKey: stored.value.storageKey,
+        observedSizeBytes: bytes.length,
+      };
+      const advanced = await setRevisionCas(database.db, {
+        artifactId: row.id,
+        ownerId: row.ownerId,
+        expectedRevisionId: row.revisionId,
+        next,
+      });
+      if (!advanced.ok) {
+        if (advanced.kind === "error") return c.json({ error: "internal_error", reason: advanced.reason }, 500);
+        if (advanced.kind === "concurrent_commit")
+          return c.json(
+            { error: "concurrent_edit", currentSeq: row.publishedSeq, currentRevisionId: advanced.currentRevisionId },
+            409,
+          );
+        return c.json(
+          { error: advanced.kind, reason: advanced.reason, currentRevisionId: advanced.currentRevisionId },
+          409,
+        );
+      }
+      return c.json({
+        artifactId: row.id,
+        revisionId: advanced.value.revisionId,
+        revisionNumber: advanced.value.revisionNumber,
+        sizeBytes: bytes.length,
+        sha256,
+      } satisfies SavedRevision);
     }
+    const opened = await openDraft({ store: documents, storage, artifactId: row.id });
+    if (!opened.ok)
+      return opened.kind === "not_found"
+        ? c.json({ error: "not_found" }, 404)
+        : c.json({ error: "artifact_unavailable" }, 500);
+    const baseSeq = baseSeqInput as number;
+    if (baseSeq !== opened.value.seq)
+      return c.json({ error: "concurrent_edit", currentSeq: opened.value.seq, currentRevisionId: row.revisionId }, 409);
+    const operations = diffDocumentOperations(opened.value.text, body.text);
+    if (operations.length === 0)
+      return c.json({
+        artifactId: row.id,
+        revisionId: row.revisionId as string,
+        revisionNumber: row.revisionNumber as number,
+        seq: opened.value.seq,
+        publishedSeq: row.publishedSeq,
+      } satisfies SavedRevision);
+    const applied = await applyOperations({
+      store: documents,
+      storage,
+      artifactId: row.id,
+      authorKind: "person",
+      authorId: userId,
+      baseSeq,
+      idempotencyKey: randomUUID(),
+      ops: operations,
+    });
+    if (!applied.ok) {
+      if (applied.kind === "concurrent_edit")
+        return c.json(
+          { error: "concurrent_edit", currentSeq: applied.currentSeq, currentRevisionId: row.revisionId },
+          409,
+        );
+      if (applied.kind === "not_found") return c.json({ error: "not_found" }, 404);
+      return c.json({ error: "operation_rejected", kind: applied.kind, reason: applied.reason }, 409);
+    }
+    const frozen = await freezeIfDue({ store: documents, storage, artifactId: row.id });
+    if (
+      frozen.ok &&
+      frozen.value.frozen &&
+      frozen.value.revisionId !== null &&
+      frozen.value.revisionNumber !== null &&
+      frozen.value.sizeBytes !== null &&
+      frozen.value.sha256 !== null
+    )
+      return c.json({
+        artifactId: row.id,
+        revisionId: frozen.value.revisionId,
+        revisionNumber: frozen.value.revisionNumber,
+        sizeBytes: frozen.value.sizeBytes,
+        sha256: frozen.value.sha256,
+        seq: applied.value.seq,
+        publishedSeq: frozen.value.publishedSeq,
+      } satisfies SavedRevision);
     return c.json({
       artifactId: row.id,
-      revisionId: advanced.value.revisionId,
-      revisionNumber: advanced.value.revisionNumber,
-      sizeBytes: bytes.length,
-      sha256,
+      revisionId: row.revisionId as string,
+      revisionNumber: row.revisionNumber as number,
+      seq: applied.value.seq,
+      publishedSeq: frozen.ok ? frozen.value.publishedSeq : row.publishedSeq,
     } satisfies SavedRevision);
   });
 
@@ -250,7 +388,7 @@ export function createEditingApp(options: EditingOptions) {
     if (rejected) return rejected;
     const gate = await docGate(c);
     if (gate instanceof Response) return gate;
-    const { row } = gate;
+    const { userId, row } = gate;
     const wrongKind = requireMarkdown(c, row);
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
@@ -263,48 +401,59 @@ export function createEditingApp(options: EditingOptions) {
     if (typeof body?.expectedRevisionId !== "string" || body.expectedRevisionId.length === 0)
       return c.json({ error: "expected_revision_id_required" }, 400);
     if (body.expectedRevisionId !== row.revisionId) {
-      return c.json({ error: "concurrent_edit", currentRevisionId: row.revisionId }, 409);
+      const current = await documents.readDraft(row.id);
+      return c.json(
+        {
+          error: "concurrent_edit",
+          currentSeq: current?.seq ?? row.publishedSeq,
+          currentRevisionId: row.revisionId,
+        },
+        409,
+      );
     }
     const pinned = await pinnedRevision(db, revisionId, row.id);
     if (!pinned?.sha256) return c.json({ error: "revision_not_found" }, 404);
-    const copied = await copyRevisionBytes({
+    const read = await getRevisionBytes({
       storage,
       storageKey: pinned.storageKey,
       sha256: pinned.sha256,
       maxBytes: cap,
     });
-    if (!copied.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    const count = await revisionCount(db, row.id);
-    const next: RevisionInput = {
-      revision: count + 1,
-      sizeBytes: copied.value.sizeBytes,
-      sha256: copied.value.sha256,
-      storageKey: copied.value.storageKey,
-      observedSizeBytes: copied.value.sizeBytes,
-    };
-    const advanced = await setRevisionCas(database.db, {
+    if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
+    const restored = decodeMarkdownText(read.value.bytes);
+    if (!restored.ok) return c.json({ error: "artifact_unavailable" }, 500);
+    const rewound = await restoreDocument({
+      store: documents,
+      storage,
       artifactId: row.id,
-      ownerId: row.ownerId,
-      expectedRevisionId: row.revisionId,
-      next,
+      authorKind: "person",
+      authorId: userId,
+      idempotencyKey: randomUUID(),
+      text: restored.text,
     });
-    if (!advanced.ok) {
-      if (advanced.kind === "error") return c.json({ error: "internal_error", reason: advanced.reason }, 500);
-      return c.json(
-        {
-          error: advanced.kind === "concurrent_commit" ? "concurrent_edit" : advanced.kind,
-          reason: advanced.reason,
-          currentRevisionId: advanced.currentRevisionId,
-        },
-        409,
-      );
+    if (!rewound.ok) {
+      if (rewound.kind === "concurrent_edit")
+        return c.json(
+          {
+            error: rewound.reason === "pending_changes" ? "restore_pending_changes" : "concurrent_edit",
+            currentSeq: rewound.currentSeq,
+            currentRevisionId: row.revisionId,
+          },
+          409,
+        );
+      if (rewound.kind === "not_found") return c.json({ error: "not_found" }, 404);
+      if (rewound.kind === "operation_rejected")
+        return c.json({ error: "operation_rejected", kind: rewound.kind, reason: rewound.reason }, 409);
+      return c.json({ error: "artifact_unavailable" }, 500);
     }
     return c.json({
       artifactId: row.id,
-      revisionId: advanced.value.revisionId,
-      revisionNumber: advanced.value.revisionNumber,
+      revisionId: rewound.value.revisionId,
+      revisionNumber: rewound.value.revisionNumber,
       restoredFrom: revisionId,
-      sha256: next.sha256,
+      sha256: rewound.value.sha256,
+      seq: rewound.value.seq,
+      publishedSeq: rewound.value.publishedSeq,
     } satisfies SavedRevision);
   });
 

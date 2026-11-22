@@ -1,9 +1,19 @@
 import type { ManageResult } from "./auth-client.ts";
 import type { Document, SavedRevision } from "./editor-api.ts";
 
-export type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "readonly" | "error" | "restoring";
+export type SaveStatus = "saved" | "unsaved" | "saving" | "conflict" | "readonly" | "error" | "restoring" | "live";
 export type SaveState = SavedRevision & { text: string; status: SaveStatus; dirty: boolean; code?: string };
+export type AutosaveDocument = Partial<Document> & Pick<Document, "text" | "revisionId" | "revisionNumber">;
 export const AUTOSAVE_MS = 1500;
+
+const IN_FLIGHT: readonly SaveStatus[] = ["saving", "restoring"];
+const WRITE_REFUSED: readonly SaveStatus[] = ["readonly", "conflict"];
+const FLUSHABLE: readonly SaveStatus[] = ["unsaved", "saved"];
+const IGNORED_EDITS: readonly SaveStatus[] = ["readonly", "restoring"];
+const HELD_EDITS: readonly SaveStatus[] = ["conflict", "error", "saving"];
+const BLOCKED_RESTORE: readonly SaveStatus[] = [...IN_FLIGHT, ...WRITE_REFUSED];
+
+const inStates = (states: readonly SaveStatus[], status: SaveStatus): boolean => states.includes(status);
 
 export class Autosave {
   state: SaveState;
@@ -12,12 +22,16 @@ export class Autosave {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private disposed = false;
   private forbidden = false;
-  private save: (text: string, revisionId: string) => Promise<ManageResult<SavedRevision>>;
+  private save: (
+    text: string,
+    revisionId: string,
+    expectedSeq: number | undefined,
+  ) => Promise<ManageResult<SavedRevision>>;
   private changed: (state: SaveState) => void;
   private committed: () => void;
   constructor(
-    document: Document,
-    save: (text: string, revisionId: string) => Promise<ManageResult<SavedRevision>>,
+    document: AutosaveDocument,
+    save: (text: string, revisionId: string, expectedSeq: number | undefined) => Promise<ManageResult<SavedRevision>>,
     changed: (state: SaveState) => void,
     committed: () => void,
     serializedBaseline = document.text,
@@ -31,6 +45,7 @@ export class Autosave {
       text: document.text,
       revisionId: document.revisionId,
       revisionNumber: document.revisionNumber,
+      seq: document.seq,
       status: "saved",
       dirty: false,
     };
@@ -48,10 +63,10 @@ export class Autosave {
       }, AUTOSAVE_MS);
   }
   change(text: string) {
-    if (this.disposed || ["readonly", "restoring"].includes(this.state.status)) return;
+    if (this.disposed || inStates(IGNORED_EDITS, this.state.status)) return;
     if (text === this.baseline && !this.state.dirty && this.state.status === "saved") return;
     const dirty = text !== this.baseline;
-    const blocked = ["conflict", "error", "saving"].includes(this.state.status);
+    const blocked = inStates(HELD_EDITS, this.state.status);
     this.publish({
       text: dirty ? text : this.savedSource,
       dirty,
@@ -60,13 +75,13 @@ export class Autosave {
     if (!blocked) this.schedule();
   }
   async flush() {
-    if (this.disposed || !this.state.dirty || !["unsaved", "saved"].includes(this.state.status)) return;
+    if (this.disposed || !this.state.dirty || !inStates(FLUSHABLE, this.state.status)) return;
     clearTimeout(this.timer);
     const text = this.state.text;
     this.publish({ status: "saving", code: undefined });
     let result: ManageResult<SavedRevision>;
     try {
-      result = await this.save(text, this.state.revisionId);
+      result = await this.save(text, this.state.revisionId, this.state.seq);
     } catch {
       result = { ok: false, code: "network", error: "Save failed", signInRequired: false };
     }
@@ -96,18 +111,18 @@ export class Autosave {
     });
   }
   beginRestore(): boolean {
-    if (this.disposed || ["saving", "restoring", "readonly", "conflict"].includes(this.state.status)) return false;
+    if (this.disposed || inStates(BLOCKED_RESTORE, this.state.status)) return false;
     clearTimeout(this.timer);
     this.publish({ status: "restoring" });
     return true;
   }
   beginReload(): boolean {
-    if (this.disposed || ["saving", "restoring"].includes(this.state.status)) return false;
+    if (this.disposed || inStates(IN_FLIGHT, this.state.status)) return false;
     clearTimeout(this.timer);
     this.publish({ status: "restoring" });
     return true;
   }
-  replace(document: Document, serializedBaseline = document.text) {
+  replace(document: AutosaveDocument, serializedBaseline = document.text) {
     clearTimeout(this.timer);
     this.baseline = serializedBaseline;
     this.savedSource = document.text;
@@ -115,6 +130,7 @@ export class Autosave {
       text: document.text,
       revisionId: document.revisionId,
       revisionNumber: document.revisionNumber,
+      seq: document.seq,
       dirty: false,
       code: undefined,
       status: this.forbidden ? "readonly" : "saved",

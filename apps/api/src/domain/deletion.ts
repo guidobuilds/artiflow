@@ -1,7 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 
 import type { AppDb, Database } from "../adapters/postgres/db/client.ts";
-import { artifacts, artifactRevisions } from "../adapters/postgres/db/artifact-schema.ts";
+import { artifacts, artifactAssets, artifactRevisions } from "../adapters/postgres/db/artifact-schema.ts";
 
 import { markArtifactDeleted } from "./commits.ts";
 import { deleteRevisionBytes, type DeletedRevision, type StorageResult } from "../adapters/storage/s3.ts";
@@ -14,6 +14,10 @@ async function revisionKeys(db: AppDb, artifactId: string): Promise<string[]> {
       .from(artifactRevisions)
       .where(eq(artifactRevisions.artifactId, artifactId))
   ).map((row) => row.storageKey);
+}
+
+async function dropAssetReferences(db: AppDb, artifactId: string): Promise<void> {
+  await db.delete(artifactAssets).where(eq(artifactAssets.artifactId, artifactId));
 }
 
 async function isLiveOwnedArtifact(db: AppDb, artifactId: string, ownerId: string): Promise<boolean> {
@@ -51,6 +55,7 @@ export async function deleteArtifact(
   if (!(await isLiveOwnedArtifact(deps.database.db, artifactId, ownerId))) return { ok: false };
   const marked = await markArtifactDeleted(deps.database.db, artifactId, ownerId);
   if (!marked.ok) return { ok: false };
+  await dropAssetReferences(deps.database.db, artifactId);
   try {
     await cleanupArtifactBlobs(deps, artifactId);
   } catch {}

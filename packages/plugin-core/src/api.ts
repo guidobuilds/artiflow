@@ -15,6 +15,7 @@ import {
   type SavedRevision,
 } from "@artiflow/contracts/document";
 import { commentListResponseSchema, type CommentListResponse } from "@artiflow/contracts/comments";
+import { acceptsTextOperations, capabilitiesFor } from "@artiflow/domain/kinds";
 import { applyLineOps, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
 
 export type Refusal = { error: string; message: string; [key: string]: unknown };
@@ -260,7 +261,9 @@ export function createArtifactApi(options: ArtifactApiOptions) {
       }
       if (artifactId === undefined) return refusal("artifact_id_required_for_expected_revision", {});
       const target = kind ?? (await kindOf(artifactId));
-      if (target === "markdown") {
+      const capabilities = capabilitiesFor(target);
+      if (capabilities === null) return refusal("wrong_kind", { artifactId });
+      if (acceptsTextOperations(target)) {
         const response = await send(`/artifacts/${encodeURIComponent(artifactId)}/document`, {
           method: "PUT",
           body: JSON.stringify({ text, expectedRevisionId }),
@@ -281,7 +284,7 @@ export function createArtifactApi(options: ArtifactApiOptions) {
       }
       const response = await send(`/artifacts/${encodeURIComponent(artifactId)}`, {
         method: "PUT",
-        body: JSON.stringify({ text, kind: "html", expectedRevisionId, ...titleField }),
+        body: JSON.stringify({ text, kind: target, expectedRevisionId, ...titleField }),
       });
       if (!response.ok) return failure(response.payload, response.status);
       return parse<CreateArtifactResponse>(v1ArtifactUpdateResponseSchema, response.payload, { artifactId });

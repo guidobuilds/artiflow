@@ -11,15 +11,19 @@ either.
 
 ## Size caps
 
-| Cap                            | Value                         | Where it applies                                                           |
-| ------------------------------ | ----------------------------- | -------------------------------------------------------------------------- |
-| One artifact                   | **16 MiB** (16,777,216 bytes) | Create, document save, restore, staged commit, and every delivery read     |
-| One `artifact_write` call      | **1 MiB** (1,048,576 bytes)   | The MCP single-call tool; larger content needs the staged upload tools     |
-| One staged upload chunk        | **1 MiB** (1,048,576 bytes)   | `artifact_put_chunk`; a full artifact is therefore at most 16 chunks       |
-| Open staged upload             | **60 minutes**                | After expiry the upload and its chunks are purged and cannot be committed  |
-| Request body, document save    | **16 MiB**                    | Declared `Content-Length` above the cap is refused before the body is read |
-| Request body, comment creation | **64 KiB**                    | Declared length on the dashboard comment endpoint                          |
-| Request body, `/mcp`           | **2 MiB**                     | Declared length on the MCP transport                                       |
+| Cap                            | Value                           | Where it applies                                                                  |
+| ------------------------------ | ------------------------------- | --------------------------------------------------------------------------------- |
+| One artifact                   | **16 MiB** (16,777,216 bytes)   | Create, document save, restore, staged commit, and every delivery read            |
+| One `artifact_write` call      | **1 MiB** (1,048,576 bytes)     | The MCP single-call tool; larger content needs the staged upload tools            |
+| One canvas scene               | 200 frames, 2000 nodes, depth 2 | Validated before storage; a scene past these is refused, not truncated            |
+| One asset                      | **2 MiB** (2,097,152 bytes)     | Upload route; png, jpeg, webp or gif only, and the server hashes what it receives |
+| One `asset_upload` call        | **1,533 KiB** raw               | The MCP transport caps the body at 2 MiB, so base64 leaves this much room         |
+| `scene_read` window            | 200 nodes or 64 KiB             | Both caps refuse with a named reason instead of truncating                        |
+| One staged upload chunk        | **1 MiB** (1,048,576 bytes)     | `artifact_put_chunk`; a full artifact is therefore at most 16 chunks              |
+| Open staged upload             | **60 minutes**                  | After expiry the upload and its chunks are purged and cannot be committed         |
+| Request body, document save    | **16 MiB**                      | Declared `Content-Length` above the cap is refused before the body is read        |
+| Request body, comment creation | **64 KiB**                      | Declared length on the dashboard comment endpoint                                 |
+| Request body, `/mcp`           | **2 MiB**                       | Declared length on the MCP transport                                              |
 
 The artifact cap includes inline CSS, JavaScript and images, because an HTML artifact is one
 self-contained document. Sizes are counted in bytes of the stored text, not characters.
@@ -27,7 +31,8 @@ self-contained document. Sizes are counted in bytes of the stored text, not char
 The 16 MiB artifact cap and the 1 MiB single-call cap are different limits: the HTTP API and
 `artifact_edit_lines` take a whole document up to 16 MiB, while `artifact_write` accepts at most 1 MiB
 because it is a one-shot tool call. See [Artifacts and revisions](/docs/concepts/artifacts/) for the
-tools themselves.
+tools themselves, and the [MCP tool reference](/docs/reference/mcp-tools/) for the per-tool read
+windows: 20 blocks or 200 lines for a document, 200 nodes for a frame.
 
 An over-cap write is refused, never truncated: `413` with `{"error":"too_large","maxBytes":N}` on the
 HTTP surfaces, or a `too_large` tool refusal with the cap and the observed size over MCP.

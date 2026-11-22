@@ -1,13 +1,16 @@
 ---
 title: MCP tool reference
-description: All twelve Artiflow MCP tools with their exact arguments, success payloads, typed errors and limits, checked against the server implementation.
+description: All twenty-four Artiflow MCP tools with their exact arguments, success payloads, typed errors and limits, checked against the server implementation.
 sidebar:
   order: 8
 ---
 
-Artiflow registers **twelve** MCP tools on one endpoint, `POST /mcp`. This page is the
+Artiflow registers **twenty-four** MCP tools on one endpoint, `POST /mcp`. This page is the
 complete contract: field names, required and optional arguments, defaults, validation, success
 payloads, error kinds and limits. It describes the code, not an earlier draft of it.
+
+Thirteen tools move artifact bytes, seven work on a Markdown document in place, three on a canvas
+scene, and one stores an image by its digest.
 
 Configuration, consent and per-client setup are in [Connect an agent](/docs/connect/mcp/).
 
@@ -28,10 +31,10 @@ Every call is re-authorized inside the tool, so a transport that accepted the to
 word: a token without a subject is refused with `invalid_token`, and a token missing the scope the
 tool needs is refused with `insufficient_scope` naming that scope.
 
-| Scope             | Tools                                                                           |
-| ----------------- | ------------------------------------------------------------------------------- |
-| `artifacts:write` | the nine mutating tools: upload, commit, write, edit and every comment mutation |
-| `artifacts:read`  | `artifact_get`, `artifact_get_markdown`, `artifact_list_comments`               |
+| Scope             | Tools                                                                                                                                                                       |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `artifacts:write` | the fifteen mutating tools: upload, commit, write, rename, edit, every comment mutation, and every document, scene and asset write                                          |
+| `artifacts:read`  | `artifact_get`, `artifact_get_markdown`, `artifact_list_comments`, `document_outline`, `document_read`, `document_query`, `document_diff`, `scene_outline` and `scene_read` |
 
 The token's subject **is** the owner. No tool accepts an owner or user id, and every artifact,
 upload and comment is resolved inside that owner's scope; a foreign row reads as `not_found`
@@ -51,12 +54,16 @@ and carry `_meta.ui.resourceUri` pointing at the viewer resource
 the artifact inline from that resource; hosts that do not ignore `_meta` and keep the JSON above,
 so nothing breaks when the preview is unavailable.
 
+`document_create`, `document_apply`, `document_publish`, `scene_apply` and `asset_upload` also return
+their payload as `structuredContent`, but carry no viewer `_meta`: there is no artifact page to render
+for a draft, a frame list or an image digest.
+
 A refusal is still a tool result, with `isError: true` and a JSON body of the form
 `{ "error": "<kind>", "message": "<reason>", …extra }`. Arguments that fail the declared schema
 never reach the handler: the protocol layer answers a JSON-RPC error instead, so a typed error is
 always about an argument the schema accepts but the operation rejects.
 
-## The thirteen tools
+## The twenty-four tools
 
 | Tool                         | Scope             | What it does                                            |
 | ---------------------------- | ----------------- | ------------------------------------------------------- |
@@ -73,6 +80,17 @@ always about an argument the schema accepts but the operation rejects.
 | `artifact_reply_comment`     | `artifacts:write` | Reply to a root comment                                 |
 | `artifact_resolve_comment`   | `artifacts:write` | Mark a thread resolved                                  |
 | `artifact_unresolve_comment` | `artifacts:write` | Reopen a thread                                         |
+| `document_create`            | `artifacts:write` | Create a Markdown document and open its draft sequence  |
+| `document_outline`           | `artifacts:read`  | Outline a document as one entry per block               |
+| `document_read`              | `artifacts:read`  | Read blocks by id or a numbered line window             |
+| `document_query`             | `artifacts:read`  | Find blocks by text, kind, or both                      |
+| `document_diff`              | `artifacts:read`  | Compare two sequences of a document block by block      |
+| `document_apply`             | `artifacts:write` | Apply an atomic batch of typed document operations      |
+| `document_publish`           | `artifacts:write` | Freeze the draft as the published revision              |
+| `scene_outline`              | `artifacts:read`  | Outline a canvas scene as one entry per frame           |
+| `scene_read`                 | `artifacts:read`  | Read one frame, optionally narrowed by node ids         |
+| `scene_apply`                | `artifacts:write` | Apply an atomic batch of scene operations               |
+| `asset_upload`               | `artifacts:write` | Attach one raster image, stored once by its digest      |
 
 ## Staged transfer tools
 
@@ -88,24 +106,28 @@ The three-tool upload path, with a worked example, is on
   with the digest the server computed itself. Byte-identical retries are idempotent; different bytes
   for an already staged index are `conflict` / `chunk_payload_mismatch`.
 - `artifact_commit` — `uploadId`, plus optional `artifactId` (canonical lowercase UUID), `title`
-  (1–200), `expectedRevisionId` and `kind` (`"html"` default, `"markdown"`). Returns the six
-  revision keys shown below. The staged stream is verified before any artifact row is written.
+  (1–200), `expectedRevisionId` and `kind` (`"html"` default, `"markdown"`, `"canvas"` or `"deck"`).
+  Returns the six revision keys shown below. The staged stream is verified before any artifact row is
+  written.
 
 ## `artifact_write` — one call, text only
 
 The shortest path from content an agent already holds to a published artifact.
 
-| Field                | Type                     | Required | Rules                                                   |
-| -------------------- | ------------------------ | -------- | ------------------------------------------------------- |
-| `text`               | string                   | yes      | the whole document; at least 1 character                |
-| `kind`               | `"html"` \| `"markdown"` | no       | default `"html"`                                        |
-| `artifactId`         | string                   | no       | canonical lowercase UUID; omit to create a new artifact |
-| `title`              | string                   | no       | 1–200 characters                                        |
-| `expectedRevisionId` | string                   | no       | present = update that revision; absent = create         |
+| Field                | Type                                               | Required | Rules                                                   |
+| -------------------- | -------------------------------------------------- | -------- | ------------------------------------------------------- |
+| `text`               | string                                             | yes      | the whole document; at least 1 character                |
+| `kind`               | `"html"` \| `"markdown"` \| `"canvas"` \| `"deck"` | no       | default `"html"`                                        |
+| `artifactId`         | string                                             | no       | canonical lowercase UUID; omit to create a new artifact |
+| `title`              | string                                             | no       | 1–200 characters                                        |
+| `expectedRevisionId` | string                                             | no       | present = update that revision; absent = create         |
 
 The server encodes `text` as UTF-8 and measures the bytes: more than **1,048,576 bytes** is refused
 with `too_large`, carrying `{ maxBytes, observedBytes }`. Larger or binary content goes through
 [the staged transfer](/docs/reference/mcp-transfers/).
+
+`canvas` and `deck` artifacts take a scene as their `text`; the [scene tools](#scene-tools) then read
+and edit it by operation.
 
 ```json
 {
@@ -302,55 +324,511 @@ Replying to a reply is refused with `nested_reply` and `{ status: 400 }`; an unk
 Input `{ artifactId, commentId }`, returns `{ id }`. Sets or clears `resolvedAt` on a **root**
 comment; a reply answers `reply_is_not_root` with `{ status: 400 }`.
 
+## Document tools
+
+The seven document tools read and edit a **Markdown document** in place instead of resending it. They
+work on the document's draft, so an agent can change one paragraph of a long document for the cost of
+that paragraph.
+
+Three values tie the family together:
+
+- a **block id** from `document_outline` or `document_query`, which `document_read` accepts and
+  `append_blocks` can insert after;
+- a **sequence** (`seq`), the draft version a read returned, which `document_apply` takes as `baseSeq`;
+- the **published pointer**, the revision the viewer and an existing public link serve. `document_apply`
+  writes the draft only, and a snapshot freezes it — automatically once 100 operations or ten minutes
+  are pending, or at once with `document_publish`.
+
+Only `markdown` accepts these tools: create the document with `document_create`, or with
+`artifact_write` / `artifact_commit` and `kind: "markdown"`. Any other kind answers `wrong_kind` /
+`artifact_is_not_a_markdown_document` with the stored `kind`, and `document_create` refuses a kind the
+agent writes as a whole document with `kind_does_not_accept_text_operations`.
+
+### `document_create` — a document, no upload
+
+| Field   | Type   | Required | Rules                                                   |
+| ------- | ------ | -------- | ------------------------------------------------------- |
+| `title` | string | yes      | 1–200 characters                                        |
+| `kind`  | string | no       | default `"markdown"`; every other kind is refused       |
+| `text`  | string | no       | the initial source; omitted or blank starts `# <title>` |
+
+Returns the identity shape `artifact_write` returns plus `seq`, the sequence `document_apply` accepts as
+`baseSeq`:
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "revisionId": "0b7d9c31-2a4e-4d6f-8a19-3c5e7f2b1d84",
+  "revisionNumber": 1,
+  "sizeBytes": 16,
+  "observedSizeBytes": 16,
+  "sha256": "af9fb8489b7dd4143a6fa6c831fa868a9244ddfac54274137b455db6a7d4f873",
+  "seq": 1
+}
+```
+
+`text` over **1,048,576 bytes** is `too_large` with `{ maxBytes, observedBytes }`: create the document and
+append blocks with `document_apply` instead. A refused `kind` answers `wrong_kind` /
+`kind_does_not_accept_text_operations` with the `acceptedKinds` list, which is `["markdown"]`.
+
+### `document_outline` — the block index
+
+Input `{ artifactId }`. Returns one entry per block of the current draft and never the text:
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "kind": "markdown",
+  "seq": 7,
+  "lineCount": 12,
+  "blockCount": 3,
+  "blocks": [
+    { "id": "heading-1-4b1f0c9d2a7e5f63", "kind": "heading", "line": 1, "endLine": 1, "level": 1 },
+    { "id": "paragraph-1-9c2e5a70418bd3f2", "kind": "paragraph", "line": 3, "endLine": 3 },
+    { "id": "list-item-1-2f7a4c81d05e9b36", "kind": "list-item", "line": 5, "endLine": 6 }
+  ]
+}
+```
+
+`kind` is one of `heading`, `paragraph`, `list-item`, `code-fence`, `table`, and `level` appears on
+headings only. An id is derived from the block's kind and its text, so editing a block's text gives it a
+new id; `document_diff` pairs the new id with the previous one. The whole index costs one line per
+block, so a large document is cheap to outline.
+
+### `document_read` — blocks by id, or lines
+
+| Field        | Type    | Required | Rules                                |
+| ------------ | ------- | -------- | ------------------------------------ |
+| `artifactId` | string  | yes      | 1–100 characters                     |
+| `blockIds`   | array   | no       | 1–20 block ids; complete blocks only |
+| `from`       | integer | no       | ≥ 1, clamped to the document         |
+| `to`         | integer | no       | ≥ 1, clamped to the document         |
+
+With no arguments it answers the outline projection above. `blockIds` returns those blocks with their
+text; `from`/`to` returns numbered lines. Asking for both is `validation` /
+`read_is_either_block_ids_or_a_line_range`, because one read is one window.
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "kind": "markdown",
+  "seq": 7,
+  "blocks": [
+    {
+      "id": "heading-1-4b1f0c9d2a7e5f63",
+      "kind": "heading",
+      "line": 1,
+      "endLine": 1,
+      "level": 1,
+      "text": "# Release notes"
+    }
+  ],
+  "sizeBytes": 15
+}
+```
+
+A line window answers `{ artifactId, kind, seq, lineCount, from, to, lines }`, 1-indexed and clamped
+the same way as `artifact_get_markdown`. Both windows are bounded: at most **20 blocks**, **200 lines**
+and **65,536 bytes**, and a wider request is refused rather than truncated — `too_large`
+`read_window_exceeds_the_line_cap` with `{ maxLines, requestedLines }`, or
+`read_window_exceeds_the_byte_cap` with `{ maxBytes, observedBytes }`. An id the document does not hold
+is `unknown_block` / `block_not_in_outline` with its `blockId`; a range that is empty after clamping is
+`validation` / `empty_line_window`.
+
+### `document_query` — find blocks
+
+| Field        | Type    | Required | Rules                                          |
+| ------------ | ------- | -------- | ---------------------------------------------- |
+| `artifactId` | string  | yes      | 1–100 characters                               |
+| `text`       | string  | no       | case-insensitive substring of the block's text |
+| `kind`       | string  | no       | one of the five block kinds                    |
+| `limit`      | integer | no       | 1–50, default 50                               |
+
+With neither `text` nor `kind` it answers `validation` / `query_needs_text_or_kind`: a query has to ask
+something. The reply carries ids and line numbers only, and `truncated` reports the matches past the cap:
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "seq": 7,
+  "matchCount": 2,
+  "truncated": false,
+  "matches": [
+    { "id": "heading-1-4b1f0c9d2a7e5f63", "kind": "heading", "line": 1 },
+    { "id": "paragraph-2-5d3a7b10e94c2f68", "kind": "paragraph", "line": 9 }
+  ]
+}
+```
+
+Every id it returns is accepted by `document_read`, which is the whole point: query to locate, read to
+fetch.
+
+### `document_diff` — what changed between two sequences
+
+| Field        | Type    | Required | Rules                                   |
+| ------------ | ------- | -------- | --------------------------------------- |
+| `artifactId` | string  | yes      | 1–100 characters                        |
+| `fromSeq`    | integer | yes      | ≥ 0, the sequence you last read         |
+| `toSeq`      | integer | no       | ≥ 0, default the current draft sequence |
+
+Answers per block, never the text: `added`, `removed`, `changed` (a new id within one line of a removed
+block of the same kind, carrying `fromId` and `fromLine`) or `moved` (same id, new line, carrying
+`fromLine`).
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "fromSeq": 6,
+  "toSeq": 7,
+  "changeCount": 2,
+  "truncated": false,
+  "changes": [
+    {
+      "status": "changed",
+      "id": "paragraph-2-5d3a7b10e94c2f68",
+      "line": 9,
+      "fromId": "paragraph-2-1a6f3e80b25d94c7",
+      "fromLine": 9
+    },
+    { "status": "added", "id": "list-item-1-2f7a4c81d05e9b36", "line": 11 }
+  ]
+}
+```
+
+Because `toSeq` defaults to the draft, an edit another author made shows up without reading the document
+again. At most **200 changes** are returned and `truncated` reports the rest. `fromSeq` above `toSeq` is
+`validation` / `diff_range_is_reversed`; a sequence ahead of the draft is `validation` with the live
+`currentSeq`.
+
+### `document_apply` — one atomic batch
+
+| Field            | Type    | Required | Rules                                       |
+| ---------------- | ------- | -------- | ------------------------------------------- |
+| `artifactId`     | string  | yes      | 1–100 characters                            |
+| `baseSeq`        | integer | yes      | ≥ 0, must equal the sequence you read       |
+| `idempotencyKey` | string  | yes      | 1–100 characters; the same key applies once |
+| `ops`            | array   | yes      | 1–50 operations, applied in order           |
+
+Each operation is one of:
+
+| Op                 | Fields                                                                                    |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| `replace_text`     | `find` (non-empty), `replace`, optional `all` and `expectedOccurrences`                   |
+| `insert_text`      | `text` (non-empty), optional `at: { line, column }` 1-indexed; omitted appends at the end |
+| `delete_range`     | `start` and `end` as `{ line, column }`, 1-indexed, end exclusive                         |
+| `append_blocks`    | `text` (non-empty), optional `blockId` to insert after that block instead of at the end   |
+| `replace_document` | `text` (non-empty): the escape hatch that replaces the whole document                     |
+
+`replace_text` replaces the first occurrence unless `all` is true. `expectedOccurrences` (≥ 1) refuses
+with `occurrence_mismatch` when the live count differs; without `all` it must be `1`.
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "baseSeq": 7,
+  "idempotencyKey": "release-notes-2026-02-14-1",
+  "ops": [
+    { "op": "replace_text", "find": "2026-02-07", "replace": "2026-02-14", "expectedOccurrences": 1 },
+    { "op": "append_blocks", "text": "- Search is faster." }
+  ]
+}
+```
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "baseSeq": 7,
+  "seq": 8,
+  "applied": 2,
+  "replayed": false,
+  "published": false,
+  "revisionId": null
+}
+```
+
+The batch is all-or-nothing against one sequence: operations apply in order to the evolving document and
+the first failure writes nothing.
+
+| `error`              | `message`                                   | Extra                   |
+| -------------------- | ------------------------------------------- | ----------------------- |
+| `concurrent_edit`    | `base_sequence_is_stale`, `sequence_taken`  | `currentSeq`            |
+| `invalid_operation`  | the named reason of the failing operation   | `opIndex`, `currentSeq` |
+| `validation`         | an argument the operation cannot use        | `artifactId`            |
+| `not_found` / `gone` | the document is missing, foreign or deleted | `artifactId`            |
+| `wrong_kind`         | `artifact_is_not_a_markdown_document`       | `kind`                  |
+
+The named operation reasons are `text_not_found`, `occurrence_mismatch`, `position_out_of_bounds`,
+`empty_range`, `unknown_block`, `invalid_arguments` and `empty_document`. A replayed key whose first
+attempt was refused answers `invalid_operation` / `replayed_rejection` with the sequence it was refused
+at, so a retry never applies a batch twice. `published` reports whether this call also froze a snapshot;
+`revisionId` names it, and is `null` when the document stayed below the threshold and nothing was
+written to storage.
+
+### `document_publish` — freeze the draft now
+
+Input `{ artifactId }`, returns the revision that now holds the draft:
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "revisionId": "0b7d9c31-2a4e-4d6f-8a19-3c5e7f2b1d84",
+  "revisionNumber": 5,
+  "seqFrom": 8,
+  "seqTo": 9
+}
+```
+
+Publishing always freezes, whatever the operation count and however little time passed since the last
+snapshot, so the viewer and a public link serve the edits immediately. A draft with nothing pending is
+`nothing_to_publish` / `no_pending_operations`: publishing nothing is not a publish.
+
+## Scene tools
+
+A `canvas` or `deck` artifact renders a **scene**: versioned JSON of frames and nodes. The scene shape,
+node types and validation rules are on [Canvas](/docs/artifacts/canvas/).
+
+The scene arrives as artifact bytes — `artifact_write` or `artifact_commit` with `kind: "canvas"` or
+`kind: "deck"` and the scene JSON as its content — and the three tools below work on the current draft of
+that artifact. `scene_apply` is the only writer. Any other artifact kind refuses with `wrong_kind` /
+`artifact_is_not_a_canvas` and its `kind`, and stored bytes that are not a valid scene refuse every scene
+read with `invalid_scene`, the failing `path` and the engine's reason (`malformed_scene`,
+`unknown_node_type`, `duplicate_id`, `outside_frame_bounds`, `unsupported_property`, `too_deep`,
+`node_limit`, `frame_limit`, `missing_format_version` or `unsupported_format_version`).
+
+### `scene_outline` — the frame index
+
+Input `{ artifactId }`. Returns frames only, never the node bodies:
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "revisionId": "0b7d9c31-2a4e-4d6f-8a19-3c5e7f2b1d84",
+  "seq": 4,
+  "formatVersion": 1,
+  "frameCount": 1,
+  "frames": [{ "id": "checkout", "name": "Checkout", "nodeCount": 2, "bbox": { "x": 0, "y": 0, "w": 375, "h": 812 } }]
+}
+```
+
+`bbox` is the union of the frame's node boxes in scene coordinates, so an empty frame reports its own
+rectangle. The frame ids it returns are what `scene_read` accepts; `seq` is the sequence `scene_apply`
+takes as `baseSeq`.
+
+### `scene_read` — one frame, optionally narrowed
+
+| Field        | Type   | Required | Rules                                    |
+| ------------ | ------ | -------- | ---------------------------------------- |
+| `artifactId` | string | yes      | 1–100 characters                         |
+| `frameId`    | string | yes      | 1–200 characters                         |
+| `nodeIds`    | array  | no       | 1–200 node ids; omitted reads every node |
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "revisionId": "0b7d9c31-2a4e-4d6f-8a19-3c5e7f2b1d84",
+  "seq": 4,
+  "frame": {
+    "id": "checkout",
+    "name": "Checkout",
+    "x": 0,
+    "y": 0,
+    "w": 375,
+    "h": 812,
+    "bbox": { "x": 24, "y": 32, "w": 327, "h": 168 },
+    "nodeCount": 1,
+    "nodes": [{ "id": "title", "type": "text", "x": 24, "y": 32, "w": 200, "h": 32, "text": "Checkout" }]
+  }
+}
+```
+
+Node geometry is relative to its frame and `bbox` is absolute. One read returns at most **200 nodes** and
+**65,536 bytes** of frame JSON; a wider request refuses with `too_large` /
+`read_window_exceeds_the_node_cap` (`{ maxNodes, requestedNodes }`) or `read_window_exceeds_the_byte_cap`
+(`{ maxBytes, observedBytes }`) instead of truncating. An id the scene does not hold is `unknown_frame` /
+`frame_not_in_scene` or `unknown_node` / `node_not_in_frame` with its `nodeId`.
+
+### `scene_apply` — one atomic batch of operations
+
+| Field            | Type    | Required | Rules                                       |
+| ---------------- | ------- | -------- | ------------------------------------------- |
+| `artifactId`     | string  | yes      | 1–100 characters                            |
+| `baseSeq`        | integer | yes      | ≥ 0, must equal the sequence you read       |
+| `idempotencyKey` | string  | yes      | 1–100 characters; the same key applies once |
+| `ops`            | array   | yes      | 1–50 operations, applied in order           |
+
+Each operation is one of:
+
+| Op              | Fields                                                                     |
+| --------------- | -------------------------------------------------------------------------- |
+| `add_frame`     | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`                  |
+| `update_frame`  | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`                   |
+| `remove_frame`  | `id`                                                                       |
+| `add_node`      | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields |
+| `update_node`   | `id`, and `props` with any node property except `id`                       |
+| `move_node`     | `id`, `x`, `y`, optional `w` and `h`                                       |
+| `remove_node`   | `id`                                                                       |
+| `replace_scene` | `scene`: the escape hatch that replaces the whole scene                    |
+
+Node types and their extra fields are `rect` (`fill`, optional `radius`), `text` (`text`, optional
+`style`), `image` (`assetId`) and `path` (`d`, optional `fill`, `stroke`, `strokeWidth`). Geometry is
+relative to the frame, a node outside its frame is refused, and a batch applies in order — grow a frame
+before moving a node into the new space, in the same call.
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "baseSeq": 4,
+  "idempotencyKey": "checkout-move-card-1",
+  "ops": [
+    { "op": "update_node", "id": "title", "props": { "text": "Checkout, faster" } },
+    { "op": "move_node", "id": "card", "x": 24, "y": 720 }
+  ]
+}
+```
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "baseSeq": 4,
+  "seq": 5,
+  "applied": 2,
+  "replayed": false,
+  "published": false,
+  "revisionId": null,
+  "boxes": [
+    { "id": "title", "frameId": "checkout", "x": 24, "y": 32, "w": 200, "h": 32 },
+    { "id": "card", "frameId": "checkout", "x": 24, "y": 720, "w": 327, "h": 120 }
+  ],
+  "violations": []
+}
+```
+
+`boxes` carries the absolute box of every node the batch touched, in scene order, so the result can be
+judged without pixels. `violations` is the scene engine's report on the final scene and is empty today,
+because a batch that would leave an invalid scene refuses instead of being applied.
+
+The failure contract is the one `document_apply` has: `concurrent_edit` with `currentSeq` for a stale
+`baseSeq`, and `invalid_operation` with `opIndex`, `currentSeq` and the named reason, the scene unchanged.
+The named reasons are `unknown_frame`, `unknown_node`, `invalid_arguments`, `non_finite_number`,
+`non_positive_size` and the scene validation reasons listed above. The same `idempotencyKey` replays the
+same `seq` once. `published` and `revisionId` mean what they mean on `document_apply`.
+
+## Assets
+
+A scene node of type `image` carries an `assetId` and no bytes: the picture is uploaded once, stored by
+its digest and referenced from as many artifacts as need it. `asset_upload` is the only tool that stores
+it.
+
+### `asset_upload` — store one raster image
+
+| Field           | Type   | Required | Rules                                                                  |
+| --------------- | ------ | -------- | ---------------------------------------------------------------------- |
+| `artifactId`    | string | yes      | canonical lowercase UUID of an artifact you own                        |
+| `contentType`   | string | yes      | 1–200 characters; `image/png`, `image/jpeg`, `image/webp`, `image/gif` |
+| `contentBase64` | string | yes      | the image bytes, base64                                                |
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "contentType": "image/png",
+  "contentBase64": "iVBORw0KGgoAAAANSUhEUgAAASwAAAEsCAYAAAB5fY51AAAAAXNSR0IArs4c6QAAIABJ…"
+}
+```
+
+```json
+{
+  "sha256": "9a3f5c1d7e0b2468ac9f1e3d5b7c20468a0e2f4b6d8c0a2e4f6b8d0c2e4a6f8b",
+  "sizeBytes": 18432,
+  "contentType": "image/png"
+}
+```
+
+The reply's `sha256` is the digest a scene's `image` node names as its `assetId`, so the same picture is
+stored once however many nodes point at it. The server decodes and hashes the bytes itself: re-sending
+identical bytes answers the same digest and stores no second object. Content types are trimmed and
+lowercased; **svg is refused on purpose** with `unsupported_content_type` / `content_type_not_raster`,
+because it is a document that can carry script. The payload is capped at **1,569,792 raw bytes**
+(1,533 KiB) — the most a 2 MiB MCP request body can carry once base64 and the envelope are counted —
+and a bigger image is `too_large` with `{ maxBytes, maxEncodedChars, encodedChars }`: downscale it rather
+than send it. A failed store is `artifact_unavailable` / `asset_storage_failed`; an `artifactId` that is
+not a canonical UUID is `invalid_artifact_id`, and a missing, foreign or deleted one is `not_found` or
+`gone`.
+
 ## Error kinds
 
-| `error`                   | Typical cause                                                           |
-| ------------------------- | ----------------------------------------------------------------------- |
-| `invalid_token`           | the access token carries no subject                                     |
-| `insufficient_scope`      | the token lacks the scope the tool needs; the message names it          |
-| `validation`              | an argument the schema accepted is invalid for the operation            |
-| `invalid_artifact_id`     | `artifactId` is not a canonical lowercase UUID                          |
-| `not_found`               | missing or foreign artifact, upload, revision or chunk                  |
-| `gone`                    | the artifact is soft-deleted                                            |
-| `conflict`                | declaration, payload, status, kind or storage state disagrees           |
-| `expired`                 | the staging upload is past its TTL                                      |
-| `too_large`               | a cap is exceeded; `maxBytes` is included when known                    |
-| `digest_mismatch`         | bytes do not hash to the declared or recorded digest                    |
-| `chunk_unavailable`       | a staged chunk is missing or fails its recorded digest                  |
-| `wrong_kind`              | a Markdown-only tool was called on an HTML artifact                     |
-| `not_valid_utf8_markdown` | the bytes cannot be a Markdown document                                 |
-| `concurrent_commit`       | the compare-and-set pointer moved (`artifact_write`, `artifact_commit`) |
-| `concurrent_edit`         | the compare-and-set pointer moved (`artifact_edit_lines`)               |
-| `expectation_mismatch`    | an `expect` guard did not match the live lines                          |
-| `comment_not_found`       | unknown or foreign `commentId`                                          |
-| `nested_reply`            | replied to a reply                                                      |
-| `reply_is_not_root`       | resolved or reopened a reply                                            |
-| `storage`                 | a storage write failed; retry the chunk or the commit                   |
-| `error`                   | an unexpected transaction failure; not retryable as a conflict          |
+| `error`                    | Typical cause                                                                                         |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `invalid_token`            | the access token carries no subject                                                                   |
+| `insufficient_scope`       | the token lacks the scope the tool needs; the message names it                                        |
+| `validation`               | an argument the schema accepted is invalid for the operation                                          |
+| `invalid_artifact_id`      | `artifactId` is not a canonical lowercase UUID                                                        |
+| `not_found`                | missing or foreign artifact, upload, revision or chunk                                                |
+| `gone`                     | the artifact is soft-deleted                                                                          |
+| `conflict`                 | declaration, payload, status, kind or storage state disagrees                                         |
+| `expired`                  | the staging upload is past its TTL                                                                    |
+| `too_large`                | a cap is exceeded; `maxBytes` is included when known                                                  |
+| `digest_mismatch`          | bytes do not hash to the declared or recorded digest                                                  |
+| `chunk_unavailable`        | a staged chunk is missing or fails its recorded digest                                                |
+| `wrong_kind`               | a document tool on a non-Markdown artifact, or a scene tool on a non-scene one                        |
+| `not_valid_utf8_markdown`  | the bytes cannot be a Markdown document                                                               |
+| `concurrent_commit`        | the compare-and-set pointer moved (`artifact_write`, `artifact_commit`)                               |
+| `concurrent_edit`          | the revision pointer or draft sequence moved (`artifact_edit_lines`, `document_apply`, `scene_apply`) |
+| `expectation_mismatch`     | an `expect` guard did not match the live lines                                                        |
+| `invalid_operation`        | a document or scene operation was refused; `opIndex` names it                                         |
+| `invalid_scene`            | the stored canvas bytes are not a valid scene; `path` names the failure                               |
+| `unknown_block`            | a `blockId` the document does not hold                                                                |
+| `unknown_frame`            | a frame id the scene does not hold                                                                    |
+| `unknown_node`             | a node id the scene does not hold                                                                     |
+| `nothing_to_publish`       | `document_publish` with no operations pending                                                         |
+| `unsupported_content_type` | `asset_upload` with a type that is not png, jpeg, webp or gif                                         |
+| `artifact_unavailable`     | the asset store failed; retry the upload                                                              |
+| `comment_not_found`        | unknown or foreign `commentId`                                                                        |
+| `nested_reply`             | replied to a reply                                                                                    |
+| `reply_is_not_root`        | resolved or reopened a reply                                                                          |
+| `storage`                  | a storage write failed; retry the chunk or the commit                                                 |
+| `error`                    | an unexpected transaction failure; not retryable as a conflict                                        |
 
 ## Limits
 
-| Limit                                     | Value                                     |
-| ----------------------------------------- | ----------------------------------------- |
-| One `artifact_write` call                 | 1,048,576 decoded bytes (1024 KiB)        |
-| Largest artifact                          | 16,777,216 bytes (16 MiB)                 |
-| Largest staged chunk                      | 1,048,576 decoded bytes, indices `0`–`15` |
-| `contentBase64` length                    | at most 1,398,104 characters              |
-| Staging TTL                               | 60 minutes from upload creation           |
-| Operations per `artifact_edit_lines` call | 50                                        |
-| Comment body / quote                      | 4000 / 2000 Unicode characters            |
-| MCP request body                          | 2 MiB                                     |
+| Limit                                     | Value                                                                      |
+| ----------------------------------------- | -------------------------------------------------------------------------- |
+| One `artifact_write` call                 | 1,048,576 decoded bytes (1024 KiB)                                         |
+| Largest artifact                          | 16,777,216 bytes (16 MiB)                                                  |
+| Largest staged chunk                      | 1,048,576 decoded bytes, indices `0`–`15`                                  |
+| `contentBase64` length                    | at most 1,398,104 characters                                               |
+| Staging TTL                               | 60 minutes from upload creation                                            |
+| Operations per `artifact_edit_lines` call | 50                                                                         |
+| One `document_create` call                | 1,048,576 decoded bytes                                                    |
+| One `document_read` window                | 20 blocks or 200 lines, and 65,536 bytes                                   |
+| One `document_query` reply                | 50 matches                                                                 |
+| Changes per `document_diff` reply         | 200                                                                        |
+| Operations per `document_apply` call      | 50                                                                         |
+| Document snapshot                         | every 100 pending operations or ten minutes; `document_publish` forces one |
+| One `scene_read` window                   | 200 nodes or 65,536 bytes of frame JSON                                    |
+| Operations per `scene_apply` call         | 50                                                                         |
+| One `asset_upload` payload                | 1,569,792 raw bytes (2,093,056 base64 characters)                          |
+| Comment body / quote                      | 4000 / 2000 Unicode characters                                             |
+| MCP request body                          | 2 MiB                                                                      |
 
 The single-call cap and the artifact cap are different limits on purpose:
 `artifact_write` keeps one tool argument bounded to a single chunk, while an artifact itself may
-grow to 16 MiB through [the chunk stream](/docs/reference/mcp-transfers/).
+grow to 16 MiB through [the chunk stream](/docs/reference/mcp-transfers/). The instance-wide caps
+are collected on [Limits](/docs/reference/limits/).
 
 ## What the tools cannot do
 
-There is no tool to list, search, share, publish or delete artifacts, and none to list revisions or
-read artifact metadata. Those are dashboard actions, so an agent can never widen access to an
-artifact on its own. Uploads also expose no abort or cleanup tool: an abandoned upload expires after
-the TTL.
+There is no tool to list, search, share or delete artifacts, and none to create, revoke or read a public
+link: those are dashboard actions, so an agent can never widen access to an artifact on its own.
+`document_publish` is not a share — it freezes a document's own draft into a revision that the viewer and
+any existing link already serve. No tool lists revisions either; `artifact_get` with `metadataOnly` reads
+the metadata of one revision, and nothing enumerates them.
+
+Canvas and deck editing is by operation only. `scene_apply` is the one writer, and it addresses frames
+and nodes by id, so every edit needs the id a `scene_outline` or `scene_read` returned. Scene bytes
+carry no image data: `asset_upload` stores the picture once, by digest, and an `image` node names that
+digest as its `assetId`.
+
+Uploads also expose no abort or cleanup tool: an abandoned upload expires after the TTL.
 
 ## Next
 
