@@ -859,6 +859,11 @@ Tabla propia, dirección por contenido (sha256), mismo almacenamiento con prefij
 ruta autenticada, y política de contenido que permita mostrar imágenes servidas por nosotros.
 Con conteo de referencias para que el barrido no borre una imagen viva.
 
+**Entregado en F4**: `assets` + `artifactAssets`, subida en la superficie del dueño y por la
+herramienta `asset_upload` para el agente, entrega por ruta para dueño, invitado y enlace público, un
+solo origen de imagen en la política de la escena, y un barrido propio con ventana de gracia de 24
+horas. Los formatos aceptados son raster; SVG se rechaza con su razón.
+
 Cada imagen se guarda **una sola vez** y se referencia por su firma; el documento publicado
 nunca lleva los bytes adentro. Eso evita que una escena con tres fotos reviente el límite de
 tamaño y permite que dos documentos compartan la misma imagen sin duplicarla.
