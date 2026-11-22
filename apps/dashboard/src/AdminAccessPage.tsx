@@ -8,14 +8,17 @@ import { Field, Input } from "@/components/ui/input.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { Tag } from "@/components/ui/tag.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
+import { useToast } from "@/components/ui/toast.tsx";
 import type { AdminGate } from "./admin-entry.ts";
 import {
   ACCESS_PROVIDERS,
+  REGISTRATION_NOTES,
   credentialStateLabel,
   draftFromConfiguration,
   enabledMethodsLabel,
   provenanceLabel,
   readAccessConfiguration,
+  registrationEntries,
   saveAccessConfiguration,
   type AccessConfiguration,
   type AccessDraft,
@@ -44,6 +47,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function AdminAccessPage() {
+  const toast = useToast();
   const [load, setLoad] = useState<Load>({ kind: "loading" });
   const [configuration, setConfiguration] = useState<AccessConfiguration | null>(null);
   const [draft, setDraft] = useState<AccessDraft | null>(null);
@@ -128,6 +132,38 @@ export default function AdminAccessPage() {
             {notice}
           </p>
         ) : null}
+        <Panel title="Provider registration">
+          <p className="text-[13px] text-fg-muted">
+            Create the client at each provider first, then paste its values below. These addresses come from this
+            instance's public origin, so they are shown whether or not a provider is enabled here.
+          </p>
+          {registrationEntries(configuration).map((entry) => (
+            <div key={entry.id} className="grid gap-1.5">
+              <span className="text-[13px] font-medium text-fg-muted">{entry.label}</span>
+              <div className="flex min-w-0 gap-2">
+                <p className="flex h-10 min-w-0 flex-1 items-center rounded-md border border-line bg-surface px-3 font-mono text-[12.5px] text-fg select-all">
+                  <span className="truncate">{entry.value}</span>
+                </p>
+                <Button
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(entry.value).then(
+                      () => toast.toast(`${entry.label} copied`),
+                      () => toast.toast("Copying failed. Select the address and copy it manually."),
+                    )
+                  }
+                >
+                  Copy
+                </Button>
+              </div>
+              <span className="text-[13px] text-fg-muted">{entry.sentence}</span>
+            </div>
+          ))}
+          {REGISTRATION_NOTES.map((note) => (
+            <p key={note} className="text-[13px] text-fg-muted">
+              {note}
+            </p>
+          ))}
+        </Panel>
         <Panel title="Password">
           <Row label="Email and password sign-in">
             <Segmented label="Email and password sign-in">

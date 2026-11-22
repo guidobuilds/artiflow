@@ -119,8 +119,13 @@ section 7.
 the administrator guard:
 
 - `GET /api/admin/access` answers `{ revision, passwordEnabled, providers: { google, github },
-provenance }`, where each provider carries `{ enabled, clientId, credentialConfigured }`.
-  Presence is answered by a row lookup; the credential value and the ciphertext never appear.
+registration, provenance }`, where each provider carries `{ enabled, clientId, credentialConfigured }`
+  and `registration` carries what the administrator pastes at the provider:
+  `{ origin, redirectUris: { google, github } }`, built from the configured public origin as
+  `<origin>` and `<origin>/api/auth/callback/<provider>` — the callback path the library serves and the
+  suite of `test/social-linking.integration.ts` drives. Presence is answered by a row lookup; the
+  credential value and the ciphertext never appear, and the registration block carries neither a
+  credential nor a client id, so it can be copied from the page without exposing the account.
   When the document is absent the answer is the environment-adopted state the first-boot seed
   would write, with `revision: null`.
 - `PUT /api/admin/access` takes the same shape plus an optional `clientSecret` per provider,
@@ -443,6 +448,17 @@ credential is stored. A stored credential is rendered as presence only: the cred
 field is empty, can replace the stored value, and is never prefilled or displayed.
 Every refusal of section 4 is rendered in its own words, and a `revision_conflict`
 reloads the stored document and asks the administrator to review it before saving again.
+
+Above those fields the page renders the registration data a provider needs, answered by the same read:
+the JavaScript origin to authorise and one redirect URI per social provider, each with a copy action
+and one sentence naming the field it belongs in. Two facts sit in that block, stated once and in the
+product rather than in a chain of tooltips: GitHub accepts a single callback per application while
+Google accepts several, and the origin must be the address the administrator actually opens, because a
+loopback host written two ways — `localhost` and `127.0.0.1` — is two different origins. The block is
+rendered whether or not a provider is enabled, because the client is created at the provider before
+anything is enabled here. Nothing in it is derived in the dashboard: the origin is the instance's
+configured public origin, not the address the API process listens on, so a development instance shows
+the proxied origin an administrator actually browses.
 
 `/admin/users` is the directory of section 8. Search, the role filter, the status filter
 and the page are server-side: the page sends `page`, `pageSize`, `search`, `role` and

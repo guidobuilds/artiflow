@@ -171,6 +171,12 @@ open one artifact, run a read and a commit.
 - **Access configuration:** the social provider pairs are read once, on the first boot of an instance
   with no stored access configuration, and ignored afterwards. Providers, the password policy and the
   enterprise connection change in the administration area, not in the environment.
+- **Provider registration:** `/admin/access` shows the JavaScript origin to authorise and one redirect
+  URI per social provider, each with a copy action, all derived from `ARTIFLOW_PUBLIC_ORIGIN`. Nothing
+  there is derived by hand, and none of it carries a client id or a credential. Because the addresses
+  follow that variable, changing it means re-registering both callbacks at Google and GitHub in the same
+  deployment step — and an administrator has to reopen the page after the change, since the addresses it
+  shows are the configured origin of the process serving it.
 - **Exposure:** the API has no published port in production; only Caddy reaches it.
 - **Bucket:** private by default; no public ACL is requested.
 

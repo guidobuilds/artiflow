@@ -18,25 +18,32 @@ specific to the social path.
 
 ## Which redirect URI belongs to which path
 
-Four addresses are easy to confuse, and registering the wrong one costs an afternoon. The first three
-are derived from `ARTIFLOW_PUBLIC_ORIGIN` and are registered at a provider; the fourth is not.
+Four addresses are easy to confuse, and registering the wrong one costs an afternoon. Nothing on this
+page asks you to derive any of them by hand: every address a provider needs is shown on an
+administration page, with a copy action.
 
-| Path                         | Address                                                        | Registered at                         |
-| ---------------------------- | -------------------------------------------------------------- | ------------------------------------- |
-| Social — Google              | `<public origin>/api/auth/callback/google`                     | The Google OAuth client               |
-| Social — GitHub              | `<public origin>/api/auth/callback/github`                     | The GitHub OAuth app                  |
-| Enterprise connection (OIDC) | `<public origin>/api/auth/sso/callback/artiflow`               | The application registration          |
-| Agent sign-in                | `<public origin>/login`, approval on `<public origin>/consent` | Nothing: it is a page of this product |
+| Path                         | Where it is shown                                  | Registered at                    |
+| ---------------------------- | -------------------------------------------------- | -------------------------------- |
+| Social — Google              | `/admin/access`, in the registration block         | The Google OAuth client          |
+| Social — GitHub              | `/admin/access`, in the registration block         | The GitHub OAuth app             |
+| Enterprise connection (OIDC) | `/admin/sso`, above the connection fields          | The application registration     |
+| Agent sign-in                | Not a provider callback                            | Nothing: see the next paragraph  |
+
+The Access page shows three values: the **JavaScript origin** to authorise, and one **redirect URI**
+per social provider. They are built from the instance's configured public origin, which is the address
+you actually browse, not the port the API listens on. The block is rendered whether or not a provider
+is enabled, because the client is created at the provider first and enabled here afterwards.
 
 - The two social callbacks are the auth library's own callback paths for the providers named `google`
-  and `github`. They are not interchangeable with the connection's callback, which ends in
-  `/api/auth/sso/callback/artiflow` and is shown with a copy action on `/admin/sso`.
+  and `github`. They are not interchangeable with the connection's callback, which is shown on
+  `/admin/sso` and ends in `/api/auth/sso/callback/artiflow`.
 - The agent sign-in page is not a provider callback at all. An agent registers its own redirect URI —
   a loopback address or a custom scheme — with this instance's authorization server, and the person
   approves the request on `/consent`. Nothing about that flow is entered at Google or GitHub. See
   [API authentication](/docs/reference/api-authentication/).
-- A change of public origin moves all four at once, so re-register the callbacks at both providers in
-  the same deployment step.
+- GitHub accepts a single callback per application; Google accepts several. A change of public origin
+  therefore moves both social addresses and the connection's address at once, so re-register them at
+  both providers in the same deployment step.
 
 ## Google
 
@@ -49,15 +56,13 @@ the credential form refuses to save.
 type that carries a list of authorised redirect URIs, which is where the address below goes; the other
 types are configured for a loopback or app-scheme redirect and are not what this instance expects.
 
-**The authorised redirect URI.** Add this address, exactly:
-
-```text
-<your public origin>/api/auth/callback/google
-```
-
-Scheme, host and path are compared literally: a trailing slash, a different port or a path prefix does
-not match, and the callback then fails at Google before Artiflow is reached. A local instance registers
-its loopback origin instead of the production one.
+**The two addresses to register.** Open `/admin/access` in this instance and copy them from the
+registration block at the top: the **JavaScript origin**, which goes into **Authorised JavaScript
+origins**, and the **Google redirect URI**, which goes into **Authorised redirect URIs**. Both are
+compared literally: a trailing slash, a different port or a path prefix does not match, and the callback
+then fails at Google before Artiflow is reached. A local instance shows its loopback origin instead of
+the production one, and the address you open the instance at has to be the one you registered —
+`localhost` and `127.0.0.1` are two different origins.
 
 **The consent screen decides who may sign in at all.** Two settings on that screen are the only
 provider-side barrier this product has, because it reads no Workspace domain and no `hd` claim:
@@ -86,12 +91,10 @@ OAuth Apps → New OAuth App**. To make the organisation the owner, create it fr
 **Settings → Developer settings → OAuth Apps** instead; that ownership is what the organisation's OAuth
 App access restrictions act on.
 
-**The callback URL.** Fill **Homepage URL** with the public origin and **Authorization callback URL**
-with this address, exactly:
-
-```text
-<your public origin>/api/auth/callback/github
-```
+**The addresses to register.** Copy them from the registration block at the top of `/admin/access`: the
+**JavaScript origin** goes into **Homepage URL**, and the **GitHub redirect URI** goes into
+**Authorization callback URL**. GitHub accepts one callback per application, so a second one has to
+replace the stored value rather than join it.
 
 **Getting the two values.** The app page shows the **Client ID**; **Generate a new client secret**
 produces the secret, and it is shown once. Both go to `/admin/access`. Regenerating a secret invalidates
@@ -105,8 +108,9 @@ organisation, team or scope membership; it trusts the address GitHub asserts.
 
 ## Paste both on the Access page
 
-`/admin/access` holds both providers. Each row has an enablement switch, the client id, and the client
-secret as a write-only field. The save rules are the Access section's and apply here unchanged:
+`/admin/access` holds both providers. The registration block at the top of the page shows the addresses
+to register at the provider; below it each provider has an enablement switch, the client id, and the
+client secret as a write-only field. The save rules are the Access section's and apply here unchanged:
 
 - A stored secret is shown as presence only and can be replaced, never read back.
 - Enabling a provider needs a non-blank client id and a stored secret, either already stored or

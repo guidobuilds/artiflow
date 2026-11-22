@@ -1,6 +1,7 @@
 import type {
   AccessConfiguration,
   AccessProviderChange,
+  AccessProviderRegistration,
   UpdateAccessConfigurationRequest,
 } from "@artiflow/contracts/admin";
 import type { AccessMethodsDocument } from "@artiflow/contracts/settings";
@@ -46,7 +47,26 @@ function emptyProviders(): AccessConfiguration["providers"] {
   };
 }
 
-async function viewOf(db: Query, stored: StoredSetting<AccessMethodsDocument>): Promise<AccessConfiguration> {
+export function socialRedirectUri(publicOrigin: string, provider: ProviderName): string {
+  return `${publicOrigin.replace(/\/+$/, "")}/api/auth/callback/${provider}`;
+}
+
+function registrationOf(publicOrigin: string): AccessProviderRegistration {
+  const origin = publicOrigin.replace(/\/+$/, "");
+  return {
+    origin,
+    redirectUris: {
+      google: socialRedirectUri(origin, "google"),
+      github: socialRedirectUri(origin, "github"),
+    },
+  };
+}
+
+async function viewOf(
+  db: Query,
+  stored: StoredSetting<AccessMethodsDocument>,
+  publicOrigin: string,
+): Promise<AccessConfiguration> {
   const providers = emptyProviders();
   for (const provider of PROVIDERS) {
     const entry = stored.value.providers[provider];
@@ -60,6 +80,7 @@ async function viewOf(db: Query, stored: StoredSetting<AccessMethodsDocument>): 
     revision: stored.revision,
     passwordEnabled: stored.value.password.enabled,
     providers,
+    registration: registrationOf(publicOrigin),
     provenance: stored.value.provenance,
   };
 }
@@ -67,10 +88,11 @@ async function viewOf(db: Query, stored: StoredSetting<AccessMethodsDocument>): 
 export async function readAccessConfiguration(input: {
   db: AppDb;
   providers: SocialProviders;
+  publicOrigin: string;
   now?: Date;
 }): Promise<AccessConfiguration> {
   const stored = await readSetting(input.db, accessMethodsSetting);
-  if (stored !== null) return await viewOf(input.db, stored);
+  if (stored !== null) return await viewOf(input.db, stored, input.publicOrigin);
 
   const adopted = environmentAccessMethods(input.providers, input.now ?? new Date());
   const providers = emptyProviders();
@@ -86,6 +108,7 @@ export async function readAccessConfiguration(input: {
     revision: null,
     passwordEnabled: adopted.password.enabled,
     providers,
+    registration: registrationOf(input.publicOrigin),
     provenance: adopted.provenance,
   };
 }
@@ -128,6 +151,7 @@ export async function updateAccessConfiguration(input: {
   key: SecretKey | null;
   change: UpdateAccessConfigurationRequest;
   actorId: string;
+  publicOrigin: string;
   now?: Date;
 }): Promise<AccessConfiguration> {
   const now = input.now ?? new Date();
@@ -162,6 +186,6 @@ export async function updateAccessConfiguration(input: {
       expectedRevision: input.change.revision,
       updatedBy: input.actorId,
     });
-    return await viewOf(tx, written);
+    return await viewOf(tx, written, input.publicOrigin);
   });
 }

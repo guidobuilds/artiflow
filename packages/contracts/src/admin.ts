@@ -75,6 +75,15 @@ export const accessProviderViewSchema = z.strictObject({
 });
 export type AccessProviderView = z.infer<typeof accessProviderViewSchema>;
 
+export const accessProviderRegistrationSchema = z.strictObject({
+  origin: z.string().min(1),
+  redirectUris: z.strictObject({
+    google: z.string().min(1),
+    github: z.string().min(1),
+  }),
+});
+export type AccessProviderRegistration = z.infer<typeof accessProviderRegistrationSchema>;
+
 export const accessConfigurationSchema = z.strictObject({
   revision: z.number().int().min(1).nullable(),
   passwordEnabled: z.boolean(),
@@ -82,6 +91,7 @@ export const accessConfigurationSchema = z.strictObject({
     google: accessProviderViewSchema,
     github: accessProviderViewSchema,
   }),
+  registration: accessProviderRegistrationSchema,
   provenance: z.strictObject({
     source: z.string().min(1),
     at: z.iso.datetime(),

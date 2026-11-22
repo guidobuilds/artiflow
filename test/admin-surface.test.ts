@@ -5,6 +5,7 @@ import { afterEach, test } from "node:test";
 import { adminSectionPath } from "../apps/dashboard/src/admin-entry.ts";
 import {
   ACCESS_PROVIDERS,
+  REGISTRATION_NOTES,
   accessRefusalMessage,
   buildUpdateAccessPayload,
   credentialStateLabel,
@@ -13,6 +14,7 @@ import {
   parseAccessConfiguration,
   provenanceLabel,
   readAccessConfiguration,
+  registrationEntries,
   saveAccessConfiguration,
   type AccessConfiguration,
   type AccessDraft,
@@ -51,6 +53,14 @@ const headers = (call: Call | undefined): Record<string, string> =>
   (call?.init.headers ?? {}) as Record<string, string>;
 
 const PROVIDER = { enabled: false, clientId: "", credentialConfigured: false };
+const PUBLIC_ORIGIN = "http://127.0.0.1:5173";
+const REGISTRATION = {
+  origin: PUBLIC_ORIGIN,
+  redirectUris: {
+    google: `${PUBLIC_ORIGIN}/api/auth/callback/google`,
+    github: `${PUBLIC_ORIGIN}/api/auth/callback/github`,
+  },
+};
 
 const storedBody = (overrides: Record<string, unknown> = {}): unknown => ({
   revision: 3,
@@ -59,6 +69,7 @@ const storedBody = (overrides: Record<string, unknown> = {}): unknown => ({
     google: { ...PROVIDER },
     github: { enabled: true, clientId: "github-client-id", credentialConfigured: true },
   },
+  registration: { ...REGISTRATION, redirectUris: { ...REGISTRATION.redirectUris } },
   provenance: { source: "administrator", at: "2026-11-20T10:00:00.000Z" },
   ...overrides,
 });
@@ -264,6 +275,57 @@ test("a revision conflict reloads what was saved and asks for a reviewed retry",
   assert.match(page, /result\.conflict && result\.refreshed !== null/);
   assert.match(page, /setConfiguration\(result\.refreshed\)/);
   assert.match(page, /setDraft\(draftFromConfiguration\(result\.refreshed\)\)/);
+});
+
+test("the registration block answers what a provider needs before any provider is enabled", () => {
+  const parsed = parseAccessConfiguration(
+    storedBody({ providers: { google: { ...PROVIDER }, github: { ...PROVIDER } } }),
+  );
+  assert.ok(parsed !== null, "an answer with both providers disabled parses");
+  assert.deepEqual(parsed?.registration, REGISTRATION);
+
+  const entries = registrationEntries(parsed as AccessConfiguration);
+  assert.deepEqual(
+    entries.map((entry) => entry.label),
+    ["JavaScript origin", "Google redirect URI", "GitHub redirect URI"],
+  );
+  assert.deepEqual(
+    entries.map((entry) => entry.value),
+    [
+      PUBLIC_ORIGIN,
+      `${PUBLIC_ORIGIN}/api/auth/callback/google`,
+      `${PUBLIC_ORIGIN}/api/auth/callback/github`,
+    ],
+  );
+  assert.match(entries[0]?.sentence ?? "", /JavaScript origin/);
+  assert.match(entries[1]?.sentence ?? "", /callback/);
+  assert.match(entries[2]?.sentence ?? "", /callback/);
+  assert.equal(REGISTRATION_NOTES.length, 2);
+  assert.match(REGISTRATION_NOTES[0] ?? "", /GitHub/);
+  assert.match(REGISTRATION_NOTES[0] ?? "", /single/);
+  assert.match(REGISTRATION_NOTES[0] ?? "", /Google/);
+  assert.match(REGISTRATION_NOTES[1] ?? "", /origin/i);
+  assert.match(REGISTRATION_NOTES[1] ?? "", /127\.0\.0\.1/);
+  assert.match(REGISTRATION_NOTES[1] ?? "", /localhost/);
+
+  const page = read(PAGE);
+  const blockStart = page.indexOf('<Panel title="Provider registration">');
+  const blockEnd = page.indexOf("</Panel>", blockStart);
+  assert.ok(blockStart > 0, "the page renders the registration block");
+  assert.ok(blockEnd > blockStart, "the registration block is one panel");
+  const block = page.slice(blockStart, blockEnd);
+  assert.ok(
+    blockStart < page.indexOf("ACCESS_PROVIDERS.map"),
+    "the registration block precedes the provider fields and does not depend on their enablement",
+  );
+  assert.match(block, /\{registrationEntries\(configuration\)\.map\(/);
+  assert.match(block, /<Button/);
+  assert.match(block, /navigator\.clipboard\?\.writeText\(entry\.value\)/);
+  assert.match(block, /\{REGISTRATION_NOTES\.map\(/);
+  assert.doesNotMatch(block, /clientSecret|credential|password/, "the block renders addresses only");
+  assert.doesNotMatch(page, /\/api\/auth\/callback/, "the page never builds a callback address itself");
+  assert.doesNotMatch(read(CLIENT), /\/api\/auth\/callback/, "the client never builds a callback address itself");
+  assert.doesNotMatch(JSON.stringify(entries), /secret|client id/i, "no registration value is a client id or a secret");
 });
 
 function parsedOfTest(): AccessConfiguration {

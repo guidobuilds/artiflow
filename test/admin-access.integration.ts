@@ -30,10 +30,12 @@ const GOOGLE_SECRET = `google-client-secret-${randomUUID()}`;
 const KEY = decodeSecretKey(randomBytes(32).toString("base64"));
 
 type ProviderView = { enabled: boolean; clientId: string; credentialConfigured: boolean };
+type RegistrationView = { origin: string; redirectUris: { google: string; github: string } };
 type AccessView = {
   revision: number | null;
   passwordEnabled: boolean;
   providers: { google: ProviderView; github: ProviderView };
+  registration: RegistrationView;
   provenance: { source: string; at: string };
 };
 
@@ -60,6 +62,17 @@ function actor(session: TrustedSession | null): TrustedSession {
 function config(): AppConfig {
   assert.ok(harness, "the harness started");
   return harness.config;
+}
+
+function expectedRegistration(): RegistrationView {
+  const origin = config().publicOrigin;
+  return {
+    origin,
+    redirectUris: {
+      google: `${origin}/api/auth/callback/google`,
+      github: `${origin}/api/auth/callback/github`,
+    },
+  };
 }
 
 function accessPut(body: unknown, cookie: string): Promise<Response> {
@@ -187,6 +200,7 @@ integration("an administrator reads the environment-adopted state before anythin
       google: { enabled: false, clientId: "", credentialConfigured: false },
       github: { enabled: false, clientId: "", credentialConfigured: false },
     },
+    registration: expectedRegistration(),
     provenance: { source: "environment", at: body.provenance.at },
   });
   assert.equal(Number.isNaN(Date.parse(body.provenance.at)), false, "the provenance carries the adoption time");
@@ -295,6 +309,33 @@ integration("enabling a provider with a credential changes behaviour on the next
   assert.equal(ciphertext.startsWith("v1:"), true, "the stored credential is an encrypted envelope");
   assert.equal(ciphertext.includes(GITHUB_SECRET), false, "the stored credential is not plaintext");
   assert.equal(rereadPayload.includes(ciphertext), false, "the ciphertext never reaches the payload");
+});
+
+integration("the read carries the public origin and both callbacks, without a client id or a credential", async () => {
+  const response = await adminGet(target(), ACCESS_PATH, actor(administrator).cookie);
+  assertStatus(response, 200, "an administrator reads the provider registration data");
+  const payload = await response.text();
+  const body = JSON.parse(payload) as AccessView;
+  const origin = config().publicOrigin;
+
+  assert.equal(
+    payload.includes(GITHUB_CLIENT_ID),
+    true,
+    "the read carries the stored client id outside the registration block",
+  );
+  assert.deepEqual(body.registration, {
+    origin,
+    redirectUris: {
+      google: `${origin}/api/auth/callback/google`,
+      github: `${origin}/api/auth/callback/github`,
+    },
+  });
+  assert.notEqual(origin, target().baseUrl, "the origin is the public one, not the API port");
+
+  const registration = JSON.stringify(body.registration);
+  for (const forbidden of [GITHUB_CLIENT_ID, GITHUB_SECRET, GOOGLE_CLIENT_ID, GOOGLE_SECRET]) {
+    assert.equal(registration.includes(forbidden), false, "the registration data carries no client id and no credential");
+  }
 });
 
 integration("disabling a provider removes it, and re-enabling reuses the stored credential", async () => {

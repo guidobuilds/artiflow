@@ -357,6 +357,7 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
     const configuration = await readAccessConfiguration({
       db: options.database.db,
       providers: options.config.authProviders,
+      publicOrigin: options.publicOrigin,
     });
     return c.json(configuration satisfies AccessConfiguration);
   });
@@ -379,6 +380,7 @@ export function createAdminApp(options: AdminOptions): Hono<AdminEnv> {
         key: options.config.secretEncryptionKey ?? null,
         change: parsed.data,
         actorId: guard.actorId,
+        publicOrigin: options.publicOrigin,
       });
     } catch (error) {
       if (error instanceof SettingRevisionConflictError) return jsonError(c, "revision_conflict", 409);
