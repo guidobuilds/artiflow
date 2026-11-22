@@ -1,0 +1,3 @@
+scripts:
+  setup: bun install && node "$ORCA_ROOT_PATH/scripts/orca/worktree-setup.mjs"
+  archive: node "$ORCA_ROOT_PATH/scripts/orca/worktree-archive.mjs"
