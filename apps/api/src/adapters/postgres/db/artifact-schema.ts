@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -19,6 +20,8 @@ import { user } from "./schema.ts";
 
 export const MAX_ARTIFACT_BYTES = 16_777_216;
 export const MAX_CHUNK_BYTES = 1_048_576;
+export const MAX_ASSET_BYTES = 2_097_152;
+export const ASSET_CONTENT_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 export const STAGING_TTL_MINUTES = 60;
 export const DOCUMENT_FORMAT_VERSION = 1;
 export const DOCUMENT_AUTHOR_KINDS = ["person", "agent"] as const;
@@ -126,6 +129,42 @@ export const artifactChunks = pgTable(
     uniqueIndex("artifactChunks_uploadId_chunkIndex_unique").on(table.uploadId, table.chunkIndex),
     check("artifactChunks_sizeBytes_cap_check", atMost("sizeBytes", MAX_CHUNK_BYTES)),
     check("artifactChunks_sha256_hex_check", hexSha256("sha256")),
+  ],
+);
+
+export const assets = pgTable(
+  "assets",
+  {
+    sha256: text("sha256").primaryKey(),
+    sizeBytes: integer("sizeBytes").notNull(),
+    contentType: text("contentType").notNull(),
+    storageKey: text("storageKey").notNull(),
+    createdAt: date("createdAt").notNull().defaultNow(),
+  },
+  () => [
+    check("assets_sizeBytes_cap_check", atMost("sizeBytes", MAX_ASSET_BYTES)),
+    check("assets_sha256_hex_check", hexSha256("sha256")),
+    check(
+      "assets_contentType_check",
+      sql`${sql.identifier("contentType")} in (${sql.raw(ASSET_CONTENT_TYPES.map((type) => `'${type}'`).join(", "))})`,
+    ),
+  ],
+);
+
+export const artifactAssets = pgTable(
+  "artifactAssets",
+  {
+    artifactId: text("artifactId")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    assetSha256: text("assetSha256")
+      .notNull()
+      .references(() => assets.sha256, { onDelete: "cascade" }),
+    firstSeenAt: date("firstSeenAt").notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.artifactId, table.assetSha256] }),
+    index("artifactAssets_assetSha256_idx").on(table.assetSha256),
   ],
 );
 
@@ -267,6 +306,8 @@ export const artifactSchema = {
   artifactRevisions,
   artifactUploads,
   artifactChunks,
+  assets,
+  artifactAssets,
   artifactShares,
   artifactPublicLinks,
   artifactComments,

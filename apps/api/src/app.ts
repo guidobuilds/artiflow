@@ -7,6 +7,7 @@ import { createAuth, createAuthApp } from "./auth.ts";
 import { resolveMcpNetwork, type AppConfig } from "./config.ts";
 import { MAX_ARTIFACT_BYTES } from "./adapters/postgres/db/artifact-schema.ts";
 import { createEditingApp } from "./routes/editing.ts";
+import { createAssetsApp } from "./routes/assets.ts";
 import { createCommentsApp } from "./routes/comments.ts";
 import { createHealthApp } from "./routes/health.ts";
 import { createLibraryApp } from "./routes/library.ts";
@@ -104,6 +105,10 @@ export function createApiApp({ config, database, storage }: ApiAppDeps) {
   app.route(
     "/",
     createCommentsApp({ database: databaseView, auth, storage: storageView, publicOrigin: config.publicOrigin }),
+  );
+  app.route(
+    "/",
+    createAssetsApp({ database: databaseView, auth, storage: storageView, publicOrigin: config.publicOrigin }),
   );
   app.route(
     "/",

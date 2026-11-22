@@ -16,7 +16,9 @@ import {
   DOCUMENT_AUTHOR_KINDS,
   DOCUMENT_FORMAT_VERSION,
   DOCUMENT_OPERATION_RESULTS,
+  ASSET_CONTENT_TYPES,
   MAX_ARTIFACT_BYTES,
+  MAX_ASSET_BYTES,
   MAX_CHUNK_BYTES,
   STAGING_TTL_MINUTES,
   artifactSchema,
@@ -28,6 +30,8 @@ const TABLES = [
   "artifactRevisions",
   "artifactUploads",
   "artifactChunks",
+  "assets",
+  "artifactAssets",
   "artifactShares",
   "artifactPublicLinks",
   "artifactComments",
@@ -49,6 +53,11 @@ const indexNames = (name: string) =>
   }));
 const checkNames = (name: string) =>
   getTableConfig(tables[name] as PgTable).checks.map((constraint) => constraint.name);
+const statementsOf = (migration: string) =>
+  migration
+    .split("--> statement-breakpoint")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
 
 test("the artifact tables expose exactly the approved columns", () => {
   assert.deepEqual(Object.keys(artifactSchema).sort(), [...TABLES].sort());
@@ -94,6 +103,18 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["sizeBytes", true],
       ["sha256", true],
       ["createdAt", true],
+    ],
+    assets: [
+      ["sha256", true],
+      ["sizeBytes", true],
+      ["contentType", true],
+      ["storageKey", true],
+      ["createdAt", true],
+    ],
+    artifactAssets: [
+      ["artifactId", true],
+      ["assetSha256", true],
+      ["firstSeenAt", true],
     ],
     artifactShares: [
       ["id", true],
@@ -146,16 +167,29 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["updatedAt", true],
     ],
   };
-  const primaryKeys: Record<string, string> = { documentDrafts: "artifactId" };
+  const primaryKeys: Record<string, string | null> = {
+    documentDrafts: "artifactId",
+    assets: "sha256",
+    artifactAssets: null,
+  };
   for (const [name, wanted] of Object.entries(expected)) {
     assert.equal(getTableConfig(tables[name] as PgTable).name, name);
     const columns = columnsOf(name);
     assert.deepEqual([...columns.keys()].sort(), wanted.map(([column]) => column).sort(), `${name} columns`);
     for (const [column, notNull] of wanted)
       assert.equal(columns.get(column)?.notNull, notNull, `${name}.${column} nullability`);
-    const primary = primaryKeys[name] ?? "id";
-    assert.equal(columns.get(primary)?.primary, true, `${name}.${primary} primary key`);
+    const primary = name in primaryKeys ? primaryKeys[name] : "id";
+    if (typeof primary === "string")
+      assert.equal(columns.get(primary)?.primary, true, `${name}.${primary} primary key`);
   }
+  assert.deepEqual(
+    getTableConfig(tables["artifactAssets"] as PgTable).primaryKeys.map((key) => ({
+      name: key.getName(),
+      columns: key.columns.map((column) => column.name),
+    })),
+    [{ name: "artifactAssets_artifactId_assetSha256_pk", columns: ["artifactId", "assetSha256"] }],
+    "one reference row per artifact and asset pair",
+  );
   const defaulted: [string, string, boolean, unknown][] = [
     ["artifacts", "publishedSeq", true, 0],
     ["artifactRevisions", "formatVersion", true, 1],
@@ -177,6 +211,7 @@ test("owner, artifact and upload references cascade to their parents", () => {
     artifactUploads: ["ownerId", "user", "id"],
     artifactRevisions: ["artifactId", "artifacts", "id"],
     artifactChunks: ["uploadId", "artifactUploads", "id"],
+    artifactAssets: ["artifactId", "artifacts", "id"],
     documentOperations: ["artifactId", "artifacts", "id"],
     documentDrafts: ["artifactId", "artifacts", "id"],
   };
@@ -276,6 +311,99 @@ test("the document tables carry their sequence, author and result checks", () =>
     `CONSTRAINT "documentDrafts_formatVersion_check" CHECK ("formatVersion" >= 1)`,
   ];
   for (const clause of clauses) assert.ok(sql0015.includes(clause), clause);
+});
+
+test("the asset references cascade from the artifact and from the asset side", () => {
+  const artifactSide = getTableConfig(tables["artifactAssets"] as PgTable).foreignKeys.find((key) =>
+    key.reference().columns.some((column) => column.name === "assetSha256"),
+  );
+  assert.ok(artifactSide, "artifactAssets.assetSha256 foreign key");
+  const reference = artifactSide.reference();
+  assert.equal(getTableConfig(reference.foreignTable).name, "assets");
+  assert.deepEqual(
+    reference.foreignColumns.map((column) => column.name),
+    ["sha256"],
+  );
+  assert.equal(artifactSide.onDelete, "cascade", "dropping an asset drops its references");
+  assert.deepEqual(indexNames("artifactAssets"), [
+    { name: "artifactAssets_assetSha256_idx", unique: false, columns: ["assetSha256"] },
+  ]);
+  assert.deepEqual(checkNames("assets"), [
+    "assets_sizeBytes_cap_check",
+    "assets_sha256_hex_check",
+    "assets_contentType_check",
+  ]);
+  assert.deepEqual([...ASSET_CONTENT_TYPES], ["image/png", "image/jpeg", "image/webp", "image/gif"]);
+  assert.equal(MAX_ASSET_BYTES, 2_097_152);
+  assert.ok(MAX_ASSET_BYTES < MAX_ARTIFACT_BYTES, "an asset cap stays below the artifact cap");
+});
+
+test("the 0017 migration only adds the asset tables, their keys and their index", () => {
+  assert.deepEqual(
+    readdirSync(drizzleDir).filter((name) => /^0017_.*\.sql$/.test(name)),
+    ["0017_public_dark_beast.sql"],
+  );
+  const sql0017 = readFileSync(new URL("0017_public_dark_beast.sql", drizzleDir), "utf8");
+  assert.deepEqual(statementsOf(sql0017), [
+    `CREATE TABLE "artifactAssets" (
+	"artifactId" text NOT NULL,
+	"assetSha256" text NOT NULL,
+	"firstSeenAt" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "artifactAssets_artifactId_assetSha256_pk" PRIMARY KEY("artifactId","assetSha256")
+);`,
+    `CREATE TABLE "assets" (
+	"sha256" text PRIMARY KEY NOT NULL,
+	"sizeBytes" integer NOT NULL,
+	"contentType" text NOT NULL,
+	"storageKey" text NOT NULL,
+	"createdAt" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "assets_sizeBytes_cap_check" CHECK ("sizeBytes" <= ${MAX_ASSET_BYTES}),
+	CONSTRAINT "assets_sha256_hex_check" CHECK ("sha256" ~ '^[0-9a-f]{64}$'),
+	CONSTRAINT "assets_contentType_check" CHECK ("contentType" in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'))
+);`,
+    `ALTER TABLE "artifactAssets" ADD CONSTRAINT "artifactAssets_artifactId_artifacts_id_fk" FOREIGN KEY ("artifactId") REFERENCES "public"."artifacts"("id") ON DELETE cascade ON UPDATE no action;`,
+    `ALTER TABLE "artifactAssets" ADD CONSTRAINT "artifactAssets_assetSha256_assets_sha256_fk" FOREIGN KEY ("assetSha256") REFERENCES "public"."assets"("sha256") ON DELETE cascade ON UPDATE no action;`,
+    `CREATE INDEX "artifactAssets_assetSha256_idx" ON "artifactAssets" USING btree ("assetSha256");`,
+  ]);
+  for (const statement of statementsOf(sql0017)) {
+    assert.match(statement, /^(CREATE TABLE|CREATE INDEX|ALTER TABLE "artifactAssets" ADD CONSTRAINT)/, statement);
+    assert.equal(/^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(statement), false, "additive only");
+  }
+  assert.equal(sql0017.includes('ALTER TABLE "artifacts"'), false, "no existing table is altered");
+  for (const existing of ["artifacts", "artifactRevisions", "artifactUploads", "artifactChunks"])
+    assert.equal(sql0017.includes(`TABLE "${existing}"`), false, `does not redefine ${existing}`);
+  const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
+    entries: { idx: number; tag: string }[];
+  };
+  assert.deepEqual(
+    journal.entries.slice(17).map((entry) => [entry.idx, entry.tag]),
+    [[17, "0017_public_dark_beast"]],
+    "the journal records a contiguous seventeenth migration",
+  );
+  const snapshot = JSON.parse(readFileSync(new URL("meta/0017_snapshot.json", drizzleDir), "utf8")) as {
+    prevId: string;
+    tables: Record<string, { columns: Record<string, unknown>; checkConstraints: Record<string, { value: string }> }>;
+  };
+  const previous = JSON.parse(readFileSync(new URL("meta/0016_snapshot.json", drizzleDir), "utf8")) as { id: string };
+  assert.equal(snapshot.prevId, previous.id, "the snapshot chains onto the previous one");
+  assert.deepEqual(Object.keys(snapshot.tables["public.assets"]?.columns ?? {}), [
+    "sha256",
+    "sizeBytes",
+    "contentType",
+    "storageKey",
+    "createdAt",
+  ]);
+  assert.deepEqual(Object.keys(snapshot.tables["public.artifactAssets"]?.columns ?? {}), [
+    "artifactId",
+    "assetSha256",
+    "firstSeenAt",
+  ]);
+  const stored = [
+    ...(snapshot.tables["public.assets"]?.checkConstraints["assets_contentType_check"]?.value ?? "").matchAll(
+      /'([^']+)'/g,
+    ),
+  ].map((match) => match[1]);
+  assert.deepEqual(stored, [...ASSET_CONTENT_TYPES], "the snapshot check and the accepted types agree");
 });
 
 test("the 0002 migration only adds the four new artifact tables", () => {

@@ -28,6 +28,8 @@ const PRODUCT_TABLES = [
   "artifactRevisions",
   "artifactUploads",
   "artifactChunks",
+  "assets",
+  "artifactAssets",
   "artifactShares",
   "artifactPublicLinks",
   "artifactComments",

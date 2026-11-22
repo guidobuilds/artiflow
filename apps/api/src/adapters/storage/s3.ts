@@ -7,17 +7,31 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
-import { MAX_ARTIFACT_BYTES, MAX_CHUNK_BYTES } from "../postgres/db/artifact-schema.ts";
+import {
+  ASSET_CONTENT_TYPES,
+  MAX_ARTIFACT_BYTES,
+  MAX_ASSET_BYTES,
+  MAX_CHUNK_BYTES,
+} from "../postgres/db/artifact-schema.ts";
 import type { Storage } from "../storage/client.ts";
 
 export const REVISION_KEY_PREFIX = "artifacts/";
 export const STAGING_KEY_PREFIX = "staging/";
+export const ASSET_KEY_PREFIX = "assets/";
 
 const REVISION_KEY_ID = /^[a-z0-9][a-z0-9-]{0,127}$/;
+const ASSET_KEY_ID = /^[0-9a-f]{64}$/;
 
 export const stagingStorageKey = (sha256: string): string => `${STAGING_KEY_PREFIX}${sha256}`;
 
 export const newRevisionStorageKey = (): string => `${REVISION_KEY_PREFIX}${randomUUID()}`;
+
+export const assetStorageKey = (sha256: string): string => `${ASSET_KEY_PREFIX}${sha256}`;
+
+export const isAssetStorageKey = (storageKey: unknown): storageKey is string =>
+  typeof storageKey === "string" &&
+  storageKey.startsWith(ASSET_KEY_PREFIX) &&
+  ASSET_KEY_ID.test(storageKey.slice(ASSET_KEY_PREFIX.length));
 
 export const isRevisionStorageKey = (storageKey: unknown): storageKey is string =>
   typeof storageKey === "string" &&
@@ -64,23 +78,24 @@ export async function putRevisionBytes(input: PutRevisionInput): Promise<Storage
   return ok({ storageKey, sizeBytes: bytes.length });
 }
 
-export type RevisionBytes = { storageKey: string; bytes: Uint8Array; sizeBytes: number };
+export type RevisionBytes = { storageKey: string; bytes: Uint8Array<ArrayBuffer>; sizeBytes: number };
 export type GetRevisionInput = { storage: Storage; storageKey: string; sha256: string; maxBytes?: number };
 
-export async function getRevisionBytes(input: GetRevisionInput): Promise<StorageResult<RevisionBytes>> {
-  const { storage, storageKey, sha256 } = input;
-  if (!isRevisionStorageKey(storageKey)) return fail("validation", "storage_key_invalid");
-  if (!isHexDigest(sha256)) return fail("validation", "digest_not_lowercase_hex_sha256");
-  const cap = input.maxBytes ?? MAX_ARTIFACT_BYTES;
-  if (!Number.isInteger(cap) || cap < 1 || cap > MAX_ARTIFACT_BYTES)
-    return fail("validation", "max_bytes_out_of_range");
+type ReadStoredInput = {
+  storage: Storage;
+  storageKey: string;
+  sha256: string;
+  cap: number;
+  missingReason: string;
+};
+
+async function readStoredBytes(input: ReadStoredInput): Promise<StorageResult<RevisionBytes>> {
+  const { storage, storageKey, sha256, cap, missingReason } = input;
   try {
     const head = await storage.client.send(new HeadObjectCommand({ Bucket: storage.bucket, Key: storageKey }));
     if ((head.ContentLength ?? 0) > cap) return fail("too_large", "stored_object_exceeds_read_cap");
   } catch (error) {
-    return statusOf(error) === 404
-      ? fail("not_found", "revision_not_stored")
-      : fail("conflict", "storage_request_failed");
+    return statusOf(error) === 404 ? fail("not_found", missingReason) : fail("conflict", "storage_request_failed");
   }
   const chunks: Uint8Array[] = [];
   let sizeBytes = 0;
@@ -93,14 +108,59 @@ export async function getRevisionBytes(input: GetRevisionInput): Promise<Storage
       chunks.push(chunk);
     }
   } catch (error) {
-    return statusOf(error) === 404
-      ? fail("not_found", "revision_not_stored")
-      : fail("conflict", "storage_request_failed");
+    return statusOf(error) === 404 ? fail("not_found", missingReason) : fail("conflict", "storage_request_failed");
   }
   if (sizeBytes === 0) return fail("conflict", "stored_object_is_empty");
   const bytes = Buffer.concat(chunks, sizeBytes);
   if (digestOf(bytes) !== sha256) return fail("digest_mismatch", "stored_bytes_do_not_match_declared_digest");
   return ok({ storageKey, bytes, sizeBytes });
+}
+
+export async function getRevisionBytes(input: GetRevisionInput): Promise<StorageResult<RevisionBytes>> {
+  const { storage, storageKey, sha256 } = input;
+  if (!isRevisionStorageKey(storageKey)) return fail("validation", "storage_key_invalid");
+  if (!isHexDigest(sha256)) return fail("validation", "digest_not_lowercase_hex_sha256");
+  const cap = input.maxBytes ?? MAX_ARTIFACT_BYTES;
+  if (!Number.isInteger(cap) || cap < 1 || cap > MAX_ARTIFACT_BYTES)
+    return fail("validation", "max_bytes_out_of_range");
+  return readStoredBytes({ storage, storageKey, sha256, cap, missingReason: "revision_not_stored" });
+}
+
+export type PutAssetInput = { storage: Storage; sha256: string; contentType: string; bytes: Uint8Array };
+
+export async function putAssetBytes(input: PutAssetInput): Promise<StorageResult<RevisionRef>> {
+  const { storage, sha256, contentType, bytes } = input;
+  if (!isHexDigest(sha256)) return fail("validation", "digest_not_lowercase_hex_sha256");
+  if (!(ASSET_CONTENT_TYPES as readonly string[]).includes(contentType))
+    return fail("validation", "content_type_not_raster");
+  if (!(bytes instanceof Uint8Array)) return fail("validation", "bytes_required");
+  if (bytes.length === 0) return fail("validation", "empty_payload");
+  if (bytes.length > MAX_ASSET_BYTES) return fail("too_large", "payload_exceeds_asset_cap");
+  if (digestOf(bytes) !== sha256) return fail("digest_mismatch", "payload_does_not_match_declared_digest");
+  const storageKey = assetStorageKey(sha256);
+  try {
+    await storage.client.send(
+      new PutObjectCommand({
+        Bucket: storage.bucket,
+        Key: storageKey,
+        Body: bytes,
+        ContentLength: bytes.length,
+        ContentType: contentType,
+      }),
+    );
+  } catch {
+    return fail("conflict", "storage_request_failed");
+  }
+  return ok({ storageKey, sizeBytes: bytes.length });
+}
+
+export type GetAssetInput = { storage: Storage; storageKey: string; sha256: string };
+
+export async function getAssetBytes(input: GetAssetInput): Promise<StorageResult<RevisionBytes>> {
+  const { storage, storageKey, sha256 } = input;
+  if (!isAssetStorageKey(storageKey)) return fail("validation", "storage_key_invalid");
+  if (!isHexDigest(sha256)) return fail("validation", "digest_not_lowercase_hex_sha256");
+  return readStoredBytes({ storage, storageKey, sha256, cap: MAX_ASSET_BYTES, missingReason: "asset_not_stored" });
 }
 
 export type ListedRevisionObject = { storageKey: string; lastModified: Date };
