@@ -1,4 +1,5 @@
 import {
+  canonicalScene,
   validateScene,
   type Scene,
   type SceneFrame,
@@ -257,6 +258,131 @@ function boxesOf(scene: Scene, touched: ReadonlySet<string>): SceneNodeBox[] {
       });
     }
   return boxes;
+}
+
+const NODE_PROPERTIES = ["type", "fill", "radius", "text", "assetId", "d", "stroke", "strokeWidth", "style"] as const;
+const sameValue = (left: unknown, right: unknown): boolean => JSON.stringify(left) === JSON.stringify(right);
+
+function framePatchOf(before: SceneFrame, after: SceneFrame): SceneFramePatch {
+  const patch: Record<string, unknown> = {};
+  if (before.name !== after.name) patch.name = after.name;
+  if (before.x !== after.x) patch.x = after.x;
+  if (before.y !== after.y) patch.y = after.y;
+  if (before.w !== after.w) patch.w = after.w;
+  if (before.h !== after.h) patch.h = after.h;
+  return patch as SceneFramePatch;
+}
+
+function framePatches(before: SceneFrame, after: SceneFrame): { patch: SceneFramePatch; shrink: boolean }[] {
+  const full = framePatchOf(before, after);
+  const shrinks = (full.w !== undefined && full.w < before.w) || (full.h !== undefined && full.h < before.h);
+  if (!shrinks) return Object.keys(full).length === 0 ? [] : [{ patch: full, shrink: false }];
+  const grows: Record<string, unknown> = {};
+  const shrunk: Record<string, unknown> = {};
+  if (full.name !== undefined) grows.name = full.name;
+  if (full.x !== undefined) grows.x = full.x;
+  if (full.y !== undefined) grows.y = full.y;
+  if (full.w !== undefined) (full.w > before.w ? grows : shrunk).w = full.w;
+  if (full.h !== undefined) (full.h > before.h ? grows : shrunk).h = full.h;
+  return [
+    ...(Object.keys(grows).length === 0 ? [] : [{ patch: grows as SceneFramePatch, shrink: false }]),
+    ...(Object.keys(shrunk).length === 0 ? [] : [{ patch: shrunk as SceneFramePatch, shrink: true }]),
+  ];
+}
+
+function nodePatchOf(before: SceneNode, after: SceneNode): SceneNodePatch {
+  const patch: Record<string, unknown> = {};
+  if (before.x !== after.x) patch.x = after.x;
+  if (before.y !== after.y) patch.y = after.y;
+  if (before.w !== after.w) patch.w = after.w;
+  if (before.h !== after.h) patch.h = after.h;
+  const seen = after as unknown as Record<string, unknown>;
+  const previous = before as unknown as Record<string, unknown>;
+  for (const property of NODE_PROPERTIES)
+    if (!sameValue(previous[property], seen[property]) && seen[property] !== undefined)
+      patch[property] = seen[property];
+  return patch as SceneNodePatch;
+}
+
+function nodeChangeOf(before: SceneNode, after: SceneNode): SceneOperation | null {
+  const patch = nodePatchOf(before, after);
+  const keys = Object.keys(patch);
+  if (keys.length === 0) return null;
+  if (!keys.every((key) => GEOMETRY_KEYS.includes(key as GeometryKey)))
+    return { op: "update_node", id: after.id, props: patch };
+  return {
+    op: "move_node",
+    id: after.id,
+    x: after.x,
+    y: after.y,
+    ...(patch.w === undefined ? {} : { w: patch.w }),
+    ...(patch.h === undefined ? {} : { h: patch.h }),
+  };
+}
+
+type PlacedNode = { frameId: string; node: SceneNode };
+
+const placedNodes = (scene: Scene): Map<string, PlacedNode> => {
+  const placed = new Map<string, PlacedNode>();
+  for (const frame of scene.frames) for (const node of frame.nodes) placed.set(node.id, { frameId: frame.id, node });
+  return placed;
+};
+
+export function diffSceneOperations(previous: Scene, next: Scene): SceneOperation[] {
+  const whole: SceneOperation[] = [{ op: "replace_scene", scene: next }];
+  if (canonicalScene(previous) === canonicalScene(next)) return [];
+  const beforeFrames = new Map(previous.frames.map((frame) => [frame.id, frame]));
+  const afterFrames = new Map(next.frames.map((frame) => [frame.id, frame]));
+  const beforeNodes = placedNodes(previous);
+  const afterNodes = placedNodes(next);
+  const addedFrames: SceneOperation[] = [];
+  const removedFrames: SceneOperation[] = [];
+  const grownFrames: SceneOperation[] = [];
+  const shrunkFrames: SceneOperation[] = [];
+  const removedNodes: SceneOperation[] = [];
+  const addedNodes: SceneOperation[] = [];
+  const changedNodes: SceneOperation[] = [];
+  for (const frame of previous.frames)
+    if (!afterFrames.has(frame.id)) removedFrames.push({ op: "remove_frame", id: frame.id });
+  for (const frame of next.frames) {
+    const before = beforeFrames.get(frame.id);
+    if (!before) {
+      addedFrames.push({ op: "add_frame", frame });
+      continue;
+    }
+    for (const entry of framePatches(before, frame)) {
+      const operation: SceneOperation = { op: "update_frame", id: frame.id, props: entry.patch };
+      (entry.shrink ? shrunkFrames : grownFrames).push(operation);
+    }
+  }
+  for (const [id, placed] of beforeNodes) {
+    const after = afterNodes.get(id);
+    if (after && after.frameId === placed.frameId) {
+      const change = nodeChangeOf(placed.node, after.node);
+      if (change) changedNodes.push(change);
+      continue;
+    }
+    if (afterFrames.has(placed.frameId)) removedNodes.push({ op: "remove_node", id });
+  }
+  for (const [id, placed] of afterNodes) {
+    const before = beforeNodes.get(id);
+    if (before && before.frameId === placed.frameId) continue;
+    if (!beforeFrames.has(placed.frameId)) continue;
+    addedNodes.push({ op: "add_node", frameId: placed.frameId, node: placed.node });
+  }
+  const operations: SceneOperation[] = [
+    ...addedFrames,
+    ...grownFrames,
+    ...removedNodes,
+    ...addedNodes,
+    ...changedNodes,
+    ...shrunkFrames,
+    ...removedFrames,
+  ];
+  if (operations.length === 0) return whole;
+  const replay = applySceneOperations(previous, operations);
+  if (!replay.ok) return whole;
+  return canonicalScene(replay.value.scene) === canonicalScene(next) ? operations : whole;
 }
 
 export function applySceneOperations(scene: Scene, operations: readonly SceneOperation[]): SceneOperationsResult {

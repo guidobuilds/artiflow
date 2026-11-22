@@ -43,9 +43,9 @@ export type EditingOptions = {
 };
 
 const HISTORY_LIMIT = 200;
-const maxBytes = (cap?: number): number => Math.min(cap ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
+export const maxBytes = (cap?: number): number => Math.min(cap ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
 
-type DocRow = {
+export type DocRow = {
   id: string;
   ownerId: string;
   kind: string;
@@ -120,45 +120,67 @@ async function pinnedRevision(db: AppDb, revisionId: string, artifactId: string)
   )[0];
 }
 
-const canEdit = (row: DocRow): boolean => row.access === "owner" || row.access === "editor";
+export type DocGate = { userId: string; row: DocRow };
+
+export type EditingSession = {
+  sessionUserId: (c: Context) => Promise<string | null>;
+  guard: (c: Context) => Response | null;
+};
+
+export function editingSession(options: Pick<EditingOptions, "auth" | "publicOrigin" | "principal">): EditingSession {
+  const { auth, publicOrigin } = options;
+  return {
+    sessionUserId: async (c: Context): Promise<string | null> => {
+      const bearerUserId = options.principal ? readPrincipal(c.req.raw.headers)?.userId : undefined;
+      if (bearerUserId) return bearerUserId;
+      const session = await auth.api.getSession({ headers: c.req.raw.headers });
+      const id = session?.user?.id;
+      return typeof id === "string" && id.length > 0 ? id : null;
+    },
+    guard: (c: Context): Response | null => {
+      if (options.principal) return null;
+      if (c.req.header("origin") !== publicOrigin) return c.json({ error: "origin_not_allowed" }, 403);
+      if (!isJsonContentType(c.req.header("content-type"))) return c.json({ error: "json_content_type_required" }, 415);
+      return null;
+    },
+  };
+}
+
+export async function docGateFor(
+  c: Context,
+  db: AppDb,
+  sessionUserId: EditingSession["sessionUserId"],
+): Promise<DocGate | Response> {
+  const artifactId = c.req.param("id") ?? "";
+  if (!isUuid(artifactId)) return c.json({ error: "not_found" }, 404);
+  const userId = await sessionUserId(c);
+  if (!userId) return c.json({ error: "unauthorized" }, 401);
+  const row = await documentFor(db, userId, artifactId);
+  if (!row) return c.json({ error: "not_found" }, 404);
+  return { userId, row };
+}
+
+export const canEdit = (row: DocRow): boolean => row.access === "owner" || row.access === "editor";
+
+export const requireEditor = (c: Context, row: DocRow): Response | null =>
+  canEdit(row) ? null : c.json({ error: "forbidden" }, 403);
+
+export const requireCurrent = (c: Context, row: DocRow): Response | null =>
+  row.revisionId && row.storageKey && row.sha256 ? null : c.json({ error: "no_current_revision" }, 409);
 
 const sha256Of = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
 export function createEditingApp(options: EditingOptions) {
-  const { database, auth, storage, publicOrigin } = options;
+  const { database, auth, storage } = options;
   const db = database.db;
   const cap = maxBytes(options.maxArtifactBytes);
   const documents = options.documentStore ?? drizzleDocumentStore(database);
   const app = new Hono();
 
-  const sessionUserId = async (c: Context): Promise<string | null> => {
-    const bearerUserId = options.principal ? readPrincipal(c.req.raw.headers)?.userId : undefined;
-    if (bearerUserId) return bearerUserId;
-    const session = await auth.api.getSession({ headers: c.req.raw.headers });
-    const id = session?.user?.id;
-    return typeof id === "string" && id.length > 0 ? id : null;
-  };
-  const guard = (c: Context): Response | null => {
-    if (options.principal) return null;
-    if (c.req.header("origin") !== publicOrigin) return c.json({ error: "origin_not_allowed" }, 403);
-    if (!isJsonContentType(c.req.header("content-type"))) return c.json({ error: "json_content_type_required" }, 415);
-    return null;
-  };
-  const docGate = async (c: Context): Promise<{ userId: string; row: DocRow } | Response> => {
-    const artifactId = c.req.param("id") ?? "";
-    if (!isUuid(artifactId)) return c.json({ error: "not_found" }, 404);
-    const userId = await sessionUserId(c);
-    if (!userId) return c.json({ error: "unauthorized" }, 401);
-    const row = await documentFor(db, userId, artifactId);
-    if (!row) return c.json({ error: "not_found" }, 404);
-    return { userId, row };
-  };
+  const { sessionUserId, guard } = editingSession(options);
+  const docGate = (c: Context): Promise<DocGate | Response> => docGateFor(c, db, sessionUserId);
   const requireMarkdown = (c: Context, row: DocRow): Response | null =>
     editsDocumentInApp(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
-  const requireCurrent = (c: Context, row: DocRow): Response | null =>
-    row.revisionId && row.storageKey && row.sha256 ? null : c.json({ error: "no_current_revision" }, 409);
-  const requireEditor = (c: Context, row: DocRow): Response | null =>
-    canEdit(row) ? null : c.json({ error: "forbidden" }, 403);
 
   app.get("/api/artifacts/:id/document", async (c) => {
     const gate = await docGate(c);

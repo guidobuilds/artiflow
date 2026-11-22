@@ -7,6 +7,7 @@ import { createAuth, createAuthApp } from "./auth.ts";
 import { resolveMcpNetwork, type AppConfig } from "./config.ts";
 import { MAX_ARTIFACT_BYTES } from "./adapters/postgres/db/artifact-schema.ts";
 import { createEditingApp } from "./routes/editing.ts";
+import { createSceneApp } from "./routes/scene.ts";
 import { createAssetsApp } from "./routes/assets.ts";
 import { createCommentsApp } from "./routes/comments.ts";
 import { createHealthApp } from "./routes/health.ts";
@@ -78,6 +79,10 @@ export function createApiApp({ config, database, storage }: ApiAppDeps) {
     if (c.req.method !== "PUT") return next();
     return bodyLimit({ kind: "document-save", limitBytes: MAX_ARTIFACT_BYTES })(c, next);
   });
+  app.use("/api/artifacts/*/scene", async (c, next) => {
+    if (c.req.method !== "PUT") return next();
+    return bodyLimit({ kind: "document-save", limitBytes: MAX_ARTIFACT_BYTES })(c, next);
+  });
   app.use("/api/artifacts/*/comments", async (c, next) => {
     if (c.req.method !== "POST") return next();
     return bodyLimit({ kind: "comment", limitBytes: 64 * 1024 })(c, next);
@@ -101,6 +106,10 @@ export function createApiApp({ config, database, storage }: ApiAppDeps) {
   app.route(
     "/",
     createEditingApp({ database: databaseView, auth, storage: storageView, publicOrigin: config.publicOrigin }),
+  );
+  app.route(
+    "/",
+    createSceneApp({ database: databaseView, auth, storage: storageView, publicOrigin: config.publicOrigin }),
   );
   app.route(
     "/",
