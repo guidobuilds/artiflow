@@ -22,7 +22,9 @@ import { viewerCommentsAssets } from "../viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
-import { rendersInlineMarkdown } from "@artiflow/domain/kinds";
+import { readScene } from "@artiflow/domain/scene";
+import { rendersInlineMarkdown, viewerFor } from "@artiflow/domain/kinds";
+import { renderSceneDocument } from "../viewer/scene.ts";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 import type { LinkListResponse, LinkReveal, ShareListResponse } from "@artiflow/contracts/shares";
@@ -478,6 +480,24 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       };
       return c.html(
         markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh, comments),
+        200,
+        {
+          ...VIEWER_HEADERS,
+          "x-robots-tag": "noindex",
+        },
+      );
+    }
+    if (viewerFor(row.kind) === "scene") {
+      const scene = readScene(new TextDecoder().decode(read.value.bytes));
+      if (!scene.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+      return c.html(
+        wrapperPage(
+          escapeAttribute(renderSceneDocument(scene.value, c.req.query("frame"))),
+          undefined,
+          undefined,
+          false,
+          refresh,
+        ),
         200,
         {
           ...VIEWER_HEADERS,

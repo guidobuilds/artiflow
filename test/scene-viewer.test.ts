@@ -140,7 +140,7 @@ class FakeElement {
   }
 }
 
-const runScript = (html: string, ids: readonly string[], hash = "") => {
+const runScript = (html: string, ids: readonly string[], hash = "", visible = ids[0]) => {
   const host = new FakeElement("document");
   const stage = new FakeElement("div");
   const index = new FakeElement("nav");
@@ -153,7 +153,7 @@ const runScript = (html: string, ids: readonly string[], hash = "") => {
     element.setAttribute("data-frame-id", id);
     element.setAttribute("data-frame-w", "400");
     element.setAttribute("data-frame-h", "800");
-    element.hidden = id !== ids[0];
+    element.hidden = id !== visible;
     frames.set(id, element);
     const tab = new FakeElement("button");
     tab.setAttribute("data-target", id);
@@ -369,6 +369,29 @@ test("the inline script parses", () => {
   const script = inlineScript(renderSceneDocument(twoFrames));
   assert.ok(script.length > 0);
   assert.doesNotThrow(() => new vm.Script(script, { filename: "scene-viewer.js" }));
+});
+
+test("the frame named in the URL query opens first and the index marks it", () => {
+  const html = renderSceneDocument(twoFrames, "checkout");
+  assert.ok(frameTag(html, "home").includes("hidden"), "the first frame is not the visible one");
+  assert.equal(frameTag(html, "checkout").includes("hidden"), false);
+  const index = indexMarkup(html);
+  assert.ok(index.includes('data-target="checkout" aria-current="true"'), index);
+  assert.equal(index.includes('data-target="home" aria-current="true"'), false);
+  const opened = runScript(html, ["home", "checkout"], "", "checkout");
+  assert.equal(opened.frames.get("checkout")?.hidden, false, "the client honours the frame the server marked visible");
+  assert.equal(opened.frames.get("home")?.hidden, true);
+});
+
+test("an unknown or empty frame id falls back to the first frame instead of failing the page", () => {
+  for (const frameId of ["missing", "", undefined]) {
+    const html = renderSceneDocument(twoFrames, frameId);
+    assert.equal(frameTag(html, "home").includes("hidden"), false, `${String(frameId)} opens the first frame`);
+    assert.ok(frameTag(html, "checkout").includes("hidden"));
+    assert.equal(html.includes('id="frame-missing"'), false, "the unknown id renders nothing of its own");
+    assert.equal((html.match(/data-target="/g) ?? []).length, 2, "both frames stay reachable");
+    assert.doesNotThrow(() => runScript(html, ["home", "checkout"]), "the page still runs");
+  }
 });
 
 test("an empty scene renders a clear empty state", () => {

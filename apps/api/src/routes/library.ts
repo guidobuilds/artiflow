@@ -30,7 +30,9 @@ import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import { loadViewerComments } from "../viewer/comments-degrade.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
-import { acceptsTextOperations, rendersInlineMarkdown, wireNameFor } from "@artiflow/domain/kinds";
+import { readScene } from "@artiflow/domain/scene";
+import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
+import { renderSceneDocument } from "../viewer/scene.ts";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -234,6 +236,24 @@ export function createLibraryApp(options: LibraryOptions): Hono {
           embed,
           refresh,
           comments,
+        ),
+        200,
+        VIEWER_HEADERS,
+      );
+    }
+    if (viewerFor(row.kind) === "scene") {
+      const scene = readScene(new TextDecoder().decode(read.value.bytes));
+      if (!scene.ok) return c.json({ error: "artifact_unavailable" }, 500);
+      const frame = c.req.query("frame");
+      const srcdocUrl =
+        frame === undefined ? `/artifact/${row.id}` : `/artifact/${row.id}?frame=${encodeURIComponent(frame)}`;
+      return c.html(
+        wrapperPage(
+          escapeAttribute(renderSceneDocument(scene.value, frame)),
+          embed ? undefined : "/",
+          { title: row.title, version: row.revisionNumber },
+          embed,
+          { ...refresh, srcdocUrl },
         ),
         200,
         VIEWER_HEADERS,

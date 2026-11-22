@@ -170,6 +170,36 @@ test("scene_outline costs one line per frame on a 200-node scene", async () => {
   );
 });
 
+test("the acceptance budget: a 200-node scene is inspected without reading it in full", async () => {
+  const frames = Array.from({ length: 10 }, (_, frameIndex) =>
+    frameOf(
+      `frame-${frameIndex + 1}`,
+      `Screen ${frameIndex + 1}`,
+      Array.from({ length: 20 }, (_, nodeIndex) => rectNode(`node-${frameIndex + 1}-${nodeIndex + 1}`)),
+      frameIndex * 100,
+    ),
+  );
+  const text = canvasText(frames);
+  const { callTool } = await connect(canvasBackend({ ownerId: OWNER, kind: "canvas", text }));
+  const outline = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "frame-1" }));
+  const storedBytes = Buffer.byteLength(text, "utf8");
+  const outlineBytes = Buffer.byteLength(JSON.stringify(outline), "utf8");
+  const readBytes = Buffer.byteLength(JSON.stringify(read), "utf8");
+  const inspectedBytes = outlineBytes + readBytes;
+  assert.equal(
+    (outline.frames as ToolPayload[]).reduce((sum, entry) => sum + Number(entry.nodeCount), 0),
+    200,
+    "the scene holds two hundred nodes",
+  );
+  assert.equal((read.frame as ToolPayload).nodeCount, 20, "one frame, not the whole scene");
+  assert.ok(inspectedBytes <= 3072, `outline plus one read costs ${inspectedBytes} bytes, under the 3072 ceiling`);
+  assert.ok(
+    inspectedBytes * 5 <= storedBytes,
+    `${inspectedBytes} inspected bytes stay at least five times below the ${storedBytes} stored bytes`,
+  );
+});
+
 test("scene_read returns exactly one frame with its own nodes", async () => {
   const frames = [
     frameOf("home", "Home", [rectNode("home-node"), textNode("home-text", "Home body")]),

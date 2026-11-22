@@ -87,11 +87,11 @@ const renderFrame = (frame: SceneFrame, visible: boolean): string => {
 </section>`;
 };
 
-const renderIndex = (scene: Scene): string =>
+const renderIndex = (scene: Scene, selectedId: string | null): string =>
   scene.frames
     .map(
-      (frame, position) =>
-        `<button type="button" data-target="${escapeAttribute(frame.id)}"${position === 0 ? ' aria-current="true"' : ""}>${escapeAttribute(frame.name)}</button>`,
+      (frame) =>
+        `<button type="button" data-target="${escapeAttribute(frame.id)}"${frame.id === selectedId ? ' aria-current="true"' : ""}>${escapeAttribute(frame.name)}</button>`,
     )
     .join("");
 
@@ -305,13 +305,16 @@ const SCENE_SCRIPT = `(() => {
   if (frames.length > 0) {
     const wanted = readHash();
     const known = frames.some((frame) => idOf(frame) === wanted);
-    show(known ? wanted : idOf(frames[0]), false);
+    const rendered = frames.find((frame) => !frame.hidden) || frames[0];
+    show(known ? wanted : idOf(rendered), false);
   }
 })();`;
 
-export function renderSceneDocument(scene: Scene): string {
+export function renderSceneDocument(scene: Scene, frameId?: string): string {
   const empty = scene.frames.length === 0;
   const title = scene.frames[0]?.name ?? "Canvas";
+  const selected = scene.frames.find((frame) => frame.id === frameId) ?? scene.frames[0];
+  const selectedId = selected === undefined ? null : selected.id;
   const chrome = empty
     ? `<div class="scene-stage" id="stage">
 <p class="scene-empty">This canvas has no frames yet.</p>
@@ -319,9 +322,9 @@ export function renderSceneDocument(scene: Scene): string {
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
     : `<div class="scene-stage" id="stage">
 <div class="scene-tools"><button type="button" id="fit" title="Fit the frame to the screen">Fit</button></div>
-${scene.frames.map((frame, position) => renderFrame(frame, position === 0)).join("\n")}
+${scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId)).join("\n")}
 </div>
-<nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene)}</nav>`;
+<nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene, selectedId)}</nav>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeAttribute(title)}</title>
 <style>
