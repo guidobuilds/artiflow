@@ -83,7 +83,7 @@ function AdminFrame({ section, children }: { section: AdminSection | null; child
         </div>
         {section ? <AdminNav section={section} /> : null}
       </aside>
-      <main className="flex min-w-0 flex-col">{children}</main>
+      <main className="flex min-w-0 flex-col items-center">{children}</main>
     </div>
   );
 }
@@ -96,7 +96,7 @@ export function AdminRefusal({ section, gate }: { section: AdminSection; gate: A
 
   return (
     <AdminFrame section={null}>
-      <div className="grid flex-1 place-items-center px-4 py-10">
+      <div className="grid w-full flex-1 place-items-center px-4 py-10">
         <section className="grid w-full max-w-[620px] min-w-0 justify-items-start gap-3.5">
           <p className="font-mono text-[13px] text-fg-subtle">Administration · {adminSectionLabel(section)}</p>
           {gate.kind === "loading" ? (
