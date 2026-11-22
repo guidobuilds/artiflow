@@ -12,10 +12,12 @@ import {
   type EmergencyNotice,
 } from "./login-methods.ts";
 import { safeInternalPath } from "./lib/utils.ts";
+import { providerLabel } from "./provider-marks.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
 import { PasswordPolicyNotice, type PasswordPolicyReading } from "@/components/ui/password-policy-notice.tsx";
+import { ProviderMark } from "@/components/ui/provider-mark.tsx";
 import { Terminal, TerminalOutput, TerminalPrompt, TerminalTool } from "@/components/ui/terminal.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 
@@ -225,14 +227,16 @@ export default function AuthScreen({
                     disabled={busy}
                     onClick={() => void providerSignIn(provider)}
                   >
-                    Continue with{" "}
-                    {provider === "github" ? "GitHub" : provider.charAt(0).toUpperCase() + provider.slice(1)}
+                    <ProviderMark provider={provider} />
+                    Continue with {providerLabel(provider)}
                   </Button>
                 ))}
               </div>
-              <p className="flex items-center gap-3 text-[12px] text-fg-subtle before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">
-                or with email
-              </p>
+              {signInForm ? (
+                <p className="flex items-center gap-3 text-[12px] text-fg-subtle before:h-px before:flex-1 before:bg-line after:h-px after:flex-1 after:bg-line">
+                  or with email
+                </p>
+              ) : null}
             </>
           ) : null}
           {created ? (
