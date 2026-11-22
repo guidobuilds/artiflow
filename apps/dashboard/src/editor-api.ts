@@ -1,4 +1,4 @@
-import { editsDocumentInApp, isArtifactKind, type ArtifactKind } from "@artiflow/domain/kinds";
+import { editsDocumentInApp, editsSceneInApp, isArtifactKind, type ArtifactKind } from "@artiflow/domain/kinds";
 
 import { manageRequest, type LocationTarget } from "./auth-client.ts";
 import type { DetailWire } from "./lib/editor-freshness.ts";
@@ -107,9 +107,13 @@ export const restoreRevision = (id: string, revisionId: string, expectedRevision
   });
 
 export async function openArtifact(
-  artifact: { id: string; viewerHref: string },
+  artifact: { id: string; viewerHref: string; kind: string },
   target: LocationTarget,
 ): Promise<void> {
+  if (editsSceneInApp(artifact.kind)) {
+    target.assign(`/canvas/${encodeURIComponent(artifact.id)}`);
+    return;
+  }
   const document = await getDocument(artifact.id);
   target.assign(document.ok ? `/edit/${encodeURIComponent(artifact.id)}` : artifact.viewerHref);
 }

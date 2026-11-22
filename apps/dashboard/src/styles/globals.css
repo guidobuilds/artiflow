@@ -897,6 +897,224 @@
   grid-template-columns: minmax(0, 1fr) 360px;
 }
 
+.canvas-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  overflow: hidden;
+}
+.canvas-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.canvas-workspace.canvas-inspector-open {
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+.canvas-stage-wrap {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--bg-raised);
+  background-image: radial-gradient(circle at 1px 1px var(--line) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+.canvas-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.canvas-frame {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  transform-origin: 0 0;
+  background: #ffffff;
+  border-radius: 2px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28);
+}
+.canvas-node {
+  position: absolute;
+  cursor: move;
+  outline: 1px solid transparent;
+  user-select: none;
+}
+.canvas-node:focus-visible {
+  outline: 1px solid var(--accent);
+}
+.canvas-node-text {
+  overflow: hidden;
+  line-height: 1.25;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.canvas-node-image {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border: 1px dashed #b3b9bf;
+  border-radius: 4px;
+  background: repeating-linear-gradient(45deg, #f5f6f7, #f5f6f7 6px, #eceef0 6px, #eceef0 12px);
+  color: #5c636a;
+  font-size: 11px;
+}
+.canvas-image-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.canvas-node-path {
+  overflow: hidden;
+}
+.canvas-node-selected {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.canvas-handle {
+  position: absolute;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  touch-action: none;
+}
+.canvas-handle-width {
+  top: 50%;
+  right: -5px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  cursor: ew-resize;
+}
+.canvas-handle-height {
+  bottom: -5px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  cursor: ns-resize;
+}
+.canvas-handle-corner {
+  right: -5px;
+  bottom: -5px;
+  width: 8px;
+  height: 8px;
+  cursor: nwse-resize;
+}
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+.canvas-zoom {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.canvas-zoom output {
+  min-width: 44px;
+  color: var(--fg-muted);
+  font:
+    11.5px/1 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  text-align: center;
+}
+.canvas-inspector {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+  padding: 18px 16px;
+  border-left: 1px solid var(--line);
+  background: var(--bg-raised);
+  overflow-y: auto;
+}
+.canvas-field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.canvas-field input,
+.canvas-field textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 13px;
+}
+.canvas-field input[type="color"] {
+  height: 32px;
+  padding: 2px;
+}
+.canvas-frames {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+.canvas-frames button {
+  flex: none;
+  max-width: 220px;
+  height: 28px;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canvas-frames button:hover {
+  color: var(--fg);
+}
+.canvas-frames button[aria-current="true"] {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--fg);
+}
+.canvas-frames button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (max-width: 800px) {
+  .canvas-workspace.canvas-inspector-open {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .canvas-inspector {
+    grid-column: 1;
+    grid-row: 2;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+
 .editor-comments-column {
   grid-column: 2;
   grid-row: 1;

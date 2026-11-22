@@ -21,6 +21,7 @@ import {
   canEditInApp,
   capabilitiesFor,
   editsDocumentInApp,
+  editsSceneInApp,
   extensionsFor,
   iconFor,
   isArtifactKind,
@@ -88,7 +89,7 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
     comments: false,
     agentWrite: "replace-document",
     titleSource: "frame-name",
-    appEdit: false,
+    appEdit: true,
     extensions: [".canvas", ".scene.json"],
   },
 };
@@ -343,6 +344,26 @@ test("the document-editing gate is the registry conjunct, not a kind name", () =
   assert.equal(editsDocumentInApp("html"), false);
   assert.equal(editsDocumentInApp("markdown"), true);
   assert.equal(editsDocumentInApp("deck"), false);
+  assert.equal(
+    editsDocumentInApp("canvas"),
+    false,
+    "a canvas is editable in the app without being a document the text gate admits",
+  );
+});
+
+test("the scene-editing gate is the registry conjunct too, and only a scene viewer qualifies", () => {
+  for (const kind of ARTIFACT_KINDS)
+    assert.equal(
+      editsSceneInApp(kind),
+      canEditInApp(kind) && viewerFor(kind) === "scene",
+      `a kind may edit its scene in the app only when both capabilities allow it: ${kind}`,
+    );
+  assert.equal(canEditInApp("canvas"), true, "a canvas is edited in the app");
+  assert.equal(editsSceneInApp("canvas"), true);
+  assert.equal(editsSceneInApp("markdown"), false, "the document editor is not reached through the scene gate");
+  assert.equal(editsSceneInApp("html"), false);
+  assert.equal(editsSceneInApp("deck"), false);
+  assert.equal(editsSceneInApp(UNKNOWN_KIND), false);
 });
 
 test("the composed predicates answer for every kind and fail closed for unknown ones", () => {

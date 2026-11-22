@@ -5,6 +5,7 @@ import { ThemeProvider } from "@/components/app/theme-provider.tsx";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import AccountPage from "./AccountPage.tsx";
+import CanvasEditorPage from "./CanvasEditorPage.tsx";
 import ConsentPage from "./ConsentPage.tsx";
 import LibraryPage from "./LibraryPage.tsx";
 import EditorPage from "./EditorPage.tsx";
@@ -19,6 +20,7 @@ if (!container) throw new Error("Artiflow: missing #root container");
 
 const path = window.location.pathname;
 const edit = /^\/edit\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/.exec(path);
+const canvas = /^\/canvas\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/.exec(path);
 const page =
   path === "/consent" ? (
     <ConsentPage search={window.location.search} />
@@ -36,6 +38,8 @@ const page =
     <AccountPage />
   ) : edit ? (
     <EditorPage artifactId={edit[1]!} />
+  ) : canvas ? (
+    <CanvasEditorPage artifactId={canvas[1]!} />
   ) : (
     <NotFoundPage />
   );

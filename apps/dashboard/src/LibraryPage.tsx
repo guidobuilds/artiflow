@@ -27,8 +27,17 @@ import {
 import { Card, CardGrid, FileTile } from "@/components/ui/card.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { cn } from "@/lib/utils.ts";
-import { ARTIFACT_KINDS, iconFor, labelFor, pluralFor, type ArtifactKind, type KindIcon } from "@artiflow/domain/kinds";
+import {
+  ARTIFACT_KINDS,
+  editsSceneInApp,
+  iconFor,
+  labelFor,
+  pluralFor,
+  type ArtifactKind,
+  type KindIcon,
+} from "@artiflow/domain/kinds";
 import { openArtifact } from "./editor-api.ts";
+import { openCanvas } from "./scene-api.ts";
 import ShareModal from "./ShareModal.tsx";
 import DeleteModal from "./DeleteModal.tsx";
 import CommandPalette from "./CommandPalette.tsx";
@@ -180,6 +189,10 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
     else groups.push({ label, rows: [row] });
   }
   const open = (artifact: ArtifactSummary) => {
+    if (editsSceneInApp(artifact.kind)) {
+      void openCanvas(artifact, window.location);
+      return;
+    }
     void openArtifact(artifact, window.location);
   };
 

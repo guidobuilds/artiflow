@@ -773,7 +773,7 @@ test("library Open resolves markdown to the editor, HTML keeps its viewer, and f
       globalThis.fetch = (async () => Response.json(body, { status })) as typeof fetch;
       let href = "";
       await openArtifact(
-        { id: "a", viewerHref: "/artifact/a" },
+        { id: "a", viewerHref: "/artifact/a", kind: "markdown" },
         {
           assign: (url) => {
             href = url;

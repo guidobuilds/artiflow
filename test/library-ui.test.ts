@@ -12,6 +12,7 @@ import {
   startLibraryPolling,
 } from "../apps/dashboard/src/auth-client.ts";
 import { labelFor } from "@artiflow/domain/kinds";
+import { editsDocumentInApp, editsSceneInApp } from "@artiflow/domain/kinds";
 import { safeInternalPath } from "../apps/dashboard/src/lib/utils.ts";
 
 type Call = { url: string; init: RequestInit };
@@ -158,6 +159,21 @@ test("the list payload maps to only what the page renders, in same-origin links"
     rows.map((row) => /^\/artifact\/[^/]+$/.test(row.viewerHref)),
     [true, true, true],
   );
+});
+
+test("a canvas row opens in the canvas editor while a document row keeps the markdown editor", () => {
+  const rows = parseArtifactList({
+    artifacts: [artifact("canvas-1", { kind: "canvas", title: "Board" }), artifact("doc-1", { kind: "markdown" })],
+  });
+  const canvas = rows?.[0];
+  const doc = rows?.[1];
+  assert.equal(canvas?.kind, "canvas");
+  assert.equal(doc?.kind, "markdown");
+  assert.equal(editsSceneInApp(canvas?.kind ?? ""), true, "the canvas row is routed by the registry, not by a name");
+  assert.equal(editsSceneInApp(doc?.kind ?? ""), false);
+  assert.equal(editsDocumentInApp(doc?.kind ?? ""), true, "a doc still needs the text gate before the markdown editor");
+  assert.equal(editsDocumentInApp(canvas?.kind ?? ""), false);
+  assert.equal(canvas?.viewerHref, "/artifact/canvas-1", "the read-only viewer stays addressable for every row");
 });
 
 test("kind rides the summary: a known kind stays itself and an unrecognised one degrades to unknown", () => {

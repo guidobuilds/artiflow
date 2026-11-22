@@ -63,7 +63,7 @@ export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
     comments: false,
     agentWrite: "replace-document",
     titleSource: "frame-name",
-    appEdit: false,
+    appEdit: true,
     extensions: [".canvas", ".scene.json"],
   },
 };
@@ -107,6 +107,8 @@ export const rendersInlineMarkdown = (kind: string): boolean => viewerFor(kind) 
 export const acceptsTextOperations = (kind: string): boolean => agentWriteFor(kind) === "text-operations";
 
 export const editsDocumentInApp = (kind: string): boolean => canEditInApp(kind) && acceptsTextOperations(kind);
+
+export const editsSceneInApp = (kind: string): boolean => canEditInApp(kind) && viewerFor(kind) === "scene";
 
 export const kindForExtension = (
   extension: string,
