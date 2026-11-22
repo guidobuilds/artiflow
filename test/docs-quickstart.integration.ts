@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 
+import { ARTIFACT_KINDS } from "@artiflow/domain/kinds";
 import { DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -22,6 +23,7 @@ import { createMcpApp, createMcpBearerVerifier } from "../apps/api/src/mcp/mount
 import { publicIssuer, publicResource } from "../apps/api/src/oauth.ts";
 import { createLibraryApp } from "../apps/api/src/routes/library.ts";
 import { createShareViewerApp, createSharingApp } from "../apps/api/src/routes/sharing.ts";
+import { VIEWER_CSP } from "../apps/api/src/viewer/html.ts";
 import { startOAuthHarness, type OAuthHarness } from "./helpers/oauth.ts";
 
 const QUICKSTART = fileURLToPath(new URL("../apps/web/src/content/docs/docs/start/quickstart.md", import.meta.url));
@@ -37,8 +39,6 @@ const ENV_READY = Boolean(DATABASE_URL) && S3_VARS.every((name) => process.env[n
 const SKIP = ENV_READY ? false : "DATABASE_URL or S3 missing; run with --env-file=test/integration-config.example";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const LINK_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
-const VIEWER_CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'";
 
 type QuickstartSample = { arguments: Record<string, unknown>; text: string; bytes: Buffer };
 type ToolResult = {
@@ -359,7 +359,9 @@ integration("the signed-in artifact page renders the documented page inside one 
   assert.equal(page.headers.get("content-security-policy"), VIEWER_CSP);
   assert.equal(page.headers.get("x-content-type-options"), "nosniff");
   assert.equal(page.headers.get("cache-control"), "no-store");
-  assert.equal(srcdocOf(page.text), sample.text, "the stored page reaches the frame byte-exactly");
+  const ownedFrame = srcdocOf(page.text);
+  assert.equal(ownedFrame.startsWith(sample.text), true, "the stored page leads the frame");
+  assert.equal(ownedFrame.slice(sample.text.length).includes("data-artiflow-bridge"), true);
   assert.equal(page.text.includes('sandbox="allow-scripts"'), true);
   assert.equal(page.text.includes("allow-same-origin"), false);
   assert.equal(page.text.match(/<iframe /g)?.length, 1);
@@ -386,7 +388,8 @@ integration("a public link opens without a session and revoking it denies access
   const createdLink = await mutate("POST", linksPath, {});
   assert.equal(createdLink.status, 201);
   const link = createdLink.json ?? {};
-  assert.deepEqual(Object.keys(link).sort(), ["id", "token", "url"]);
+  assert.deepEqual(Object.keys(link).sort(), ["id", "showComments", "token", "url"]);
+  assert.equal(link.showComments, false);
   assert.match(String(link.id), UUID_RE);
   assert.match(String(link.token), LINK_TOKEN_RE);
   assert.equal(link.url, `${publicOrigin}/share/${String(link.token)}`);
@@ -399,7 +402,9 @@ integration("a public link opens without a session and revoking it denies access
   assert.equal(anonymous.headers.get("x-content-type-options"), "nosniff");
   assert.equal(anonymous.headers.get("cache-control"), "no-store");
   assert.equal(anonymous.headers.get("x-robots-tag"), "noindex");
-  assert.equal(srcdocOf(anonymous.text), sample.text);
+  const publicFrame = srcdocOf(anonymous.text);
+  assert.equal(publicFrame.startsWith(sample.text), true, "the stored page leads the public frame");
+  assert.equal(publicFrame.slice(sample.text.length).includes("data-artiflow-bridge"), true);
   assert.equal(anonymous.text.includes('href="/"'), false, "the public page carries no back link");
   assert.equal(anonymous.text.includes("<b>"), false, "the public page does not name the artifact");
 
@@ -443,13 +448,13 @@ integration("the documented limits refuse an oversized write and an unsupported 
     assert.equal(payload.observedBytes, MAX_CHUNK_BYTES + 1);
     const unsupported = await callTool(client, "artifact_write", {
       text: "x",
-      kind: "canvas",
+      kind: "spreadsheet",
       title: "Unsupported kind",
     });
     assert.equal(unsupported.isError, true);
     const message = unsupported.content?.[0]?.text ?? "";
     assert.match(message, /Invalid arguments for tool artifact_write/);
-    assert.equal(message.includes("html") && message.includes("markdown"), true, "the refusal names the two kinds");
+    for (const kind of ARTIFACT_KINDS) assert.equal(message.includes(kind), true, kind);
   } finally {
     await client.close();
   }

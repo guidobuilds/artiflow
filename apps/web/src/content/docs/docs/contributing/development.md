@@ -64,19 +64,19 @@ The root suite runs on Node, not Bun: on Bun 1.3.10 the `node:test` shim ignores
 environment-gated suites execute instead of skipping, and `node:module` lacks
 `stripTypeScriptTypes`. Keep using `node --test`.
 
-| Command                    | What it runs                                                                                                                                              |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun run test`             | Every `test/*.test.ts` under `node --test`. Unit and UI tests; no services required, gated suites self-skip.                                              |
-| `bun run test:integration` | Every `test/*.test.ts` and `test/*.integration.ts`, serially, using `test/integration-config.example`. Requires the disposable PostgreSQL + Garage stack. |
-| `bun run test:auth`        | `test/auth-http.integration.ts` against a disposable PostgreSQL.                                                                                          |
-| `bun run test:oauth`       | `test/oauth-http.integration.ts` against a disposable PostgreSQL.                                                                                         |
-| `bun run typecheck`        | The API TypeScript project and the dashboard workspace project.                                                                                           |
-| `bun run build`            | Docs link check, boundary check, dashboard production build and API type check.                                                                           |
-| `bun run check:boundaries` | Import boundaries between apps, packages and tests.                                                                                                       |
-| `bun run check:hygiene`    | Fails when a tracked file matches `.gitignore`.                                                                                                           |
-| `bun run check:changed`    | Prettier and oxlint on the files changed against `origin/main`. Pass a base ref to compare elsewhere.                                                     |
-| `bun run check:docs`       | Every relative link in `README.md` and `docs/` resolves to an existing file.                                                                              |
-| `bun run web:verify`       | `astro check`, the docs build, then the built-output verifier; the only docs check that reads `apps/web/dist`.                                            |
+| Command                    | What it runs                                                                                                                                                                                                         |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run test`             | Every `test/*.test.ts` under `node --test`. Unit and UI tests; no services required, gated suites self-skip.                                                                                                         |
+| `bun run test:integration` | Every `test/*.test.ts` and `test/*.integration.ts`, serially, using `test/integration-config.example`. Requires the disposable PostgreSQL + Garage stack. Fails if a required variable is missing or any test skips. |
+| `bun run test:auth`        | `test/auth-http.integration.ts` against a disposable PostgreSQL.                                                                                                                                                     |
+| `bun run test:oauth`       | `test/oauth-http.integration.ts` against a disposable PostgreSQL.                                                                                                                                                    |
+| `bun run typecheck`        | The API TypeScript project and the dashboard workspace project.                                                                                                                                                      |
+| `bun run build`            | Docs link check, boundary check, dashboard production build and API type check.                                                                                                                                      |
+| `bun run check:boundaries` | Import boundaries between apps, packages and tests.                                                                                                                                                                  |
+| `bun run check:hygiene`    | Fails when a tracked file matches `.gitignore`.                                                                                                                                                                      |
+| `bun run check:changed`    | Prettier and oxlint on the files changed against `origin/main`. Pass a base ref to compare elsewhere.                                                                                                                |
+| `bun run check:docs`       | Every relative link in `README.md` and `docs/` resolves to an existing file.                                                                                                                                         |
+| `bun run web:verify`       | `astro check`, the docs build, then the built-output verifier; the only docs check that reads `apps/web/dist`.                                                                                                       |
 
 The integration stack and its exact sequence live in `docs/runbook.md`; never point those commands at
 data you care about. The docs site has its own checks:
@@ -104,8 +104,13 @@ codes (`0` clean, `1` problems, `2` usage error or unreadable input);
 what the fixture tests use.
 
 The repository's `verify` workflow runs the root checks on every push and pull request
-(hygiene, dependency audit, boundaries, changed-file formatting, typecheck, tests and build). It
-does not build or deploy the documentation site, so run `bun run web:verify`
+(hygiene, dependency audit, boundaries, changed-file formatting, typecheck, tests and build).
+The same workflow's `integration` job starts the disposable PostgreSQL and Garage stack,
+migrates, and runs `bun run test:integration`, which fails when configuration is missing or
+any test skips. The security-sandbox reproducer stays out of CI: its control test still
+requires the viewer body to be the stored HTML, and the frame now also carries the comment
+bridge, so the run exits 3.
+The workflow does not build or deploy the documentation site, so run `bun run web:verify`
 locally before opening a docs change.
 
 The gate audits the resolved tree with bun: after `bun install --frozen-lockfile` it runs

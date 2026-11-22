@@ -19,6 +19,7 @@ import { createDatabase, type Database } from "../apps/api/src/adapters/postgres
 import { createLibraryApp } from "../apps/api/src/routes/library.ts";
 import { createSharingApp } from "../apps/api/src/routes/sharing.ts";
 import { createStorage, type Storage } from "../apps/api/src/adapters/storage/client.ts";
+import { VIEWER_CSP, WRAPPER_CSP } from "../apps/api/src/viewer/html.ts";
 import { trustedSession } from "./helpers/trusted-accounts.ts";
 
 const MIGRATIONS = fileURLToPath(new URL("../drizzle", import.meta.url));
@@ -32,9 +33,6 @@ const S3_VARS = [
 const ENV_READY = Boolean(DATABASE_URL) && S3_VARS.every((name) => process.env[name]);
 const config = ENV_READY ? loadConfig(process.env) : undefined;
 const publicOrigin = config?.publicOrigin ?? "";
-const CSP =
-  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
-const VIEWER_CSP = `${CSP}; connect-src 'self'`;
 const HOSTILE = `<!doctype html><html><body><h1>Hostile</h1><script>document.title = "pwn"</script><img src=x onerror="alert(1)"><p>quotes "a" 'b'</p></body></html>`;
 const SKIP = ENV_READY ? false : "DATABASE_URL or S3 missing; run with --env-file=.env.local";
 
@@ -217,7 +215,7 @@ test(
         foreignView.headers.get("content-type"),
         foreignView.headers.get("content-security-policy"),
       ],
-      [404, 404, true, 404, true, "text/html; charset=UTF-8", CSP],
+      [404, 404, true, 404, true, "text/html; charset=UTF-8", WRAPPER_CSP],
       "foreign and missing artifacts answer identically, as the branded HTML page",
     );
     const anonymous = await read(`/artifact/${hostile.id}`);
@@ -234,29 +232,27 @@ test(
   },
 );
 
-test(
-  "a markdown artifact renders formatted in a sandboxed, script-free document frame",
-  { skip: SKIP, timeout: 60_000 },
-  async () => {
-    const doc = await seed(
-      a,
-      "# Notas\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n<script>alert(1)</script>",
-      "Markdown doc",
-      "markdown",
-    );
-    const reply = await read(`/artifact/${doc.id}`, {}, a);
-    assert.equal(reply.status, 200);
-    assert.equal(/allow-scripts/.test(reply.text), false, "rendered markdown needs no script");
-    assert.equal(
-      reply.text.match(/<script>/g)?.length,
-      1,
-      "the page around the document ships only the freshness poller",
-    );
-    assert.ok(/&lt;h1&gt;Notas/.test(reply.text), "the rendered fragment is escaped into the srcdoc");
-    assert.ok(reply.text.includes("mdpage"), "the markdown viewer stylesheet");
-    assert.ok(reply.text.includes('href="/"'), "the owner page carries the back link");
-  },
-);
+test("a markdown artifact renders formatted and escapes raw HTML", { skip: SKIP, timeout: 60_000 }, async () => {
+  const doc = await seed(
+    a,
+    "# Notas\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n<script>alert(1)</script>",
+    "Markdown doc",
+    "markdown",
+  );
+  const reply = await read(`/artifact/${doc.id}`, {}, a);
+  assert.equal(reply.status, 200);
+  assert.equal(/allow-scripts/.test(reply.text), false, "rendered markdown needs no script");
+  assert.equal(reply.text.includes("<iframe"), false, "the document is the page, not a nested frame");
+  assert.equal(
+    reply.text.match(/<script>/g)?.length,
+    1,
+    "the page around the document ships only the freshness poller",
+  );
+  assert.ok(reply.text.includes("<h1>Notas</h1>"), "markdown headings are rendered");
+  assert.ok(reply.text.includes("&lt;script&gt;alert(1)&lt;/script&gt;"), "raw HTML in the document is escaped");
+  assert.ok(reply.text.includes("mdpage"), "the markdown viewer stylesheet");
+  assert.ok(reply.text.includes('href="/"'), "the owner page carries the back link");
+});
 
 test(
   "the viewer delivers bytes only inside an escaped opaque-origin srcdoc wrapper",
@@ -296,15 +292,14 @@ test(
       [false, true, true],
       "artifact markup only reaches the wrapper escaped",
     );
-    assert.equal(
-      srcdoc
-        .replaceAll("&lt;", "<")
-        .replaceAll("&gt;", ">")
-        .replaceAll("&quot;", '"')
-        .replaceAll("&#39;", "'")
-        .replaceAll("&amp;", "&"),
-      HOSTILE,
-    );
+    const decoded = srcdoc
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#39;", "'")
+      .replaceAll("&amp;", "&");
+    assert.equal(decoded.startsWith(HOSTILE), true, "the stored bytes lead the frame");
+    assert.equal(decoded.slice(HOSTILE.length).includes("data-artiflow-bridge"), true);
     assert.equal(/<(link|img)\b/.test(reply.text), false, "the wrapper loads no external asset");
   },
 );
