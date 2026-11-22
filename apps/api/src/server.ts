@@ -1,6 +1,6 @@
 import { serve } from "@hono/node-server";
 
-import { startRevisionGcLoop, startStagingGcLoop } from "./domain/gc.ts";
+import { startAssetGcLoop, startRevisionGcLoop, startStagingGcLoop } from "./domain/gc.ts";
 import { ConfigError, loadConfig } from "./config.ts";
 import { emailPasswordEnabled } from "./auth.ts";
 import { createDatabase } from "./adapters/postgres/db/client.ts";
@@ -42,6 +42,7 @@ const server = serve(
 
 const stagingGc = startStagingGcLoop({ database, storage });
 const revisionGc = startRevisionGcLoop({ database, storage });
+const assetGc = startAssetGcLoop({ database, storage });
 
 let shuttingDown = false;
 
@@ -55,6 +56,7 @@ async function shutdown(signal: string): Promise<void> {
   });
   stagingGc.stop();
   revisionGc.stop();
+  assetGc.stop();
   await database.close().catch((error: unknown) => {
     console.error(`[api] database pool shutdown failed: ${error instanceof Error ? error.name : "unknown error"}`);
   });

@@ -55,6 +55,7 @@ const TOOL_NAMES = [
   "artifact_unresolve_comment",
   "artifact_update_metadata",
   "artifact_write",
+  "asset_upload",
   "document_apply",
   "document_create",
   "document_diff",

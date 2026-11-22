@@ -108,7 +108,8 @@ test("only the nine read tools declare readOnlyHint", async () => {
     "scene_read",
   ]);
   const others = tools.filter((tool) => !readOnly.includes(tool.name)).map((tool) => tool.name);
-  assert.equal(others.length, 13, "the registry holds twenty-two tools: nine reads and thirteen writers");
+  assert.equal(others.length, 14, "the registry holds twenty-three tools: nine reads and fourteen writers");
+  assert.ok(others.includes("asset_upload"), "the asset upload writes, so it is one of the fourteen");
   for (const name of others)
     assert.equal(
       (tools.find((tool) => tool.name === name) as { annotations?: Record<string, unknown> }).annotations,

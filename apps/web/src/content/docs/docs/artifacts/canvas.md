@@ -33,8 +33,9 @@ type and geometry relative to its frame.
 ```
 
 Node types are `rect`, `text`, `image` and `path`. An `image` node carries an `assetId` and no
-bytes: images are shown as a labelled placeholder until the asset lane exists, so a missing image is
-visible instead of silent.
+bytes: the picture is uploaded once, stored by its digest and referenced from as many documents as
+need it. An `assetId` the document does not reference is drawn as a labelled placeholder, so a
+missing image is visible instead of silent.
 
 Ids are stable and unique across the whole scene — a node cannot reuse its frame's id — because
 they are what a later phase will anchor comments and edits to.
@@ -71,6 +72,8 @@ network, keeps no storage and loads no external font or script.
   because a point anchor without a node would detach the moment the node moves.
 - **No shared layout engine.** Nodes carry absolute geometry. Automatic layout arrives with the
   editor, where the server has to agree with the browser about where things end up.
+- **No vector images.** PNG, JPEG, WebP and GIF are accepted; SVG is refused, because it is a
+  document that can carry script and serving it from our origin deserves its own decision.
 
 ## Reading it as an agent
 

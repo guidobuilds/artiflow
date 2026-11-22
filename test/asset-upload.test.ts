@@ -2,6 +2,14 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { test } from "node:test";
 
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { ARTIFACT_TOOL_NAMES } from "@artiflow/contracts/artifacts";
+import {
+  MAX_MCP_ASSET_BYTES,
+  MCP_REQUEST_BODY_LIMIT_BYTES,
+  MCP_REQUEST_ENVELOPE_HEADROOM_BYTES,
+} from "@artiflow/mcp-server/constants";
 import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
@@ -14,6 +22,10 @@ import {
 } from "../apps/api/src/adapters/postgres/db/artifact-schema.ts";
 import type { Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
+import { createApiApp, type ApiAppDeps } from "../apps/api/src/app.ts";
+import type { AppConfig } from "../apps/api/src/config.ts";
+import { createArtifactTools } from "../apps/api/src/mcp/artifact-tools.ts";
+import { createMcpBackend } from "../apps/api/src/mcp/backend.ts";
 import { createAssetsApp, type AssetsOptions } from "../apps/api/src/routes/assets.ts";
 
 const ORIGIN = "http://127.0.0.1:5173";
@@ -31,10 +43,11 @@ const png = (size = 96): Buffer =>
 
 type Insert = { table: unknown; values: Record<string, unknown> };
 type Statement = { sql: string; params: unknown[] };
+type Artifact = { id: string; ownerId: string; deletedAt?: Date | null };
 type World = {
-  artifacts: Record<string, { id: string; ownerId: string }>;
+  artifacts: Record<string, Artifact>;
   shares: { artifactId: string; userId: string; role: string }[];
-  assets: Map<string, { sha256: string; sizeBytes: number; contentType: string; storageKey: string }>;
+  assets: Map<string, { sha256: string; sizeBytes: number; contentType: string; storageKey?: string }>;
   references: { artifactId: string; assetSha256: string }[];
   inserts: Insert[];
   statements: Statement[];
@@ -113,8 +126,32 @@ const accessRows = (state: World, params: unknown[]): unknown[] => {
 };
 
 const assetRows = (state: World, params: unknown[]): unknown[] => {
+  if (params.length > 2) {
+    const artifactId = String(params[0]);
+    const sha256 = String(params[1]);
+    const row = state.assets.get(sha256);
+    if (!row) return [];
+    if (!state.references.some((reference) => reference.artifactId === artifactId && reference.assetSha256 === sha256))
+      return [];
+    if (state.artifacts[artifactId]?.ownerId !== String(params[2])) return [];
+    return [{ storageKey: row.storageKey, contentType: row.contentType, sizeBytes: row.sizeBytes }];
+  }
   const row = state.assets.get(String(params[0]));
   return row ? [{ sha256: row.sha256, sizeBytes: row.sizeBytes, contentType: row.contentType }] : [];
+};
+
+const stateRows = (state: World, params: unknown[]): unknown[] => {
+  const artifact: Artifact | undefined = state.artifacts[String(params[0])];
+  if (!artifact || artifact.ownerId !== String(params[1])) return [];
+  return [
+    {
+      currentRevisionId: null,
+      observedSizeBytes: null,
+      deletedAt: artifact.deletedAt ?? null,
+      revisionCount: 0,
+      kind: "canvas",
+    },
+  ];
 };
 
 function databaseOf(state: World): Database {
@@ -128,11 +165,17 @@ function databaseOf(state: World): Database {
       leftJoin: () => query,
       innerJoin: () => query,
       orderBy: () => query,
+      groupBy: () => query,
       limit: () => query,
       where: (expression: unknown) => {
         const compiled = dialect.sqlToQuery(expression as SQL);
         state.statements.push({ sql: compiled.sql, params: compiled.params });
-        rows = table === artifacts ? accessRows(state, compiled.params) : assetRows(state, compiled.params);
+        rows =
+          table === artifacts
+            ? compiled.sql.includes('"artifactShares"')
+              ? accessRows(state, compiled.params)
+              : stateRows(state, compiled.params)
+            : assetRows(state, compiled.params);
         return query;
       },
       then: (ok?: (value: unknown) => unknown, error?: (reason: unknown) => unknown) =>
@@ -355,4 +398,259 @@ test("the upload gate asks for the same owner-or-share access the document save 
     [`"assets"."sha256" = $1`, [digestOf(png())]],
     "the stored asset is looked up by its digest",
   );
+});
+
+type ToolResult = { isError?: boolean; content?: { text?: string }[]; structuredContent?: Record<string, unknown> };
+
+const toolPayload = (result: ToolResult): Record<string, unknown> =>
+  JSON.parse(result.content?.[0]?.text ?? "{}") as Record<string, unknown>;
+
+const toolset = async (state: World, scopes: string[] = ["artifacts:write"]) => {
+  const server = createArtifactTools({ backend: createMcpBackend(databaseOf(state), storageOf(state)) })({
+    userId: OWNER_ID,
+    scopes,
+  });
+  const client = new Client({ name: "asset-upload-test", version: "0.0.0" });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await Promise.all([server.connect(clientTransport), client.connect(serverTransport)]);
+  const tools = (await client.listTools()).tools;
+  return {
+    names: tools.map((tool) => tool.name),
+    tools,
+    callTool: async (name: string, args: Record<string, unknown>): Promise<ToolResult> =>
+      (await client.callTool({ name, arguments: args })) as ToolResult,
+    uploadAsset: (input: { artifactId?: string; contentType?: string; bytes: Uint8Array }): Promise<ToolResult> =>
+      client.callTool({
+        name: "asset_upload",
+        arguments: {
+          artifactId: input.artifactId ?? ARTIFACT_ID,
+          contentType: input.contentType ?? "image/png",
+          contentBase64: Buffer.from(input.bytes).toString("base64"),
+        },
+      }) as Promise<ToolResult>,
+  };
+};
+
+test("asset_upload is registered next to the artifact, document and scene tools", async () => {
+  const { names, tools } = await toolset(world());
+  assert.deepEqual(names.slice().sort(), [...ARTIFACT_TOOL_NAMES].sort(), "the registry and the contract list agree");
+  assert.equal(names.includes("asset_upload"), true, "the new tool is advertised");
+  const tool = tools.find((candidate) => candidate.name === "asset_upload") as {
+    annotations?: Record<string, unknown>;
+    outputSchema?: { properties?: Record<string, unknown> };
+  };
+  assert.equal(tool.annotations, undefined, "asset_upload writes, so it is not a read tool");
+  assert.deepEqual(
+    Object.keys(tool.outputSchema?.properties ?? {}).sort(),
+    ["contentType", "sha256", "sizeBytes"],
+    "the output schema carries exactly the digest a scene node names",
+  );
+});
+
+test("the bytes the tool stores are the bytes delivery serves, and HTTP shares the one object", async () => {
+  const state = world();
+  const bytes = png(320);
+  const sha256 = digestOf(bytes);
+  const { uploadAsset } = await toolset(state);
+  const uploaded = await uploadAsset({ bytes });
+  assert.equal(uploaded.isError ?? false, false, JSON.stringify(toolPayload(uploaded)));
+  assert.deepEqual(uploaded.structuredContent, { sha256, sizeBytes: bytes.length, contentType: "image/png" });
+  assert.deepEqual(toolPayload(uploaded), uploaded.structuredContent, "the text content repeats the structured one");
+  assert.deepEqual(
+    state.puts.map((put) => put.key),
+    [`assets/${sha256}`],
+    "the tool stores one content-addressed object",
+  );
+  assert.deepEqual(state.references, [{ artifactId: ARTIFACT_ID, assetSha256: sha256 }], "the artifact references it");
+  assert.equal(state.inserts[0]?.table, assets, "the tool writes the assets row, not a parallel record");
+
+  const delivered = await appOf(state, OWNER_ID).request(`/artifact/${ARTIFACT_ID}/asset/${sha256}`);
+  assert.deepEqual(
+    [delivered.status, Buffer.from(await delivered.arrayBuffer())],
+    [200, bytes],
+    "delivery serves exactly the uploaded bytes",
+  );
+
+  const repeated = await upload(state, { body: bytes });
+  assert.deepEqual(
+    [repeated.status, await json(repeated)],
+    [201, { id: sha256, sizeBytes: bytes.length, contentType: "image/png" }],
+    "the same bytes through HTTP answer the same id",
+  );
+  assert.deepEqual(
+    [state.puts.length, state.assets.size, state.objects.size, state.references.length],
+    [1, 1, 1, 1],
+    "one object, one row and one reference, whichever surface uploaded first",
+  );
+});
+
+test("the HTTP upload first and the tool second still store one object and answer one digest", async () => {
+  const state = world();
+  const bytes = png(140);
+  const sha256 = digestOf(bytes);
+  const overHttp = await upload(state, { body: bytes });
+  assert.deepEqual([overHttp.status, (await json(overHttp)).id], [201, sha256]);
+  const { uploadAsset } = await toolset(state);
+  const uploaded = await uploadAsset({ bytes });
+  assert.deepEqual(uploaded.structuredContent, { sha256, sizeBytes: bytes.length, contentType: "image/png" });
+  assert.deepEqual([state.puts.length, state.assets.size, state.references.length], [1, 1, 1]);
+});
+
+test("the tool accepts the largest payload the MCP body carries and refuses one byte more by name", async () => {
+  const accepted = world();
+  const { uploadAsset } = await toolset(accepted);
+  const atCeiling = Buffer.alloc(MAX_MCP_ASSET_BYTES, 9);
+  const stored = await uploadAsset({ bytes: atCeiling });
+  assert.equal(stored.isError ?? false, false, JSON.stringify(toolPayload(stored)));
+  assert.deepEqual(
+    [stored.structuredContent?.sha256, stored.structuredContent?.sizeBytes],
+    [digestOf(atCeiling), MAX_MCP_ASSET_BYTES],
+    "the ceiling is exactly what the tool stores",
+  );
+
+  const refused = world();
+  const over = await (await toolset(refused)).uploadAsset({ bytes: Buffer.alloc(MAX_MCP_ASSET_BYTES + 1, 9) });
+  assert.equal(over.isError, true);
+  const payload = toolPayload(over);
+  assert.deepEqual(
+    [payload.error, payload.maxBytes, payload.maxEncodedChars],
+    ["too_large", MAX_MCP_ASSET_BYTES, Math.ceil(MAX_MCP_ASSET_BYTES / 3) * 4],
+    "the refusal names the transport ceiling it refused",
+  );
+  assert.deepEqual(wrote(refused), [0, 0], "nothing is stored above the ceiling");
+  assert.equal(MAX_MCP_ASSET_BYTES, 1_569_792, "the ceiling is 1,569,792 raw bytes: 1,533 KiB");
+});
+
+test("the MCP asset ceiling stays inside the body limit the API wires for /mcp", async () => {
+  const response = await createApiApp(apiDeps()).fetch(
+    new Request(`${ORIGIN}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": String(MCP_REQUEST_BODY_LIMIT_BYTES + 1) },
+      body: "{}",
+    }),
+  );
+  assert.deepEqual(
+    [response.status, await response.json()],
+    [413, { error: "too_large", maxBytes: MCP_REQUEST_BODY_LIMIT_BYTES }],
+    "the derived limit is the limit the transport really enforces",
+  );
+  const encoded = Math.ceil(MAX_MCP_ASSET_BYTES / 3) * 4;
+  const envelope = Buffer.byteLength(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "tools/call",
+      params: {
+        name: "asset_upload",
+        arguments: { artifactId: ARTIFACT_ID, contentType: "image/png", contentBase64: "" },
+      },
+    }),
+    "utf8",
+  );
+  assert.ok(envelope < MCP_REQUEST_ENVELOPE_HEADROOM_BYTES, `the envelope is ${envelope} bytes of headroom`);
+  assert.ok(
+    encoded + envelope <= MCP_REQUEST_BODY_LIMIT_BYTES,
+    "a full-size asset plus its envelope fits the request body",
+  );
+});
+
+test("a content type outside the raster set refuses through the tool and writes nothing", async () => {
+  for (const contentType of ["image/svg+xml", "text/html", "application/octet-stream", "IMAGE/PNG2"]) {
+    const state = world();
+    const result = await (await toolset(state)).uploadAsset({ bytes: png(), contentType });
+    assert.deepEqual(
+      [contentType, result.isError, toolPayload(result).error],
+      [contentType, true, "unsupported_content_type"],
+      contentType,
+    );
+    assert.deepEqual(wrote(state), [0, 0], "no refused type reaches storage");
+  }
+  const state = world();
+  const raster = await (await toolset(state)).uploadAsset({ bytes: png(), contentType: "image/webp" });
+  assert.deepEqual(raster.structuredContent, {
+    sha256: digestOf(png()),
+    sizeBytes: png().length,
+    contentType: "image/webp",
+  });
+});
+
+test("the tool checks its own scope, the owner gate and the payload before any write", async () => {
+  const unscoped = world();
+  const noScope = await (await toolset(unscoped, [])).uploadAsset({ bytes: png() });
+  assert.deepEqual([noScope.isError, toolPayload(noScope).error], [true, "insufficient_scope"]);
+  assert.deepEqual(wrote(unscoped), [0, 0], "no scope means no write");
+
+  const foreign = world({
+    artifacts: {
+      [ARTIFACT_ID]: { id: ARTIFACT_ID, ownerId: READER_ID },
+      [OTHER_ARTIFACT_ID]: { id: OTHER_ARTIFACT_ID, ownerId: OWNER_ID },
+    },
+  });
+  const notMine = await (await toolset(foreign)).uploadAsset({ bytes: png() });
+  assert.deepEqual(
+    [notMine.isError, toolPayload(notMine).error, toolPayload(notMine).message],
+    [true, "not_found", "artifact_not_visible_to_owner"],
+    "someone else's artifact is not found, exactly as the other tools answer",
+  );
+  assert.deepEqual(wrote(foreign), [0, 0], "no foreign artifact is written");
+
+  const deleted = world({
+    artifacts: { [ARTIFACT_ID]: { id: ARTIFACT_ID, ownerId: OWNER_ID, deletedAt: new Date() } },
+  });
+  const gone = await (await toolset(deleted)).uploadAsset({ bytes: png() });
+  assert.deepEqual(
+    [gone.isError, toolPayload(gone).error, toolPayload(gone).message],
+    [true, "gone", "artifact_deleted"],
+  );
+  assert.deepEqual(wrote(deleted), [0, 0], "a deleted artifact stores nothing");
+
+  const malformed = world();
+  const { callTool } = await toolset(malformed);
+  for (const contentBase64 of ["not base64!", "====", "  "]) {
+    const refusalPayload = await callTool("asset_upload", {
+      artifactId: ARTIFACT_ID,
+      contentType: "image/png",
+      contentBase64,
+    });
+    assert.equal(refusalPayload.isError, true, `${JSON.stringify(contentBase64)} is not a payload`);
+  }
+  const badId = await callTool("asset_upload", {
+    artifactId: "not-a-uuid",
+    contentType: "image/png",
+    contentBase64: png().toString("base64"),
+  });
+  assert.equal(toolPayload(badId).error, "invalid_artifact_id");
+  assert.deepEqual(wrote(malformed), [0, 0], "no malformed call reaches storage");
+});
+
+const apiConfig = (): AppConfig => ({
+  nodeEnv: "test",
+  apiHost: "127.0.0.1",
+  apiPort: 0,
+  publicOrigin: ORIGIN,
+  allowedHosts: [],
+  internalOrigin: ORIGIN,
+  demoAuth: false,
+  authSecret: "x".repeat(32),
+  authProviders: {},
+  databaseUrl: "postgres://stub",
+  storage: {
+    endpoint: "http://127.0.0.1:9000",
+    region: "us-east-1",
+    bucket: "stub",
+    accessKeyId: "stub",
+    secretAccessKey: "stub",
+    forcePathStyle: true,
+  },
+});
+
+const apiDeps = (): ApiAppDeps => ({
+  config: apiConfig(),
+  database: { db: {}, check: async (): Promise<void> => undefined } as unknown as ApiAppDeps["database"],
+  storage: {
+    client: {},
+    bucket: "stub",
+    checkBucket: async (): Promise<void> => undefined,
+    destroy: (): void => undefined,
+  } as unknown as ApiAppDeps["storage"],
 });

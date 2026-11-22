@@ -43,6 +43,8 @@ import {
   MAX_DOCUMENT_READ_BLOCKS,
   MAX_DOCUMENT_READ_BYTES,
   MAX_DOCUMENT_READ_LINES,
+  MAX_MCP_ASSET_BASE64_CHARS,
+  MAX_MCP_ASSET_BYTES,
   MAX_SCENE_READ_BYTES,
   MAX_SCENE_READ_NODES,
   digestOf,
@@ -117,6 +119,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     listComments,
     setCommentResolved,
     commentTransaction,
+    uploadAsset,
   } = backend;
   const stagingStorageKey = (sha256: string) => `staging/${sha256}`;
   return (claims) => {
@@ -1051,6 +1054,62 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             observedBytes,
           });
         return reply({ artifactId, revisionId: loaded.revisionId, frame: projected });
+      },
+    );
+
+    server.registerTool(
+      "asset_upload",
+      {
+        title: "Attach one raster asset to an artifact",
+        description: `Store one raster image once, by its content address, and reference it from one owned artifact: the reply's sha256 is the digest a canvas scene's image node names. Requires ${scope}. contentType must be image/png, image/jpeg, image/webp or image/gif; svg is refused on purpose. contentBase64 decodes to at most ${MAX_MCP_ASSET_BYTES} bytes (${Math.floor(MAX_MCP_ASSET_BYTES / 1024)} KiB), the largest asset the MCP request body can carry in one call: a bigger payload refuses with too_large and its maxBytes, so downscale the image instead of sending it. The server decodes and hashes the bytes itself, so re-sending identical bytes answers the same digest and stores no second object.`,
+        inputSchema: {
+          artifactId: z.string().min(1).max(100),
+          contentType: z.string().min(1).max(200),
+          contentBase64: z.string().min(1),
+        },
+        outputSchema: {
+          sha256: z.string().regex(HEX_SHA256),
+          sizeBytes: z.number().int(),
+          contentType: z.string(),
+        },
+      },
+      async (input) => {
+        const access = allow(scope);
+        if (!access.ok) return access.reply;
+        if (!UUID_RE.test(input.artifactId))
+          return refusal("invalid_artifact_id", "artifactId must be a canonical lowercase uuid (8-4-4-4-12 hex)", {
+            artifactId: input.artifactId,
+          });
+        if (input.contentBase64.length > MAX_MCP_ASSET_BASE64_CHARS)
+          return refusal(
+            "too_large",
+            `the encoded payload exceeds the ${MAX_MCP_ASSET_BYTES} raw bytes the MCP request body carries in one call: downscale the image`,
+            {
+              maxBytes: MAX_MCP_ASSET_BYTES,
+              maxEncodedChars: MAX_MCP_ASSET_BASE64_CHARS,
+              encodedChars: input.contentBase64.length,
+            },
+          );
+        const bytes = decodeBase64(input.contentBase64);
+        if (!bytes) return refusal("validation", "contentBase64 is not a non-empty base64 payload");
+        const stored = await uploadAsset({
+          ownerId: access.userId,
+          artifactId: input.artifactId,
+          contentType: input.contentType,
+          bytes,
+        });
+        if (!stored.ok)
+          return refusal(
+            stored.kind,
+            stored.reason,
+            stored.maxBytes === undefined ? {} : { maxBytes: stored.maxBytes },
+          );
+        const value = {
+          sha256: stored.value.sha256,
+          sizeBytes: stored.value.sizeBytes,
+          contentType: stored.value.contentType,
+        };
+        return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
       },
     );
 

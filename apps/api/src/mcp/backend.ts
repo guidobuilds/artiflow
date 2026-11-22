@@ -1,4 +1,6 @@
 import {
+  type McpAssetStored,
+  type McpAssetUploadInput,
   type McpBackend,
   type McpCaps,
   type McpChunkListing,
@@ -47,6 +49,7 @@ import {
   textAt,
 } from "../domain/documents/service.ts";
 import { createUpload, getUpload, listChunks, putChunk } from "../domain/staging.ts";
+import { storeArtifactAsset } from "../routes/assets.ts";
 import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 
@@ -221,6 +224,25 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
           seqFrom: value.seqFrom,
           seqTo: value.publishedSeq,
         },
+      };
+    },
+    uploadAsset: async (input: McpAssetUploadInput): Promise<McpResult<McpAssetStored>> => {
+      const state = await getCurrentState(db, input.artifactId, input.ownerId);
+      if (!state.ok) return { ok: false, kind: state.kind, reason: state.reason };
+      if (state.value.deletedAt) return { ok: false, kind: "gone", reason: "artifact_deleted" };
+      const stored = await storeArtifactAsset({
+        db,
+        storage,
+        artifactId: input.artifactId,
+        contentType: input.contentType,
+        bytes: input.bytes,
+      });
+      if (stored.ok) return stored;
+      return {
+        ok: false,
+        kind: stored.code,
+        reason: stored.reason,
+        ...(stored.maxBytes === undefined ? {} : { maxBytes: stored.maxBytes }),
       };
     },
   };

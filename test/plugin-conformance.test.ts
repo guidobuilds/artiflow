@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ARTIFACT_TOOL_NAMES, DOCUMENT_TOOL_NAMES, SCENE_TOOL_NAMES } from "@artiflow/contracts/artifacts";
+import {
+  ASSET_TOOL_NAMES,
+  ARTIFACT_TOOL_NAMES,
+  DOCUMENT_TOOL_NAMES,
+  SCENE_TOOL_NAMES,
+} from "@artiflow/contracts/artifacts";
 import { runConformance } from "@artiflow/plugin-core/conformance";
 
 const base = {
@@ -64,6 +69,32 @@ test("the scene tools are part of the Artiflow MCP surface a plugin may declare"
   });
   assert.equal(report.ok, true, JSON.stringify(report.issues));
   assert.deepEqual(report.issues, []);
+});
+
+test("the asset tools are part of the Artiflow MCP surface a plugin may declare", () => {
+  assert.deepEqual([...ASSET_TOOL_NAMES], ["asset_upload"], "the asset lane declares exactly one tool");
+  const report = runConformance({
+    ...base,
+    manifest: { id: "artiflow:opencode", kind: "plugin" as const, tools: [...ASSET_TOOL_NAMES] },
+  });
+  assert.equal(report.ok, true, JSON.stringify(report.issues));
+  assert.deepEqual(report.issues, []);
+  for (const name of ASSET_TOOL_NAMES) {
+    assert.equal((ARTIFACT_TOOL_NAMES as readonly string[]).includes(name), true, `${name} is on the artifact surface`);
+    assert.equal(DOCUMENT_TOOL_NAMES.includes(name as never), false, `${name} is not a document tool`);
+    assert.equal(SCENE_TOOL_NAMES.includes(name as never), false, `${name} is not a scene tool`);
+  }
+  const classified = new Set<string>([
+    ...ARTIFACT_TOOL_NAMES,
+    ...DOCUMENT_TOOL_NAMES,
+    ...SCENE_TOOL_NAMES,
+    ...ASSET_TOOL_NAMES,
+  ]);
+  assert.deepEqual(
+    [...classified].sort(),
+    [...ARTIFACT_TOOL_NAMES].sort(),
+    "every classification list stays inside the artifact surface, and the surface is exactly the registry",
+  );
 });
 
 test("every registered tool name passes conformance, so the list and the registry cannot drift", () => {

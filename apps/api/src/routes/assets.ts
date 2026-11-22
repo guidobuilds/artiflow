@@ -126,6 +126,54 @@ async function deliverableAsset(
   )[0];
 }
 
+export type StoredAssetRef = { sha256: string; sizeBytes: number; contentType: string };
+export type AssetStoreRefusal = {
+  ok: false;
+  code: "unsupported_content_type" | "too_large" | "empty_asset" | "artifact_unavailable";
+  reason: string;
+  status: 400 | 413 | 415 | 500;
+  maxBytes?: number;
+};
+export type AssetStoreOutcome = { ok: true; value: StoredAssetRef } | AssetStoreRefusal;
+export type AssetStoreInput = {
+  db: AppDb;
+  storage: Storage;
+  artifactId: string;
+  contentType: string;
+  bytes: Uint8Array;
+};
+
+export async function storeArtifactAsset(input: AssetStoreInput): Promise<AssetStoreOutcome> {
+  const contentType = input.contentType.trim().toLowerCase();
+  if (!isRasterType(contentType))
+    return { ok: false, code: "unsupported_content_type", reason: "content_type_not_raster", status: 415 };
+  if (input.bytes.length === 0) return { ok: false, code: "empty_asset", reason: "empty_asset", status: 400 };
+  if (input.bytes.length > MAX_ASSET_BYTES)
+    return {
+      ok: false,
+      code: "too_large",
+      reason: "payload_exceeds_asset_cap",
+      status: 413,
+      maxBytes: MAX_ASSET_BYTES,
+    };
+  const sha256 = sha256Of(input.bytes);
+  const existing = await storedAsset(input.db, sha256);
+  if (existing) {
+    await referenceAsset(input.db, input.artifactId, sha256);
+    return { ok: true, value: existing };
+  }
+  const stored = await putAssetBytes({ storage: input.storage, sha256, contentType, bytes: input.bytes });
+  if (!stored.ok) return { ok: false, code: "artifact_unavailable", reason: "asset_storage_failed", status: 500 };
+  await recordAsset(input.db, {
+    sha256,
+    sizeBytes: input.bytes.length,
+    contentType,
+    storageKey: stored.value.storageKey,
+  });
+  await referenceAsset(input.db, input.artifactId, sha256);
+  return { ok: true, value: { sha256, sizeBytes: input.bytes.length, contentType } };
+}
+
 export function createAssetsApp(options: AssetsOptions): Hono {
   const { database, auth, storage, publicOrigin } = options;
   const db = database.db;
@@ -154,24 +202,16 @@ export function createAssetsApp(options: AssetsOptions): Hono {
     if (declaredBytes > MAX_ASSET_BYTES) return tooLarge(c);
     const bytes = new Uint8Array(await c.req.arrayBuffer());
     if (bytes.length !== declaredBytes) return jsonError(c, "size_mismatch", 400);
-    if (bytes.length === 0) return jsonError(c, "empty_asset", 400);
-    if (bytes.length > MAX_ASSET_BYTES) return tooLarge(c);
-    const sha256 = sha256Of(bytes);
-    const existing = await storedAsset(db, sha256);
-    if (existing) {
-      await referenceAsset(db, artifactId, sha256);
-      return c.json({ id: sha256, sizeBytes: existing.sizeBytes, contentType: existing.contentType }, 201);
-    }
-    const stored = await putAssetBytes({ storage, sha256, contentType, bytes });
-    if (!stored.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    await recordAsset(db, {
-      sha256,
-      sizeBytes: bytes.length,
-      contentType,
-      storageKey: stored.value.storageKey,
-    });
-    await referenceAsset(db, artifactId, sha256);
-    return c.json({ id: sha256, sizeBytes: bytes.length, contentType }, 201);
+    const stored = await storeArtifactAsset({ db, storage, artifactId, contentType, bytes });
+    if (!stored.ok)
+      return c.json(
+        { error: stored.code, ...(stored.maxBytes === undefined ? {} : { maxBytes: stored.maxBytes }) },
+        stored.status,
+      );
+    return c.json(
+      { id: stored.value.sha256, sizeBytes: stored.value.sizeBytes, contentType: stored.value.contentType },
+      201,
+    );
   });
 
   app.get("/artifact/:id/asset/:sha256", async (c) => {

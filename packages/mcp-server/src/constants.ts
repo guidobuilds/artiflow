@@ -27,6 +27,13 @@ export const MAX_DOCUMENT_DIFF_ENTRIES = 200;
 export const MAX_SCENE_READ_NODES = 200;
 export const MAX_SCENE_READ_BYTES = 65_536;
 
+export const MCP_REQUEST_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
+export const MCP_REQUEST_ENVELOPE_HEADROOM_BYTES = 4_096;
+export const MAX_MCP_ASSET_BYTES = Math.floor(
+  ((MCP_REQUEST_BODY_LIMIT_BYTES - MCP_REQUEST_ENVELOPE_HEADROOM_BYTES) / 4) * 3,
+);
+export const MAX_MCP_ASSET_BASE64_CHARS = Math.ceil(MAX_MCP_ASSET_BYTES / 3) * 4;
+
 export type ToolReply = { content: { type: "text"; text: string }[]; isError?: boolean };
 export type Access = { ok: true; userId: string } | { ok: false; reply: ToolReply };
 

@@ -21,6 +21,7 @@ export type McpResult<T> =
       currentSeq?: number;
       opIndex?: number;
       artifactKind?: string;
+      maxBytes?: number;
     };
 
 export type McpUploadRow = {
@@ -169,6 +170,14 @@ export type McpDocumentPublished = {
   seqTo: number;
 };
 
+export type McpAssetUploadInput = {
+  ownerId: string;
+  artifactId: string;
+  contentType: string;
+  bytes: Uint8Array;
+};
+export type McpAssetStored = { sha256: string; sizeBytes: number; contentType: string };
+
 export class McpRollback<T> extends Error {
   readonly carried: T;
   constructor(carried: T) {
@@ -227,6 +236,7 @@ export type McpBackend = {
   documentTextAt(ownerId: string, artifactId: string, seq: number): Promise<McpResult<McpDocumentText>>;
   documentApply(input: McpDocumentApplyInput): Promise<McpResult<McpDocumentApplied>>;
   documentPublish(ownerId: string, artifactId: string): Promise<McpResult<McpDocumentPublished>>;
+  uploadAsset(input: McpAssetUploadInput): Promise<McpResult<McpAssetStored>>;
 };
 
 export { UUID_RE, HEX_SHA256, BASE64 };

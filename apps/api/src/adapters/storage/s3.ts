@@ -167,15 +167,17 @@ export type ListedRevisionObject = { storageKey: string; lastModified: Date };
 export type ListRevisionKeysInput = { storage: Storage; continuationToken?: string; maxKeys?: number };
 export type ListedRevisionKeys = { objects: ListedRevisionObject[]; nextToken?: string };
 
-export async function listRevisionKeys(input: ListRevisionKeysInput): Promise<StorageResult<ListedRevisionKeys>> {
-  const { storage, continuationToken } = input;
+type ListKeysInput = ListRevisionKeysInput & { prefix: string; accept: (storageKey: unknown) => storageKey is string };
+
+async function listKeys(input: ListKeysInput): Promise<StorageResult<ListedRevisionKeys>> {
+  const { storage, continuationToken, prefix, accept } = input;
   const maxKeys = input.maxKeys ?? 1000;
   if (!Number.isInteger(maxKeys) || maxKeys < 1 || maxKeys > 1000) return fail("validation", "max_keys_out_of_range");
   try {
     const response = await storage.client.send(
       new ListObjectsV2Command({
         Bucket: storage.bucket,
-        Prefix: REVISION_KEY_PREFIX,
+        Prefix: prefix,
         MaxKeys: maxKeys,
         ContinuationToken: continuationToken,
       }),
@@ -183,7 +185,7 @@ export async function listRevisionKeys(input: ListRevisionKeysInput): Promise<St
     const objects: ListedRevisionObject[] = [];
     for (const entry of response.Contents ?? []) {
       const { Key: storageKey, LastModified: lastModified } = entry;
-      if (!isRevisionStorageKey(storageKey)) continue;
+      if (!accept(storageKey)) continue;
       if (!(lastModified instanceof Date) || Number.isNaN(lastModified.getTime())) continue;
       objects.push({ storageKey, lastModified });
     }
@@ -194,18 +196,40 @@ export async function listRevisionKeys(input: ListRevisionKeysInput): Promise<St
   }
 }
 
+export async function listRevisionKeys(input: ListRevisionKeysInput): Promise<StorageResult<ListedRevisionKeys>> {
+  return listKeys({ ...input, prefix: REVISION_KEY_PREFIX, accept: isRevisionStorageKey });
+}
+
+export type ListAssetKeysInput = ListRevisionKeysInput;
+export type ListedAssetKeys = ListedRevisionKeys;
+
+export async function listAssetKeys(input: ListAssetKeysInput): Promise<StorageResult<ListedAssetKeys>> {
+  return listKeys({ ...input, prefix: ASSET_KEY_PREFIX, accept: isAssetStorageKey });
+}
+
 export type DeleteRevisionInput = { storage: Storage; storageKey: string };
 export type DeletedRevision = { storageKey: string };
 
-export async function deleteRevisionBytes(input: DeleteRevisionInput): Promise<StorageResult<DeletedRevision>> {
+export type DeleteAssetInput = DeleteRevisionInput;
+
+async function deleteObject(input: DeleteRevisionInput): Promise<StorageResult<DeletedRevision>> {
   const { storage, storageKey } = input;
-  if (!isRevisionStorageKey(storageKey)) return fail("validation", "storage_key_invalid");
   try {
     await storage.client.send(new DeleteObjectCommand({ Bucket: storage.bucket, Key: storageKey }));
     return ok({ storageKey });
   } catch (error) {
     return statusOf(error) === 404 ? ok({ storageKey }) : fail("conflict", "storage_request_failed");
   }
+}
+
+export async function deleteRevisionBytes(input: DeleteRevisionInput): Promise<StorageResult<DeletedRevision>> {
+  if (!isRevisionStorageKey(input.storageKey)) return fail("validation", "storage_key_invalid");
+  return deleteObject(input);
+}
+
+export async function deleteAssetBytes(input: DeleteAssetInput): Promise<StorageResult<DeletedRevision>> {
+  if (!isAssetStorageKey(input.storageKey)) return fail("validation", "storage_key_invalid");
+  return deleteObject(input);
 }
 
 export async function putStagingChunk(storage: Storage, sha256: string, bytes: Uint8Array): Promise<boolean> {
