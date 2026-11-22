@@ -73,8 +73,10 @@ network, keeps no storage and loads no external font or script.
 - **Editing is young.** A person can move, resize, add, retype and delete nodes and save with the
   sequence it read; there is no z-order control yet, because reordering would cost a whole replacement
   until the difference engine learns it.
-- **No comments.** Node anchors arrive with the editing phase. The viewer mounts no comment panel,
-  because a point anchor without a node would detach the moment the node moves.
+- **Comments anchor to nodes, and only where they can be shown.** A thread carries the node and a point
+  inside it, so a pin follows the node when it moves; a thread whose node is gone is listed as orphaned
+  instead of drawn at a stale position. The dashboard editor and the owner's viewer show them; a public
+  link does not, yet.
 - **No shared layout engine.** Nodes carry absolute geometry. Automatic layout arrives with the
   editor, where the server has to agree with the browser about where things end up.
 - **No vector images.** PNG, JPEG, WebP and GIF are accepted; SVG is refused, because it is a

@@ -31,7 +31,8 @@ self-contained document. Sizes are counted in bytes of the stored text, not char
 The 16 MiB artifact cap and the 1 MiB single-call cap are different limits: the HTTP API and
 `artifact_edit_lines` take a whole document up to 16 MiB, while `artifact_write` accepts at most 1 MiB
 because it is a one-shot tool call. See [Artifacts and revisions](/docs/concepts/artifacts/) for the
-tools themselves.
+tools themselves, and the [MCP tool reference](/docs/reference/mcp-tools/) for the per-tool read
+windows: 20 blocks or 200 lines for a document, 200 nodes for a frame.
 
 An over-cap write is refused, never truncated: `413` with `{"error":"too_large","maxBytes":N}` on the
 HTTP surfaces, or a `too_large` tool refusal with the cap and the observed size over MCP.
