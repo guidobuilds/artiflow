@@ -78,12 +78,7 @@ function entry(index: number): SeededDirectoryEntry {
 }
 
 function setStatus(userId: string, status: "active" | "deactivated"): Promise<Response> {
-  return adminPost(
-    target(),
-    `${USERS_PATH}/${userId}/status`,
-    { status },
-    actor(administrator).cookie,
-  );
+  return adminPost(target(), `${USERS_PATH}/${userId}/status`, { status }, actor(administrator).cookie);
 }
 
 function listPath(query: Record<string, string> = {}): string {
@@ -107,8 +102,7 @@ async function storedUser(userId: string): Promise<{ name: string; email: string
 
 async function identitiesOf(userId: string): Promise<IdentityRow[]> {
   return await target()
-    .database.db
-    .select({
+    .database.db.select({
       providerId: account.providerId,
       accountId: account.accountId,
       password: account.password,
@@ -319,7 +313,10 @@ integration("a malformed address is refused with the named error", async () => {
 integration("an email change keeps the account rows of that person identical", async () => {
   const subject = entry(8);
   const identitiesBefore = await identitiesOf(subject.userId);
-  assert.equal(identitiesBefore.every((row) => row.providerId === "credential"), true);
+  assert.equal(
+    identitiesBefore.every((row) => row.providerId === "credential"),
+    true,
+  );
 
   const nextEmail = `renamed.person-9@${DIRECTORY_DOMAIN}`;
   const response = await adminPatch(
@@ -370,7 +367,11 @@ integration("the status filter narrows the list", async () => {
   assert.equal(deactivated.total, deactivatedEntries.length, "the total counts the filtered accounts");
 
   const active = await listDirectory({ status: "active", pageSize: "100" });
-  assert.equal(active.total, directory.length - deactivatedEntries.length, "the active filter excludes the deactivated");
+  assert.equal(
+    active.total,
+    directory.length - deactivatedEntries.length,
+    "the active filter excludes the deactivated",
+  );
   assert.equal(
     active.users.some((row) => deactivatedEntries.some((subject) => subject.userId === row.id)),
     false,

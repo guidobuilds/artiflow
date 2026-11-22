@@ -19,12 +19,16 @@ export function providerSecretName(provider: ProviderName): string {
 }
 
 export function stillSetVariables(env: Record<string, string | undefined>): string[] {
-  return PROVIDERS.flatMap((provider) => [providerEnvironment[provider].clientId, providerEnvironment[provider].clientSecret]).filter(
-    (name) => (env[name] ?? "").trim() !== "",
-  );
+  return PROVIDERS.flatMap((provider) => [
+    providerEnvironment[provider].clientId,
+    providerEnvironment[provider].clientSecret,
+  ]).filter((name) => (env[name] ?? "").trim() !== "");
 }
 
-function providerDocument(provider: ProviderName, credentials: SocialProviders["google"]): AccessMethodsDocument["providers"]["google"] {
+function providerDocument(
+  provider: ProviderName,
+  credentials: SocialProviders["google"],
+): AccessMethodsDocument["providers"]["google"] {
   if (credentials === undefined) return { enabled: false, clientId: "", secretName: "" };
   return { enabled: true, clientId: credentials.clientId, secretName: providerSecretName(provider) };
 }
@@ -44,7 +48,8 @@ function providerSecrets(providers: SocialProviders): { name: string; value: str
   const secrets: { name: string; value: string }[] = [];
   for (const provider of PROVIDERS) {
     const credentials = providers[provider];
-    if (credentials !== undefined) secrets.push({ name: providerSecretName(provider), value: credentials.clientSecret });
+    if (credentials !== undefined)
+      secrets.push({ name: providerSecretName(provider), value: credentials.clientSecret });
   }
   return secrets;
 }

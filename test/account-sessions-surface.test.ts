@@ -250,7 +250,11 @@ test("every refusal renders as itself and no session token reaches the markup or
     assert.equal(result.ok, false, `a ${answered} answer is a refusal`);
     assert.equal(result.ok === false && result.code, code);
     assert.match(result.ok === false ? result.error : "", message);
-    assert.equal(result.ok === false && result.error.includes(answered), false, `the ${answered} code is not shown raw`);
+    assert.equal(
+      result.ok === false && result.error.includes(answered),
+      false,
+      `the ${answered} code is not shown raw`,
+    );
     assert.equal(sessionRefusalMessage(answered).includes(answered), false);
   }
 

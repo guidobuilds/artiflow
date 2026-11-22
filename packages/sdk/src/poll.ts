@@ -49,11 +49,7 @@ export type PollerFreshness = {
   advanceReference(state: PollerFreshnessState, observed: PolledMetadata): PollerAdvanceResult;
   applyReference(state: PollerFreshnessState, applied: PolledMetadata): PollerApplyResult;
   beginFetch(state: PollerFreshnessState, target: PolledMetadata): PollerBeginFetchResult;
-  resolveFetch(
-    state: PollerFreshnessState,
-    token: PollerFetchToken,
-    result: PollerFetchOutcome,
-  ): PollerFetchResolution;
+  resolveFetch(state: PollerFreshnessState, token: PollerFetchToken, result: PollerFetchOutcome): PollerFetchResolution;
   stopFreshness(state: PollerFreshnessState): PollerFreshnessState;
 };
 

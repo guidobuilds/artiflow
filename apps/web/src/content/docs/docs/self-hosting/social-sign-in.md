@@ -22,12 +22,12 @@ Four addresses are easy to confuse, and registering the wrong one costs an after
 page asks you to derive any of them by hand: every address a provider needs is shown on an
 administration page, with a copy action.
 
-| Path                         | Where it is shown                                  | Registered at                    |
-| ---------------------------- | -------------------------------------------------- | -------------------------------- |
-| Social — Google              | `/admin/access`, in the registration block         | The Google OAuth client          |
-| Social — GitHub              | `/admin/access`, in the registration block         | The GitHub OAuth app             |
-| Enterprise connection (OIDC) | `/admin/sso`, above the connection fields          | The application registration     |
-| Agent sign-in                | Not a provider callback                            | Nothing: see the next paragraph  |
+| Path                         | Where it is shown                          | Registered at                   |
+| ---------------------------- | ------------------------------------------ | ------------------------------- |
+| Social — Google              | `/admin/access`, in the registration block | The Google OAuth client         |
+| Social — GitHub              | `/admin/access`, in the registration block | The GitHub OAuth app            |
+| Enterprise connection (OIDC) | `/admin/sso`, above the connection fields  | The application registration    |
+| Agent sign-in                | Not a provider callback                    | Nothing: see the next paragraph |
 
 The Access page shows three values: the **JavaScript origin** to authorise, and one **redirect URI**
 per social provider. They are built from the instance's configured public origin, which is the address

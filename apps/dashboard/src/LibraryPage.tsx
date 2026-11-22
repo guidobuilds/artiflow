@@ -133,14 +133,12 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
   useEffect(() => {
     try {
       localStorage.setItem("artiflow-library-layout", layout);
-    } catch {
-    }
+    } catch {}
   }, [layout]);
   useEffect(() => {
     try {
       localStorage.setItem("artiflow-library-sort", sort);
-    } catch {
-    }
+    } catch {}
   }, [sort]);
 
   const didDelete = (id: string) => {

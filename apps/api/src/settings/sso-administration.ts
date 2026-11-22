@@ -77,8 +77,7 @@ async function discoveredIssuer(issuer: string, discover: DiscoveryFetcher): Pro
   } catch {
     throw new SsoConfigurationError("sso_discovery_invalid");
   }
-  const advertised =
-    typeof body === "object" && body !== null ? (body as Record<string, unknown>).issuer : undefined;
+  const advertised = typeof body === "object" && body !== null ? (body as Record<string, unknown>).issuer : undefined;
   if (typeof advertised !== "string" || advertised.trim() === "") {
     throw new SsoConfigurationError("sso_discovery_invalid");
   }
@@ -119,17 +118,16 @@ function provenanceOf(value: unknown): SsoConnectionConfiguration["provenance"] 
   return { source, at };
 }
 
-function viewOf(
-  input: {
-    publicOrigin: string;
-    revision: number | null;
-    connection: SsoStoredConnection;
-    credentialConfigured: boolean;
-    provenance: SsoConnectionConfiguration["provenance"];
-  },
-): SsoConnectionConfiguration {
+function viewOf(input: {
+  publicOrigin: string;
+  revision: number | null;
+  connection: SsoStoredConnection;
+  credentialConfigured: boolean;
+  provenance: SsoConnectionConfiguration["provenance"];
+}): SsoConnectionConfiguration {
   return {
-    revision: input.revision,    connection: {
+    revision: input.revision,
+    connection: {
       enabled: input.connection.enabled,
       displayName: input.connection.displayName,
       issuer: input.connection.issuer,

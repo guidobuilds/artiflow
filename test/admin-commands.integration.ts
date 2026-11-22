@@ -142,7 +142,10 @@ async function contentOf(content: OwnedContent): Promise<{
   grants: number;
 }> {
   const db = target().database.db;
-  const artifactRows = await db.select({ id: artifacts.id }).from(artifacts).where(eq(artifacts.id, content.artifactId));
+  const artifactRows = await db
+    .select({ id: artifacts.id })
+    .from(artifacts)
+    .where(eq(artifacts.id, content.artifactId));
   const revisionRows = await db
     .select({ id: artifactRevisions.id })
     .from(artifactRevisions)
@@ -296,7 +299,11 @@ integration("revoke refuses an account that is not an administrator and an unkno
   const unknown = `missing-${randomUUID()}@example.test`;
   const unknownRefusal = target().command("admin:revoke", [unknown]);
   assertRefusal(unknownRefusal);
-  assert.equal(/no account/i.test(unknownRefusal.stderr), true, `the refusal explains itself: ${unknownRefusal.stderr}`);
+  assert.equal(
+    /no account/i.test(unknownRefusal.stderr),
+    true,
+    `the refusal explains itself: ${unknownRefusal.stderr}`,
+  );
 });
 
 integration("list prints every administrator email in order and exits 0", async () => {
@@ -422,7 +429,11 @@ integration("deactivate refuses an unknown address and a redundant transition, r
   const redundantActivation = target().command("user:activate", [alreadyActive.email]);
 
   assertRefusal(redundantActivation);
-  assert.equal(redundantActivation.stderr.includes("already active"), true, `the refusal says why: ${redundantActivation.stderr}`);
+  assert.equal(
+    redundantActivation.stderr.includes("already active"),
+    true,
+    `the refusal says why: ${redundantActivation.stderr}`,
+  );
   assert.deepEqual(await storedStatus(alreadyActive.userId), {
     status: ACTIVE_ACCOUNT_STATUS,
     deactivatedAt: null,

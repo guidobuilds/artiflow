@@ -79,8 +79,7 @@ const REFUSALS: Record<string, string> = {
   sso_display_name_required:
     "Enabling the connection needs the display name people will see on the sign-in page. Nothing was saved.",
   sso_client_id_required: "Enabling the connection needs its client id. Nothing was saved.",
-  sso_credential_required:
-    "Enabling the connection needs a stored client secret. Enter it, then save again.",
+  sso_credential_required: "Enabling the connection needs a stored client secret. Enter it, then save again.",
   sso_issuer_insecure:
     "The issuer must be an HTTPS address. Use the https:// address your identity provider publishes.",
   sso_issuer_invalid:
@@ -234,9 +233,7 @@ export function draftFromConfiguration(configuration: SsoConnectionConfiguration
 
 export function buildUpdateSsoPayload(draft: SsoConnectionDraft, revision: number | null): UpdateSsoPayload {
   const secret = draft.clientSecret.trim();
-  const domains = draft.allowedDomains
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry !== "");
+  const domains = draft.allowedDomains.map((entry) => entry.trim().toLowerCase()).filter((entry) => entry !== "");
   return {
     revision,
     enabled: draft.enabled,
@@ -262,10 +259,7 @@ export async function readSsoConnectionConfiguration(): Promise<SsoRead> {
   };
 }
 
-export async function saveSsoConnection(
-  draft: SsoConnectionDraft,
-  revision: number | null,
-): Promise<SsoSave> {
+export async function saveSsoConnection(draft: SsoConnectionDraft, revision: number | null): Promise<SsoSave> {
   const result = await manageRequest(
     SSO_PATH,
     "PUT",

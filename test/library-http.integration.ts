@@ -289,7 +289,7 @@ test(
       [false, false, false, false, false],
       "the page may poll its own origin and nothing else",
     );
-    assert.ok(reply.text.includes('fetch(refresh.metaUrl'), "the poller reads the same-origin metadata route");
+    assert.ok(reply.text.includes("fetch(refresh.metaUrl"), "the poller reads the same-origin metadata route");
     const srcdoc = /srcdoc="([^"]*)"/.exec(reply.text)?.[1] ?? "";
     assert.deepEqual(
       [/<script/i.test(srcdoc), srcdoc.includes("&lt;script"), reply.text.includes("&lt;script")],

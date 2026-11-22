@@ -52,8 +52,7 @@ export default function ResetPage({ hash = window.location.hash }: { hash?: stri
         if (!live) return;
         setState(result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error });
       })
-      .catch(() => {
-      });
+      .catch(() => {});
     return () => {
       live = false;
     };

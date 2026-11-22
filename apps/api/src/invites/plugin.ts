@@ -64,7 +64,8 @@ const completeEndpoint = (policy: PasswordPolicySource) =>
     async (ctx) => {
       const name = ctx.body.name.trim();
       const { password } = ctx.body;
-      if (name.length === 0) throw APIError.from("BAD_REQUEST", { code: "INVALID_NAME", message: "A name is required." });
+      if (name.length === 0)
+        throw APIError.from("BAD_REQUEST", { code: "INVALID_NAME", message: "A name is required." });
 
       const tokenHash = hashInviteToken(ctx.body.token);
 

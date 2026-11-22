@@ -137,7 +137,10 @@ test("the pending list names the author and the expiry of every invitation", asy
   assert.deepEqual(listed.ok ? listed.value : null, [PENDING, FROM_CONSOLE]);
 
   assert.equal(issuerLabel(ADA), "Issued by Ada Lovelace");
-  assert.equal(issuerLabel({ id: "user-3", name: "  ", email: "nobody@example.test" }), "Issued by nobody@example.test");
+  assert.equal(
+    issuerLabel({ id: "user-3", name: "  ", email: "nobody@example.test" }),
+    "Issued by nobody@example.test",
+  );
   assert.equal(issuerLabel(null), "Issued from the console");
   assert.equal(dayLabel("2026-12-01T09:00:00.000Z"), "2026-12-01");
   assert.equal(dayLabel("not a date"), "an unknown date");

@@ -17,8 +17,7 @@ export const SSO_TENANT_MISMATCH = "sso_tenant_mismatch";
 
 export const SSO_ACCOUNT_UNKNOWN_MESSAGE =
   "No account on this instance signs in with that address. Ask the administrator to create one.";
-export const SSO_ACCOUNT_DEACTIVATED_MESSAGE =
-  "This account is deactivated. Ask the administrator to reactivate it.";
+export const SSO_ACCOUNT_DEACTIVATED_MESSAGE = "This account is deactivated. Ask the administrator to reactivate it.";
 export const SSO_EMAIL_UNVERIFIED_MESSAGE =
   "The identity provider did not confirm the email address. Ask the administrator for access.";
 export const SSO_IDENTITY_CONFLICT_MESSAGE =
@@ -125,11 +124,7 @@ async function bindIdentity(db: Db, userId: string, accountId: string): Promise<
   return owner === userId;
 }
 
-async function createMemberAccount(
-  db: Db,
-  subject: SSOUserResolutionInput,
-  email: string,
-): Promise<AccountRow | null> {
+async function createMemberAccount(db: Db, subject: SSOUserResolutionInput, email: string): Promise<AccountRow | null> {
   const name = subject.providerUser.name.trim();
   const rows = await db
     .insert(user)

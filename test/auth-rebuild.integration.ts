@@ -11,7 +11,11 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Hono } from "hono";
 import { escapeIdentifier, Pool } from "pg";
 
-import { DEFAULT_PASSWORD_POLICY, type AccessMethodsDocument, type PasswordPolicyDocument } from "@artiflow/contracts/settings";
+import {
+  DEFAULT_PASSWORD_POLICY,
+  type AccessMethodsDocument,
+  type PasswordPolicyDocument,
+} from "@artiflow/contracts/settings";
 
 import { createAuthApp, type AuthConfig } from "../apps/api/src/auth.ts";
 import { createAuthHolder } from "../apps/api/src/auth-holder.ts";
@@ -130,15 +134,17 @@ async function seedCredentialUser(email: string, password: string): Promise<stri
   await db()
     .db.insert(user)
     .values({ id, name: "Rebuild Test Owner", email, emailVerified: false, createdAt: now, updatedAt: now });
-  await db().db.insert(account).values({
-    id: randomUUID(),
-    userId: id,
-    providerId: "credential",
-    accountId: id,
-    password: await hashPassword(password),
-    createdAt: now,
-    updatedAt: now,
-  });
+  await db()
+    .db.insert(account)
+    .values({
+      id: randomUUID(),
+      userId: id,
+      providerId: "credential",
+      accountId: id,
+      password: await hashPassword(password),
+      createdAt: now,
+      updatedAt: now,
+    });
   return id;
 }
 
@@ -169,7 +175,11 @@ before(async () => {
   const url = new URL(raw);
   assert.equal(url.protocol === "postgres:" || url.protocol === "postgresql:", true);
   assert.equal(LOOPBACK_HOSTS.has(url.hostname), true, "the test database must be a loopback PostgreSQL instance");
-  assert.equal(decodeURIComponent(url.pathname.replace(/^\//, "")), "artiflow", "the test database must be the fixture");
+  assert.equal(
+    decodeURIComponent(url.pathname.replace(/^\//, "")),
+    "artiflow",
+    "the test database must be the fixture",
+  );
 
   adminPool = new Pool({ connectionString: raw, max: 1, connectionTimeoutMillis: 5000 });
   await adminPool.query("SELECT 1");

@@ -3,11 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import test from "node:test";
 
 import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
-import {
-  getRevisionBytes,
-  isRevisionStorageKey,
-  newRevisionStorageKey,
-} from "../apps/api/src/adapters/storage/s3.ts";
+import { getRevisionBytes, isRevisionStorageKey, newRevisionStorageKey } from "../apps/api/src/adapters/storage/s3.ts";
 import { copyRevisionBytes } from "../apps/api/src/domain/commit-flow.ts";
 
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");

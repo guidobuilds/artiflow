@@ -6,8 +6,7 @@ import { purgeAccount, type PurgeContent } from "../admin/purge.ts";
 import { ConfigError, loadConfig } from "../config.ts";
 import { canonicalizeEmail, isEmailAddress } from "../invites/token.ts";
 
-const USAGE =
-  "usage: bun run user:purge EMAIL (--reassign-to EMAIL | --delete-content) [--yes]";
+const USAGE = "usage: bun run user:purge EMAIL (--reassign-to EMAIL | --delete-content) [--yes]";
 const HELP = `${USAGE}
 Delete the account of EMAIL together with its identities, sessions, issued tokens, pending
 invitation and reset links, and its share grants.

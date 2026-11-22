@@ -41,12 +41,9 @@ export default function RegisterPage({ hash = window.location.hash }: { hash?: s
     void previewInvitation(token)
       .then((result) => {
         if (!live) return;
-        setState(
-          result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error },
-        );
+        setState(result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error });
       })
-      .catch(() => {
-      });
+      .catch(() => {});
     return () => {
       live = false;
     };

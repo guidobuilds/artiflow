@@ -78,9 +78,7 @@ for (const [index, secret] of LOW_ENTROPY_SECRETS.entries()) {
 }
 
 test("keeps the 32-character length rule", () => {
-  const message = rejectionMessage(() =>
-    loadConfig({ ...developmentEnv(), ARTIFLOW_AUTH_SECRET: "9f2c4b7e1a8d3056" }),
-  );
+  const message = rejectionMessage(() => loadConfig({ ...developmentEnv(), ARTIFLOW_AUTH_SECRET: "9f2c4b7e1a8d3056" }));
 
   assert.match(message, /32/);
   assert.match(message, /ARTIFLOW_AUTH_SECRET/);
@@ -167,9 +165,7 @@ test("env.prod.example publishes a secret that fails validation", () => {
   const published = publishedAuthSecret();
   assert.ok(published.length >= 32, "the published placeholder must stay long enough for the length rule");
 
-  const message = rejectionMessage(() =>
-    loadConfig({ ...developmentEnv(), ARTIFLOW_AUTH_SECRET: published }),
-  );
+  const message = rejectionMessage(() => loadConfig({ ...developmentEnv(), ARTIFLOW_AUTH_SECRET: published }));
 
   assert.match(message, /ARTIFLOW_AUTH_SECRET/);
   assert.match(message, /openssl rand/);

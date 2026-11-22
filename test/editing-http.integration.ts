@@ -105,9 +105,11 @@ const revisionRows = async (artifactId: string): Promise<RevisionRow[]> =>
   ).rows;
 
 const currentRevisionOf = async (artifactId: string): Promise<string | null> =>
-  (await pool.query<{ currentRevisionId: string | null }>(`select "currentRevisionId" from artifacts where id = $1`, [
-    artifactId,
-  ])).rows[0]?.currentRevisionId ?? null;
+  (
+    await pool.query<{ currentRevisionId: string | null }>(`select "currentRevisionId" from artifacts where id = $1`, [
+      artifactId,
+    ])
+  ).rows[0]?.currentRevisionId ?? null;
 
 const grant = async (ownerUser: User, artifactId: string, recipient: User): Promise<void> => {
   const created = await read(
@@ -421,7 +423,11 @@ test(
       { method: "POST", headers: MUTATION, body: JSON.stringify({ expectedRevisionId: victim.revisionId }) },
       owner,
     );
-    assert.deepEqual([reply.status, reply.json?.error], [500, "artifact_unavailable"], "a failed read is not a restore");
+    assert.deepEqual(
+      [reply.status, reply.json?.error],
+      [500, "artifact_unavailable"],
+      "a failed read is not a restore",
+    );
     assert.equal((await revisionRows(victim.id)).length, 1, "the failed read persisted no revision row");
     assert.equal(await currentRevisionOf(victim.id), victim.revisionId, "the current pointer did not move");
   },

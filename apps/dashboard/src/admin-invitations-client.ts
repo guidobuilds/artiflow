@@ -31,8 +31,7 @@ export const EMPTY_INVITATION_READ: InvitationListRead = { invitations: null, fa
 export const ADMIN_INVITATIONS_PATH = "/api/admin/invitations";
 export const ADMIN_RESET_LINKS_PATH = "/api/admin/reset-links";
 
-const SIGN_IN_REQUIRED =
-  "This browser has no signed-in account, so invitations cannot be shown. Sign in first.";
+const SIGN_IN_REQUIRED = "This browser has no signed-in account, so invitations cannot be shown. Sign in first.";
 const UNRECOGNIZED = "The server refused that without a reason this page recognizes. Nothing was issued.";
 
 const REFUSALS: Record<string, string> = {
@@ -46,8 +45,7 @@ const REFUSALS: Record<string, string> = {
   invitation_expired: "That invitation has expired. Issue a new one for the same address instead.",
   invitation_revoked: "That invitation was already revoked. Issue a new one for the same address instead.",
   user_not_found: "No account uses that email address, so no reset link was issued.",
-  account_deactivated:
-    "That account is deactivated, so no reset link was issued. Reactivate the account first.",
+  account_deactivated: "That account is deactivated, so no reset link was issued. Reactivate the account first.",
   invalid_body: "The server refused the request as incomplete. Nothing was issued.",
   network: "The server could not be reached, so nothing was issued.",
   unreadable_answer: "The server answered unexpectedly, so nothing was shown as issued.",
@@ -213,12 +211,7 @@ export async function readPendingInvitations(): Promise<InvitationListResult> {
 }
 
 export async function issueInvitation(email: string): Promise<InvitationIssueResult> {
-  const result = await manageRequest(
-    ADMIN_INVITATIONS_PATH,
-    "POST",
-    parseIssuedInvitation,
-    buildEmailRequest(email),
-  );
+  const result = await manageRequest(ADMIN_INVITATIONS_PATH, "POST", parseIssuedInvitation, buildEmailRequest(email));
   return result.ok ? result : refused(result);
 }
 
@@ -241,11 +234,6 @@ export async function regenerateInvitation(id: string): Promise<InvitationRegene
 }
 
 export async function issueResetLink(email: string): Promise<ResetLinkResult> {
-  const result = await manageRequest(
-    ADMIN_RESET_LINKS_PATH,
-    "POST",
-    parseResetLink,
-    buildEmailRequest(email),
-  );
+  const result = await manageRequest(ADMIN_RESET_LINKS_PATH, "POST", parseResetLink, buildEmailRequest(email));
   return result.ok ? result : refused(result);
 }

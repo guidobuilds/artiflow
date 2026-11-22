@@ -11,9 +11,7 @@ export const ADMIN_SECTIONS: AdminSectionLink[] = [
 ];
 
 export type AdminGate =
-  | { kind: "loading" }
-  | { kind: "refused"; message: string; signInRequired: boolean }
-  | { kind: "ready" };
+  { kind: "loading" } | { kind: "refused"; message: string; signInRequired: boolean } | { kind: "ready" };
 
 export const ADMIN_MEMBER_REFUSAL =
   "Only an administrator can open this area. This page is not available to your account.";

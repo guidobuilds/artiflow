@@ -8,7 +8,15 @@ import { registrationInvite } from "../apps/api/src/adapters/postgres/db/invite-
 import { passwordResetToken } from "../apps/api/src/adapters/postgres/db/password-reset-schema.ts";
 import { user } from "../apps/api/src/adapters/postgres/db/schema.ts";
 import { loadConfig } from "../apps/api/src/config.ts";
-import { assertStatus, adminGet, adminPost, adminRequest, publicPost, startAdminHarness, type AdminHarness } from "./helpers/admin-harness.ts";
+import {
+  assertStatus,
+  adminGet,
+  adminPost,
+  adminRequest,
+  publicPost,
+  startAdminHarness,
+  type AdminHarness,
+} from "./helpers/admin-harness.ts";
 import {
   seedTrustedAccount,
   trustedSession,
@@ -114,8 +122,7 @@ async function createdInvitation(email: string): Promise<CreateAnswer> {
 
 async function inviteRows(email: string): Promise<{ id: string; tokenHash: string; createdBy: string | null }[]> {
   return await target()
-    .database.db
-    .select({
+    .database.db.select({
       id: registrationInvite.id,
       tokenHash: registrationInvite.tokenHash,
       createdBy: registrationInvite.createdBy,
@@ -126,16 +133,14 @@ async function inviteRows(email: string): Promise<{ id: string; tokenHash: strin
 
 async function resetRows(userId: string): Promise<{ id: string; createdBy: string | null }[]> {
   return await target()
-    .database.db
-    .select({ id: passwordResetToken.id, createdBy: passwordResetToken.createdBy })
+    .database.db.select({ id: passwordResetToken.id, createdBy: passwordResetToken.createdBy })
     .from(passwordResetToken)
     .where(eq(passwordResetToken.userId, userId));
 }
 
 async function accountsFor(email: string): Promise<{ id: string; status: string; deactivatedBy: string | null }[]> {
   return await target()
-    .database.db
-    .select({ id: user.id, status: user.status, deactivatedBy: user.deactivatedBy })
+    .database.db.select({ id: user.id, status: user.status, deactivatedBy: user.deactivatedBy })
     .from(user)
     .where(sql`lower(btrim(${user.email})) = ${email}`);
 }
@@ -220,57 +225,60 @@ integration("a member is refused on every invitation and reset endpoint and noth
   assert.deepEqual(await anonymous.json(), { error: "sign_in_required" });
 });
 
-integration("creating an invitation answers the link once and the pending list names its author and expiry", async () => {
-  const email = `created-${randomUUID()}@Example.TEST`;
-  const canonical = email.trim().toLowerCase();
-  const before = Date.now();
-  const captured = await withAuditCapture(() => createInvitation(email));
-  assertStatus(captured.result, 200, "the administrator creates an invitation");
-  const answer = (await captured.result.json()) as CreateAnswer;
+integration(
+  "creating an invitation answers the link once and the pending list names its author and expiry",
+  async () => {
+    const email = `created-${randomUUID()}@Example.TEST`;
+    const canonical = email.trim().toLowerCase();
+    const before = Date.now();
+    const captured = await withAuditCapture(() => createInvitation(email));
+    assertStatus(captured.result, 200, "the administrator creates an invitation");
+    const answer = (await captured.result.json()) as CreateAnswer;
 
-  assert.equal(answer.reactivated, false, "a fresh address is not an account to reactivate");
-  assert.equal(answer.invitation.email, canonical);
-  assert.deepEqual(answer.invitation.issuedBy, {
-    id: actor().userId,
-    name: actor().name,
-    email: actor().email,
-  });
-  const expiresAt = Date.parse(answer.invitation.expiresAt);
-  assert.equal(
-    expiresAt >= before + DAY_MS - 60_000 && expiresAt <= Date.now() + DAY_MS + 60_000,
-    true,
-    "the invitation expires in 24 hours",
-  );
+    assert.equal(answer.reactivated, false, "a fresh address is not an account to reactivate");
+    assert.equal(answer.invitation.email, canonical);
+    assert.deepEqual(answer.invitation.issuedBy, {
+      id: actor().userId,
+      name: actor().name,
+      email: actor().email,
+    });
+    const expiresAt = Date.parse(answer.invitation.expiresAt);
+    assert.equal(
+      expiresAt >= before + DAY_MS - 60_000 && expiresAt <= Date.now() + DAY_MS + 60_000,
+      true,
+      "the invitation expires in 24 hours",
+    );
 
-  const token = tokenOf(answer.link);
-  assert.equal(answer.link.startsWith(harness?.config.publicOrigin ?? ""), true, "the link uses the public origin");
-  assertStatus(await previewInvitation(token), 200, "the answered link works");
+    const token = tokenOf(answer.link);
+    assert.equal(answer.link.startsWith(harness?.config.publicOrigin ?? ""), true, "the link uses the public origin");
+    assertStatus(await previewInvitation(token), 200, "the answered link works");
 
-  const rows = await inviteRows(canonical);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0]?.tokenHash, createHash("sha256").update(token).digest("hex"), "only the hash is stored");
-  assert.notEqual(rows[0]?.tokenHash, token, "the clear token is never stored");
-  assert.equal(rows[0]?.createdBy, actor().userId, "the invitation records who issued it");
+    const rows = await inviteRows(canonical);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.tokenHash, createHash("sha256").update(token).digest("hex"), "only the hash is stored");
+    assert.notEqual(rows[0]?.tokenHash, token, "the clear token is never stored");
+    assert.equal(rows[0]?.createdBy, actor().userId, "the invitation records who issued it");
 
-  const listed = await listInvitations();
-  assertStatus(listed, 200, "the pending list is readable");
-  const text = await listed.text();
-  assert.equal(text.includes(token), false, "the pending list never returns the link");
-  assert.equal(text.includes(rows[0]?.tokenHash ?? ""), false, "the pending list never returns the hash");
-  const page = JSON.parse(text) as ListAnswer;
-  const pending = page.invitations.find((row) => row.id === answer.invitation.id);
-  assert.ok(pending, "the pending list carries the created invitation");
-  assert.deepEqual(pending.issuedBy, answer.invitation.issuedBy);
-  assert.deepEqual(Object.keys(pending).sort(), ["createdAt", "email", "expiresAt", "id", "issuedBy"]);
-  assert.equal(pending.expiresAt, answer.invitation.expiresAt);
+    const listed = await listInvitations();
+    assertStatus(listed, 200, "the pending list is readable");
+    const text = await listed.text();
+    assert.equal(text.includes(token), false, "the pending list never returns the link");
+    assert.equal(text.includes(rows[0]?.tokenHash ?? ""), false, "the pending list never returns the hash");
+    const page = JSON.parse(text) as ListAnswer;
+    const pending = page.invitations.find((row) => row.id === answer.invitation.id);
+    assert.ok(pending, "the pending list carries the created invitation");
+    assert.deepEqual(pending.issuedBy, answer.invitation.issuedBy);
+    assert.deepEqual(Object.keys(pending).sort(), ["createdAt", "email", "expiresAt", "id", "issuedBy"]);
+    assert.equal(pending.expiresAt, answer.invitation.expiresAt);
 
-  const events = eventsNamed(captured.lines, "invitation.created");
-  assert.equal(events.length, 1, "one applied creation records exactly one event");
-  assert.equal(events[0]?.actorId, actor().userId);
-  assert.equal(events[0]?.actorRole, "administrator");
-  assert.equal(events[0]?.subjectId, answer.invitation.id);
-  assert.equal(JSON.stringify(events[0]).includes(token), false, "no link reaches the event line");
-});
+    const events = eventsNamed(captured.lines, "invitation.created");
+    assert.equal(events.length, 1, "one applied creation records exactly one event");
+    assert.equal(events[0]?.actorId, actor().userId);
+    assert.equal(events[0]?.actorRole, "administrator");
+    assert.equal(events[0]?.subjectId, answer.invitation.id);
+    assert.equal(JSON.stringify(events[0]).includes(token), false, "no link reaches the event line");
+  },
+);
 
 integration("opening the link does not consume it while completing the registration does, once", async () => {
   const email = `opened-${randomUUID()}@example.test`;
@@ -318,80 +326,91 @@ integration("two concurrent completions of one invitation create one account", a
   assert.equal((await signIn(email, loser.password)).status >= 400, true, "the losing password never signs in");
 });
 
-integration("a revoked, a regenerated-old, an expired and a consumed invitation refuse with their own reason", async () => {
-  const revokedEmail = `revoked-${randomUUID()}@example.test`;
-  const revoked = await createdInvitation(revokedEmail);
-  const revokedToken = tokenOf(revoked.link);
+integration(
+  "a revoked, a regenerated-old, an expired and a consumed invitation refuse with their own reason",
+  async () => {
+    const revokedEmail = `revoked-${randomUUID()}@example.test`;
+    const revoked = await createdInvitation(revokedEmail);
+    const revokedToken = tokenOf(revoked.link);
 
-  const captured = await withAuditCapture(() => revoke(revoked.invitation.id));
-  assertStatus(captured.result, 200, "revoking a pending invitation is applied");
-  const revokedAnswer = (await captured.result.json()) as { invitation: { id: string; revokedAt: string } };
-  assert.equal(revokedAnswer.invitation.id, revoked.invitation.id);
-  assert.equal(Number.isNaN(Date.parse(revokedAnswer.invitation.revokedAt)), false, "the answer names when it stopped");
-  const events = eventsNamed(captured.lines, "invitation.revoked");
-  assert.equal(events.length, 1, "one applied revocation records exactly one event");
-  assert.equal(events[0]?.subjectId, revoked.invitation.id);
-  assert.equal(events[0]?.actorId, actor().userId);
-  assertStatus(await previewInvitation(revokedToken), 400, "a revoked link no longer previews");
-  assertStatus(await completeRegistration(revokedToken, credential()), 400, "a revoked link never completes");
+    const captured = await withAuditCapture(() => revoke(revoked.invitation.id));
+    assertStatus(captured.result, 200, "revoking a pending invitation is applied");
+    const revokedAnswer = (await captured.result.json()) as { invitation: { id: string; revokedAt: string } };
+    assert.equal(revokedAnswer.invitation.id, revoked.invitation.id);
+    assert.equal(
+      Number.isNaN(Date.parse(revokedAnswer.invitation.revokedAt)),
+      false,
+      "the answer names when it stopped",
+    );
+    const events = eventsNamed(captured.lines, "invitation.revoked");
+    assert.equal(events.length, 1, "one applied revocation records exactly one event");
+    assert.equal(events[0]?.subjectId, revoked.invitation.id);
+    assert.equal(events[0]?.actorId, actor().userId);
+    assertStatus(await previewInvitation(revokedToken), 400, "a revoked link no longer previews");
+    assertStatus(await completeRegistration(revokedToken, credential()), 400, "a revoked link never completes");
 
-  const repeated = await revoke(revoked.invitation.id);
-  assertStatus(repeated, 409, "revoking a revoked invitation is refused");
-  assert.deepEqual(await repeated.json(), { error: "invitation_revoked" });
-  const regrown = await regenerate(revoked.invitation.id);
-  assertStatus(regrown, 409, "regenerating a revoked invitation is refused");
-  assert.deepEqual(await regrown.json(), { error: "invitation_revoked" });
+    const repeated = await revoke(revoked.invitation.id);
+    assertStatus(repeated, 409, "revoking a revoked invitation is refused");
+    assert.deepEqual(await repeated.json(), { error: "invitation_revoked" });
+    const regrown = await regenerate(revoked.invitation.id);
+    assertStatus(regrown, 409, "regenerating a revoked invitation is refused");
+    assert.deepEqual(await regrown.json(), { error: "invitation_revoked" });
 
-  const regeneratedEmail = `regenerated-${randomUUID()}@example.test`;
-  const original = await createdInvitation(regeneratedEmail);
-  const originalToken = tokenOf(original.link);
-  const regenerated = await regenerate(original.invitation.id);
-  assertStatus(regenerated, 200, "regenerating a pending invitation is applied");
-  const replacement = (await regenerated.json()) as CreateAnswer;
-  assert.notEqual(replacement.invitation.id, original.invitation.id, "a regenerated invitation is a new row");
-  assert.equal(replacement.invitation.email, original.invitation.email);
-  const replacementToken = tokenOf(replacement.link);
-  assertStatus(await previewInvitation(originalToken), 400, "the previous link stops working immediately");
-  assertStatus(await completeRegistration(originalToken, credential()), 400, "the previous link never completes");
-  assertStatus(await previewInvitation(replacementToken), 200, "the replacement link works");
-  const staleRevoke = await revoke(original.invitation.id);
-  assertStatus(staleRevoke, 409, "the previous invitation is revoked");
-  assert.deepEqual(await staleRevoke.json(), { error: "invitation_revoked" });
+    const regeneratedEmail = `regenerated-${randomUUID()}@example.test`;
+    const original = await createdInvitation(regeneratedEmail);
+    const originalToken = tokenOf(original.link);
+    const regenerated = await regenerate(original.invitation.id);
+    assertStatus(regenerated, 200, "regenerating a pending invitation is applied");
+    const replacement = (await regenerated.json()) as CreateAnswer;
+    assert.notEqual(replacement.invitation.id, original.invitation.id, "a regenerated invitation is a new row");
+    assert.equal(replacement.invitation.email, original.invitation.email);
+    const replacementToken = tokenOf(replacement.link);
+    assertStatus(await previewInvitation(originalToken), 400, "the previous link stops working immediately");
+    assertStatus(await completeRegistration(originalToken, credential()), 400, "the previous link never completes");
+    assertStatus(await previewInvitation(replacementToken), 200, "the replacement link works");
+    const staleRevoke = await revoke(original.invitation.id);
+    assertStatus(staleRevoke, 409, "the previous invitation is revoked");
+    assert.deepEqual(await staleRevoke.json(), { error: "invitation_revoked" });
 
-  const expiredEmail = `expired-${randomUUID()}@example.test`;
-  const expired = await createdInvitation(expiredEmail);
-  await expireInvitation(expiredEmail);
-  const expiredToken = tokenOf(expired.link);
-  assertStatus(await previewInvitation(expiredToken), 400, "an expired link no longer previews");
-  assertStatus(await completeRegistration(expiredToken, credential()), 400, "an expired link never completes");
-  const expiredRevoke = await revoke(expired.invitation.id);
-  assertStatus(expiredRevoke, 409, "revoking an expired invitation is refused");
-  assert.deepEqual(await expiredRevoke.json(), { error: "invitation_expired" });
-  const expiredRegenerate = await regenerate(expired.invitation.id);
-  assertStatus(expiredRegenerate, 409, "regenerating an expired invitation is refused");
-  assert.deepEqual(await expiredRegenerate.json(), { error: "invitation_expired" });
+    const expiredEmail = `expired-${randomUUID()}@example.test`;
+    const expired = await createdInvitation(expiredEmail);
+    await expireInvitation(expiredEmail);
+    const expiredToken = tokenOf(expired.link);
+    assertStatus(await previewInvitation(expiredToken), 400, "an expired link no longer previews");
+    assertStatus(await completeRegistration(expiredToken, credential()), 400, "an expired link never completes");
+    const expiredRevoke = await revoke(expired.invitation.id);
+    assertStatus(expiredRevoke, 409, "revoking an expired invitation is refused");
+    assert.deepEqual(await expiredRevoke.json(), { error: "invitation_expired" });
+    const expiredRegenerate = await regenerate(expired.invitation.id);
+    assertStatus(expiredRegenerate, 409, "regenerating an expired invitation is refused");
+    assert.deepEqual(await expiredRegenerate.json(), { error: "invitation_expired" });
 
-  const consumedEmail = `consumed-${randomUUID()}@example.test`;
-  const consumed = await createdInvitation(consumedEmail);
-  assertStatus(await completeRegistration(tokenOf(consumed.link), credential()), 200, "the invitation completes once");
-  const storedRows = await inviteRows(consumedEmail);
-  const consumedRevoke = await revoke(consumed.invitation.id);
-  assertStatus(consumedRevoke, 409, "revoking a consumed invitation is refused");
-  assert.deepEqual(await consumedRevoke.json(), { error: "invitation_consumed" });
-  const consumedRegenerate = await regenerate(consumed.invitation.id);
-  assertStatus(consumedRegenerate, 409, "regenerating a consumed invitation is refused");
-  assert.deepEqual(await consumedRegenerate.json(), { error: "invitation_consumed" });
+    const consumedEmail = `consumed-${randomUUID()}@example.test`;
+    const consumed = await createdInvitation(consumedEmail);
+    assertStatus(
+      await completeRegistration(tokenOf(consumed.link), credential()),
+      200,
+      "the invitation completes once",
+    );
+    const storedRows = await inviteRows(consumedEmail);
+    const consumedRevoke = await revoke(consumed.invitation.id);
+    assertStatus(consumedRevoke, 409, "revoking a consumed invitation is refused");
+    assert.deepEqual(await consumedRevoke.json(), { error: "invitation_consumed" });
+    const consumedRegenerate = await regenerate(consumed.invitation.id);
+    assertStatus(consumedRegenerate, 409, "regenerating a consumed invitation is refused");
+    assert.deepEqual(await consumedRegenerate.json(), { error: "invitation_consumed" });
 
-  const unknown = randomUUID();
-  const captured2 = await withAuditCapture(async () => [await revoke(unknown), await regenerate(unknown)]);
-  for (const answer of captured2.result) {
-    assertStatus(answer, 404, "an unknown invitation is not found");
-    assert.deepEqual(await answer.json(), { error: "invitation_not_found" });
-  }
-  assert.deepEqual(captured2.lines, [], "a refused change records nothing");
-  assert.deepEqual(await inviteRows(consumedEmail), storedRows, "refusals never create a row");
-  assert.equal((await inviteRows(regeneratedEmail)).length, 2, "regeneration writes exactly one new row");
-});
+    const unknown = randomUUID();
+    const captured2 = await withAuditCapture(async () => [await revoke(unknown), await regenerate(unknown)]);
+    for (const answer of captured2.result) {
+      assertStatus(answer, 404, "an unknown invitation is not found");
+      assert.deepEqual(await answer.json(), { error: "invitation_not_found" });
+    }
+    assert.deepEqual(captured2.lines, [], "a refused change records nothing");
+    assert.deepEqual(await inviteRows(consumedEmail), storedRows, "refusals never create a row");
+    assert.equal((await inviteRows(regeneratedEmail)).length, 2, "regeneration writes exactly one new row");
+  },
+);
 
 integration("a refused creation records nothing and leaves the stored rows untouched", async () => {
   const existing = await trustedSession(fixtureOf(), { name: "Existing Account" });
@@ -428,49 +447,64 @@ integration("inviting a deactivated account reactivates it without creating anot
   assert.equal(after[0]?.deactivatedBy, null, "the reactivation clears who deactivated it");
 
   const replacement = credential("Reactivated Person");
-  assertStatus(await completeRegistration(tokenOf(answer.link), replacement), 200, "the link completes on that account");
+  assertStatus(
+    await completeRegistration(tokenOf(answer.link), replacement),
+    200,
+    "the link completes on that account",
+  );
   assert.equal((await accountsFor(victim.email)).length, 1, "completing never creates a second account");
   assertStatus(await signIn(victim.email, replacement.password), 200, "the reactivated person signs in");
-  assert.equal((await signIn(victim.email, victim.password)).status >= 400, true, "the previous password stopped working");
+  assert.equal(
+    (await signIn(victim.email, victim.password)).status >= 400,
+    true,
+    "the previous password stopped working",
+  );
 });
 
-integration("a reset link for an existing account works once and refuses for an unknown or deactivated account", async () => {
-  const owner = await trustedSession(fixtureOf(), { name: "Reset Owner" });
-  const captured = await withAuditCapture(() => issueResetLink(owner.email));
-  assertStatus(captured.result, 200, "the administrator issues a reset link");
-  const issued = (await captured.result.json()) as { link: string; expiresAt: string };
-  const token = tokenOf(issued.link);
-  assert.equal(issued.expiresAt.length > 0, true, "the answer names when the link expires");
-  assert.equal(eventsNamed(captured.lines, "password.reset.issued").length, 1, "one issuance records one event");
-  assert.equal(eventsNamed(captured.lines, "password.reset.issued")[0]?.subjectId, owner.userId);
-  assert.equal(JSON.stringify(captured.lines).includes(token), false, "no link reaches the event line");
+integration(
+  "a reset link for an existing account works once and refuses for an unknown or deactivated account",
+  async () => {
+    const owner = await trustedSession(fixtureOf(), { name: "Reset Owner" });
+    const captured = await withAuditCapture(() => issueResetLink(owner.email));
+    assertStatus(captured.result, 200, "the administrator issues a reset link");
+    const issued = (await captured.result.json()) as { link: string; expiresAt: string };
+    const token = tokenOf(issued.link);
+    assert.equal(issued.expiresAt.length > 0, true, "the answer names when the link expires");
+    assert.equal(eventsNamed(captured.lines, "password.reset.issued").length, 1, "one issuance records one event");
+    assert.equal(eventsNamed(captured.lines, "password.reset.issued")[0]?.subjectId, owner.userId);
+    assert.equal(JSON.stringify(captured.lines).includes(token), false, "no link reaches the event line");
 
-  const stored = await resetRows(owner.userId);
-  assert.equal(stored.length, 1);
-  assert.equal(stored[0]?.createdBy, actor().userId, "the reset link records who issued it");
+    const stored = await resetRows(owner.userId);
+    assert.equal(stored.length, 1);
+    assert.equal(stored[0]?.createdBy, actor().userId, "the reset link records who issued it");
 
-  assertStatus(await publicPost(target(), RESET_PREVIEW_PATH, { token }), 200, "the issued link works");
-  const newPassword = `Reset-Password-${randomUUID()}`;
-  assertStatus(await completeReset(token, newPassword), 200, "the reset completes once");
-  assertStatus(await completeReset(token, `Again-Password-${randomUUID()}`), 400, "the consumed link is refused");
-  assertStatus(await signIn(owner.email, newPassword), 200, "the new password signs in");
-  assert.equal((await signIn(owner.email, owner.password)).status >= 400, true, "the previous password stopped working");
+    assertStatus(await publicPost(target(), RESET_PREVIEW_PATH, { token }), 200, "the issued link works");
+    const newPassword = `Reset-Password-${randomUUID()}`;
+    assertStatus(await completeReset(token, newPassword), 200, "the reset completes once");
+    assertStatus(await completeReset(token, `Again-Password-${randomUUID()}`), 400, "the consumed link is refused");
+    assertStatus(await signIn(owner.email, newPassword), 200, "the new password signs in");
+    assert.equal(
+      (await signIn(owner.email, owner.password)).status >= 400,
+      true,
+      "the previous password stopped working",
+    );
 
-  const unknown = await issueResetLink(`unknown-${randomUUID()}@example.test`);
-  assertStatus(unknown, 404, "an unknown account is refused");
-  assert.deepEqual(await unknown.json(), { error: "user_not_found" });
+    const unknown = await issueResetLink(`unknown-${randomUUID()}@example.test`);
+    assertStatus(unknown, 404, "an unknown account is refused");
+    assert.deepEqual(await unknown.json(), { error: "user_not_found" });
 
-  const victim = await trustedSession(fixtureOf(), { name: "Deactivated Reset Owner" });
-  assertStatus(await setStatus(victim.userId, "deactivated"), 200, "the administrator deactivates the account");
-  const deactivated = await issueResetLink(victim.email);
-  assertStatus(deactivated, 409, "a deactivated account is refused");
-  assert.deepEqual(await deactivated.json(), { error: "account_deactivated" });
-  assert.deepEqual(await resetRows(victim.userId), [], "a refused issuance stores no token");
+    const victim = await trustedSession(fixtureOf(), { name: "Deactivated Reset Owner" });
+    assertStatus(await setStatus(victim.userId, "deactivated"), 200, "the administrator deactivates the account");
+    const deactivated = await issueResetLink(victim.email);
+    assertStatus(deactivated, 409, "a deactivated account is refused");
+    assert.deepEqual(await deactivated.json(), { error: "account_deactivated" });
+    assert.deepEqual(await resetRows(victim.userId), [], "a refused issuance stores no token");
 
-  const malformed = await issueResetLink("not-an-address");
-  assertStatus(malformed, 400, "a malformed address is refused");
-  assert.deepEqual(await malformed.json(), { error: "invalid_email" });
-});
+    const malformed = await issueResetLink("not-an-address");
+    assertStatus(malformed, 400, "a malformed address is refused");
+    assert.deepEqual(await malformed.json(), { error: "invalid_email" });
+  },
+);
 
 integration("the console commands still produce a working link", async () => {
   const invitedEmail = `command-${randomUUID()}@example.test`;
@@ -489,7 +523,11 @@ integration("the console commands still produce a working link", async () => {
     200,
     "a link issued by the console completes",
   );
-  assertStatus(await signIn(invitedEmail, invitedCredential.password), 200, "the console invitation creates a usable account");
+  assertStatus(
+    await signIn(invitedEmail, invitedCredential.password),
+    200,
+    "the console invitation creates a usable account",
+  );
 
   const owner: TrustedAccount = await seedTrustedAccount(target().database, { name: "Command Reset Owner" });
   const issuedReset = target().command("user:reset-password", [owner.email]);

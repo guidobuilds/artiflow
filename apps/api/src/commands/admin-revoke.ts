@@ -88,8 +88,7 @@ async function run(argv: string[]): Promise<number> {
     return 0;
   }
   if (parsed.kind === "usage") return refuse(USAGE);
-  if (parsed.kind === "invalid-email")
-    return refuse("admin:revoke: the EMAIL argument is not a valid email address.");
+  if (parsed.kind === "invalid-email") return refuse("admin:revoke: the EMAIL argument is not a valid email address.");
   return revoke(parsed.email);
 }
 

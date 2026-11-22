@@ -12,7 +12,13 @@ import {
   type SsoConnection,
   type SsoProviderRegistration,
 } from "./sso-connection.ts";
-import { accessMethodsSetting, readRawSettingValue, readSetting, SSO_CONNECTION_KEY, readSettingsRevision } from "./store.ts";
+import {
+  accessMethodsSetting,
+  readRawSettingValue,
+  readSetting,
+  SSO_CONNECTION_KEY,
+  readSettingsRevision,
+} from "./store.ts";
 
 export type SnapshotProvider = { readonly clientId: string; readonly clientSecret: string };
 

@@ -32,11 +32,7 @@ type IdpOptions = {
 };
 
 function base64url(value: string | Buffer): string {
-  return Buffer.from(value)
-    .toString("base64")
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replaceAll("=", "");
+  return Buffer.from(value).toString("base64").replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
 function textOf(input: unknown): string {
@@ -59,7 +55,10 @@ export async function startFakeIdentityProvider(options: IdpOptions): Promise<Fa
   const privatePem = keys.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
   const publicJwk = keys.publicKey.export({ format: "jwk" }) as { n?: string; e?: string };
   const kid = `idp-key-${randomUUID().slice(0, 8)}`;
-  let profile: IdpProfile = { subject: `idp-subject-${randomUUID()}`, email: `person-${randomUUID()}@acme.example.test` };
+  let profile: IdpProfile = {
+    subject: `idp-subject-${randomUUID()}`,
+    email: `person-${randomUUID()}@acme.example.test`,
+  };
   let discovery: DiscoveryMode = "ok";
   const seen: string[] = [];
   let origin = "";
@@ -232,20 +231,18 @@ export async function completeSsoCallback(
   input: { state: string; cookie: string; code?: string },
 ): Promise<SsoCallback> {
   const query = new URLSearchParams({ code: input.code ?? "fake-authorization-code", state: input.state });
-  const response = await fetch(
-    `${baseUrl}/api/auth/sso/callback/${SSO_CONNECTION_PROVIDER_ID}?${query.toString()}`,
-    {
-      redirect: "manual",
-      headers: { cookie: input.cookie },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    },
-  );
+  const response = await fetch(`${baseUrl}/api/auth/sso/callback/${SSO_CONNECTION_PROVIDER_ID}?${query.toString()}`, {
+    redirect: "manual",
+    headers: { cookie: input.cookie },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   const sessionCookie =
     response.headers
       .getSetCookie()
       .map((value) => value.split(";")[0] ?? "")
-      .find((value) => value.startsWith("artiflow.session_token=") && value.length > "artiflow.session_token=".length) ??
-    "";
+      .find(
+        (value) => value.startsWith("artiflow.session_token=") && value.length > "artiflow.session_token=".length,
+      ) ?? "";
   return { status: response.status, location: response.headers.get("location") ?? "", sessionCookie };
 }
 

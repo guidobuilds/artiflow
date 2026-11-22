@@ -337,7 +337,10 @@ test("the status filter travels to the server next to the role and the search", 
   assert.equal(calls[0]?.init.method, "GET");
 
   assert.match(directoryEmptyMessage({ search: "", role: null, status: "active" }), /clear the status filter/i);
-  assert.equal(directoryEmptyMessage({ search: "", role: null, status: null }), directoryEmptyMessage({ search: "", role: null }));
+  assert.equal(
+    directoryEmptyMessage({ search: "", role: null, status: null }),
+    directoryEmptyMessage({ search: "", role: null }),
+  );
 
   const page = read(USERS_PAGE);
   assert.match(page, /<Segmented label="Status filter">/);
@@ -540,7 +543,11 @@ test("the edit panel keeps no copy of the committed role", async () => {
   const declared = /type Draft = \{([^}]*)\}/.exec(page);
   assert.ok(declared, "the page declares the draft it edits");
   assert.equal(/\brole\b/.test(declared[1] ?? ""), false, "the draft keeps no role of its own");
-  assert.match(page, /rows\.users\.find\(\(row\) => row\.id === draft\.id\)/, "the committed role is read from the row");
+  assert.match(
+    page,
+    /rows\.users\.find\(\(row\) => row\.id === draft\.id\)/,
+    "the committed role is read from the row",
+  );
   assert.match(page, /pressed=\{subject\.role === "member"\}/);
   assert.match(page, /pressed=\{subject\.role === "administrator"\}/);
   assert.match(page, /replaceAdminUserRole\(current\.page, id, stored\)/);

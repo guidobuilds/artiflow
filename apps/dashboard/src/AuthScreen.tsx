@@ -112,8 +112,7 @@ export default function AuthScreen({
         setCapabilities(result.value);
         setRegistrationAvailable(result.value.registration === true);
       })
-      .catch(() => {
-      });
+      .catch(() => {});
     return () => {
       live = false;
     };
@@ -172,7 +171,8 @@ export default function AuthScreen({
     if (busy || submitting.current) return;
     setError("");
     setBusy(true);
-    const refused = returnPath === "/" ? CONNECTION_ERROR_PATH : `${CONNECTION_ERROR_PATH}?return=${encodeURIComponent(returnPath)}`;
+    const refused =
+      returnPath === "/" ? CONNECTION_ERROR_PATH : `${CONNECTION_ERROR_PATH}?return=${encodeURIComponent(returnPath)}`;
     const result = await ssoSignIn(returnPath, refused);
     if (result.ok) {
       window.location.assign(result.url);

@@ -182,34 +182,34 @@ export default function LoginPage({ search }: { search: string }) {
               ) : null}
               {surface.password ? (
                 <form className="grid gap-4" onSubmit={submit}>
-              <Field label="Email" htmlFor="login-email">
-                <Input
-                  id="login-email"
-                  type="email"
-                  name="email"
-                  autoComplete="email"
-                  value={values.email}
-                  onChange={onField("email")}
-                  required
-                  disabled={busy}
-                />
-              </Field>
-              <Field label="Password" htmlFor="login-password">
-                <Input
-                  id="login-password"
-                  type="password"
-                  name="password"
-                  autoComplete="current-password"
-                  value={values.password}
-                  onChange={onField("password")}
-                  required
-                  disabled={busy}
-                />
-              </Field>
-              <Button type="submit" variant="primary" className="mt-1 w-full" disabled={busy}>
-                {busy ? "Signing in…" : "Sign in and continue"}
-              </Button>
-            </form>
+                  <Field label="Email" htmlFor="login-email">
+                    <Input
+                      id="login-email"
+                      type="email"
+                      name="email"
+                      autoComplete="email"
+                      value={values.email}
+                      onChange={onField("email")}
+                      required
+                      disabled={busy}
+                    />
+                  </Field>
+                  <Field label="Password" htmlFor="login-password">
+                    <Input
+                      id="login-password"
+                      type="password"
+                      name="password"
+                      autoComplete="current-password"
+                      value={values.password}
+                      onChange={onField("password")}
+                      required
+                      disabled={busy}
+                    />
+                  </Field>
+                  <Button type="submit" variant="primary" className="mt-1 w-full" disabled={busy}>
+                    {busy ? "Signing in…" : "Sign in and continue"}
+                  </Button>
+                </form>
               ) : null}
             </div>
           ) : null}

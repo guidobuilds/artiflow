@@ -103,9 +103,10 @@ const seed = async (user: Owner, text: string): Promise<Doc> => {
 
 const revisionCount = async (artifactId: string): Promise<number> =>
   (
-    await pool.query<{ count: number }>(`select count(*)::int as count from "artifactRevisions" where "artifactId" = $1`, [
-      artifactId,
-    ])
+    await pool.query<{ count: number }>(
+      `select count(*)::int as count from "artifactRevisions" where "artifactId" = $1`,
+      [artifactId],
+    )
   ).rows[0]?.count ?? -1;
 
 const currentRevisionOf = async (artifactId: string): Promise<string | null> =>
@@ -190,7 +191,10 @@ test(
 
     const unparseable = "x".repeat(MAX_ARTIFACT_BYTES + OVER_CAP_BY);
     const beforeParse = await read(path, { method: "PUT", headers: MUTATION, body: unparseable }, owner);
-    assert.deepEqual([beforeParse.status, beforeParse.json], [413, { error: "too_large", maxBytes: MAX_ARTIFACT_BYTES }]);
+    assert.deepEqual(
+      [beforeParse.status, beforeParse.json],
+      [413, { error: "too_large", maxBytes: MAX_ARTIFACT_BYTES }],
+    );
     assert.equal(beforeParse.headers.get("content-type")?.startsWith("application/json"), true);
 
     assert.equal(await revisionCount(doc.id), revisionsBefore, "the refused saves appended no revision");

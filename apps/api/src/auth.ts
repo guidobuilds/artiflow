@@ -22,11 +22,7 @@ import { UNATTRIBUTED_FALLBACK_ACTOR, recordAdminEvent } from "./logging/admin-e
 import { passwordReset } from "./password-reset/plugin.ts";
 import { API_RESOURCE_SCOPES, oauthPlugins, publicApiResource, publicIssuer } from "./oauth.ts";
 import { passwordPolicyHook } from "./password-policy/hook.ts";
-import {
-  defaultPasswordPolicyView,
-  readPasswordPolicy,
-  type PasswordPolicySource,
-} from "./password-policy/policy.ts";
+import { defaultPasswordPolicyView, readPasswordPolicy, type PasswordPolicySource } from "./password-policy/policy.ts";
 import type { PasswordPolicyView } from "@artiflow/contracts/settings";
 import { environmentSnapshot, type AccessSnapshot } from "./settings/access-snapshot.ts";
 import {

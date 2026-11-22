@@ -77,7 +77,11 @@ before(async () => {
   const raw = process.env.DATABASE_URL ?? "";
   const url = new URL(raw);
   assert.equal(LOOPBACK_HOSTS.has(url.hostname), true, "the test database must be a loopback PostgreSQL instance");
-  assert.equal(decodeURIComponent(url.pathname.replace(/^\//, "")), "artiflow", "the test database must be the fixture");
+  assert.equal(
+    decodeURIComponent(url.pathname.replace(/^\//, "")),
+    "artiflow",
+    "the test database must be the fixture",
+  );
 
   admin = new Pool({ connectionString: raw, max: 1, connectionTimeoutMillis: 5000 });
   await admin.query("SELECT 1");
@@ -235,7 +239,10 @@ integration("the first boot seeds access.methods from a provider pair and encryp
 
   assert.equal(await secretConfigured(database.db, providerSecretName("google")), true);
   assert.equal(await secretConfigured(database.db, providerSecretName("github")), false);
-  assert.equal(await readSecret(database.db, providerSecretName("google"), config.secretEncryptionKey ?? null), GOOGLE_SECRET);
+  assert.equal(
+    await readSecret(database.db, providerSecretName("google"), config.secretEncryptionKey ?? null),
+    GOOGLE_SECRET,
+  );
   assert.equal(await readSecret(database.db, providerSecretName("github"), config.secretEncryptionKey ?? null), null);
 });
 
@@ -295,12 +302,15 @@ integration("configured providers without an encryption key fail closed and stor
   };
   const config = configFor(env);
 
-  await assert.rejects(seedAccessMethods({ db: database.db, config, env, now: NOW, write: () => undefined }), (error: unknown) => {
-    assert.ok(error instanceof SecretError);
-    assert.equal(error.code, "key_missing");
-    assert.equal(error.message.includes(GOOGLE_SECRET), false);
-    return true;
-  });
+  await assert.rejects(
+    seedAccessMethods({ db: database.db, config, env, now: NOW, write: () => undefined }),
+    (error: unknown) => {
+      assert.ok(error instanceof SecretError);
+      assert.equal(error.code, "key_missing");
+      assert.equal(error.message.includes(GOOGLE_SECRET), false);
+      return true;
+    },
+  );
 
   assert.equal(await readSetting(database.db, accessMethodsSetting), null);
   assert.equal((await database.db.select().from(instanceSecret)).length, 0);

@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 
-import { adminSectionLabel, adminSectionPath, ADMIN_SECTIONS, type AdminGate, type AdminSection } from "../../admin-entry.ts";
+import {
+  adminSectionLabel,
+  adminSectionPath,
+  ADMIN_SECTIONS,
+  type AdminGate,
+  type AdminSection,
+} from "../../admin-entry.ts";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { Eyebrow } from "@/components/ui/eyebrow.tsx";

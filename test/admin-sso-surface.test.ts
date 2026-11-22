@@ -50,7 +50,8 @@ function useFetch(reply: (call: Call, index: number) => Response): Call[] {
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-const headers = (call: Call | undefined): Record<string, string> => (call?.init.headers ?? {}) as Record<string, string>;
+const headers = (call: Call | undefined): Record<string, string> =>
+  (call?.init.headers ?? {}) as Record<string, string>;
 
 const CONNECTION = {
   enabled: false,
@@ -115,7 +116,10 @@ test("a non-administrator is refused by the shell and never sees the form", asyn
   assert.match(result.ok === false ? result.error : "", /administrator/i);
 
   const page = read(PAGE);
-  assert.match(page, /setLoad\(\{ kind: "refused", message: result\.error, signInRequired: result\.signInRequired \}\)/);
+  assert.match(
+    page,
+    /setLoad\(\{ kind: "refused", message: result\.error, signInRequired: result\.signInRequired \}\)/,
+  );
   assert.equal((page.match(/<form/g) ?? []).length, 0, "the page never renders a bare form");
 });
 
@@ -125,10 +129,7 @@ test("a sessionless visitor is sent to sign in and returns to the administration
   assert.equal(result.ok === false && result.code, "unauthorized");
   assert.equal(result.ok === false && result.signInRequired, true);
   assert.match(result.ok === false ? result.error : "", /sign in/i);
-  assert.equal(
-    `/login?return=${encodeURIComponent(adminSectionPath("access"))}`,
-    "/login?return=%2Fadmin%2Faccess",
-  );
+  assert.equal(`/login?return=${encodeURIComponent(adminSectionPath("access"))}`, "/login?return=%2Fadmin%2Faccess");
 });
 
 test("the stored connection parses, the draft starts from it and the credential is never prefilled", () => {

@@ -15,8 +15,7 @@ export const METHODS_UNAVAILABLE =
 
 export const SSO_UNKNOWN_ACCOUNT =
   "No account on this instance signs in with that address. Ask the administrator to create one.";
-export const SSO_DEACTIVATED_ACCOUNT =
-  "This account is deactivated. Ask the administrator to reactivate it.";
+export const SSO_DEACTIVATED_ACCOUNT = "This account is deactivated. Ask the administrator to reactivate it.";
 export const SSO_DOMAIN_NOT_ALLOWED =
   "This instance only creates accounts on the domains the administrator allowed. Ask the administrator to allow " +
   "that domain, or to accept any account this identity provider authenticates.";

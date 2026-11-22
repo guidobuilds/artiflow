@@ -53,7 +53,6 @@ export async function deleteArtifact(
   if (!marked.ok) return { ok: false };
   try {
     await cleanupArtifactBlobs(deps, artifactId);
-  } catch {
-  }
+  } catch {}
   return { ok: true, deletedAt: marked.value.deletedAt };
 }

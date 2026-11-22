@@ -10,13 +10,7 @@ import {
   type TrustedFixture,
   type TrustedSession,
 } from "./helpers/trusted-accounts.ts";
-import {
-  adminGet,
-  adminPost,
-  assertStatus,
-  startAdminHarness,
-  type AdminHarness,
-} from "./helpers/admin-harness.ts";
+import { adminGet, adminPost, assertStatus, startAdminHarness, type AdminHarness } from "./helpers/admin-harness.ts";
 
 const TEST_TIMEOUT_MS = 20_000;
 const integration = (name: string, fn: () => Promise<void>) => test(name, { timeout: TEST_TIMEOUT_MS }, fn);
@@ -75,7 +69,15 @@ async function seedArtifact(ownerId: string, title: string): Promise<string> {
   const now = new Date();
   await target()
     .database.db.insert(artifacts)
-    .values({ id: artifactId, ownerId, title, kind: "markdown", observedSizeBytes: 12, createdAt: now, updatedAt: now });
+    .values({
+      id: artifactId,
+      ownerId,
+      title,
+      kind: "markdown",
+      observedSizeBytes: 12,
+      createdAt: now,
+      updatedAt: now,
+    });
   return artifactId;
 }
 
@@ -128,11 +130,7 @@ integration("a deactivated account is not offered as a new recipient", async () 
     "the refusal grants nothing",
   );
 
-  assertStatus(
-    await setStatus(actor(departed, "departed").userId, "active"),
-    200,
-    "reactivation restores the account",
-  );
+  assertStatus(await setStatus(actor(departed, "departed").userId, "active"), 200, "reactivation restores the account");
   const later = await shareArtifact(artifactId, actor(departed, "departed").email, actor(owner, "owner").cookie);
   assertStatus(later, 201, "a reactivated account is offered again");
 });

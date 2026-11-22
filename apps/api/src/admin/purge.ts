@@ -2,7 +2,12 @@ import { eq, or } from "drizzle-orm";
 
 import { artifactComments, artifacts, artifactShares } from "../adapters/postgres/db/artifact-schema.ts";
 import { registrationInvite } from "../adapters/postgres/db/invite-schema.ts";
-import { oauthAccessToken, oauthClient, oauthConsent, oauthRefreshToken } from "../adapters/postgres/db/oauth-schema.ts";
+import {
+  oauthAccessToken,
+  oauthClient,
+  oauthConsent,
+  oauthRefreshToken,
+} from "../adapters/postgres/db/oauth-schema.ts";
 import { passwordResetToken } from "../adapters/postgres/db/password-reset-schema.ts";
 import { account, session, user } from "../adapters/postgres/db/schema.ts";
 import type { AppDb, AppTx } from "../adapters/postgres/db/client.ts";
@@ -12,10 +17,7 @@ import { recordAdminEvent } from "../logging/admin-events.ts";
 export type PurgeContent = { kind: "reassign"; targetUserId: string } | { kind: "delete" };
 
 export type PurgeOutcome =
-  | { kind: "purged"; userId: string }
-  | { kind: "missing" }
-  | { kind: "target-missing" }
-  | { kind: "same-account" };
+  { kind: "purged"; userId: string } | { kind: "missing" } | { kind: "target-missing" } | { kind: "same-account" };
 
 export type PurgeAccountInput = {
   db: AppDb;
@@ -39,10 +41,7 @@ async function removeOwnedContent(tx: AppTx, userId: string): Promise<void> {
 }
 
 async function reassignOwnedContent(tx: AppTx, userId: string, targetUserId: string, at: Date): Promise<void> {
-  await tx
-    .update(artifacts)
-    .set({ ownerId: targetUserId, updatedAt: at })
-    .where(eq(artifacts.ownerId, userId));
+  await tx.update(artifacts).set({ ownerId: targetUserId, updatedAt: at }).where(eq(artifacts.ownerId, userId));
   await tx.update(artifactComments).set({ authorId: targetUserId }).where(eq(artifactComments.authorId, userId));
   await tx
     .update(artifactShares)

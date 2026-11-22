@@ -30,16 +30,16 @@ parent page, no storage and no other origin.
 
 ## Allowed and blocked
 
-| Inside the artifact                                  | Result                                           |
-| ---------------------------------------------------- | ------------------------------------------------ |
-| Inline `<style>`, inline `<script>`                  | Runs                                             |
-| Inline SVG, CSS shapes, `<canvas>` 2D drawing        | Runs                                             |
+| Inside the artifact                                  | Result                                                         |
+| ---------------------------------------------------- | -------------------------------------------------------------- |
+| Inline `<style>`, inline `<script>`                  | Runs                                                           |
+| Inline SVG, CSS shapes, `<canvas>` 2D drawing        | Runs                                                           |
 | `fetch`, `XMLHttpRequest`, WebSocket, `sendBeacon`   | Blocked: no remote host; a same-origin call carries no cookies |
-| External scripts, stylesheets, fonts or images       | Blocked: each is a network request               |
-| `localStorage`, `sessionStorage`, IndexedDB, cookies | Unavailable: the origin is opaque                |
-| Form submission                                      | Blocked                                          |
-| Replacing the top-level page, opening popups         | Blocked                                          |
-| A link inside the page                               | Can navigate the frame itself away from the page |
+| External scripts, stylesheets, fonts or images       | Blocked: each is a network request                             |
+| `localStorage`, `sessionStorage`, IndexedDB, cookies | Unavailable: the origin is opaque                              |
+| Form submission                                      | Blocked                                                        |
+| Replacing the top-level page, opening popups         | Blocked                                                        |
+| A link inside the page                               | Can navigate the frame itself away from the page               |
 
 So there are no CDN links, no web fonts, no remote images and no analytics. Use system font stacks,
 inline SVG and CSS for visuals, and computed values for anything that would normally be fetched. A page

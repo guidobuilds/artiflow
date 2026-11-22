@@ -12,8 +12,7 @@ import { PASSWORD_RESET_MODEL } from "./plugin.ts";
 import { createResetToken, hashResetToken } from "./token.ts";
 
 export type IssueResetResult =
-  | { kind: "issued"; token: string; expiresAt: Date; userId: string }
-  | { kind: "no-account" };
+  { kind: "issued"; token: string; expiresAt: Date; userId: string } | { kind: "no-account" };
 export type ConsumeResetResult = { kind: "consumed" } | { kind: "invalid" };
 
 export type PasswordResetContext<Options extends BetterAuthOptions = BetterAuthOptions> = Pick<

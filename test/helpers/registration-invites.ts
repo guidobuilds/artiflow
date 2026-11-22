@@ -133,11 +133,7 @@ export function invitationCredential(name = "Invited Person"): Credential {
   return { name, password: `Invited-Password-${randomUUID()}` };
 }
 
-export function inviteRequest(
-  target: InvitationHarness,
-  path: string,
-  init: RequestInit,
-): Promise<Response> {
+export function inviteRequest(target: InvitationHarness, path: string, init: RequestInit): Promise<Response> {
   return fetch(`${target.baseUrl}${path}`, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
 }
 
@@ -207,10 +203,6 @@ export async function expireResetToken(target: InvitationHarness, userId: string
   );
 }
 
-export async function seedCredentialUser(
-  target: InvitationHarness,
-  email: string,
-  password: string,
-): Promise<void> {
+export async function seedCredentialUser(target: InvitationHarness, email: string, password: string): Promise<void> {
   await seedTrustedAccount(target.database, { email, password, name: "Existing Owner" });
 }

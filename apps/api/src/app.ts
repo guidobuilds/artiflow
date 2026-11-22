@@ -78,7 +78,10 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
 
   const holder = suppliedAuth ?? createAuthHolder({ config, database: databaseView });
   const auth = holder.auth;
-  app.route("/", createAuthApp(auth, config, holder.snapshot, () => readPasswordPolicyView(databaseView.db)));
+  app.route(
+    "/",
+    createAuthApp(auth, config, holder.snapshot, () => readPasswordPolicyView(databaseView.db)),
+  );
 
   app.use("/api/artifacts/*/document", async (c, next) => {
     if (c.req.method !== "PUT") return next();

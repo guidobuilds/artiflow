@@ -122,9 +122,7 @@ test("the page starts the connection flow with the provider this instance publis
 });
 
 test("starting the connection flow posts the provider, the return path and the refusal path", async () => {
-  const calls = useFetch(() =>
-    json({ url: "https://idp.example.test/tenant-a/authorize?state=abc", redirect: true }),
-  );
+  const calls = useFetch(() => json({ url: "https://idp.example.test/tenant-a/authorize?state=abc", redirect: true }));
   const started = await ssoSignIn("/library", "/login?return=%2Flibrary");
   assert.deepEqual(started, { ok: true, url: "https://idp.example.test/tenant-a/authorize?state=abc" });
   assert.equal(calls.length, 1);

@@ -150,10 +150,7 @@ export async function readSsoConnection(db: AppDb | AppTx): Promise<SsoConnectio
   return ssoConnectionFromValue(await readRawSettingValue(db, SSO_CONNECTION_KEY));
 }
 
-export function ssoProviderRegistration(
-  value: unknown,
-  clientSecret: string | null,
-): SsoProviderRegistration | null {
+export function ssoProviderRegistration(value: unknown, clientSecret: string | null): SsoProviderRegistration | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const document = value as Record<string, unknown>;
   if (document.enabled !== true) return null;

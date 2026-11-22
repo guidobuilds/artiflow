@@ -12,18 +12,18 @@ import {
   artifactShares,
 } from "../apps/api/src/adapters/postgres/db/artifact-schema.ts";
 import { registrationInvite } from "../apps/api/src/adapters/postgres/db/invite-schema.ts";
-import { oauthAccessToken, oauthClient, oauthConsent, oauthRefreshToken } from "../apps/api/src/adapters/postgres/db/oauth-schema.ts";
+import {
+  oauthAccessToken,
+  oauthClient,
+  oauthConsent,
+  oauthRefreshToken,
+} from "../apps/api/src/adapters/postgres/db/oauth-schema.ts";
 import { account, session, user } from "../apps/api/src/adapters/postgres/db/schema.ts";
 import { loadConfig } from "../apps/api/src/config.ts";
 import { hashInviteToken } from "../apps/api/src/invites/token.ts";
 import { hashLinkToken } from "../apps/api/src/routes/sharing.ts";
 import { seedTrustedAccount, trustedSession, type TrustedFixture } from "./helpers/trusted-accounts.ts";
-import {
-  adminRequest,
-  startAdminHarness,
-  type AdminHarness,
-  type CommandResult,
-} from "./helpers/admin-harness.ts";
+import { adminRequest, startAdminHarness, type AdminHarness, type CommandResult } from "./helpers/admin-harness.ts";
 
 const TEST_TIMEOUT_MS = 30_000;
 const integration = (name: string, fn: () => Promise<void>) => test(name, { timeout: TEST_TIMEOUT_MS }, fn);
@@ -150,8 +150,24 @@ async function seedOwnedContent(ownerId: string, readerId: string, title: string
   const readerCommentId = randomUUID();
   const anchor = { kind: "text-range", startLine: 1, startCol: 1, endLine: 1, endCol: 2, quotedText: "#" };
   await db.insert(artifactComments).values([
-    { id: ownerCommentId, artifactId, authorId: ownerId, anchor, body: "Written by the owner", createdAt: now, updatedAt: now },
-    { id: readerCommentId, artifactId, authorId: readerId, anchor, body: "Written by the reader", createdAt: now, updatedAt: now },
+    {
+      id: ownerCommentId,
+      artifactId,
+      authorId: ownerId,
+      anchor,
+      body: "Written by the owner",
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: readerCommentId,
+      artifactId,
+      authorId: readerId,
+      anchor,
+      body: "Written by the reader",
+      createdAt: now,
+      updatedAt: now,
+    },
   ]);
   await db.insert(artifactShares).values({
     artifactId,
@@ -211,13 +227,15 @@ async function seedIssuedCredentials(ownerId: string): Promise<void> {
 
 async function seedPendingInvitation(email: string, createdBy: string): Promise<string> {
   const token = randomBytes(32).toString("base64url");
-  await target().database.db.insert(registrationInvite).values({
-    id: randomUUID(),
-    email,
-    tokenHash: hashInviteToken(token),
-    expiresAt: new Date(Date.now() + 86_400_000),
-    createdBy,
-  });
+  await target()
+    .database.db.insert(registrationInvite)
+    .values({
+      id: randomUUID(),
+      email,
+      tokenHash: hashInviteToken(token),
+      expiresAt: new Date(Date.now() + 86_400_000),
+      createdBy,
+    });
   return token;
 }
 
@@ -230,14 +248,25 @@ function resetTokenOf(email: string): string {
   return url.slice(marker + RESET_MARKER.length);
 }
 
-async function contentCounts(content: OwnedContent): Promise<{ artifacts: number; revisions: number; comments: number; grants: number; links: number }> {
+async function contentCounts(
+  content: OwnedContent,
+): Promise<{ artifacts: number; revisions: number; comments: number; grants: number; links: number }> {
   const db = target().database.db;
   const [artifactRows, revisionRows, commentRows, grantRows, linkRows] = await Promise.all([
     db.select({ id: artifacts.id }).from(artifacts).where(eq(artifacts.id, content.artifactId)),
-    db.select({ id: artifactRevisions.id }).from(artifactRevisions).where(eq(artifactRevisions.artifactId, content.artifactId)),
-    db.select({ id: artifactComments.id }).from(artifactComments).where(eq(artifactComments.artifactId, content.artifactId)),
+    db
+      .select({ id: artifactRevisions.id })
+      .from(artifactRevisions)
+      .where(eq(artifactRevisions.artifactId, content.artifactId)),
+    db
+      .select({ id: artifactComments.id })
+      .from(artifactComments)
+      .where(eq(artifactComments.artifactId, content.artifactId)),
     db.select({ id: artifactShares.id }).from(artifactShares).where(eq(artifactShares.artifactId, content.artifactId)),
-    db.select({ id: artifactPublicLinks.id }).from(artifactPublicLinks).where(eq(artifactPublicLinks.artifactId, content.artifactId)),
+    db
+      .select({ id: artifactPublicLinks.id })
+      .from(artifactPublicLinks)
+      .where(eq(artifactPublicLinks.artifactId, content.artifactId)),
   ]);
   return {
     artifacts: artifactRows.length,
@@ -320,7 +349,11 @@ integration("the command refuses neither and both content choices", async () => 
 
 integration("the command refuses an unknown address, an unknown target and the account itself", async () => {
   const victim = await seedTrustedAccount(target().database, { name: "Target Choice Victim" });
-  const content = await seedOwnedContent(victim.userId, (await seedTrustedAccount(target().database, { name: "Target Reader" })).userId, "Kept");
+  const content = await seedOwnedContent(
+    victim.userId,
+    (await seedTrustedAccount(target().database, { name: "Target Reader" })).userId,
+    "Kept",
+  );
 
   const unknownAddress = `unknown-${randomUUID()}@example.test`;
   const missingAccount = purge([unknownAddress, "--delete-content", "--yes"]);
@@ -398,20 +431,20 @@ integration("the reassign choice moves the owned content and the reader keeps op
   assert.equal(await accountExists(owner.userId), false, "the account row is gone");
   await assertNoDanglingReferences(owner.userId);
 
-  const movedArtifact = await target().database.db
-    .select({ ownerId: artifacts.ownerId })
+  const movedArtifact = await target()
+    .database.db.select({ ownerId: artifacts.ownerId })
     .from(artifacts)
     .where(eq(artifacts.id, owned.artifactId));
   assert.equal(movedArtifact[0]?.ownerId, operator.userId, "the artifact changes owner");
 
-  const movedComment = await target().database.db
-    .select({ authorId: artifactComments.authorId })
+  const movedComment = await target()
+    .database.db.select({ authorId: artifactComments.authorId })
     .from(artifactComments)
     .where(eq(artifactComments.id, owned.ownerCommentId));
   assert.equal(movedComment[0]?.authorId, operator.userId, "the owner's comment changes author");
 
-  const movedGrant = await target().database.db
-    .select({ grantedByUserId: artifactShares.grantedByUserId })
+  const movedGrant = await target()
+    .database.db.select({ grantedByUserId: artifactShares.grantedByUserId })
     .from(artifactShares)
     .where(eq(artifactShares.artifactId, owned.artifactId));
   assert.equal(movedGrant[0]?.grantedByUserId, operator.userId, "the grant changes issuer so the reader keeps access");
@@ -435,7 +468,11 @@ integration("the reassign choice moves the owned content and the reader keeps op
   );
 
   assert.equal((await preview(RESET_PREVIEW_PATH, resetToken)).status, 400, "the pending reset link is gone");
-  assert.equal((await preview(REGISTRATION_PREVIEW_PATH, pendingInvitation)).status, 400, "the pending invitation is gone");
+  assert.equal(
+    (await preview(REGISTRATION_PREVIEW_PATH, pendingInvitation)).status,
+    400,
+    "the pending invitation is gone",
+  );
   assert.equal((await signIn(owner.email, owner.password)).status, 401, "the purged account cannot sign in");
   assert.equal((await adminRequest(target(), "/api/artifacts", { headers: { cookie: owner.cookie } })).status, 401);
 });
@@ -446,15 +483,20 @@ integration("the delete choice removes the content and nothing of it survives", 
   const own = await seedOwnedContent(owner.userId, reader.userId, "Deleted artifact");
   const bystander = await seedOwnedContent(reader.userId, owner.userId, "Bystander artifact");
   await seedIssuedCredentials(owner.userId);
-  const row = await target().database.db.select({ id: account.id }).from(account).where(eq(account.userId, owner.userId));
-  await target().database.db.insert(account).values({
-    id: randomUUID(),
-    userId: owner.userId,
-    providerId: "github",
-    accountId: `gh-${randomUUID()}`,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  });
+  const row = await target()
+    .database.db.select({ id: account.id })
+    .from(account)
+    .where(eq(account.userId, owner.userId));
+  await target()
+    .database.db.insert(account)
+    .values({
+      id: randomUUID(),
+      userId: owner.userId,
+      providerId: "github",
+      accountId: `gh-${randomUUID()}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
   assert.equal(row.length > 0, true, "the owner holds an identity row");
 
   assert.equal((await artifactRequest(own.artifactId, reader.cookie)).status, 200, "the reader reads it before");
@@ -466,14 +508,18 @@ integration("the delete choice removes the content and nothing of it survives", 
   assert.equal(await accountExists(owner.userId), false, "the account row is gone");
   await assertNoDanglingReferences(owner.userId);
   assert.deepEqual(await contentCounts(own), { artifacts: 0, revisions: 0, comments: 0, grants: 0, links: 0 });
-  const storageKeys = await target()
-    .database.pool.query<{ count: string }>(`select count(*)::text as count from "artifactRevisions" where "storageKey" = $1`, [
-      own.storageKey,
-    ]);
+  const storageKeys = await target().database.pool.query<{ count: string }>(
+    `select count(*)::text as count from "artifactRevisions" where "storageKey" = $1`,
+    [own.storageKey],
+  );
   assert.equal(storageKeys.rows[0]?.count, "0", "no revision row names the deleted bytes");
 
   assert.equal((await artifactRequest(own.artifactId, reader.cookie)).status, 404, "the deleted artifact is gone");
-  assert.equal((await publicLink(`/share/${own.linkToken}?meta=1`)).status, 404, "the public link of the deleted artifact is gone");
+  assert.equal(
+    (await publicLink(`/share/${own.linkToken}?meta=1`)).status,
+    404,
+    "the public link of the deleted artifact is gone",
+  );
   assert.deepEqual(
     await contentCounts(bystander),
     { artifacts: 1, revisions: 1, comments: 1, grants: 0, links: 1 },
@@ -493,7 +539,11 @@ integration("the purge is never reachable from the administration interface", as
   for (const path of [`/api/admin/users/${victim.userId}/purge`, `/api/admin/users/${victim.userId}/delete`]) {
     const response = await adminRequest(target(), path, {
       method: "POST",
-      headers: { cookie: administrator.cookie, origin: target().config.publicOrigin, "content-type": "application/json" },
+      headers: {
+        cookie: administrator.cookie,
+        origin: target().config.publicOrigin,
+        "content-type": "application/json",
+      },
       body: JSON.stringify({}),
     });
     assert.equal(response.status, 404, `${path} is not a route`);

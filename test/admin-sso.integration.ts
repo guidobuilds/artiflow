@@ -190,8 +190,8 @@ async function storedConnection(): Promise<{ revision: number; value: Record<str
 }
 
 async function storedSecretRows(): Promise<string[]> {
-  const rows = await target().database.db
-    .select({ ciphertext: instanceSecret.ciphertext })
+  const rows = await target()
+    .database.db.select({ ciphertext: instanceSecret.ciphertext })
     .from(instanceSecret)
     .where(eq(instanceSecret.name, ssoSecretName()));
   return rows.map((row) => row.ciphertext);
@@ -413,7 +413,11 @@ integration("a valid connection is stored with its credential, and a read report
   assert.ok(stored, "the document is stored");
   assert.equal(stored.revision, 1);
   assert.equal(stored.value.clientSecretName, ssoSecretName(), "the document references the credential by name");
-  assert.equal(JSON.stringify(stored.value).includes(CLIENT_SECRET), false, "the document never carries the credential");
+  assert.equal(
+    JSON.stringify(stored.value).includes(CLIENT_SECRET),
+    false,
+    "the document never carries the credential",
+  );
 
   const secretRows = await storedSecretRows();
   assert.equal(secretRows.length, 1, "the supplied credential is stored once");

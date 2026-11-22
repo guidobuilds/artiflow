@@ -47,9 +47,7 @@ export function SessionRows({
             <tr key={row.id} className="border-b border-line last:border-b-0">
               <td className="px-4 py-3 text-fg-muted">{sessionMomentLabel(row.startedAt)}</td>
               <td className="px-4 py-3 text-fg-muted">{sessionMomentLabel(row.lastUsedAt)}</td>
-              <td className="px-4 py-3 text-fg-muted [overflow-wrap:anywhere]">
-                {sessionAddressLabel(row.ipAddress)}
-              </td>
+              <td className="px-4 py-3 text-fg-muted [overflow-wrap:anywhere]">{sessionAddressLabel(row.ipAddress)}</td>
               <td className="px-4 py-3 text-fg-muted">{sessionBrowserLabel(row.userAgent)}</td>
               <td className="px-4 py-3">{row.current ? <Tag on>{currentLabel}</Tag> : null}</td>
               <td className="px-4 py-3 text-right">{action(row)}</td>

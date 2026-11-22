@@ -207,19 +207,13 @@ export default function AccountPage() {
             <DialogContent size="sm" aria-describedby={undefined}>
               <DialogHead />
               <DialogTitle>
-                {
-                  confirming === "others"
-                    ? closeOtherSessionsTitle(others.length)
-                    : closeOwnSessionTitle(confirming)
-                }
+                {confirming === "others" ? closeOtherSessionsTitle(others.length) : closeOwnSessionTitle(confirming)}
               </DialogTitle>
               <DialogSection className="border-t-0">
                 <p className="m-0 text-[14px] text-fg-muted">
-                  {
-                    confirming === "others"
-                      ? closeOtherSessionsConfirmation(others.length)
-                      : closeOwnSessionConfirmation(confirming)
-                  }
+                  {confirming === "others"
+                    ? closeOtherSessionsConfirmation(others.length)
+                    : closeOwnSessionConfirmation(confirming)}
                 </p>
               </DialogSection>
               <DialogFoot className="justify-end">

@@ -242,7 +242,15 @@ Nothing here changes the product; the sandbox only observes the current source.
 `;
 
 const created = [];
-const state = { anchor: null, postgres: null, garage: null, target: null, wallTimer: null, isolation: null, targetSummary: null };
+const state = {
+  anchor: null,
+  postgres: null,
+  garage: null,
+  target: null,
+  wallTimer: null,
+  isolation: null,
+  targetSummary: null,
+};
 let cleanupPromise = null;
 const evidence = { dir: null, logPath: null, verdictPath: null, fd: null, bytes: 0, truncated: false, finished: false };
 
@@ -290,7 +298,8 @@ function parseArgs(argv) {
     else if (/^--min-free-gb=\d+$/.test(arg)) options.minFreeGb = Number(arg.split("=")[1]);
     else if (arg === "--suite") {
       const value = argv[index + 1];
-      if (value === undefined || value.startsWith("--")) throw new UsageError(`--suite needs one of: ${Object.keys(MODES).join(", ")}`);
+      if (value === undefined || value.startsWith("--"))
+        throw new UsageError(`--suite needs one of: ${Object.keys(MODES).join(", ")}`);
       options.suite = value;
       index += 1;
     } else if (arg.startsWith("--suite=")) options.suite = arg.slice("--suite=".length);
@@ -442,7 +451,8 @@ function resolveSpecifier(specifier) {
     }
   }
 }
-const notApplicable = () => (activeMode.name === "integration" ? "not applicable: integration suite mode" : "not observed");
+const notApplicable = () =>
+  activeMode.name === "integration" ? "not applicable: integration suite mode" : "not observed";
 const tail = (text, lines = 12) => text.trim().split("\n").slice(-lines).join(" | ");
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
@@ -579,7 +589,9 @@ async function runPreflight(options) {
     assert(names.length > 0, "test/integration-config.example declares no variable");
     const missing = names.filter((name) => (targetEnv[name] ?? "") === "");
     assert(missing.length === 0, `the target environment is missing ${missing.join(", ")}`);
-    const leaked = Object.entries(targetEnv).filter(([, value]) => /\/Users\/|\/home\/[A-Za-z]|sock/.test(String(value)));
+    const leaked = Object.entries(targetEnv).filter(([, value]) =>
+      /\/Users\/|\/home\/[A-Za-z]|sock/.test(String(value)),
+    );
     assert(leaked.length === 0, `host path or socket in env: ${leaked.map(([name]) => name).join(", ")}`);
     const extras = Object.keys(targetEnv).filter((name) => !names.includes(name));
     return `${names.length} fixture variables present with fictitious values; sandbox-only extras: ${extras.join(", ")}`;
@@ -601,7 +613,10 @@ async function runPreflight(options) {
     for (const link of links) {
       const target = path.resolve(path.dirname(link), fs.readlinkSync(link));
       const relative = path.relative(ROOT, target);
-      assert(!relative.startsWith("..") && !path.isAbsolute(relative), `${path.relative(ROOT, link)} escapes: ${target}`);
+      assert(
+        !relative.startsWith("..") && !path.isAbsolute(relative),
+        `${path.relative(ROOT, link)} escapes: ${target}`,
+      );
       if (!fs.existsSync(target)) {
         dangling += 1;
         continue;
@@ -779,7 +794,10 @@ function garageArgs() {
     "/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
   ];
   for (const [key, value] of Object.entries(GARAGE_ENV)) args.push("--env", `${key}=${value}`);
-  args.push("--mount", `type=bind,source=${path.join(ROOT, "docker/security-sandbox/garage.toml")},target=/etc/garage.toml,readonly`);
+  args.push(
+    "--mount",
+    `type=bind,source=${path.join(ROOT, "docker/security-sandbox/garage.toml")},target=/etc/garage.toml,readonly`,
+  );
   args.push(IMAGES.garage, "/garage", "server", "--single-node", "--default-bucket");
   return args;
 }
@@ -850,7 +868,11 @@ async function startFixtures() {
   await startDetached("anchor", anchorArgs());
   const postgresId = await startDetached("postgres", postgresArgs());
   const garageId = await startDetached("garage", garageArgs());
-  await waitUntil("postgres", () => execOk(postgresId, ["pg_isready", "-U", "artiflow_sandbox", "-d", "artiflow"]), 120_000);
+  await waitUntil(
+    "postgres",
+    () => execOk(postgresId, ["pg_isready", "-U", "artiflow_sandbox", "-d", "artiflow"]),
+    120_000,
+  );
   log("postgres ready on the isolated loopback");
   await waitUntil("garage", () => execOk(garageId, ["/garage", "health", "--quiet"]), 120_000);
   log("garage ready on the isolated loopback");
@@ -903,8 +925,7 @@ function classifyReproducer(attach, exitCode) {
   if (race.ok) {
     return {
       code: EXIT.passed,
-      detail:
-        "invariant held: A's paused DELETE removed only A's own key, so B still serves its identical bytes",
+      detail: "invariant held: A's paused DELETE removed only A's own key, so B still serves its identical bytes",
       results,
     };
   }
@@ -925,7 +946,8 @@ function classifyReproducer(attach, exitCode) {
 function parseSuiteResults(output) {
   const suites = [];
   for (const line of output.split("\n")) {
-    const result = /^\[bootstrap\] suite result (\S+) verdict=(\S+) tests=(\d+) pass=(\d+) fail=(\d+) skipped=(\d+)/.exec(line);
+    const result =
+      /^\[bootstrap\] suite result (\S+) verdict=(\S+) tests=(\d+) pass=(\d+) fail=(\d+) skipped=(\d+)/.exec(line);
     if (result === null) continue;
     suites.push({
       file: result[1],
@@ -940,7 +962,8 @@ function parseSuiteResults(output) {
 }
 
 function parseSuiteSummary(output) {
-  const match = /^\[bootstrap\] suite summary suites=(\d+) passed=(\d+) skipped=(\d+) failed=(\d+) notests=(\d+)$/m.exec(output);
+  const match =
+    /^\[bootstrap\] suite summary suites=(\d+) passed=(\d+) skipped=(\d+) failed=(\d+) notests=(\d+)$/m.exec(output);
   if (match === null) return null;
   return {
     suites: Number(match[1]),
@@ -980,7 +1003,12 @@ function classifyIntegration(output, exitCode) {
     };
   }
   if (summary.suites === 0) {
-    return { code: EXIT.setup, detail: "no integration suite was selected or executed: zero target tests", results: [], suites };
+    return {
+      code: EXIT.setup,
+      detail: "no integration suite was selected or executed: zero target tests",
+      results: [],
+      suites,
+    };
   }
   if (summary.failed > 0 || summary.notests > 0) {
     const broken = suites
@@ -1024,7 +1052,9 @@ function classifyIntegration(output, exitCode) {
 
 const classify = (attach, exitCode) => {
   const output = `${attach.stdout}${attach.stderr}`;
-  return activeMode.name === "integration" ? classifyIntegration(output, exitCode) : classifyReproducer(attach, exitCode);
+  return activeMode.name === "integration"
+    ? classifyIntegration(output, exitCode)
+    : classifyReproducer(attach, exitCode);
 };
 
 function isolationEvidence(output, exitCode) {

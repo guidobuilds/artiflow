@@ -1,10 +1,5 @@
 import type { Database } from "./adapters/postgres/db/client.ts";
-import {
-  createAuth,
-  createAuthFromSnapshot,
-  type AuthConfig,
-  type AuthInstance,
-} from "./auth.ts";
+import { createAuth, createAuthFromSnapshot, type AuthConfig, type AuthInstance } from "./auth.ts";
 import { environmentSnapshot, readAccessSnapshot, type AccessSnapshot } from "./settings/access-snapshot.ts";
 import { readSettingsRevision } from "./settings/store.ts";
 

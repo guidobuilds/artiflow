@@ -31,7 +31,10 @@ export type SecretKey = {
 };
 
 function keyIdOf(bytes: Buffer): string {
-  return createHash("sha256").update(bytes).digest("hex").slice(0, KEY_ID_BYTES * 2);
+  return createHash("sha256")
+    .update(bytes)
+    .digest("hex")
+    .slice(0, KEY_ID_BYTES * 2);
 }
 
 export function decodeSecretKey(encoded: string): SecretKey {
@@ -67,7 +70,12 @@ function partsOf(envelope: string): { keyId: string; iv: Buffer; ciphertext: Buf
   ) {
     throw new SecretError("envelope_invalid", "the stored secret is not a supported v1 envelope.");
   }
-  return { keyId, iv: Buffer.from(iv, "base64"), ciphertext: Buffer.from(ciphertext, "base64"), tag: Buffer.from(tag, "base64") };
+  return {
+    keyId,
+    iv: Buffer.from(iv, "base64"),
+    ciphertext: Buffer.from(ciphertext, "base64"),
+    tag: Buffer.from(tag, "base64"),
+  };
 }
 
 export function decryptSecret(envelope: string, key: SecretKey | null): string {

@@ -73,7 +73,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 function gateOf(directory: DirectoryRead): AdminGate {
   if (directory.page !== null) return { kind: "ready" };
-  if (directory.failure !== "") return { kind: "refused", message: directory.failure, signInRequired: directory.signInRequired };
+  if (directory.failure !== "")
+    return { kind: "refused", message: directory.failure, signInRequired: directory.signInRequired };
   return { kind: "loading" };
 }
 
@@ -184,7 +185,9 @@ export default function AdminUsersPage() {
     setDirectory((current) =>
       current.page === null ? current : { ...current, page: replaceAdminUserRole(current.page, id, stored) },
     );
-    setNotice(changed ? `Role changed to ${roleLabel(stored)}.` : `That account already had the ${roleLabel(stored)} role.`);
+    setNotice(
+      changed ? `Role changed to ${roleLabel(stored)}.` : `That account already had the ${roleLabel(stored)} role.`,
+    );
   };
 
   const chooseStatus = (status: AdminUserStatus) => {
@@ -444,12 +447,7 @@ export default function AdminUsersPage() {
               </Button>
             </Row>
             <Row label="Sessions">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={busy}
-                onClick={() => setSessionsOpen((open) => !open)}
-              >
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setSessionsOpen((open) => !open)}>
                 {sessionsOpen ? "Hide sessions" : "Open sessions"}
               </Button>
             </Row>

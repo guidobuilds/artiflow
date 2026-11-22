@@ -238,7 +238,9 @@ export default function AdminAccessPage() {
           </Panel>
         ))}
         <Panel title="Saved configuration">
-          <Row label="Revision">{configuration.revision === null ? "Not stored yet" : `Revision ${configuration.revision}`}</Row>
+          <Row label="Revision">
+            {configuration.revision === null ? "Not stored yet" : `Revision ${configuration.revision}`}
+          </Row>
           <Row label="Provenance">
             <span id="access-provenance">{provenanceLabel(configuration.provenance)}</span>
           </Row>

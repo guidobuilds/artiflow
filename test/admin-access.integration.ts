@@ -10,13 +10,7 @@ import { decodeSecretKey } from "../apps/api/src/settings/secrets.ts";
 import { providerSecretName } from "../apps/api/src/settings/seed.ts";
 import { accessMethodsSetting, readSetting } from "../apps/api/src/settings/store.ts";
 import { trustedSession, type TrustedFixture, type TrustedSession } from "./helpers/trusted-accounts.ts";
-import {
-  adminGet,
-  adminRequest,
-  assertStatus,
-  startAdminHarness,
-  type AdminHarness,
-} from "./helpers/admin-harness.ts";
+import { adminGet, adminRequest, assertStatus, startAdminHarness, type AdminHarness } from "./helpers/admin-harness.ts";
 
 const TEST_TIMEOUT_MS = 20_000;
 const integration = (name: string, fn: () => Promise<void>) => test(name, { timeout: TEST_TIMEOUT_MS }, fn);
@@ -242,74 +236,77 @@ integration("a refused change leaves the stored document untouched and records n
   assert.deepEqual(missingCredential.lines, [], "a refused change records nothing");
 
   assert.equal(await storedRevision(), null, "a refused change writes no document");
-  const secrets = await target().database.db
-    .select({ name: instanceSecret.name })
+  const secrets = await target()
+    .database.db.select({ name: instanceSecret.name })
     .from(instanceSecret)
     .where(eq(instanceSecret.name, providerSecretName("google")));
   assert.deepEqual(secrets, [], "a refused change stores no credential");
 });
 
-integration("enabling a provider with a credential changes behaviour on the next request without a restart", async () => {
-  assert.deepEqual(await capabilities(), { emailPassword: true, registration: false, socialProviders: [] });
+integration(
+  "enabling a provider with a credential changes behaviour on the next request without a restart",
+  async () => {
+    assert.deepEqual(await capabilities(), { emailPassword: true, registration: false, socialProviders: [] });
 
-  const { result: response, lines } = await withAuditCapture(() =>
-    accessPut(
-      {
-        revision: null,
-        passwordEnabled: true,
-        providers: {
-          google: { enabled: false, clientId: "" },
-          github: { enabled: true, clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_SECRET },
+    const { result: response, lines } = await withAuditCapture(() =>
+      accessPut(
+        {
+          revision: null,
+          passwordEnabled: true,
+          providers: {
+            google: { enabled: false, clientId: "" },
+            github: { enabled: true, clientId: GITHUB_CLIENT_ID, clientSecret: GITHUB_SECRET },
+          },
         },
-      },
-      actor(administrator).cookie,
-    ),
-  );
-  assertStatus(response, 200, "an administrator enables a provider");
-  const payload = await response.text();
-  assertNoCredentialMaterial(payload, "the change response");
-  const body = JSON.parse(payload) as AccessView;
-  assert.equal(body.revision, 1);
-  assert.deepEqual(body.providers.github, {
-    enabled: true,
-    clientId: GITHUB_CLIENT_ID,
-    credentialConfigured: true,
-  });
-  assert.deepEqual(body.providers.google, { enabled: false, clientId: "", credentialConfigured: false });
-  assert.equal(body.passwordEnabled, true);
-  assert.equal(body.provenance.source, "administrator");
+        actor(administrator).cookie,
+      ),
+    );
+    assertStatus(response, 200, "an administrator enables a provider");
+    const payload = await response.text();
+    assertNoCredentialMaterial(payload, "the change response");
+    const body = JSON.parse(payload) as AccessView;
+    assert.equal(body.revision, 1);
+    assert.deepEqual(body.providers.github, {
+      enabled: true,
+      clientId: GITHUB_CLIENT_ID,
+      credentialConfigured: true,
+    });
+    assert.deepEqual(body.providers.google, { enabled: false, clientId: "", credentialConfigured: false });
+    assert.equal(body.passwordEnabled, true);
+    assert.equal(body.provenance.source, "administrator");
 
-  assert.equal(lines.length, 1, "the applied change records exactly one event");
-  assert.equal(lines[0]?.actorId, actor(administrator).userId);
-  assert.equal(lines[0]?.actorRole, "administrator");
-  assert.equal(lines[0]?.settingKey, "access.methods");
-  assert.equal(lines[0]?.outcome, "applied");
-  assert.equal(JSON.stringify(lines[0]).includes(GITHUB_SECRET), false, "the event carries no credential");
+    assert.equal(lines.length, 1, "the applied change records exactly one event");
+    assert.equal(lines[0]?.actorId, actor(administrator).userId);
+    assert.equal(lines[0]?.actorRole, "administrator");
+    assert.equal(lines[0]?.settingKey, "access.methods");
+    assert.equal(lines[0]?.outcome, "applied");
+    assert.equal(JSON.stringify(lines[0]).includes(GITHUB_SECRET), false, "the event carries no credential");
 
-  assert.deepEqual(await capabilities(), {
-    emailPassword: true,
-    registration: false,
-    socialProviders: ["github"],
-  });
+    assert.deepEqual(await capabilities(), {
+      emailPassword: true,
+      registration: false,
+      socialProviders: ["github"],
+    });
 
-  const reread = await adminGet(target(), ACCESS_PATH, actor(administrator).cookie);
-  assertStatus(reread, 200, "the refreshed configuration is readable");
-  const rereadPayload = await reread.text();
-  assertNoCredentialMaterial(rereadPayload, "the stored configuration");
-  assert.deepEqual(JSON.parse(rereadPayload), body);
+    const reread = await adminGet(target(), ACCESS_PATH, actor(administrator).cookie);
+    assertStatus(reread, 200, "the refreshed configuration is readable");
+    const rereadPayload = await reread.text();
+    assertNoCredentialMaterial(rereadPayload, "the stored configuration");
+    assert.deepEqual(JSON.parse(rereadPayload), body);
 
-  const stored = await storedDocument();
-  assert.equal(stored.includes(GITHUB_SECRET), false, "the document never carries a credential");
-  const secretRows = await target().database.db
-    .select({ ciphertext: instanceSecret.ciphertext })
-    .from(instanceSecret)
-    .where(eq(instanceSecret.name, providerSecretName("github")));
-  assert.equal(secretRows.length, 1, "the supplied credential is stored once");
-  const ciphertext = secretRows[0]?.ciphertext ?? "";
-  assert.equal(ciphertext.startsWith("v1:"), true, "the stored credential is an encrypted envelope");
-  assert.equal(ciphertext.includes(GITHUB_SECRET), false, "the stored credential is not plaintext");
-  assert.equal(rereadPayload.includes(ciphertext), false, "the ciphertext never reaches the payload");
-});
+    const stored = await storedDocument();
+    assert.equal(stored.includes(GITHUB_SECRET), false, "the document never carries a credential");
+    const secretRows = await target()
+      .database.db.select({ ciphertext: instanceSecret.ciphertext })
+      .from(instanceSecret)
+      .where(eq(instanceSecret.name, providerSecretName("github")));
+    assert.equal(secretRows.length, 1, "the supplied credential is stored once");
+    const ciphertext = secretRows[0]?.ciphertext ?? "";
+    assert.equal(ciphertext.startsWith("v1:"), true, "the stored credential is an encrypted envelope");
+    assert.equal(ciphertext.includes(GITHUB_SECRET), false, "the stored credential is not plaintext");
+    assert.equal(rereadPayload.includes(ciphertext), false, "the ciphertext never reaches the payload");
+  },
+);
 
 integration("the read carries the public origin and both callbacks, without a client id or a credential", async () => {
   const response = await adminGet(target(), ACCESS_PATH, actor(administrator).cookie);
@@ -334,7 +331,11 @@ integration("the read carries the public origin and both callbacks, without a cl
 
   const registration = JSON.stringify(body.registration);
   for (const forbidden of [GITHUB_CLIENT_ID, GITHUB_SECRET, GOOGLE_CLIENT_ID, GOOGLE_SECRET]) {
-    assert.equal(registration.includes(forbidden), false, "the registration data carries no client id and no credential");
+    assert.equal(
+      registration.includes(forbidden),
+      false,
+      "the registration data carries no client id and no credential",
+    );
   }
 });
 
@@ -405,8 +406,8 @@ integration("a stale revision answers 409 and changes nothing", async () => {
 
   const stored = await readSetting(target().database.db, accessMethodsSetting);
   assert.equal(stored?.value.password.enabled, true, "the conflicting password flag was not applied");
-  const secretRows = await target().database.db
-    .select({ name: instanceSecret.name })
+  const secretRows = await target()
+    .database.db.select({ name: instanceSecret.name })
     .from(instanceSecret)
     .where(eq(instanceSecret.name, providerSecretName("google")));
   assert.deepEqual(secretRows, [], "the conflicting credential was not stored");

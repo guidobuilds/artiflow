@@ -17,10 +17,7 @@ import { reactivateAccount } from "./lifecycle.ts";
 type Query = AppDb | AppTx;
 
 export type InvitationRefusal =
-  | "invitation_not_found"
-  | "invitation_consumed"
-  | "invitation_expired"
-  | "invitation_revoked";
+  "invitation_not_found" | "invitation_consumed" | "invitation_expired" | "invitation_revoked";
 
 type StoredInvitation = {
   id: string;
@@ -71,17 +68,12 @@ function toAdminInvitation(row: InvitationViewRow): AdminInvitation {
     expiresAt: iso(row.expiresAt),
     createdAt: iso(row.createdAt),
     issuedBy:
-      row.issuerId === null
-        ? null
-        : { id: row.issuerId, name: row.issuerName ?? "", email: row.issuerEmail ?? "" },
+      row.issuerId === null ? null : { id: row.issuerId, name: row.issuerName ?? "", email: row.issuerEmail ?? "" },
   };
 }
 
 function invitationViews(db: Query) {
-  return db
-    .select(viewColumns)
-    .from(registrationInvite)
-    .leftJoin(user, eq(user.id, registrationInvite.createdBy));
+  return db.select(viewColumns).from(registrationInvite).leftJoin(user, eq(user.id, registrationInvite.createdBy));
 }
 
 function pendingAt(at: Date) {
@@ -211,8 +203,7 @@ export type InvitationChangeInput = {
 };
 
 export type RevokeInvitationOutcome =
-  | { kind: "revoked"; invitation: { id: string; revokedAt: string } }
-  | { kind: "refused"; reason: InvitationRefusal };
+  { kind: "revoked"; invitation: { id: string; revokedAt: string } } | { kind: "refused"; reason: InvitationRefusal };
 
 export async function revokeInvitation(input: InvitationChangeInput): Promise<RevokeInvitationOutcome> {
   const at = input.now ?? new Date();
@@ -238,8 +229,7 @@ export async function revokeInvitation(input: InvitationChangeInput): Promise<Re
 }
 
 export type RegenerateInvitationOutcome =
-  | { kind: "regenerated"; invitation: AdminInvitation; link: string }
-  | { kind: "refused"; reason: InvitationRefusal };
+  { kind: "regenerated"; invitation: AdminInvitation; link: string } | { kind: "refused"; reason: InvitationRefusal };
 
 export async function regenerateInvitation(input: InvitationChangeInput): Promise<RegenerateInvitationOutcome> {
   const at = input.now ?? new Date();

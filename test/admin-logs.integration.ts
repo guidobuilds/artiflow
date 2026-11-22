@@ -17,7 +17,12 @@ import {
   startAdminHarness,
   type AdminHarness,
 } from "./helpers/admin-harness.ts";
-import { seedTrustedAccount, trustedSession, type TrustedFixture, type TrustedSession } from "./helpers/trusted-accounts.ts";
+import {
+  seedTrustedAccount,
+  trustedSession,
+  type TrustedFixture,
+  type TrustedSession,
+} from "./helpers/trusted-accounts.ts";
 import { completeSocialSignIn, seedSocialIdentity } from "./helpers/social-sign-in.ts";
 import {
   assertAttributed,
@@ -148,9 +153,9 @@ after(async () => {
 integration("every administration operation the specification names writes exactly one attributed line", async () => {
   const state = seeded();
   const actor = state.administrator;
-  const directory = (await (
-    await adminGet(target(), "/api/admin/users?pageSize=100", actor.cookie)
-  ).json()) as { users: { id: string; email: string }[] };
+  const directory = (await (await adminGet(target(), "/api/admin/users?pageSize=100", actor.cookie)).json()) as {
+    users: { id: string; email: string }[];
+  };
   const idOf = (email: string): string => {
     const row = directory.users.find((entry) => entry.email === email);
     assert.ok(row, `the directory lists ${email}`);
@@ -183,7 +188,12 @@ integration("every administration operation the specification names writes exact
   });
 
   const deactivated = await capture(() =>
-    adminPost(target(), `/api/admin/users/${idOf(state.deactivatedEmail)}/status`, { status: "deactivated" }, actor.cookie),
+    adminPost(
+      target(),
+      `/api/admin/users/${idOf(state.deactivatedEmail)}/status`,
+      { status: "deactivated" },
+      actor.cookie,
+    ),
   );
   assert.equal(deactivated.result.status, 200, "the deactivation is applied");
   assertAttributed(singleLine(deactivated, "user.deactivated"), {
@@ -338,9 +348,9 @@ integration("signing up through an invitation writes exactly one line naming the
 integration("the emergency fallback writes exactly one line per attempt while the connection is enabled", async () => {
   const state = seeded();
 
-  const enabled = (await (
-    await adminGet(target(), "/api/admin/sso", state.administrator.cookie)
-  ).json()) as { connection: { enabled: boolean } };
+  const enabled = (await (await adminGet(target(), "/api/admin/sso", state.administrator.cookie)).json()) as {
+    connection: { enabled: boolean };
+  };
   assert.equal(enabled.connection.enabled, true, "the connection is enabled before the fallback is exercised");
 
   const admitted = await capture(() => passwordSignIn(state.administrator.email, state.administrator.password));
@@ -376,13 +386,21 @@ integration("a social sign-in through the fallback writes one line per attempt a
   const enabled = await capture(() =>
     adminRequest(target(), "/api/admin/access", {
       method: "PUT",
-      headers: { cookie: state.administrator.cookie, origin: target().config.publicOrigin, "content-type": "application/json" },
+      headers: {
+        cookie: state.administrator.cookie,
+        origin: target().config.publicOrigin,
+        "content-type": "application/json",
+      },
       body: JSON.stringify({
         revision: current.revision,
         passwordEnabled: true,
         providers: {
           google: { enabled: false, clientId: "" },
-          github: { enabled: true, clientId: `github-client-${randomUUID()}`, clientSecret: `github-secret-${randomUUID()}` },
+          github: {
+            enabled: true,
+            clientId: `github-client-${randomUUID()}`,
+            clientSecret: `github-secret-${randomUUID()}`,
+          },
         },
       }),
     }),
@@ -390,7 +408,10 @@ integration("a social sign-in through the fallback writes one line per attempt a
   assert.equal(enabled.result.status, 200, "the social provider is administrable again");
   assert.equal(singleLine(enabled, "access.methods.updated").settingKey, "access.methods");
 
-  const administrator = await seedSocialIdentity(target().database, { role: "administrator", name: "Social Administrator" });
+  const administrator = await seedSocialIdentity(target().database, {
+    role: "administrator",
+    name: "Social Administrator",
+  });
   const member = await seedSocialIdentity(target().database, { role: "member", name: "Social Member" });
 
   const admitted = await capture(() => completeSocialSignIn(fixtureOf(), administrator));
@@ -408,7 +429,10 @@ integration("a social sign-in through the fallback writes one line per attempt a
     subjectId: member.userId,
     outcome: "refused",
   });
-  const stored = await target().database.db.select({ id: session.id }).from(session).where(eq(session.userId, member.userId));
+  const stored = await target()
+    .database.db.select({ id: session.id })
+    .from(session)
+    .where(eq(session.userId, member.userId));
   assert.deepEqual(stored, [], "the refused social session leaves no row");
 });
 
@@ -443,7 +467,10 @@ integration("the console recorder writes its line to stderr and leaves stdout fo
 
   assert.equal(stdout.join(""), "", "the console answer keeps stdout to itself");
   assert.equal(stderr.join("").endsWith("\n"), true, "the line is newline terminated");
-  const lines = stderr.join("").split("\n").filter((line) => line !== "");
+  const lines = stderr
+    .join("")
+    .split("\n")
+    .filter((line) => line !== "");
   assert.equal(lines.length, 1, "one operation writes exactly one line");
   const line = JSON.parse(lines[0] ?? "") as AuditLine;
   assert.deepEqual(Object.keys(line), ["ts", "level", "event", "actorId", "actorRole", "subjectId", "outcome"]);

@@ -1,7 +1,13 @@
 import { and, asc, eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 
-import { accountStatusSchema, userRoleSchema, type AccountStatus, type AdminUser, type UpdateAdminUserRequest } from "@artiflow/contracts/admin";
+import {
+  accountStatusSchema,
+  userRoleSchema,
+  type AccountStatus,
+  type AdminUser,
+  type UpdateAdminUserRequest,
+} from "@artiflow/contracts/admin";
 
 import { account, session, user } from "../adapters/postgres/db/schema.ts";
 import type { AppDb, AppTx } from "../adapters/postgres/db/client.ts";
@@ -48,7 +54,9 @@ type AdminUserRecord = {
   lastActivityAt: Date | string | null;
 };
 
-const accessMethods = sql<string[]>`coalesce(array_agg(distinct ${account.providerId} order by ${account.providerId}), ${"{}"})`;
+const accessMethods = sql<
+  string[]
+>`coalesce(array_agg(distinct ${account.providerId} order by ${account.providerId}), ${"{}"})`;
 const lastActivityAt = sql<Date | string | null>`max(${session.updatedAt})`;
 
 const adminUserColumns = {
@@ -117,7 +125,10 @@ export async function listAdminUsers(input: { db: AppDb; query: AdminUserListQue
     .orderBy(asc(user.email), asc(user.id))
     .limit(query.pageSize)
     .offset((query.page - 1) * query.pageSize);
-  const totals = await db.select({ total: sql<number>`count(*)::int` }).from(user).where(where);
+  const totals = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(user)
+    .where(where);
   return {
     users: rows.map(toAdminUser),
     total: totals[0]?.total ?? 0,

@@ -78,7 +78,9 @@ export class SettingValidationError extends Error {
   readonly issues: SettingIssue[];
 
   constructor(key: string, issues: SettingIssue[]) {
-    super(`the ${key} setting document is invalid: ${issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
+    super(
+      `the ${key} setting document is invalid: ${issues.map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`,
+    );
     this.key = key;
     this.issues = issues;
   }
@@ -110,7 +112,10 @@ function issuesOf(error: { issues: readonly { path: readonly PropertyKey[]; mess
 }
 
 async function currentRevision(db: Query, key: string): Promise<number | null> {
-  const rows = await db.select({ revision: instanceSetting.revision }).from(instanceSetting).where(eq(instanceSetting.key, key));
+  const rows = await db
+    .select({ revision: instanceSetting.revision })
+    .from(instanceSetting)
+    .where(eq(instanceSetting.key, key));
   return rows[0]?.revision ?? null;
 }
 
@@ -130,7 +135,10 @@ export async function readSetting<T>(db: Query, definition: SettingDefinition<T>
 }
 
 export async function readRawSettingValue(db: Query, key: string): Promise<unknown> {
-  const rows = await db.select({ value: instanceSetting.value }).from(instanceSetting).where(eq(instanceSetting.key, key));
+  const rows = await db
+    .select({ value: instanceSetting.value })
+    .from(instanceSetting)
+    .where(eq(instanceSetting.key, key));
   const row = rows[0];
   return row === undefined ? null : row.value;
 }
@@ -167,7 +175,8 @@ export async function writeSetting<T>(
       .onConflictDoNothing({ target: instanceSetting.key })
       .returning();
     const row = inserted[0];
-    if (row === undefined) throw new SettingRevisionConflictError(definition.key, null, await currentRevision(db, definition.key));
+    if (row === undefined)
+      throw new SettingRevisionConflictError(definition.key, null, await currentRevision(db, definition.key));
     return { value: parsed.data, revision: row.revision, updatedAt: row.updatedAt, updatedBy: row.updatedBy };
   }
 
@@ -183,7 +192,11 @@ export async function writeSetting<T>(
     .returning();
   const row = updated[0];
   if (row === undefined) {
-    throw new SettingRevisionConflictError(definition.key, input.expectedRevision, await currentRevision(db, definition.key));
+    throw new SettingRevisionConflictError(
+      definition.key,
+      input.expectedRevision,
+      await currentRevision(db, definition.key),
+    );
   }
   return { value: parsed.data, revision: row.revision, updatedAt: row.updatedAt, updatedBy: row.updatedBy };
 }

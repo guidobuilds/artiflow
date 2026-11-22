@@ -70,7 +70,12 @@ test("the stored ciphertext never carries the plaintext", () => {
   assert.equal(envelope.includes(Buffer.from(PLAINTEXT).toString("base64")), false);
   assert.equal(envelope.includes(Buffer.from(PLAINTEXT).toString("hex")), false);
   for (const part of envelope.split(":").slice(2)) {
-    assert.equal(Buffer.from(part ?? "", "base64").toString("utf8").includes(PLAINTEXT), false);
+    assert.equal(
+      Buffer.from(part ?? "", "base64")
+        .toString("utf8")
+        .includes(PLAINTEXT),
+      false,
+    );
   }
 });
 

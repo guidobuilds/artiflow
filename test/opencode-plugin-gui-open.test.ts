@@ -105,9 +105,7 @@ test("a rejected token RPC is no credential, so reload still reaches the host wi
   const reload = h.openViewer("s", "artifact:a", true);
   h.resolveOpen("embed");
   assert.equal(await reload, "embed");
-  assert.deepEqual(h.calls, [
-    { key: embedKey("s", "artifact:a"), artifactId: "a", token: null, reload: true },
-  ]);
+  assert.deepEqual(h.calls, [{ key: embedKey("s", "artifact:a"), artifactId: "a", token: null, reload: true }]);
   assert.deepEqual(h.disposed, []);
 });
 
@@ -116,9 +114,7 @@ test("a null token response reaches the host without any secret or rejection", a
   const reload = h.openViewer("s", "artifact:a", true);
   h.resolveOpen("embed");
   assert.equal(await reload, "embed");
-  assert.deepEqual(h.calls, [
-    { key: embedKey("s", "artifact:a"), artifactId: "a", token: null, reload: true },
-  ]);
+  assert.deepEqual(h.calls, [{ key: embedKey("s", "artifact:a"), artifactId: "a", token: null, reload: true }]);
 });
 
 test("closing during token fetch still prevents bridge creation", async () => {

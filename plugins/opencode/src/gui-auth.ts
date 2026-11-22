@@ -50,8 +50,7 @@ export class ConsentFlow {
     }
     try {
       await this.reload();
-    } catch {
-    }
+    } catch {}
   }
   cancel(): void {
     if (this.status !== "pending") return;

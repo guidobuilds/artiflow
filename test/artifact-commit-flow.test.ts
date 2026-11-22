@@ -272,10 +272,9 @@ flowTest("identical bytes recommitted to one artifact take a second key without 
     }),
   );
   assert.equal(again.revisionNumber, 2);
-  const secondRow = await pool.query<{ sha256: string }>(
-    `select "sha256" from "artifactRevisions" where "id" = $1`,
-    [again.revisionId],
-  );
+  const secondRow = await pool.query<{ sha256: string }>(`select "sha256" from "artifactRevisions" where "id" = $1`, [
+    again.revisionId,
+  ]);
   assert.equal(secondRow.rows[0]?.sha256, digestOf(bytes), "identical bytes carry an identical digest");
   assert.notEqual(again.storageKey, created.storageKey, "a revision never reuses another revision's key");
   for (const [storageKey, sha256] of [

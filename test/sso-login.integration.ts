@@ -17,12 +17,7 @@ import {
   writeSetting,
 } from "../apps/api/src/settings/store.ts";
 import { SSO_CONNECTION_PROVIDER_ID, ssoRedirectUri, ssoSecretName } from "../apps/api/src/settings/sso-connection.ts";
-import {
-  adminRequest,
-  assertStatus,
-  startAdminHarness,
-  type AdminHarness,
-} from "./helpers/admin-harness.ts";
+import { adminRequest, assertStatus, startAdminHarness, type AdminHarness } from "./helpers/admin-harness.ts";
 import {
   beginSsoSignIn,
   completeSsoCallback,
@@ -239,9 +234,8 @@ before(async () => {
   idp = await startFakeIdentityProvider({ clientId: CLIENT_ID });
   harness = await startAdminHarness({ ...base, secretEncryptionKey: KEY });
   fixture = { database: harness.database, baseUrl: harness.baseUrl, origin: harness.config.publicOrigin };
-  administratorCookie = (
-    await trustedSession(fixtureOf(), { role: "administrator", name: "SSO Administrator" })
-  ).cookie;
+  administratorCookie = (await trustedSession(fixtureOf(), { role: "administrator", name: "SSO Administrator" }))
+    .cookie;
   const member = await seedTrustedAccount(target().database, { name: "Enterprise Member" });
   memberUserId = member.userId;
   memberEmail = member.email;
@@ -295,7 +289,10 @@ integration("the provider registers from the stored document and disappears with
     connectionBody({ revision: off.revision, enabled: true, clientSecret: CLIENT_SECRET }),
   );
   assert.equal(restored.revision !== null, true);
-  assert.ok((await target().auth.snapshot()).sso.provider, "the provider is back with the document, still without a restart");
+  assert.ok(
+    (await target().auth.snapshot()).sso.provider,
+    "the provider is back with the document, still without a restart",
+  );
 });
 
 integration("an existing active account signs in through the connection", async () => {
@@ -315,7 +312,11 @@ integration("an existing active account signs in through the connection", async 
 
   assert.equal(await sessionUserId(done.sessionCookie), memberUserId, "the session belongs to the existing account");
   assert.equal(await userCount(), users, "no account is created for an existing address");
-  assert.equal((await accountOf(memberUserId)).includes(subject), true, "the enterprise identity is linked to the account");
+  assert.equal(
+    (await accountOf(memberUserId)).includes(subject),
+    true,
+    "the enterprise identity is linked to the account",
+  );
   assert.equal(await sessionRows(memberUserId), 1, "exactly one session is created");
   assert.equal(await providerRows(), 0, "the library's provider table stays empty: the document is the only source");
 });
@@ -596,7 +597,11 @@ integration("an enterprise identity bound to one account is never reused or dupl
   const users = await userCount();
   const strangerEmail = `stranger-${randomUUID()}@acme.example.test`;
   const reused = await signIn({ subject: bound, email: strangerEmail, emailVerified: true });
-  assert.equal(failureOf(reused.location).error, "sso_identity_conflict", "an identity bound elsewhere creates nothing");
+  assert.equal(
+    failureOf(reused.location).error,
+    "sso_identity_conflict",
+    "an identity bound elsewhere creates nothing",
+  );
   assert.equal(reused.sessionCookie, "");
   assert.equal(await userRow(strangerEmail), null, "no account is created for a bound identity");
   assert.equal(await userCount(), users);

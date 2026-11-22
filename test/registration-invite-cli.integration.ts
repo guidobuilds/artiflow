@@ -98,11 +98,7 @@ function assertBoundedFailure(result: CliResult): void {
     "a refusal records no audit line",
   );
   assert.equal(result.stderr.length <= MAX_DIAGNOSTIC_CHARS, true, "diagnostics stay bounded");
-  assert.equal(
-    result.stderr.trimEnd().split("\n").length <= MAX_DIAGNOSTIC_LINES,
-    true,
-    "diagnostics stay bounded",
-  );
+  assert.equal(result.stderr.trimEnd().split("\n").length <= MAX_DIAGNOSTIC_LINES, true, "diagnostics stay bounded");
   assert.equal(/^\s+at\s/m.test(result.stderr), false, "no stack trace");
   assertNoInvitationUrl(result.stderr);
   assert.equal(/postgres(ql)?:\/\//.test(result.stderr), false, "never echo the connection string");
@@ -173,15 +169,17 @@ async function seedCredentialUser(email: string, password: string): Promise<stri
   await db()
     .db.insert(user)
     .values({ id, name: "Invite Test Owner", email, emailVerified: false, createdAt: now, updatedAt: now });
-  await db().db.insert(account).values({
-    id: randomUUID(),
-    userId: id,
-    providerId: "credential",
-    accountId: id,
-    password: await hashPassword(password),
-    createdAt: now,
-    updatedAt: now,
-  });
+  await db()
+    .db.insert(account)
+    .values({
+      id: randomUUID(),
+      userId: id,
+      providerId: "credential",
+      accountId: id,
+      password: await hashPassword(password),
+      createdAt: now,
+      updatedAt: now,
+    });
   return id;
 }
 

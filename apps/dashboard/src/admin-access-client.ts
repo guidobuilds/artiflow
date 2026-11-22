@@ -35,12 +35,12 @@ export const ACCESS_PROVIDERS: { name: AccessProviderName; label: string }[] = [
   { name: "github", label: "GitHub" },
 ];
 
-const SIGN_IN_REQUIRED =
-  "This browser has no signed-in account, so access methods cannot be shown. Sign in first.";
+const SIGN_IN_REQUIRED = "This browser has no signed-in account, so access methods cannot be shown. Sign in first.";
 const UNRECOGNIZED = "The server refused that without a reason this page recognizes. Nothing was saved.";
 
 const REFUSALS: Record<string, string> = {
-  administrator_required: "Only an administrator can manage access methods. This page is not available to your account.",
+  administrator_required:
+    "Only an administrator can manage access methods. This page is not available to your account.",
   sign_in_required: SIGN_IN_REQUIRED,
   unauthorized: SIGN_IN_REQUIRED,
   revision_conflict:
@@ -96,9 +96,7 @@ export const REGISTRATION_NOTES: readonly string[] = [
 
 export type RegistrationEntry = { id: string; label: string; value: string; sentence: string };
 
-export function registrationEntries(
-  configuration: Pick<AccessConfiguration, "registration">,
-): RegistrationEntry[] {
+export function registrationEntries(configuration: Pick<AccessConfiguration, "registration">): RegistrationEntry[] {
   return [
     {
       id: "origin",
@@ -208,10 +206,7 @@ export async function readAccessConfiguration(): Promise<AccessRead> {
   };
 }
 
-export async function saveAccessConfiguration(
-  draft: AccessDraft,
-  revision: number | null,
-): Promise<AccessSave> {
+export async function saveAccessConfiguration(draft: AccessDraft, revision: number | null): Promise<AccessSave> {
   const result = await manageRequest(
     ACCESS_PATH,
     "PUT",

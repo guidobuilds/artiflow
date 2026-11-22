@@ -10,19 +10,12 @@ import type { AppDb, AppTx } from "../adapters/postgres/db/client.ts";
 import type { SocialProviders } from "../config.ts";
 import { environmentAccessMethods, PROVIDERS, providerSecretName, type ProviderName } from "./seed.ts";
 import { secretConfigured, writeSecret, type SecretKey } from "./secrets.ts";
-import {
-  accessMethodsSetting,
-  readSetting,
-  writeSetting,
-  type StoredSetting,
-} from "./store.ts";
+import { accessMethodsSetting, readSetting, writeSetting, type StoredSetting } from "./store.ts";
 
 type Query = AppDb | AppTx;
 
 export type AccessConfigurationErrorCode =
-  | "provider_client_id_required"
-  | "provider_credential_required"
-  | "secret_encryption_unconfigured";
+  "provider_client_id_required" | "provider_credential_required" | "secret_encryption_unconfigured";
 
 export class AccessConfigurationError extends Error {
   override name = "AccessConfigurationError";
@@ -158,7 +151,10 @@ export async function updateAccessConfiguration(input: {
   const secrets: SecretWrite[] = [];
   const document: AccessMethodsDocument = {
     password: { enabled: input.change.passwordEnabled },
-    providers: { google: { enabled: false, clientId: "", secretName: "" }, github: { enabled: false, clientId: "", secretName: "" } },
+    providers: {
+      google: { enabled: false, clientId: "", secretName: "" },
+      github: { enabled: false, clientId: "", secretName: "" },
+    },
     provenance: { source: "administrator", at: now.toISOString() },
   };
 

@@ -33,8 +33,7 @@ export const EMPTY_DIRECTORY: DirectoryRead = { page: null, failure: "", signInR
 export const ADMIN_USERS_PATH = "/api/admin/users";
 export const ADMIN_USERS_PAGE_SIZE = 20;
 
-const SIGN_IN_REQUIRED =
-  "This browser has no signed-in account, so the directory cannot be shown. Sign in first.";
+const SIGN_IN_REQUIRED = "This browser has no signed-in account, so the directory cannot be shown. Sign in first.";
 const UNRECOGNIZED = "The server refused that without a reason this page recognizes. Nothing was changed.";
 
 const REFUSALS: Record<string, string> = {

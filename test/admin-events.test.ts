@@ -205,7 +205,12 @@ test("every closed event names its actor, its subject and its outcome on one lin
 });
 
 test("fields outside the recorded shape never reach the line", () => {
-  const tainted = { ...samples["role.granted"], clientSecret: "leak-value", password: "leak-value", token: "leak-value" };
+  const tainted = {
+    ...samples["role.granted"],
+    clientSecret: "leak-value",
+    password: "leak-value",
+    token: "leak-value",
+  };
   const line = adminEventLine(tainted as AdminEventInput, at);
   assert.equal(line.includes("leak-value"), false, "an unlisted field cannot leak through the event");
   assert.deepEqual(Object.keys(JSON.parse(line) as Record<string, unknown>).sort(), [
@@ -246,9 +251,10 @@ test("recording an event writes exactly one line and keeps the recorded shape", 
 
 test("the fallback event records a refused and an admitted attempt in the same closed shape", () => {
   const refused = JSON.parse(adminEventLine(samples["login.fallback.used"], at)) as Record<string, unknown>;
-  const admitted = JSON.parse(
-    adminEventLine({ ...samples["login.fallback.used"], outcome: "applied" }, at),
-  ) as Record<string, unknown>;
+  const admitted = JSON.parse(adminEventLine({ ...samples["login.fallback.used"], outcome: "applied" }, at)) as Record<
+    string,
+    unknown
+  >;
   assert.deepEqual(Object.keys(refused).sort(), Object.keys(admitted).sort());
   assert.equal(refused.outcome, "refused");
   assert.equal(admitted.outcome, "applied");
@@ -270,13 +276,5 @@ test("an unattributed fallback attempt keeps the same keys and names no account"
   ) as Record<string, unknown>;
   assert.equal(line.actorId, "unattributed");
   assert.equal(line.actorRole, "anonymous");
-  assert.deepEqual(Object.keys(line).sort(), [
-    "actorId",
-    "actorRole",
-    "event",
-    "level",
-    "outcome",
-    "subjectId",
-    "ts",
-  ]);
+  assert.deepEqual(Object.keys(line).sort(), ["actorId", "actorRole", "event", "level", "outcome", "subjectId", "ts"]);
 });

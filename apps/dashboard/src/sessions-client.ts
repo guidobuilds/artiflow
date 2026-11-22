@@ -23,8 +23,7 @@ export const ACCOUNT_SESSIONS_PATH = "/api/account/sessions";
 export const REVOKE_OTHERS_PATH = `${ACCOUNT_SESSIONS_PATH}/revoke-others`;
 export const LOGIN_PATH = "/login";
 
-const SIGN_IN_REQUIRED =
-  "This browser has no signed-in account, so your sessions cannot be shown. Sign in first.";
+const SIGN_IN_REQUIRED = "This browser has no signed-in account, so your sessions cannot be shown. Sign in first.";
 const UNRECOGNIZED = "The server refused that without a reason this page recognizes. Nothing was changed.";
 
 const REFUSALS: Record<string, string> = {
@@ -34,8 +33,10 @@ const REFUSALS: Record<string, string> = {
   unauthorized: SIGN_IN_REQUIRED,
   session_not_found:
     "That session no longer exists, so there was nothing to close. The list is read again instead of guessed.",
-  user_not_found: "That account no longer exists, so its sessions cannot be shown. Reload the directory to see who is here.",
-  origin_not_allowed: "This page was opened from an address the server does not accept for changes, so nothing was closed.",
+  user_not_found:
+    "That account no longer exists, so its sessions cannot be shown. Reload the directory to see who is here.",
+  origin_not_allowed:
+    "This page was opened from an address the server does not accept for changes, so nothing was closed.",
   json_content_type_required: "The server refused the request as incomplete. Nothing was closed.",
   invalid_body: "The server refused the request as incomplete. Nothing was closed.",
   network: "The server could not be reached, so nothing was changed.",

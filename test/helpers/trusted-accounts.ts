@@ -66,10 +66,7 @@ export type DirectoryEntry = {
 
 export type SeededDirectoryEntry = DirectoryEntry & { userId: string };
 
-export async function seedDirectory(
-  database: Database,
-  entries: DirectoryEntry[],
-): Promise<SeededDirectoryEntry[]> {
+export async function seedDirectory(database: Database, entries: DirectoryEntry[]): Promise<SeededDirectoryEntry[]> {
   const now = new Date();
   const seeded = entries.map((entry) => ({
     ...entry,

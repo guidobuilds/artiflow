@@ -175,10 +175,14 @@ test("the stored configuration renders credential presence and never a credentia
   }
   assert.equal(credentialStateLabel(true), "Configured");
   assert.equal(credentialStateLabel(false), "Not configured");
-  assert.equal(provenanceLabel({ source: "administrator", at: "2026-11-20T10:00:00.000Z" }),
-    "Set by an administrator on 2026-11-20.");
-  assert.equal(provenanceLabel({ source: "environment", at: "2026-11-20T10:00:00.000Z" }),
-    "Adopted from the environment on 2026-11-20.");
+  assert.equal(
+    provenanceLabel({ source: "administrator", at: "2026-11-20T10:00:00.000Z" }),
+    "Set by an administrator on 2026-11-20.",
+  );
+  assert.equal(
+    provenanceLabel({ source: "environment", at: "2026-11-20T10:00:00.000Z" }),
+    "Adopted from the environment on 2026-11-20.",
+  );
 
   const page = read(PAGE);
   assert.match(page, /credentialStateLabel\(/);
@@ -215,10 +219,20 @@ test("a save sends the revision, both providers and only the credential the admi
     clientId: "github-client-id",
   });
   assert.ok(saved.ok);
-  assert.equal(JSON.stringify(saved.ok ? saved.value : null).includes(TYPED_INPUT), false, "a save never echoes the credential");
-  assert.equal(draftFromConfiguration(saved.ok ? saved.value : (parsedOfTest())).providers.github.clientSecret, "");
-  assert.equal(enabledMethodsLabel(saved.ok ? saved.value : parsedOfTest()), "Password and GitHub sign-in are enabled.");
-  assert.deepEqual(ACCESS_PROVIDERS.map((provider) => provider.label), ["Google", "GitHub"]);
+  assert.equal(
+    JSON.stringify(saved.ok ? saved.value : null).includes(TYPED_INPUT),
+    false,
+    "a save never echoes the credential",
+  );
+  assert.equal(draftFromConfiguration(saved.ok ? saved.value : parsedOfTest()).providers.github.clientSecret, "");
+  assert.equal(
+    enabledMethodsLabel(saved.ok ? saved.value : parsedOfTest()),
+    "Password and GitHub sign-in are enabled.",
+  );
+  assert.deepEqual(
+    ACCESS_PROVIDERS.map((provider) => provider.label),
+    ["Google", "GitHub"],
+  );
   assert.match(read(PAGE), /Saved\. \$\{enabledMethodsLabel\(result\.value\)\}/);
 });
 
@@ -291,11 +305,7 @@ test("the registration block answers what a provider needs before any provider i
   );
   assert.deepEqual(
     entries.map((entry) => entry.value),
-    [
-      PUBLIC_ORIGIN,
-      `${PUBLIC_ORIGIN}/api/auth/callback/google`,
-      `${PUBLIC_ORIGIN}/api/auth/callback/github`,
-    ],
+    [PUBLIC_ORIGIN, `${PUBLIC_ORIGIN}/api/auth/callback/google`, `${PUBLIC_ORIGIN}/api/auth/callback/github`],
   );
   assert.match(entries[0]?.sentence ?? "", /JavaScript origin/);
   assert.match(entries[1]?.sentence ?? "", /callback/);

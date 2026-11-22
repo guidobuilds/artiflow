@@ -90,7 +90,8 @@ function toPolicy(value: unknown): PasswordPolicy | null {
 export function parsePasswordPolicyConfiguration(body: unknown): PasswordPolicyConfiguration | null {
   if (!isRecord(body)) return null;
   const revision = body.revision;
-  const validRevision = revision === null || (typeof revision === "number" && Number.isInteger(revision) && revision > 0);
+  const validRevision =
+    revision === null || (typeof revision === "number" && Number.isInteger(revision) && revision > 0);
   if (!validRevision) return null;
   const policy = toPolicy(body.policy);
   if (policy === null) return null;
@@ -133,10 +134,7 @@ export function policySummary(policy: PasswordPolicy): string {
   return `${base}, with ${required.slice(0, -1).join(", ")} and ${required[required.length - 1]}.`;
 }
 
-export function buildUpdatePasswordPolicyPayload(
-  draft: PasswordPolicyDraft,
-  revision: number | null,
-): PolicyBuilt {
+export function buildUpdatePasswordPolicyPayload(draft: PasswordPolicyDraft, revision: number | null): PolicyBuilt {
   const trimmed = draft.minLength.trim();
   const minLength = Number(trimmed);
   if (trimmed === "" || !Number.isInteger(minLength)) return { ok: false, error: LENGTH_OUT_OF_RANGE };

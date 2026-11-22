@@ -51,11 +51,7 @@ async function countAccountRows(target: InvitationHarness): Promise<AccountCount
   return rows[0];
 }
 
-async function seedLegacyCredentialUser(
-  target: InvitationHarness,
-  email: string,
-  password: string,
-): Promise<string> {
+async function seedLegacyCredentialUser(target: InvitationHarness, email: string, password: string): Promise<string> {
   const userId = randomUUID();
   const now = new Date();
   await target.database.pool.query(
@@ -137,7 +133,9 @@ test(
         refusal = error instanceof Error ? error.message : String(error);
       }
       assert.equal(
-        refusal.includes("invitation: the database is unavailable; check DATABASE_URL and that migrations are applied."),
+        refusal.includes(
+          "invitation: the database is unavailable; check DATABASE_URL and that migrations are applied.",
+        ),
         true,
         `the operator command must be refused on the 0009 schema, got: ${refusal}`,
       );

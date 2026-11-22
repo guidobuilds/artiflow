@@ -2,12 +2,21 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 
-import { DEFAULT_PASSWORD_POLICY, type PasswordPolicyDocument, type PasswordPolicyView } from "@artiflow/contracts/settings";
+import {
+  DEFAULT_PASSWORD_POLICY,
+  type PasswordPolicyDocument,
+  type PasswordPolicyView,
+} from "@artiflow/contracts/settings";
 
 import { loadConfig } from "../apps/api/src/config.ts";
 import { issuePasswordReset } from "../apps/api/src/password-reset/service.ts";
 import { passwordPolicySetting, readSetting } from "../apps/api/src/settings/store.ts";
-import { seedTrustedAccount, trustedSession, type TrustedFixture, type TrustedSession } from "./helpers/trusted-accounts.ts";
+import {
+  seedTrustedAccount,
+  trustedSession,
+  type TrustedFixture,
+  type TrustedSession,
+} from "./helpers/trusted-accounts.ts";
 import {
   adminGet,
   adminPut,
@@ -236,9 +245,7 @@ integration("a reset completion refuses a password that misses a requirement and
   const token = issued.kind === "issued" ? issued.token : "";
   const candidate = "NoSymbols1234Password";
 
-  const refused = await refusalOf(
-    await publicPost(target(), RESET_COMPLETE_PATH, { token, newPassword: candidate }),
-  );
+  const refused = await refusalOf(await publicPost(target(), RESET_COMPLETE_PATH, { token, newPassword: candidate }));
   assert.equal(refused.status, 400, "a password outside the policy is refused");
   assert.equal(refused.body.code, "PASSWORD_INVALID");
   assert.deepEqual(requirementsOf(refused.body), ["symbol"], "the refusal names the missing requirement");
@@ -368,10 +375,16 @@ integration("a tightened policy refuses on the next request and leaves the store
   const accepted = `Tightened-Candidate-${randomUUID().slice(0, 8)}`;
 
   await appliedPolicy(policyOf({ minLength: 16 }));
-  assertStatus(await changePassword(owner.email, owner.password, accepted), 200, "the chosen password meets the policy");
+  assertStatus(
+    await changePassword(owner.email, owner.password, accepted),
+    200,
+    "the chosen password meets the policy",
+  );
 
   await appliedPolicy(policyOf({ minLength: 40 }));
-  const refused = await refusalOf(await changePassword(owner.email, accepted, `Second-Candidate-${randomUUID().slice(0, 8)}`));
+  const refused = await refusalOf(
+    await changePassword(owner.email, accepted, `Second-Candidate-${randomUUID().slice(0, 8)}`),
+  );
   assert.equal(refused.status, 400, "the next request applies the tightened policy");
   assert.equal(refused.body.code, "INVALID_PASSWORD");
   assert.deepEqual(requirementsOf(refused.body), ["minLength"], "the refusal names only what is missing");

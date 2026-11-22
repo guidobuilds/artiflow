@@ -19,13 +19,16 @@ function policy(overrides: Partial<PasswordPolicyDocument> = {}): PasswordPolicy
 const COMPLIANT = "Long-Enough1Password";
 
 test("the default policy is twelve characters with the four requirements on", () => {
-  assert.deepEqual({ ...DEFAULT_PASSWORD_POLICY }, {
-    minLength: 12,
-    requireUppercase: true,
-    requireLowercase: true,
-    requireNumber: true,
-    requireSymbol: true,
-  });
+  assert.deepEqual(
+    { ...DEFAULT_PASSWORD_POLICY },
+    {
+      minLength: 12,
+      requireUppercase: true,
+      requireLowercase: true,
+      requireNumber: true,
+      requireSymbol: true,
+    },
+  );
   assert.deepEqual(validatePassword(COMPLIANT, policy()), []);
 });
 
@@ -80,7 +83,12 @@ test("the minimum length boundary is inclusive and the requirement is honoured e
 });
 
 test("a requirement that is off is never demanded and never listed", () => {
-  const relaxed = policy({ requireUppercase: false, requireLowercase: false, requireNumber: false, requireSymbol: false });
+  const relaxed = policy({
+    requireUppercase: false,
+    requireLowercase: false,
+    requireNumber: false,
+    requireSymbol: false,
+  });
   assert.deepEqual(validatePassword("abcdefghijkl", relaxed), []);
   assert.deepEqual(
     validatePassword("abcdefghijk", relaxed).map((rule) => rule.requirement),
@@ -91,7 +99,9 @@ test("a requirement that is off is never demanded and never listed", () => {
     ["minLength", "maxLength"],
   );
   assert.deepEqual(
-    validatePassword("abcdefghijkl", policy({ requireSymbol: false, requireNumber: false })).map((rule) => rule.requirement),
+    validatePassword("abcdefghijkl", policy({ requireSymbol: false, requireNumber: false })).map(
+      (rule) => rule.requirement,
+    ),
     ["uppercase"],
   );
 });
@@ -127,11 +137,14 @@ test("a summary names what is missing and a single miss keeps the rule's own wor
   assert.equal(message, "The password is missing at least 12 characters and an uppercase letter.");
   for (const rule of several) assert.equal(message.includes(rule.message), false, "the summary is not a message dump");
 
-  const everyRule = passwordPolicyMessage(
-    validatePassword("", policy({ minLength: 20 })),
-    policy({ minLength: 20 }),
-  );
-  for (const phrase of ["at least 20 characters", "an uppercase letter", "a lowercase letter", "a number", "a symbol"]) {
+  const everyRule = passwordPolicyMessage(validatePassword("", policy({ minLength: 20 })), policy({ minLength: 20 }));
+  for (const phrase of [
+    "at least 20 characters",
+    "an uppercase letter",
+    "a lowercase letter",
+    "a number",
+    "a symbol",
+  ]) {
     assert.equal(everyRule.includes(phrase), true, `the summary names ${phrase}`);
   }
   assert.equal(everyRule.length <= 120, true, "even the widest summary stays bounded");

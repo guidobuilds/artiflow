@@ -47,7 +47,8 @@ function useFetch(reply: (call: Call, index: number) => Response): Call[] {
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-const headers = (call: Call | undefined): Record<string, string> => (call?.init.headers ?? {}) as Record<string, string>;
+const headers = (call: Call | undefined): Record<string, string> =>
+  (call?.init.headers ?? {}) as Record<string, string>;
 
 const STORED: PasswordPolicy = {
   minLength: 16,
@@ -108,7 +109,10 @@ test("a non-administrator is refused by the shell and never sees the form", asyn
   assert.match(result.ok === false ? result.error : "", /administrator/i);
 
   const page = read(PAGE);
-  assert.match(page, /setLoad\(\{ kind: "refused", message: result\.error, signInRequired: result\.signInRequired \}\)/);
+  assert.match(
+    page,
+    /setLoad\(\{ kind: "refused", message: result\.error, signInRequired: result\.signInRequired \}\)/,
+  );
   assert.equal((page.match(/<form/g) ?? []).length, 0, "the page never renders a bare form");
 });
 
@@ -183,7 +187,13 @@ test("a save sends the revision with every requirement and no password material"
   assert.equal(headers(call)["origin"] !== undefined, true, "a cookie mutation carries the origin");
   assert.deepEqual(JSON.parse(String(call?.init.body)), {
     revision: 2,
-    policy: { minLength: 20, requireUppercase: true, requireLowercase: true, requireNumber: false, requireSymbol: true },
+    policy: {
+      minLength: 20,
+      requireUppercase: true,
+      requireLowercase: true,
+      requireNumber: false,
+      requireSymbol: true,
+    },
   });
   const sent = String(call?.init.body);
   for (const forbidden of ["clientSecret", "password", "newPassword", "currentPassword", "token"]) {
@@ -199,7 +209,10 @@ test("a length outside the allowed range is refused before anything is sent", as
     assert.equal(calls.length, 0, `${value} never reaches the server`);
     assert.equal(result.ok, false);
     assert.equal(result.ok === false && result.conflict, false);
-    assert.match(result.ok === false ? result.error : "", new RegExp(`${MINIMUM_LENGTH_FLOOR}|${MINIMUM_LENGTH_CEILING}`));
+    assert.match(
+      result.ok === false ? result.error : "",
+      new RegExp(`${MINIMUM_LENGTH_FLOOR}|${MINIMUM_LENGTH_CEILING}`),
+    );
     assert.equal(result.ok === false && result.error.includes(value === "" ? "never" : value), false);
   }
   const accepted = buildUpdatePasswordPolicyPayload(draft({ minLength: String(MINIMUM_LENGTH_FLOOR) }), 2);
@@ -253,7 +266,10 @@ test("a revision conflict reloads what was stored and asks for a reviewed retry"
 
 test("the page shows what is in effect and every requirement it offers", () => {
   const configuration = parsePasswordPolicyConfiguration(storedBody()) as PasswordPolicyConfiguration;
-  assert.equal(policySummary(configuration.policy), "At least 16 characters, with an uppercase letter, a lowercase letter and a symbol.");
+  assert.equal(
+    policySummary(configuration.policy),
+    "At least 16 characters, with an uppercase letter, a lowercase letter and a symbol.",
+  );
   assert.equal(
     policySummary({ ...STORED, requireUppercase: false, requireLowercase: false, requireSymbol: false }),
     "At least 16 characters, with no further requirement.",
