@@ -61,8 +61,11 @@ curl -s http://127.0.0.1:8787/api/health
 ```
 
 `/api/health` is 200 only when both probes pass and 503 with `"status":"degraded"`
-otherwise. Create a local account at `http://127.0.0.1:5173/` (email/password,
-development profile only), then open `/library`.
+otherwise. Registration is closed in every profile, so the first account comes from the
+console: `bun run user:invite you@example.com` prints a single-use URL that expires in
+24 hours, and `bun run admin:grant you@example.com` makes that account an
+administrator once it exists, which is what opens the administration surfaces under
+`/admin` on `http://127.0.0.1:5173/`.
 
 All local secrets live in `.env.local` (mode `0600`, git-ignored): database URL,
 S3 credentials and auth signing secret. Never commit, print or paste them; service
