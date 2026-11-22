@@ -155,12 +155,12 @@ lugar del documento**:
 El servidor revalida el ancla contra el contenido vivo antes de aceptarla. Un ancla que ya
 no corresponde se rechaza.
 
-**Hay dos clases de ancla declaradas pero sin uso: `board-point` y `slide-point`** — "punto
-en un tablero" y "punto en una diapositiva", con un campo para el tablero o la
-diapositiva. Existen en el contrato, la base las acepta, y ninguna parte del producto las
-produce ni las muestra. Son la huella de un canvas que se pensó y no se construyó. Y son
-más débiles que lo que hace falta: un punto suelto no dice **a qué nodo** pertenece, así
-que se despega en cuanto alguien mueve la tarjeta.
+**`board-point` se entregó en F5 y `slide-point` sigue esperando su tipo.** El ancla nombra el marco,
+el nodo y un punto **normalizado dentro del nodo**, que es lo que hacía falta: un punto suelto no
+decía a qué nodo pertenecía y se despegaba en cuanto alguien movía la tarjeta. El servidor la resuelve
+contra la escena viva antes de guardarla, y un hilo cuyo nodo desapareció se lista como huérfano en
+vez de dibujarse en una posición vieja. `slide-point` conserva la misma forma y espera a que exista el
+tipo deck.
 
 ### 2.7 Qué pasa al borrar
 
