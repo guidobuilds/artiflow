@@ -78,6 +78,7 @@ const collab = attachCollabServer({
   server,
   rooms,
   authorize: createSessionAuthorizer({ database, auth: holder.auth }),
+  allowedOrigin: config.publicOrigin,
 });
 const detachRoomInvalidation = attachRoomsToDocumentWrites(rooms);
 

@@ -100,12 +100,13 @@ async function startHarness(authorize: CollabAuthorizer): Promise<Harness> {
   server.on("upgrade", () => {
     upgrades += 1;
   });
-  const collab = attachCollabServer({ server, rooms, authorize });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
+  const origin = `http://127.0.0.1:${port}`;
+  const collab = attachCollabServer({ server, rooms, authorize, allowedOrigin: origin });
   return {
     artifactId: ARTIFACT,
-    origin: `http://127.0.0.1:${port}`,
+    origin,
     get upgrades(): number {
       return upgrades;
     },
@@ -127,7 +128,7 @@ const refuseEveryone: CollabAuthorizer = async () => ({
 function socketPolyfill(): typeof OriginWebSocket {
   return class extends OriginWebSocket {
     constructor(address: string | URL, protocols?: string | string[]) {
-      super(address, protocols);
+      super(address, protocols, { origin: new URL(address).origin.replace(/^ws/, "http") });
     }
   } as unknown as typeof OriginWebSocket;
 }

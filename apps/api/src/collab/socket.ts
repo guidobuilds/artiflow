@@ -17,6 +17,7 @@ import { editsDocumentInApp } from "@artiflow/domain/kinds";
 
 import type { Database } from "../adapters/postgres/db/client.ts";
 import type { AuthInstance } from "../auth.ts";
+import { isUuid } from "../http/index.ts";
 import { canEdit, documentFor } from "../routes/editing.ts";
 import type { Room, RoomConnection, Rooms } from "./rooms.ts";
 
@@ -31,6 +32,7 @@ const MESSAGE_SYNC = 0;
 const MESSAGE_AWARENESS = 1;
 const MAX_QUEUED_MESSAGES = 64;
 const CLOSE_TIMEOUT_MS = 1_000;
+export const COLLAB_REAUTHORIZE_MS = 30_000;
 
 export type CollabAuthorization = { ok: true; userId: string } | { ok: false; code: number; reason: string };
 
@@ -76,7 +78,9 @@ export type AttachCollabInput = {
   server: UpgradeHost;
   rooms: Rooms;
   authorize: CollabAuthorizer;
+  allowedOrigin: string;
   path?: string;
+  reauthorizeMs?: number;
 };
 
 export type CollabServer = { close: () => Promise<void>; socketCount: () => number };
@@ -92,6 +96,14 @@ function headersOf(request: IncomingMessage): Headers {
     headers.set(name, value);
   }
   return headers;
+}
+
+function artifactIdOf(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
 }
 
 function bytesOf(data: RawData): Uint8Array | null {
@@ -146,6 +158,7 @@ async function serveSocket(input: {
   headers: Headers;
   rooms: Rooms;
   authorize: CollabAuthorizer;
+  reauthorizeMs: number;
 }): Promise<void> {
   const { ws, artifactId, rooms, authorize } = input;
   const queued: Uint8Array[] = [];
@@ -196,7 +209,20 @@ async function serveSocket(input: {
   };
   room.awareness.on("update", onAwareness);
 
+  const reauthorize = setInterval(() => {
+    authorize({ headers: input.headers, artifactId }).then(
+      (current) => {
+        if (closed) return;
+        if (!current.ok) ws.close(current.code, current.reason);
+        else if (current.userId !== authorization.userId) ws.close(COLLAB_CLOSE_UNAUTHORIZED, "unauthorized");
+      },
+      () => undefined,
+    );
+  }, input.reauthorizeMs);
+  reauthorize.unref?.();
+
   const release = (): void => {
+    clearInterval(reauthorize);
     room.awareness.off("update", onAwareness);
     removeAwarenessStates(room.awareness, [...controlled], null);
     void rooms.leave({ room, connection });
@@ -243,7 +269,7 @@ export function attachCollabServer(input: AttachCollabInput): CollabServer {
     socket.destroy();
   };
 
-  const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
+  const upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
     const url = new URL(request.url ?? "/", "http://localhost");
     if (!url.pathname.startsWith(prefix)) {
       refuse(socket, "404 Not Found");
@@ -253,12 +279,39 @@ export function attachCollabServer(input: AttachCollabInput): CollabServer {
       refuse(socket, "503 Service Unavailable");
       return;
     }
-    const artifactId = decodeURIComponent(url.pathname.slice(prefix.length));
+    if (request.headers.origin !== input.allowedOrigin) {
+      refuse(socket, "403 Forbidden");
+      return;
+    }
+    const artifactId = artifactIdOf(url.pathname.slice(prefix.length));
+    if (artifactId === undefined) {
+      refuse(socket, "400 Bad Request");
+      return;
+    }
+    if (!isUuid(artifactId)) {
+      refuse(socket, "404 Not Found");
+      return;
+    }
     wss.handleUpgrade(request, socket, head, (ws) => {
       sockets.add(ws);
       ws.on("close", () => sockets.delete(ws));
-      void serveSocket({ ws, artifactId, headers: headersOf(request), rooms: input.rooms, authorize: input.authorize });
+      void serveSocket({
+        ws,
+        artifactId,
+        headers: headersOf(request),
+        rooms: input.rooms,
+        authorize: input.authorize,
+        reauthorizeMs: input.reauthorizeMs ?? COLLAB_REAUTHORIZE_MS,
+      });
     });
+  };
+
+  const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
+    try {
+      upgrade(request, socket, head);
+    } catch {
+      socket.destroy();
+    }
   };
 
   input.server.on("upgrade", onUpgrade);

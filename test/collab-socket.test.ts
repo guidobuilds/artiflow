@@ -27,6 +27,8 @@ import {
 } from "../apps/api/src/collab/rooms.ts";
 import { attachCollabServer, documentAuthorizer, type CollabAuthorizer } from "../apps/api/src/collab/socket.ts";
 
+const DOC_ID = "6f1c2a9e-4b7d-4e3a-9c1f-2d8e5b7a4c10";
+const ORIGIN = "http://127.0.0.1:5173";
 const NOW = new Date("2026-11-22T09:00:00.000Z");
 const START = "# Start\n\nopening";
 const AGENT = "# Start\n\nan agent wrote this";
@@ -73,7 +75,7 @@ function fakeStorage(): Storage & { objects: Map<string, Uint8Array> } {
   };
 }
 
-function fakeStore(seed: { artifactId: string; publishedSeq?: number } = { artifactId: "a1" }) {
+function fakeStore(seed: { artifactId: string; publishedSeq?: number } = { artifactId: DOC_ID }) {
   const artifacts = new Map<string, { publishedSeq: number; currentRevisionId: string | null; kind: string }>();
   const drafts = new Map<string, DraftRecord>();
   const operations: FakeOperation[] = [];
@@ -210,10 +212,10 @@ function fakeStore(seed: { artifactId: string; publishedSeq?: number } = { artif
 
 const SESSION_COOKIE = "artiflow.session_token";
 const ACCESS = new Map<string, { access: string; kind: string }>([
-  ["person-1:a1", { access: "owner", kind: "markdown" }],
-  ["person-2:a1", { access: "editor", kind: "markdown" }],
-  ["person-3:a1", { access: "reader", kind: "markdown" }],
-  ["person-4:a1", { access: "owner", kind: "html" }],
+  [`person-1:${DOC_ID}`, { access: "owner", kind: "markdown" }],
+  [`person-2:${DOC_ID}`, { access: "editor", kind: "markdown" }],
+  [`person-3:${DOC_ID}`, { access: "reader", kind: "markdown" }],
+  [`person-4:${DOC_ID}`, { access: "owner", kind: "html" }],
 ]);
 
 const authorizer: CollabAuthorizer = documentAuthorizer({
@@ -254,7 +256,7 @@ async function waitFor(check: () => boolean, label: string, timeoutMs = 5000): P
 function socketFor(cookie: string): typeof OriginWebSocket {
   return class extends OriginWebSocket {
     constructor(address: string | URL, protocols?: string | string[]) {
-      super(address, protocols, { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } });
+      super(address, protocols, { origin: ORIGIN, headers: { cookie: `${SESSION_COOKIE}=${cookie}` } });
     }
   } as unknown as typeof OriginWebSocket;
 }
@@ -265,12 +267,12 @@ type Harness = {
   close: () => Promise<void>;
 };
 
-async function startHarness(rooms: Rooms): Promise<Harness> {
+async function startHarness(rooms: Rooms, reauthorizeMs?: number): Promise<Harness> {
   const server = createServer((_request, response) => {
     response.statusCode = 404;
     response.end();
   });
-  const collab = attachCollabServer({ server, rooms, authorize: authorizer });
+  const collab = attachCollabServer({ server, rooms, authorize: authorizer, allowedOrigin: ORIGIN, reauthorizeMs });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   return {
@@ -293,8 +295,8 @@ type Refusal = { code: number | null; reason: string; messages: number };
 async function refusalOf(url: string, cookie: string | null): Promise<Refusal> {
   const socket =
     cookie === null
-      ? new OriginWebSocket(url)
-      : new OriginWebSocket(url, { headers: { cookie: `${SESSION_COOKIE}=${cookie}` } });
+      ? new OriginWebSocket(url, { origin: ORIGIN })
+      : new OriginWebSocket(url, { origin: ORIGIN, headers: { cookie: `${SESSION_COOKIE}=${cookie}` } });
   const messages: unknown[] = [];
   let code: number | null = null;
   let reason = "";
@@ -309,19 +311,37 @@ async function refusalOf(url: string, cookie: string | null): Promise<Refusal> {
   return { code, reason, messages: messages.length };
 }
 
+async function upgradeStatus(url: string, origin: string | undefined): Promise<number | "open" | "dropped"> {
+  const socket = new OriginWebSocket(url, {
+    ...(origin === undefined ? {} : { origin }),
+    headers: { cookie: `${SESSION_COOKIE}=person-1` },
+  });
+  return await new Promise((resolve) => {
+    socket.on("unexpected-response", (_request, response) => {
+      resolve(response.statusCode ?? 0);
+      socket.terminate();
+    });
+    socket.on("open", () => {
+      resolve("open");
+      socket.terminate();
+    });
+    socket.on("error", () => resolve("dropped"));
+  });
+}
+
 test("two clients join the same document, load its draft and converge on an update", async () => {
-  const seeded = fakeStore({ artifactId: "a1", publishedSeq: 2 });
+  const seeded = fakeStore({ artifactId: DOC_ID, publishedSeq: 2 });
   const storage = fakeStorage();
   seeded.seedSnapshot(storage, START);
   const rooms = collabFor(seeded, storage);
   const harness = await startHarness(rooms);
   const first = new Y.Doc();
   const second = new Y.Doc();
-  const firstProvider = new WebsocketProvider(harness.baseUrl, "a1", first, {
+  const firstProvider = new WebsocketProvider(harness.baseUrl, DOC_ID, first, {
     disableBc: true,
     WebSocketPolyfill: socketFor("person-1") as never,
   });
-  const secondProvider = new WebsocketProvider(harness.baseUrl, "a1", second, {
+  const secondProvider = new WebsocketProvider(harness.baseUrl, DOC_ID, second, {
     disableBc: true,
     WebSocketPolyfill: socketFor("person-2") as never,
   });
@@ -348,22 +368,22 @@ test("two clients join the same document, load its draft and converge on an upda
 });
 
 test("two clients typing at once merge into a single flushed operation that carries both edits", async () => {
-  const seeded = fakeStore({ artifactId: "a1" });
+  const seeded = fakeStore({ artifactId: DOC_ID });
   const storage = fakeStorage();
   seeded.seedSnapshot(storage, START);
   const rooms = createRooms({ store: seeded.store, storage, debounceMs: 400, log: (): void => undefined });
   const harness = await startHarness(rooms);
   const first = new Y.Doc();
   const second = new Y.Doc();
-  const firstProvider = new WebsocketProvider(harness.baseUrl, "a1", first, {
+  const firstProvider = new WebsocketProvider(harness.baseUrl, DOC_ID, first, {
     disableBc: true,
     WebSocketPolyfill: socketFor("person-1") as never,
   });
-  const secondProvider = new WebsocketProvider(harness.baseUrl, "a1", second, {
+  const secondProvider = new WebsocketProvider(harness.baseUrl, DOC_ID, second, {
     disableBc: true,
     WebSocketPolyfill: socketFor("person-2") as never,
   });
-  const draftText = (): string => (seeded.drafts.get("a1")?.state as { text: string } | undefined)?.text ?? "";
+  const draftText = (): string => (seeded.drafts.get(DOC_ID)?.state as { text: string } | undefined)?.text ?? "";
   try {
     await waitFor(() => firstProvider.synced && secondProvider.synced, "both clients to sync");
     assert.equal(documentText(first), START);
@@ -392,12 +412,12 @@ test("two clients typing at once merge into a single flushed operation that carr
 });
 
 test("an unauthorized, foreign or read-only socket is closed with a policy code and receives no document", async () => {
-  const seeded = fakeStore({ artifactId: "a1", publishedSeq: 2 });
+  const seeded = fakeStore({ artifactId: DOC_ID, publishedSeq: 2 });
   const storage = fakeStorage();
   seeded.seedSnapshot(storage, START);
   const rooms = collabFor(seeded, storage);
   const harness = await startHarness(rooms);
-  const url = `${harness.baseUrl}/a1`;
+  const url = `${harness.baseUrl}/${DOC_ID}`;
   try {
     assert.deepEqual(await refusalOf(url, null), { code: 4401, reason: "unauthorized", messages: 0 });
     assert.deepEqual(await refusalOf(url, "person-9"), { code: 4404, reason: "not_found", messages: 0 });
@@ -410,13 +430,13 @@ test("an unauthorized, foreign or read-only socket is closed with a policy code 
 });
 
 test("an agent write reaches the room and its connected clients after invalidation", async () => {
-  const seeded = fakeStore({ artifactId: "a1" });
+  const seeded = fakeStore({ artifactId: DOC_ID });
   const storage = fakeStorage();
   const rooms = collabFor(seeded, storage);
   const detach = attachRoomsToDocumentWrites(rooms);
   const harness = await startHarness(rooms);
   const doc = new Y.Doc();
-  const provider = new WebsocketProvider(harness.baseUrl, "a1", doc, {
+  const provider = new WebsocketProvider(harness.baseUrl, DOC_ID, doc, {
     disableBc: true,
     WebSocketPolyfill: socketFor("person-1") as never,
   });
@@ -427,7 +447,7 @@ test("an agent write reaches the room and its connected clients after invalidati
     const applied = await applyOperations({
       store: seeded.store,
       storage,
-      artifactId: "a1",
+      artifactId: DOC_ID,
       authorKind: "agent",
       authorId: "agent-1",
       baseSeq: 1,
@@ -446,12 +466,12 @@ test("an agent write reaches the room and its connected clients after invalidati
 });
 
 test("a human flush that landed first makes the racing agent write refuse instead of merging", async () => {
-  const seeded = fakeStore({ artifactId: "a1" });
+  const seeded = fakeStore({ artifactId: DOC_ID });
   const storage = fakeStorage();
   const rooms = collabFor(seeded, storage);
   const harness = await startHarness(rooms);
   const doc = new Y.Doc();
-  const provider = new WebsocketProvider(harness.baseUrl, "a1", doc, {
+  const provider = new WebsocketProvider(harness.baseUrl, DOC_ID, doc, {
     disableBc: true,
     WebSocketPolyfill: socketFor("person-1") as never,
   });
@@ -462,7 +482,7 @@ test("a human flush that landed first makes the racing agent write refuse instea
     const refused = await applyOperations({
       store: seeded.store,
       storage,
-      artifactId: "a1",
+      artifactId: DOC_ID,
       authorKind: "agent",
       authorId: "agent-1",
       baseSeq: 0,
@@ -478,6 +498,70 @@ test("a human flush that landed first makes the racing agent write refuse instea
   } finally {
     provider.destroy();
     doc.destroy();
+    await harness.close();
+  }
+});
+
+test("an upgrade from another origin, or with no origin, is refused before the socket opens", async () => {
+  const seeded = fakeStore({ artifactId: DOC_ID });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, START);
+  const rooms = collabFor(seeded, storage);
+  const harness = await startHarness(rooms);
+  const url = `${harness.baseUrl}/${DOC_ID}`;
+  try {
+    assert.equal(await upgradeStatus(url, "https://attacker.example"), 403);
+    assert.equal(await upgradeStatus(url, undefined), 403);
+    assert.equal(await upgradeStatus(url, ORIGIN), "open");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("a malformed or non-UUID document address is refused and the server keeps serving", async () => {
+  const seeded = fakeStore({ artifactId: DOC_ID });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, START);
+  const rooms = collabFor(seeded, storage);
+  const harness = await startHarness(rooms);
+  try {
+    assert.equal(await upgradeStatus(`${harness.baseUrl}/%E0%A4%A`, ORIGIN), 400);
+    assert.equal(await upgradeStatus(`${harness.baseUrl}/%`, ORIGIN), 400);
+    assert.equal(await upgradeStatus(`${harness.baseUrl}/not-a-document`, ORIGIN), 404);
+    assert.equal(await upgradeStatus(`${harness.baseUrl}/${DOC_ID}`, ORIGIN), "open");
+  } finally {
+    await harness.close();
+  }
+});
+
+test("an open socket is closed once its access is revoked", async () => {
+  const seeded = fakeStore({ artifactId: DOC_ID });
+  const storage = fakeStorage();
+  seeded.seedSnapshot(storage, START);
+  const rooms = collabFor(seeded, storage);
+  const harness = await startHarness(rooms, 20);
+  const key = `person-2:${DOC_ID}`;
+  const granted = ACCESS.get(key);
+  assert.ok(granted, "the editor starts with access");
+  const socket = new OriginWebSocket(`${harness.baseUrl}/${DOC_ID}`, {
+    origin: ORIGIN,
+    headers: { cookie: `${SESSION_COOKIE}=person-2` },
+  });
+  let code: number | null = null;
+  socket.on("close", (closed: number) => {
+    code = closed;
+  });
+  socket.on("error", () => undefined);
+  try {
+    await waitFor(() => rooms.size() === 1, "the editor to join the room");
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(code, null, "a socket with access stays open across checks");
+    ACCESS.delete(key);
+    await waitFor(() => code !== null, "the revoked socket to close");
+    assert.equal(code, 4404);
+  } finally {
+    ACCESS.set(key, granted);
+    socket.terminate();
     await harness.close();
   }
 });
