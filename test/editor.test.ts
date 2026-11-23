@@ -892,7 +892,7 @@ test("the page passes the read sequence to the save and the remote sequence to t
   const page = readFileSync(new URL("../apps/dashboard/src/EditorPage.tsx", import.meta.url), "utf8");
   assert.match(
     page,
-    /\(text, revision, expectedSeq\) => saveDocument\(initial\.artifactId, text, revision, expectedSeq\)/,
+    /\(text: string, revision: string, expectedSeq: number \| undefined\) =>\s*saveDocument\(artifactId, text, revision, expectedSeq\)/,
   );
   assert.match(page, /seq: remote\.seq/);
   assert.match(page, /seq: result\.value\.seq/);
