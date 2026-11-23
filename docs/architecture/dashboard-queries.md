@@ -56,6 +56,14 @@ A signed-out session is a successful `null`, not an error, and stays cached for 
 When a screen needs to know whether the read is still in flight, it reads `isPending` rather than
 comparing `data` with `undefined`.
 
+## Library
+
+`libraryOwnedQuery` and `librarySharedQuery` load the two lists. They refetch every
+`LIBRARY_POLL_MS`, including while the tab is in the background, which is the interval the
+previous timer used. Deleting an artifact calls `invalidateLibrary`, and both lists refetch.
+A sign-in refusal from either list sends the browser to login. A failed shared list leaves
+the owned list on screen; a failed owned list is the error the page shows.
+
 ## After a mutation
 
 A write that used to bump a `revision` counter invalidates the key of the list it changed
