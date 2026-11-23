@@ -84,9 +84,20 @@ bun run test:integration
 docker compose down
 ```
 
-Loopback ports: PostgreSQL `54329`, Garage S3 `9001`. Never point this stack at
-real data. `test:auth` and `test:oauth` use `.env.local` and a disposable
-database.
+Loopback ports: PostgreSQL `54329`, Garage S3 `9001`. Garage's `--default-bucket`
+creates the bucket named in the Compose file; the app still never creates one.
+Never point this stack at real data. `test:auth` and `test:oauth` use `.env.local`
+and a disposable database.
+
+`bun run test:integration` fails when a variable from
+`test/integration-config.example` is missing and when any test skips. CI runs
+this sequence in the `integration` job of
+[`.github/workflows/verify.yml`](../.github/workflows/verify.yml): it pulls the
+pinned images (the Compose file itself refuses to pull), starts the stack, waits
+until `SELECT 1` and `HeadBucket` succeed, migrates, then runs the suite. The
+security-sandbox reproducer is not part of that job: it still expects the viewer
+body to equal the stored HTML, and the frame now also carries the comment bridge,
+so a run exits 3.
 
 ## 3. Creating artifacts via MCP
 
@@ -309,4 +320,6 @@ Verified against a live local deployment with a real browser:
 `bun run test` runs every `*.test.ts`; integration suites self-skip without
 services.
 `bun run test:integration` loads the test config and runs `*.test.ts` and
-`*.integration.ts` serially against the Docker stack.
+`*.integration.ts` serially against the Docker stack. A missing variable or a
+skipped test fails that command, and the `integration` CI job runs it the same
+way.

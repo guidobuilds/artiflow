@@ -62,7 +62,7 @@
     "pretypecheck": "node scripts/preflight.mjs",
     "test": "node --test test/*.test.ts",
     "pretest": "node scripts/preflight.mjs",
-    "test:integration": "node --env-file=test/integration-config.example --test --test-concurrency=1 \"test/*.test.ts\" \"test/*.integration.ts\"",
+    "test:integration": "node --env-file=test/integration-config.example scripts/run-integration.mjs",
     "test:auth": "node --env-file=.env.local --test test/auth-http.integration.ts",
     "test:oauth": "node --env-file=.env.local --test test/oauth-http.integration.ts"
   },
