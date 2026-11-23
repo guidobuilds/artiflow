@@ -134,6 +134,7 @@ repository-wide reformat.
 bun run check:changed  # prettier --check + oxlint on files changed vs origin/main
 bun run check:hygiene  # no tracked file matches .gitignore
 bun run check:comments # scripts/check-comments.mjs
+bun run check:effects  # scripts/check-effect-fetches.mjs
 bun run format         # rewrite every supported file with prettier
 bun run lint           # whole repository; warnings are allowed while debt is paid
 ```
@@ -219,6 +220,9 @@ Examples:
 ## Code style and decisions
 
 - **Comments:** `bun run check:comments` (`scripts/check-comments.mjs`).
+- **Dashboard effects:** `bun run check:effects` (`scripts/check-effect-fetches.mjs`) fails when a
+  `useEffect` or `useLayoutEffect` in `apps/dashboard` calls `fetch` or an HTTP client function
+  (`get…`, `list…`, `read…`, `save…`, and the same prefixes). Load that data with TanStack Query.
 - **Persistence:** product queries belong in repositories that receive the typed
   `AppDb`/`AppTx` from `apps/api/src/db/client.ts`. HTTP routes and MCP tools consume
   the same operations instead of duplicating SQL. Prefer Drizzle builders; keep

@@ -71,12 +71,13 @@ environment-gated suites execute instead of skipping, and `node:module` lacks
 | `bun run test:auth`        | `test/auth-http.integration.ts` against a disposable PostgreSQL.                                                                                                                                                     |
 | `bun run test:oauth`       | `test/oauth-http.integration.ts` against a disposable PostgreSQL.                                                                                                                                                    |
 | `bun run typecheck`        | The API TypeScript project and the dashboard workspace project.                                                                                                                                                      |
-| `bun run build`            | Docs fact and link check, boundary check, comment check, dashboard production build and API type check.                                                                                                              |
+| `bun run build`            | Docs fact and link check, boundary check, comment check, dashboard effect-fetch check, dashboard production build and API type check.                                                                                |
 | `bun run check:boundaries` | Import boundaries between apps, packages and tests.                                                                                                                                                                  |
 | `bun run check:hygiene`    | Fails when a tracked file matches `.gitignore`.                                                                                                                                                                      |
 | `bun run check:changed`    | Prettier and oxlint on the files changed against `origin/main`. Pass a base ref to compare elsewhere.                                                                                                                |
 | `bun run check:docs`       | Relative links in the scanned docs resolve, and those docs do not state a tool count or a kind list that contradicts `packages/mcp-server/src/server.ts` and `packages/domain/src/kinds.ts`.                         |
 | `bun run check:comments`   | `scripts/check-comments.mjs` decides which source comments are allowed.                                                                                                                                              |
+| `bun run check:effects`    | `scripts/check-effect-fetches.mjs` fails when a dashboard effect calls `fetch` or an HTTP client.                                                                                                                    |
 | `bun run web:verify`       | `astro check`, the docs build, then the built-output verifier; the only docs check that reads `apps/web/dist`.                                                                                                       |
 
 The integration stack and its exact sequence live in `docs/runbook.md`; never point those commands at
@@ -105,8 +106,8 @@ codes (`0` clean, `1` problems, `2` usage error or unreadable input);
 what the fixture tests use.
 
 The repository's `verify` workflow runs the root checks on every push and pull request
-(hygiene, boundaries, docs, comments, dependency audit, changed-file formatting, typecheck, tests
-and build). The same workflow's `integration` job starts the disposable PostgreSQL and Garage
+(hygiene, boundaries, docs, comments, dashboard effect fetches, dependency audit, changed-file
+formatting, typecheck, tests and build). The same workflow's `integration` job starts the disposable PostgreSQL and Garage
 stack, migrates, and runs `bun run test:integration`, which fails when configuration is missing
 or any test skips. The security-sandbox reproducer stays out of CI: its control test still
 requires the viewer body to be the stored HTML, and the frame now also carries the comment
@@ -143,6 +144,8 @@ search service to run.
 ## Conventions
 
 - `bun run check:comments` (`scripts/check-comments.mjs`) decides which source comments are allowed.
+- `bun run check:effects` (`scripts/check-effect-fetches.mjs`) rejects a `fetch` or an HTTP client
+  call inside a dashboard `useEffect` or `useLayoutEffect`. Those loads belong in TanStack Query.
 - Product queries belong behind repositories that take the typed database from `apps/api/src/db/client.ts`.
   HTTP routes and MCP tools consume the same operations instead of duplicating SQL.
 - Security invariants are summarized in `docs/architecture/README.md`; artifact bytes never execute on
