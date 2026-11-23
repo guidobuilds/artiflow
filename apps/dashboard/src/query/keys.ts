@@ -27,7 +27,10 @@ export const queryKeys = {
     byId: (artifactId: string) => [...artifact, artifactId] as const,
     shares: (artifactId: string) => [...artifact, artifactId, "shares"] as const,
     links: (artifactId: string) => [...artifact, artifactId, "links"] as const,
-    comments: (artifactId: string) => [...artifact, artifactId, "comments"] as const,
+    comments: (artifactId: string, revisionId?: string) =>
+      revisionId === undefined
+        ? ([...artifact, artifactId, "comments"] as const)
+        : ([...artifact, artifactId, "comments", revisionId] as const),
     document: (artifactId: string) => [...artifact, artifactId, "document"] as const,
     revisions: (artifactId: string) => [...artifact, artifactId, "revisions"] as const,
     scene: (artifactId: string) => [...artifact, artifactId, "scene"] as const,
