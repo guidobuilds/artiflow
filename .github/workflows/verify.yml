@@ -49,6 +49,9 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
+      - name: Comments
+        run: bun run check:comments
+
       - name: Audit dependencies
         run: bun run audit
 

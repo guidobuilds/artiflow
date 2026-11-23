@@ -2,5 +2,4 @@
 
 ## Comments
 
-Write no comments. Code must explain itself; reasoning belongs in the commit
-message, the pull request, or the relevant page under `docs/`.
+`bun run check:comments` (`scripts/check-comments.mjs`) is the rule.

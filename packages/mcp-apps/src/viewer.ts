@@ -39,17 +39,11 @@ var statusEl = document.getElementById("status");
 var textEl = document.getElementById("text");
 var frameEl = document.getElementById("frame");
 var DOCUMENT_CSP = "${VIEWER_DOCUMENT_CSP}";
-// Hosts cap a proxied tool call at roughly four minutes, so the viewer stops waiting
-// before that and reports an error instead of hanging on a host that never replies.
-var REQUEST_TIMEOUT_MS = 180000;
-// Identity is per viewer instance: only this document's last delivered tool result is
-// tracked and nothing is persisted, so two host panes cannot cross-read.
+var HOST_TOOL_CALL_CAP_MS = 4 * 60 * 1000;
+var REQUEST_TIMEOUT_MS = HOST_TOOL_CALL_CAP_MS - 60 * 1000;
 var loadSeq = 0;
 var currentBlobUrl = null;
 var currentArtifactId = null;
-// Per-instance pin {artifactId, revisionId, revisionNumber, sha256} taken from each
-// tool result; renderedSha256 is the byte identity actually on screen, so a repeated
-// tool result for identical bytes skips the refetch instead of re-rendering.
 var pinned = null;
 var renderedSha256 = null;
 
@@ -59,8 +53,6 @@ function setStatus(message, isError) {
   statusEl.hidden = false;
 }
 
-// The dashboard owner viewer route is the canonical private location for a known artifact;
-// shown as text because this opaque-origin document cannot resolve relative links.
 function canonicalHint() {
   if (!currentArtifactId) return "";
   return " Open it in the dashboard: /artifact/" + encodeURIComponent(currentArtifactId) + ".";
@@ -80,8 +72,6 @@ function cancelPending() {
   }
 }
 
-// Supersedes any in-flight load: dropping its pending entries strands every late reply and
-// its timer, and the previous artifact document is released.
 function teardownPreviousLoad() {
   cancelPending();
   loadSeq++;
@@ -90,8 +80,6 @@ function teardownPreviousLoad() {
   textEl.hidden = true;
 }
 
-// Minimal JSON-RPC 2.0 client over postMessage (SEP-1865 transport layer): the sandbox
-// proxy forwards to the host, which proxies server requests with the user's credentials.
 var nextId = 1;
 var pending = Object.create(null);
 function sendRequest(method, params) {
@@ -122,10 +110,6 @@ function base64Decode(value) {
   return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
 }
 
-// The tool result carries the artifact identity in structuredContent (declared output
-// schema: artifactId, revisionId, revisionNumber, sha256); the JSON text body is the
-// fallback for hosts that strip structured content. Fields beyond artifactId stay absent
-// when a host sends only the older shape.
 function metadataOf(params) {
   var out = { artifactId: null, revisionId: null, sha256: null };
   var fill = function (structured) {
@@ -140,23 +124,18 @@ function metadataOf(params) {
   try {
     var parsed = JSON.parse(params && params.content && params.content[0] && params.content[0].text);
     fill(parsed);
-  } catch (error) { /* not a JSON payload: no artifact to show */ }
+  } catch (error) {}
   return out;
 }
 
 function showHtml(html) {
   textEl.hidden = true;
   frameEl.hidden = false;
-  // blob: URL instead of srcdoc so the declared CSP frame-src stays a single explicit
-  // scheme; the nested iframe keeps allow-scripts only, matching the dashboard sandbox.
-  currentBlobUrl = URL.createObjectURL(new Blob([cspDocument(html)], { type: "text/html" }));
+  currentBlobUrl = URL.createObjectURL(new Blob([withCspAfterDoctype(html)], { type: "text/html" }));
   frameEl.src = currentBlobUrl;
 }
 
-// The policy element goes ahead of every artifact element. When the artifact opens with a
-// doctype it goes right after it instead: before the doctype the parser drops that token and
-// the artifact would render in quirks mode, which changes how the dashboard viewer renders it.
-function cspDocument(html) {
+function withCspAfterDoctype(html) {
   var meta = '<meta http-equiv="Content-Security-Policy" content="' + DOCUMENT_CSP + '">';
   var doctype = html.slice(0, 200).toLowerCase().indexOf("<!doctype");
   var close = doctype === -1 ? -1 : html.indexOf(">", doctype);
@@ -164,12 +143,9 @@ function cspDocument(html) {
   return html.slice(0, close + 1) + meta + html.slice(close + 1);
 }
 
-// Fail closed: only a kind whose registered viewer is the sandboxed document may render
-// bytes as a document. Any other or missing kind stays inert text, so an unknown kind
-// never inherits the frame by default.
 var KIND_VIEWERS = ${viewerScriptMap(capabilities)};
 
-function rendersAsFrame(kind) {
+function viewerIsSandboxedDocument(kind) {
   return KIND_VIEWERS[kind] === "sandboxed-html";
 }
 
@@ -182,7 +158,7 @@ function showText(text) {
 function showPayload(payload) {
   var content = typeof payload.contentBase64 === "string" ? base64Decode(payload.contentBase64) : null;
   if (content === null) { setStatus("This artifact has no readable content." + canonicalHint(), true); return; }
-  if (rendersAsFrame(payload.kind)) showHtml(content);
+  if (viewerIsSandboxedDocument(payload.kind)) showHtml(content);
   else showText(content);
   setStatus("");
   statusEl.hidden = true;
@@ -193,13 +169,11 @@ async function loadArtifact(artifactId, revisionId) {
   currentArtifactId = artifactId;
   setStatus("Loading artifact…", false);
   try {
-    // Byte fetch stays the legacy full output: the metadataOnly projection carries no
-    // contentBase64, so it is reserved for the deferred harness-side poll path.
     var result = await sendRequest("tools/call", {
       name: "artifact_get",
       arguments: revisionId ? { artifactId: artifactId, revisionId: revisionId } : { artifactId: artifactId }
     });
-    if (seq !== loadSeq) return; // a newer tool result superseded this load
+    if (seq !== loadSeq) return;
     if (result && result.isError) { setStatus("The artifact could not be read: " + JSON.stringify(result.content) + canonicalHint(), true); return; }
     var payload = result && result.structuredContent;
     if (!payload) {
@@ -229,6 +203,10 @@ async function main() {
   }
 }
 
+function sameRenderedBytes(metadata) {
+  return renderedSha256 !== null && metadata.sha256 === renderedSha256;
+}
+
 window.addEventListener("message", function (event) {
   var data = event.data;
   if (!data || data.jsonrpc !== "2.0") return;
@@ -246,9 +224,7 @@ window.addEventListener("message", function (event) {
       setStatus("No artifact was created by this tool call.", true);
       return;
     }
-    // sha256 is the byte identity: identical bytes on a re-pinned tool result skip the
-    // refetch, whatever the revision number says. Any other change reloads the pin.
-    if (renderedSha256 !== null && metadata.sha256 === renderedSha256) {
+    if (sameRenderedBytes(metadata)) {
       pinned = metadata;
       return;
     }

@@ -10,9 +10,6 @@
   </head>
   <body>
     <script>
-      // Force data-theme before first paint (brand/BRAND.md §9): the stored
-      // choice wins, otherwise the OS preference, otherwise dark.
-      // (theme.ts in the app keeps both paths in sync.)
       try {
         var stored = localStorage.getItem("artiflow-theme");
         document.documentElement.dataset.theme =
@@ -21,7 +18,6 @@
             : matchMedia("(prefers-color-scheme: light)").matches
               ? "light"
               : "dark";
-        // Palettes were retired: drop a stale choice so it never comes back.
         localStorage.removeItem("artiflow-palette");
       } catch (error) {
         document.documentElement.dataset.theme = "dark";
