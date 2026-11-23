@@ -4,7 +4,7 @@ import { getSession } from "../auth-client.ts";
 import { queryKeys } from "./keys.ts";
 
 export const sessionQueryOptions = queryOptions({
-  queryKey: queryKeys.session,
+  queryKey: queryKeys.auth.session,
   queryFn: () => getSession(),
   staleTime: Infinity,
 });

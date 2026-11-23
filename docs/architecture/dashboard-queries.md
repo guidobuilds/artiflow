@@ -15,21 +15,27 @@ page reads the cache when the key is still fresh.
 
 ## Keys
 
-Keys live in `apps/dashboard/src/query/keys.ts` as `queryKeys`. A key is an array. The first element
-is the domain, and later elements narrow it.
+Keys live in `apps/dashboard/src/query/keys.ts` as `queryKeys`, grouped by domain. Every domain exposes
+`all`, the prefix that contains the rest of its keys.
 
-| Key                                                                                                          | Domain                                                            |
-| ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `queryKeys.session`                                                                                          | The signed-in user, shared by every screen.                       |
-| `queryKeys.libraryOwned`, `queryKeys.libraryShared`                                                          | Library lists.                                                    |
-| `queryKeys.shares(id)`, `queryKeys.links(id)`, `queryKeys.comments(id)`                                      | One artifact.                                                     |
-| `queryKeys.accountSessions`                                                                                  | The signed-in account's sessions.                                 |
-| `queryKeys.adminUsers(filter)`                                                                               | One directory page. The filter is part of the key.                |
-| `queryKeys.adminInvitations`, `queryKeys.adminAccess`, `queryKeys.adminSso`, `queryKeys.adminPasswordPolicy` | Administration configuration and invitations.                     |
-| `queryKeys.adminSessions(userId)`                                                                            | Sessions of one account, as an administrator.                     |
-| `queryKeys.capabilities`, `queryKeys.passwordPolicy`                                                         | Sign-in methods and the password rules shown on the auth screens. |
-| `queryKeys.invitation(token)`, `queryKeys.passwordReset(token)`, `queryKeys.oauthClient(clientId)`           | One-time auth links and the consent client.                       |
-| `queryKeys.document(id)`, `queryKeys.revisions(id)`, `queryKeys.scene(id)`, `queryKeys.artifactDetail(id)`   | Editor and canvas reads.                                          |
+| Key                                                                                                               | Domain                                                            |
+| ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `queryKeys.auth.session`                                                                                          | The signed-in user, shared by every screen.                       |
+| `queryKeys.auth.capabilities`, `queryKeys.auth.passwordPolicy`                                                    | Sign-in methods and the password rules shown on the auth screens. |
+| `queryKeys.auth.invitation(token)`, `queryKeys.auth.passwordReset(token)`, `queryKeys.auth.oauthClient(clientId)` | One-time auth links and the consent client.                       |
+| `queryKeys.library.owned`, `queryKeys.library.shared`                                                             | Library lists.                                                    |
+| `queryKeys.artifact.shares(id)`, `.links(id)`, `.comments(id)`, `.detail(id)`                                     | One artifact's collaboration.                                     |
+| `queryKeys.artifact.document(id)`, `.revisions(id)`, `.scene(id)`                                                 | Editor and canvas reads.                                          |
+| `queryKeys.account.sessions`                                                                                      | The signed-in account's sessions.                                 |
+| `queryKeys.admin.users(filter)`                                                                                   | One directory page. The filter is part of the key.                |
+| `queryKeys.admin.invitations`, `.access`, `.sso`, `.passwordPolicy`                                               | Administration configuration and invitations.                     |
+| `queryKeys.admin.sessions(userId)`                                                                                | Sessions of one account, as an administrator.                     |
+
+A key is a prefix of the keys that extend it, so invalidating a prefix selects the whole subtree.
+`queryKeys.artifact.byId(id)` covers shares, links, comments, detail, document, revisions and scene for
+that artifact, and `queryKeys.auth.all` covers the session, the capabilities, the password policy and
+the one-time links. Never write a key array inline: derive it from `queryKeys`, so a rename cannot
+leave a stale prefix behind.
 
 Add a key here before adding a `useQuery`. Do not invent a second array for the same read.
 

@@ -63,21 +63,21 @@ test("a slower response for one artifact key does not replace another key", asyn
   });
   const client = createQueryClient();
   const older = client.fetchQuery({
-    queryKey: queryKeys.shares("artifact-older"),
+    queryKey: queryKeys.artifact.shares("artifact-older"),
     queryFn: async () => {
       await olderGate;
       return ["older-grant"];
     },
   });
   const newer = await client.fetchQuery({
-    queryKey: queryKeys.shares("artifact-newer"),
+    queryKey: queryKeys.artifact.shares("artifact-newer"),
     queryFn: async () => ["newer-grant"],
   });
   releaseOlder();
   assert.deepEqual(await older, ["older-grant"]);
   assert.deepEqual(newer, ["newer-grant"]);
-  assert.deepEqual(client.getQueryData(queryKeys.shares("artifact-newer")), ["newer-grant"]);
-  assert.deepEqual(client.getQueryData(queryKeys.shares("artifact-older")), ["older-grant"]);
+  assert.deepEqual(client.getQueryData(queryKeys.artifact.shares("artifact-newer")), ["newer-grant"]);
+  assert.deepEqual(client.getQueryData(queryKeys.artifact.shares("artifact-older")), ["older-grant"]);
 });
 
 test("the session screens read useSession and no longer call getSession from an effect", () => {
