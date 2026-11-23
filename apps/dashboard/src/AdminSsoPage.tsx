@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { PageHeader } from "@/components/app/app-shell.tsx";
@@ -10,7 +10,6 @@ import { Tag } from "@/components/ui/tag.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { credentialStateLabel } from "./admin-access-client.ts";
-import type { AdminGate } from "./admin-entry.ts";
 import {
   addDomain,
   connectionStateLabel,
@@ -22,11 +21,10 @@ import {
   saveSsoConnection,
   ssoProvenanceLabel,
   updateDomain,
-  type SsoConnectionConfiguration,
   type SsoConnectionDraft,
 } from "./admin-sso-client.ts";
-
-type Load = AdminGate;
+import { useAdminConfiguration } from "./query/held.ts";
+import { queryKeys } from "./query/keys.ts";
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -75,29 +73,16 @@ function Switch({
 
 export default function AdminSsoPage() {
   const toast = useToast();
-  const [load, setLoad] = useState<Load>({ kind: "loading" });
-  const [configuration, setConfiguration] = useState<SsoConnectionConfiguration | null>(null);
+  const sso = useAdminConfiguration(queryKeys.admin.sso, () => readSsoConnectionConfiguration());
+  const configuration = sso.value;
+  const setConfiguration = sso.setValue;
+  const load = sso.gate;
+  const setLoad = sso.setGate;
   const [draft, setDraft] = useState<SsoConnectionDraft | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let live = true;
-    void readSsoConnectionConfiguration().then((result) => {
-      if (!live) return;
-      if (!result.ok) {
-        setLoad({ kind: "refused", message: result.error, signInRequired: result.signInRequired });
-        return;
-      }
-      setConfiguration(result.value);
-      setDraft(draftFromConfiguration(result.value));
-      setLoad({ kind: "ready" });
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+  if (configuration !== null && draft === null) setDraft(draftFromConfiguration(configuration));
 
   const save = async () => {
     if (busy || configuration === null || draft === null) return;

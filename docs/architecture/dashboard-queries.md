@@ -72,6 +72,14 @@ screen. Inviting, removing, creating, revoking or toggling a link invalidates th
 Comment lists include the revision id in the key. Creating, resolving or deleting a comment
 invalidates every revision of that artifact's comment list, which refetches the open one.
 
+## Administration and account sessions
+
+Directory pages, invitations and session lists keep the last successful rows when a reread
+fails. `useHeldQuery` applies the new result onto that previous read, which is what the
+`revision` counter used to force. A close, an invitation change or a status change
+invalidates the key instead of incrementing the counter. Access, SSO and password policy
+seed their drafts from one configuration query.
+
 ## After a mutation
 
 A write that used to bump a `revision` counter invalidates the key of the list it changed

@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { AccountSessionsPanel } from "@/components/app/account-sessions.tsx";
@@ -46,6 +47,8 @@ import {
   type AdminUserStatus,
   type DirectoryRead,
 } from "./admin-users-client.ts";
+import { useHeldQuery } from "./query/held.ts";
+import { queryKeys } from "./query/keys.ts";
 
 const FIRST_PAGE: AdminUserFilter = { page: 1, search: "", role: null, status: null, method: null };
 const EMAIL_NOTICE =
@@ -79,9 +82,16 @@ function gateOf(directory: DirectoryRead): AdminGate {
 }
 
 export default function AdminUsersPage() {
-  const [directory, setDirectory] = useState<DirectoryRead>(EMPTY_DIRECTORY);
+  const client = useQueryClient();
   const [filter, setFilter] = useState<AdminUserFilter>(FIRST_PAGE);
-  const [revision, setRevision] = useState(0);
+  const directoryQuery = useHeldQuery({
+    queryKey: queryKeys.admin.users(filter),
+    queryFn: () => readAdminUserPage(filter),
+    initial: EMPTY_DIRECTORY,
+    apply: applyDirectoryRead,
+  });
+  const directory = directoryQuery.read;
+  const setDirectory = directoryQuery.setRead;
   const [search, setSearch] = useState("");
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -92,17 +102,6 @@ export default function AdminUsersPage() {
   const [resetNotice, setResetNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [sessionsOpen, setSessionsOpen] = useState(false);
-
-  useEffect(() => {
-    let live = true;
-    void readAdminUserPage(filter).then((result) => {
-      if (!live) return;
-      setDirectory((current) => applyDirectoryRead(current, result));
-    });
-    return () => {
-      live = false;
-    };
-  }, [filter, revision]);
 
   const rows = directory.page;
   const gate = gateOf(directory);
@@ -214,7 +213,7 @@ export default function AdminUsersPage() {
         ? `Deactivated ${who}. Sign-in is closed, the open sessions ended and the public links are revoked. Nothing was deleted.`
         : `Reactivated ${who}. Sign-in works again; the sessions that ended and the revoked public links stay as they are.`,
     );
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.admin.users(filter) });
   };
 
   const total = rows?.total ?? 0;
