@@ -1,12 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  fetchArtifacts,
-  fetchSharedArtifacts,
-  startLibraryPolling,
-  type ArtifactSummary,
-  type SharedArtifactSummary,
-} from "./auth-client.ts";
+import { type ArtifactSummary } from "./auth-client.ts";
+import { invalidateLibrary, libraryOwnedQuery, librarySharedQuery, libraryView } from "./query/library.ts";
 import { AppShell, PageHeader, type LibraryFilter } from "@/components/app/app-shell.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -43,11 +39,6 @@ import DeleteModal from "./DeleteModal.tsx";
 import CommandPalette from "./CommandPalette.tsx";
 import { openConnect, setupPrompt } from "./ConnectDialog.tsx";
 
-type State =
-  | { kind: "loading" }
-  | { kind: "redirecting" }
-  | { kind: "ready"; artifacts: ArtifactSummary[] }
-  | { kind: "error"; detail: string };
 type Row = { artifact: ArtifactSummary; owner?: string };
 type Layout = "list" | "grid";
 type Kind = "all" | ArtifactKind;
@@ -102,9 +93,11 @@ function groupOf(artifact: ArtifactSummary, today: number): string {
 
 export default function LibraryPage({ connect = false }: { connect?: boolean }) {
   const { toast } = useToast();
+  const client = useQueryClient();
+  const owned = useQuery(libraryOwnedQuery);
+  const sharedQuery = useQuery(librarySharedQuery);
+  const view = libraryView(owned.data, sharedQuery.data);
   const [kind, setKind] = useState<Kind>("all");
-  const [state, setState] = useState<State>({ kind: "loading" });
-  const [shared, setShared] = useState<SharedArtifactSummary[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [selectedHref, setSelectedHref] = useState<string | null>(null);
   const collection = useRef<HTMLDivElement>(null);
@@ -116,36 +109,16 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
     preference("artiflow-library-sort", ["updated", "created", "name"], "updated"),
   );
   const heading = useRef<HTMLHeadingElement>(null);
-  const runRef = useRef(0);
-  const redirecting = useRef(false);
-  const load = useCallback(() => {
-    if (redirecting.current) return;
-    const run = (runRef.current += 1);
-    void Promise.all([fetchArtifacts(), fetchSharedArtifacts()]).then(([result, sharedResult]) => {
-      if (runRef.current !== run || redirecting.current) return;
-      if ((!result.ok && result.signInRequired) || (!sharedResult.ok && sharedResult.signInRequired)) {
-        redirecting.current = true;
-        setState({ kind: "redirecting" });
-        window.location.replace(
-          "/login?return=" + encodeURIComponent(window.location.pathname + window.location.search),
-        );
-        return;
-      }
-      setShared(sharedResult.ok ? sharedResult.value : []);
-      setState(result.ok ? { kind: "ready", artifacts: result.value } : { kind: "error", detail: result.error });
-    });
-  }, []);
+  const redirected = useRef(false);
 
   useEffect(() => {
-    if (state.kind === "ready") heading.current?.focus();
-  }, [state.kind]);
+    if (view.kind !== "redirecting" || redirected.current) return;
+    redirected.current = true;
+    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
+  }, [view.kind]);
   useEffect(() => {
-    load();
-    return () => {
-      runRef.current += 1;
-    };
-  }, [load]);
-  useEffect(() => startLibraryPolling(() => load()), [load]);
+    if (view.kind === "ready") heading.current?.focus();
+  }, [view.kind]);
   useEffect(() => {
     try {
       localStorage.setItem("artiflow-library-layout", layout);
@@ -160,12 +133,12 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
   const didDelete = (id: string) => {
     setRemoved((current) => [...current, id]);
     setActive(null);
-    load();
+    void invalidateLibrary(client);
   };
-  const artifacts = (state.kind === "ready" ? state.artifacts : []).filter(
+  const artifacts = (view.kind === "ready" ? view.artifacts : []).filter((artifact) => !removed.includes(artifact.id));
+  const sharedRows = (view.kind === "ready" || view.kind === "error" ? view.shared : []).filter(
     (artifact) => !removed.includes(artifact.id),
   );
-  const sharedRows = shared.filter((artifact) => !removed.includes(artifact.id));
   const allRows: Row[] = [
     ...artifacts.map((artifact) => ({ artifact })),
     ...sharedRows.map((artifact) => ({ artifact, owner: artifact.sharedBy })),
@@ -261,7 +234,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
     };
   }, [rows, selectedHref]);
 
-  if (state.kind === "loading" || state.kind === "redirecting") return null;
+  if (view.kind === "loading" || view.kind === "redirecting") return null;
 
   const counts = { all: allRows.length, mine: artifacts.length, shared: sharedRows.length };
   const kindOf = (artifact: ArtifactSummary) => ({
@@ -285,7 +258,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
       toast("Couldn't copy. Select the text and copy it manually.");
     }
   };
-  const isEmpty = state.kind === "ready" && allRows.length === 0;
+  const isEmpty = view.kind === "ready" && allRows.length === 0;
   const actions = (artifact: ArtifactSummary, owner?: string) => (
     <RowActions onClick={(event) => event.stopPropagation()}>
       <Menu
@@ -328,7 +301,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
       active={filter}
       counts={counts}
       recent={recent}
-      artifactCount={state.kind === "ready" ? artifacts.length : undefined}
+      artifactCount={view.kind === "ready" ? artifacts.length : undefined}
       connectOnLoad={connect}
       onFilter={setFilter}
       onSearch={() => setPaletteOpen(true)}
@@ -407,7 +380,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
             </Segmented>
           </div>
         )}
-        {state.kind === "error" ? (
+        {view.kind === "error" ? (
           <div
             role="alert"
             className="flex max-w-[560px] gap-3 rounded-lg border border-[color-mix(in_srgb,var(--danger)_35%,var(--line))] bg-[color-mix(in_srgb,var(--danger)_7%,var(--bg))] p-4 text-danger-text"
@@ -416,9 +389,9 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
             <div className="grid gap-2.5">
               <div className="grid gap-0.5">
                 <b className="font-semibold">The library didn't load</b>
-                <span>{state.detail} Your artifacts are safe; this is only the list.</span>
+                <span>{view.detail} Your artifacts are safe; this is only the list.</span>
               </div>
-              <Button size="sm" className="justify-self-start" onClick={() => load()}>
+              <Button size="sm" className="justify-self-start" onClick={() => void invalidateLibrary(client)}>
                 Try again
               </Button>
             </div>
@@ -449,7 +422,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
             </div>
           </section>
         ) : null}
-        {state.kind === "ready" && !isEmpty && rows.length === 0 ? (
+        {view.kind === "ready" && !isEmpty && rows.length === 0 ? (
           <EmptyMessage>No artifacts match these filters.</EmptyMessage>
         ) : null}
         {rows.length > 0 ? (
