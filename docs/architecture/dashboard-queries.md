@@ -72,6 +72,15 @@ screen. Inviting, removing, creating, revoking or toggling a link invalidates th
 Comment lists include the revision id in the key. Creating, resolving or deleting a comment
 invalidates every revision of that artifact's comment list, which refetches the open one.
 
+## Auth screens, the editor and the canvas
+
+Sign-in methods, invitation and reset previews, the consent client, the password rules, the
+markdown document, its revision list, the canvas scene and the published revision number are
+queries too. An OAuth continuation link resumes through one query, so a slower session read
+cannot overwrite a newer attempt. The editor's freshness poller still owns its own timer. Its
+readers are created outside the effect; the effect only starts and stops the poller. Live
+collaboration is unchanged.
+
 ## Administration and account sessions
 
 Directory pages, invitations and session lists keep the last successful rows when a reread
