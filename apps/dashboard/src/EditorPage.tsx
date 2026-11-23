@@ -111,6 +111,9 @@ const metadataReader = (kind: Document["kind"]) => (query: { artifactId: string 
 
 const documentReader = (artifactId: string, kind: Document["kind"]) => () => readRemoteText(artifactId, kind);
 
+const documentSaver = (artifactId: string) => (text: string, revision: string, expectedSeq: number | undefined) =>
+  saveDocument(artifactId, text, revision, expectedSeq);
+
 const readRemoteText = (artifactId: string, kind: Document["kind"]) =>
   loadRemoteText({
     document: async () => {
@@ -378,7 +381,7 @@ function DocumentEditor({
     if (!editor || collab !== null) return;
     const controller = new Autosave(
       initial,
-      (text, revision, expectedSeq) => saveDocument(initial.artifactId, text, revision, expectedSeq),
+      documentSaver(initial.artifactId),
       setState,
       refreshHistory,
       editor.getMarkdown(),

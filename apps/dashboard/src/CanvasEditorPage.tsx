@@ -67,6 +67,9 @@ const nodeStyle = (node: SceneNode): CSSProperties => {
   return box;
 };
 
+const sceneSaver = (artifactId: string) => (scene: Scene, expectedSeq: number) =>
+  saveScene(artifactId, scene, expectedSeq);
+
 const nodeLabel = (node: SceneNode): string => {
   if (node.type === "text") return `Text node: ${node.text.slice(0, 60)}`;
   if (node.type === "rect") return "Rectangle node";
@@ -133,12 +136,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const drag = useRef<Drag | null>(null);
 
   useEffect(() => {
-    const controller = new SceneAutosave(
-      initial,
-      (scene, expectedSeq) => saveScene(initial.artifactId, scene, expectedSeq),
-      setState,
-      () => {},
-    );
+    const controller = new SceneAutosave(initial, sceneSaver(initial.artifactId), setState, () => {});
     session.current = controller;
     setState(controller.state);
     return () => {
