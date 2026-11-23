@@ -27,7 +27,7 @@ const MUTATION_ORIGIN = "http://127.0.0.1:5173";
 const WARNING = "Every account the identity provider authenticates will be able to sign in.";
 const PAGE = "../apps/dashboard/src/AdminSsoPage.tsx";
 const CLIENT = "../apps/dashboard/src/admin-sso-client.ts";
-const MAIN = "../apps/dashboard/src/main.tsx";
+const ROUTER = "../apps/dashboard/src/router.tsx";
 const ACCESS_PAGE = "../apps/dashboard/src/AdminAccessPage.tsx";
 const ADMIN_SHELL = "../apps/dashboard/src/components/app/admin-shell.tsx";
 
@@ -84,13 +84,11 @@ afterEach(() => {
 });
 
 test("the connection page has its own route before the 404 and lives inside the administration shell", () => {
-  const main = read(MAIN);
-  assert.match(main, /from "\.\/AdminSsoPage\.tsx"/);
-  assert.match(main, /path === "\/admin\/sso"/);
-  const page = main.indexOf("<AdminSsoPage />");
-  const notFound = main.indexOf("<NotFoundPage />");
-  assert.ok(page > 0, "main.tsx must render <AdminSsoPage />");
-  assert.ok(notFound > page, "the /admin/sso branch must precede the NotFoundPage fallback");
+  const router = read(ROUTER);
+  assert.match(router, /from "\.\/AdminSsoPage\.tsx"/);
+  assert.match(router, /path: "\/admin\/sso"/);
+  assert.match(router, /component: AdminSsoPage/, "the router must mount <AdminSsoPage /> at its own route");
+  assert.match(router, /notFoundComponent: NotFoundPage/, "unknown paths still render the not-found page");
 
   const rendered = read(PAGE);
   assert.match(rendered, /<AdminShell section="sso" gate=\{load\}/);

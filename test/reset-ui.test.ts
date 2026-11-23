@@ -8,21 +8,19 @@ const read = (path: string): string => {
   return readFileSync(file, "utf8");
 };
 const RESET = "../apps/dashboard/src/ResetPage.tsx";
-const MAIN = "../apps/dashboard/src/main.tsx";
+const ROUTER = "../apps/dashboard/src/router.tsx";
 const CLIENT = "../apps/dashboard/src/auth-client.ts";
 const SCREEN = "../apps/dashboard/src/AuthScreen.tsx";
 
 test("the reset page is routed from /reset-password and its fragment, before the 404 fallback", () => {
-  const main = read(MAIN);
-  assert.match(main, /from "\.\/ResetPage\.tsx"/);
-  assert.match(main, /path === "\/reset-password"/);
-  assert.match(main, /window\.location\.hash/);
-  const reset = main.indexOf("<ResetPage");
-  const notFound = main.indexOf("<NotFoundPage />");
-  assert.ok(reset > 0, "main.tsx must render <ResetPage />");
-  assert.ok(notFound > reset, "the /reset-password branch must precede the NotFoundPage fallback");
-  assert.match(main, /path === "\/register"/);
-  assert.match(main, /from "\.\/RegisterPage\.tsx"/);
+  const router = read(ROUTER);
+  assert.match(router, /from "\.\/ResetPage\.tsx"/);
+  assert.match(router, /path: "\/reset-password"/);
+  assert.match(router, /hash=\{fragmentOf\(location\.hash\)\}/);
+  assert.match(router, /component: ResetRoute/, "the reset page keeps its own route");
+  assert.match(router, /notFoundComponent: NotFoundPage/, "unknown paths still render the not-found page");
+  assert.match(router, /path: "\/register"/);
+  assert.match(router, /from "\.\/RegisterPage\.tsx"/);
 });
 
 test("the reset page reads the fragment token once and previews it before showing the form", () => {
@@ -81,8 +79,8 @@ test("a refused reset link shows one generic message for every reason and stops 
 });
 
 test("the invitation and login surfaces keep their source and the reset client is additive", () => {
-  const main = read(MAIN);
-  assert.match(main, /<RegisterPage hash=\{window\.location\.hash\} \/>/);
+  const router = read(ROUTER);
+  assert.match(router, /<RegisterPage hash=\{fragmentOf\(location\.hash\)\} \/>/);
 
   const screen = read(SCREEN);
   assert.match(screen, /invitation\.email/);

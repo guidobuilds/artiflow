@@ -326,8 +326,9 @@ test("the connect overlay is a labelled dialog with agent tabs and three named s
   assert.ok(figure);
   assert.doesNotMatch(figure, /<button\b|<Button\b/);
   assert.match(dialog, /artifactCount !== undefined \? \(\s*<p role="status"/);
-  const main = source("../apps/dashboard/src/main.tsx");
-  assert.match(main, /path === "\/connect" \? \(\s*<LibraryPage connect \/>/);
+  const router = source("../apps/dashboard/src/router.tsx");
+  assert.match(router, /path: "\/connect"/);
+  assert.match(router, /<LibraryPage connect \/>/);
 });
 
 test("sidebar recent titles truncate inside the fixed column and keep the full text on hover", () => {

@@ -41,7 +41,7 @@ const ACCESS_PAGE = `${SRC}/AdminAccessPage.tsx`;
 const INVITATIONS_PAGE = `${SRC}/AdminInvitationsPage.tsx`;
 const ADMIN_SHELL = `${SRC}/components/app/admin-shell.tsx`;
 const ACCOUNT_MENU = `${SRC}/components/app/account-menu.tsx`;
-const MAIN = `${SRC}/main.tsx`;
+const ROUTER = `${SRC}/router.tsx`;
 
 const read = (path: string): string => {
   const file = new URL(path, import.meta.url);
@@ -319,13 +319,12 @@ test("the invitations entry reaches the shipped surface instead of the console p
   assert.doesNotMatch(page, /location\.reload/, "the list is read again without reloading the document");
   assert.doesNotMatch(page, /later\s+step/i, "the page no longer defers the surface to a later step");
 
-  const main = read(MAIN);
+  const router = read(ROUTER);
   for (const route of ["/admin/users", "/admin/access", "/admin/invitations"]) {
-    assert.ok(main.includes(`path === "${route}"`) || main.includes(`"${route}"`), `main.tsx routes ${route}`);
+    assert.ok(router.includes(`path: "${route}"`), `the router routes ${route}`);
   }
-  const users = main.indexOf("<AdminUsersPage />");
-  const notFound = main.indexOf("<NotFoundPage />");
-  assert.ok(users > 0 && notFound > users, "the administration routes precede the not-found fallback");
+  assert.match(router, /component: AdminUsersPage/, "the user directory keeps its own route");
+  assert.match(router, /notFoundComponent: NotFoundPage/, "unknown paths still render the not-found page");
 });
 
 test("the status filter travels to the server next to the role and the search", async () => {

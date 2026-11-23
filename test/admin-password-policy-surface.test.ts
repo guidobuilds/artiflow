@@ -24,7 +24,7 @@ type Call = { url: string; init: RequestInit };
 const realFetch = globalThis.fetch;
 const PAGE = "../apps/dashboard/src/AdminPasswordPolicyPage.tsx";
 const CLIENT = "../apps/dashboard/src/admin-password-policy-client.ts";
-const MAIN = "../apps/dashboard/src/main.tsx";
+const ROUTER = "../apps/dashboard/src/router.tsx";
 const SHELL = "../apps/dashboard/src/components/app/app-shell.tsx";
 const ADMIN_SHELL = "../apps/dashboard/src/components/app/admin-shell.tsx";
 
@@ -73,13 +73,15 @@ afterEach(() => {
 });
 
 test("the policy page has its own route before the 404, its own navigation entry and the administration shell", () => {
-  const main = read(MAIN);
-  assert.match(main, /from "\.\/AdminPasswordPolicyPage\.tsx"/);
-  assert.match(main, /path === "\/admin\/password-policy"/);
-  const policy = main.indexOf("<AdminPasswordPolicyPage />");
-  const notFound = main.indexOf("<NotFoundPage />");
-  assert.ok(policy > 0, "main.tsx must render <AdminPasswordPolicyPage />");
-  assert.ok(notFound > policy, "the /admin/password-policy branch must precede the NotFoundPage fallback");
+  const router = read(ROUTER);
+  assert.match(router, /from "\.\/AdminPasswordPolicyPage\.tsx"/);
+  assert.match(router, /path: "\/admin\/password-policy"/);
+  assert.match(
+    router,
+    /component: AdminPasswordPolicyPage/,
+    "the router must mount <AdminPasswordPolicyPage /> at its own route",
+  );
+  assert.match(router, /notFoundComponent: NotFoundPage/, "unknown paths still render the not-found page");
 
   assert.deepEqual(
     ADMIN_SECTIONS.map((section) => [section.label, section.href]),
