@@ -47,8 +47,8 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 export default function AccountPage() {
   const { theme, setTheme } = useTheme();
   const session = useSession();
-  const user = session.data?.ok ? session.data.value : null;
-  const error = session.data && !session.data.ok ? session.data.error : "";
+  const user = session.data ?? null;
+  const error = session.error?.message ?? "";
   const [busy, setBusy] = useState(false);
   const [read, setRead] = useState<SessionListRead>(EMPTY_SESSION_READ);
   const [revision, setRevision] = useState(0);

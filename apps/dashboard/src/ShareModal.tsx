@@ -24,7 +24,7 @@ import { Icon } from "@/components/ui/icon.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useSession } from "./query/session.ts";
+import { useSessionUser } from "./query/session.ts";
 
 type Rows<T> = { kind: "loading" } | { kind: "ready"; rows: T[] } | { kind: "error"; detail: string };
 
@@ -38,8 +38,7 @@ export default function ShareModal({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const session = useSession();
-  const owner = session.data?.ok ? session.data.value : null;
+  const owner = useSessionUser();
   const [shares, setShares] = useState<Rows<ShareGrant>>({ kind: "loading" });
   const [links, setLinks] = useState<Rows<PublicLinkRow>>({ kind: "loading" });
   const [email, setEmail] = useState("");

@@ -9,7 +9,7 @@ import {
   type SourceSpan,
 } from "@artiflow/domain/comment-anchors";
 import type { ManageResult } from "@/auth-client.ts";
-import { useSession } from "@/query/session.ts";
+import { useSessionUser } from "@/query/session.ts";
 import { draftBlockedReason } from "@/comment-draft.ts";
 import {
   createComment as createCommentRequest,
@@ -110,8 +110,7 @@ export default function MarkdownComments({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
-  const session = useSession();
-  const authorImage = session.data?.ok && session.data.value ? session.data.value.image : null;
+  const authorImage = useSessionUser()?.image ?? null;
   const run = useRef(0);
   const nextDraft = useRef(0);
   const dataCallback = useRef(onData);

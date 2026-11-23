@@ -8,10 +8,10 @@ There is no router. Screens still mount from `apps/dashboard/src/main.tsx` by pa
 
 ## Client
 
-`apps/dashboard/src/query/client.ts` builds the client. Queries do not retry and do not refetch when
-the window regains focus. A screen therefore asks once when it mounts, the same way the previous
-`useEffect` loads did, and a focus change does not start another request. A later screen on the same
-page reads the cache when the key is still fresh.
+`apps/dashboard/src/query/client.ts` builds the client. A read is fresh for 30 seconds, so a screen
+that mounts after another one already asked for the same key reads the cache instead of starting
+another request. Queries do not refetch when the window regains focus, and a failed read is retried
+once, which absorbs a dropped connection without hammering the API.
 
 ## Keys
 
@@ -41,10 +41,18 @@ Add a key here before adding a `useQuery`. Do not invent a second array for the 
 
 ## Session
 
-`useSession` (`query/session.ts`) is the only session read. Its `staleTime` is `Infinity`, so the
-mounting screens share one `getSession` for the life of the page. Sign-out and the other auth
-transitions navigate with a full page load, which creates a new client. `getSession` itself stays
-the HTTP function; mutations that must prove a session still call it.
+`useSession` (`query/session.ts`) is the only session read. `useSessionUser()` is the same query
+narrowed to the signed-in user, so a screen never unpacks the reader's result shape itself.
+
+`getSession` answers with a result value instead of rejecting, so the query function turns a failed
+read into a thrown error. That matters: a failure cached as data would live as long as its
+`staleTime`, and the screen would keep showing a signed-out shell after the API recovered. As an
+error the read is retried once, stays visible as `isError`, and can be asked again.
+
+A signed-out session is a successful `null`, not an error, and stays cached for 30 seconds.
+
+When a screen needs to know whether the read is still in flight, it reads `isPending` rather than
+comparing `data` with `undefined`.
 
 ## After a mutation
 
@@ -52,3 +60,8 @@ A write that used to bump a `revision` counter invalidates the key of the list i
 (`invalidateQueries`). The query refetches. A write that already returned the new record may
 `setQueryData` with that record instead of fetching it again. Do not keep a counter whose only job
 is to re-run an effect.
+
+Invalidate by prefix, never by a hand-written array: after a sign-out, `invalidateQueries({ queryKey:
+queryKeys.auth.all })` covers the session, the capabilities and the password policy at once. Sign-out
+and the other auth transitions still navigate with a full page load, which builds a new client; a
+client-side navigation later has to invalidate that prefix instead of trusting the reload.

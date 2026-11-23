@@ -73,15 +73,15 @@ export function AppShell({
   children: ReactNode;
 }) {
   const session = useSession();
-  const user = session.data?.ok ? session.data.value : null;
+  const user = session.data ?? null;
   const [redirecting, setRedirecting] = useState(false);
   const [connecting, setConnecting] = useState(Boolean(connectOnLoad));
 
   useEffect(() => {
-    if (!requireSession || !session.data?.ok || session.data.value !== null) return;
+    if (!requireSession || session.isPending || session.isError || user !== null) return;
     setRedirecting(true);
     window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
-  }, [requireSession, session.data]);
+  }, [requireSession, session.isPending, session.isError, user]);
   useEffect(() => onOpenConnect(() => setConnecting(true)), []);
 
   if (redirecting) return null;

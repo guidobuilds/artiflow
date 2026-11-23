@@ -9,7 +9,7 @@ import {
   submitConsent,
   type PublicClient,
 } from "./auth-client.ts";
-import { useSession } from "./query/session.ts";
+import { useSessionUser } from "./query/session.ts";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { AgentLogo, type AgentMarkName } from "@/components/ui/agent-logo.tsx";
 import { UserAvatar } from "@/components/ui/avatar.tsx";
@@ -50,8 +50,7 @@ export default function ConsentPage({ search }: { search: string }) {
   const [state, setState] = useState<State>({ kind: "fetching" });
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const session = useSession();
-  const user = session.data?.ok ? session.data.value : null;
+  const user = useSessionUser();
   const heading = useRef<HTMLHeadingElement>(null);
   const redirecting = useRef(false);
 

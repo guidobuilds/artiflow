@@ -148,14 +148,14 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
     };
   }, [artifactId]);
   useEffect(() => {
-    if (document === null || session.data === undefined) return;
+    if (document === null || session.isPending) return;
     let cancelled = false;
     let opened: CollabSession | null = null;
     const unavailable: CollabOutcome = {
       ok: false,
       fallback: { reason: "unavailable", message: COLLAB_UNAVAILABLE_MESSAGE },
     };
-    const user = session.data.ok ? session.data.value : null;
+    const user = session.data ?? null;
     const openedSession =
       user === null
         ? Promise.resolve(unavailable)
@@ -180,7 +180,7 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
       cancelled = true;
       opened?.destroy();
     };
-  }, [artifactId, document, session.data]);
+  }, [artifactId, document, session.isPending, session.data]);
   return (
     <TooltipProvider>
       <div className="min-w-0 flex-1">
