@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { PageHeader } from "@/components/app/app-shell.tsx";
@@ -26,6 +27,8 @@ import {
   type LinkReveal,
 } from "./admin-invitations-client.ts";
 import type { AdminGate } from "./admin-entry.ts";
+import { useHeldQuery } from "./query/held.ts";
+import { queryKeys } from "./query/keys.ts";
 
 const LEDE =
   "One single-use link per person, shared outside Artiflow because this instance sends no email. A link appears once, on the call that creates it, and a reload loses it.";
@@ -37,24 +40,19 @@ function gateOf(read: InvitationListRead): AdminGate {
 }
 
 export default function AdminInvitationsPage() {
-  const [read, setRead] = useState<InvitationListRead>(EMPTY_INVITATION_READ);
+  const client = useQueryClient();
+  const invitations = useHeldQuery({
+    queryKey: queryKeys.admin.invitations,
+    queryFn: () => readPendingInvitations(),
+    initial: EMPTY_INVITATION_READ,
+    apply: applyInvitationRead,
+  });
+  const read = invitations.read;
   const [email, setEmail] = useState("");
-  const [revision, setRevision] = useState(0);
   const [reveal, setReveal] = useState<LinkReveal>(HIDDEN_LINK);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-
-  useEffect(() => {
-    let live = true;
-    void readPendingInvitations().then((result) => {
-      if (!live) return;
-      setRead((current) => applyInvitationRead(current, result));
-    });
-    return () => {
-      live = false;
-    };
-  }, [revision]);
 
   const rows = read.invitations;
   const gate = gateOf(read);
@@ -73,7 +71,7 @@ export default function AdminInvitationsPage() {
     setEmail("");
     setReveal(revealInvitationLink(result.value.link));
     setNotice(issuedNotice(result.value));
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.admin.invitations });
   };
 
   const revoke = async (row: AdminInvitation) => {
@@ -88,7 +86,7 @@ export default function AdminInvitationsPage() {
       return;
     }
     setNotice(revokedNotice(row.email));
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.admin.invitations });
   };
 
   const regenerate = async (row: AdminInvitation) => {
@@ -104,7 +102,7 @@ export default function AdminInvitationsPage() {
     }
     setReveal(revealInvitationLink(result.value.link));
     setNotice(regeneratedNotice(result.value.invitation));
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.admin.invitations });
   };
 
   return (
