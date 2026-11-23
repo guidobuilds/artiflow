@@ -1,7 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { SessionRows } from "@/components/app/session-rows.tsx";
 import { signOut } from "./auth-client.ts";
+import { useHeldQuery } from "./query/held.ts";
+import { queryKeys } from "./query/keys.ts";
 import { useSession } from "./query/session.ts";
 import { AppShell, PageHeader } from "@/components/app/app-shell.tsx";
 import { useTheme } from "@/components/app/theme-provider.tsx";
@@ -22,7 +25,6 @@ import {
   revokeOwnSession,
   revokeOutcome,
   sessionsRevokedNotice,
-  type SessionListRead,
   type SessionRow,
 } from "./sessions-client.ts";
 
@@ -49,22 +51,17 @@ export default function AccountPage() {
   const session = useSession();
   const user = session.data ?? null;
   const error = session.error?.message ?? "";
+  const client = useQueryClient();
+  const sessionsQuery = useHeldQuery({
+    queryKey: queryKeys.account.sessions,
+    queryFn: () => readOwnSessions(),
+    initial: EMPTY_SESSION_READ,
+    apply: applySessionRead,
+  });
+  const read = sessionsQuery.read;
   const [busy, setBusy] = useState(false);
-  const [read, setRead] = useState<SessionListRead>(EMPTY_SESSION_READ);
-  const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("");
   const [confirming, setConfirming] = useState<SessionRow | "others" | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    void readOwnSessions().then((result) => {
-      if (!live) return;
-      setRead((current) => applySessionRead(current, result));
-    });
-    return () => {
-      live = false;
-    };
-  }, [revision]);
 
   const sessions = read.sessions;
   const others = sessions === null ? [] : sessions.filter((row) => !row.current);
@@ -78,7 +75,7 @@ export default function AccountPage() {
     setConfirming(null);
     if (!result.ok) {
       setNotice(result.error);
-      setRevision((current) => current + 1);
+      void client.invalidateQueries({ queryKey: queryKeys.account.sessions });
       return;
     }
     if (revokeOutcome(row) === "signed_out") {
@@ -86,7 +83,7 @@ export default function AccountPage() {
       return;
     }
     setNotice("Closed one session. That browser needs to sign in again; this browser stays signed in.");
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.account.sessions });
   };
 
   const closeOthers = async () => {
@@ -98,11 +95,11 @@ export default function AccountPage() {
     setConfirming(null);
     if (!result.ok) {
       setNotice(result.error);
-      setRevision((current) => current + 1);
+      void client.invalidateQueries({ queryKey: queryKeys.account.sessions });
       return;
     }
     setNotice(sessionsRevokedNotice(result.value.revoked));
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.account.sessions });
   };
 
   return (

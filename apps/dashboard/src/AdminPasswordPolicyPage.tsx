@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { PageHeader } from "@/components/app/app-shell.tsx";
@@ -7,7 +7,6 @@ import { Eyebrow } from "@/components/ui/eyebrow.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
-import type { AdminGate } from "./admin-entry.ts";
 import {
   MINIMUM_LENGTH_CEILING,
   MINIMUM_LENGTH_FLOOR,
@@ -16,11 +15,10 @@ import {
   policySummary,
   readPasswordPolicyConfiguration,
   savePasswordPolicy,
-  type PasswordPolicyConfiguration,
   type PasswordPolicyDraft,
 } from "./admin-password-policy-client.ts";
-
-type Load = AdminGate;
+import { useAdminConfiguration } from "./query/held.ts";
+import { queryKeys } from "./query/keys.ts";
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -41,29 +39,16 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export default function AdminPasswordPolicyPage() {
-  const [load, setLoad] = useState<Load>({ kind: "loading" });
-  const [configuration, setConfiguration] = useState<PasswordPolicyConfiguration | null>(null);
+  const policy = useAdminConfiguration(queryKeys.admin.passwordPolicy, () => readPasswordPolicyConfiguration());
+  const configuration = policy.value;
+  const setConfiguration = policy.setValue;
+  const load = policy.gate;
+  const setLoad = policy.setGate;
   const [draft, setDraft] = useState<PasswordPolicyDraft | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let live = true;
-    void readPasswordPolicyConfiguration().then((result) => {
-      if (!live) return;
-      if (!result.ok) {
-        setLoad({ kind: "refused", message: result.error, signInRequired: result.signInRequired });
-        return;
-      }
-      setConfiguration(result.value);
-      setDraft(draftFromPolicy(result.value.policy));
-      setLoad({ kind: "ready" });
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+  if (configuration !== null && draft === null) setDraft(draftFromPolicy(configuration.policy));
 
   const save = async () => {
     if (busy || configuration === null || draft === null) return;
