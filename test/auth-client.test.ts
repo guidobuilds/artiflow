@@ -156,6 +156,14 @@ test("sign-up and sign-out send JSON and never report unconfirmed success", asyn
   assert.deepEqual(await signOut(), { ok: true, value: null });
 });
 
+test("sign-out fails when the confirming read is a non-2xx with no body", async () => {
+  useFetch((_call, index) => (index === 0 ? json({ success: true }) : new Response("", { status: 500 })));
+  assert.deepEqual(await signOut(), {
+    ok: false,
+    error: "The auth service answered unexpectedly. Nothing was changed.",
+  });
+});
+
 test("social sign-in posts the provider and callback and follows only a real redirect", async () => {
   const { socialSignIn } = await import("../apps/dashboard/src/auth-client.ts");
   const calls = useFetch(() => json({ redirect: true, url: "https://github.com/login/oauth/authorize?client_id=x" }));

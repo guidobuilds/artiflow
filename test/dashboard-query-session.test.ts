@@ -70,6 +70,27 @@ test("a later reader asks again after a failure instead of reusing it", async ()
   });
 });
 
+test("a transient failure recovers inside one retry and lands as the user", async () => {
+  const calls: string[] = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    calls.push(String(input));
+    const failing = calls.length === 1;
+    return new Response(JSON.stringify(failing ? { error: "blip" } : { user: USER }), {
+      status: failing ? 500 : 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    const client = createQueryClient();
+    const result = await client.fetchQuery({ ...sessionQueryOptions, retryDelay: 0 });
+    assert.deepEqual(result, USER);
+    assert.equal(calls.length, 2);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test("a slower response for one artifact key does not replace another key", async () => {
   let releaseOlder: () => void = () => {};
   const olderGate = new Promise<void>((resolve) => {

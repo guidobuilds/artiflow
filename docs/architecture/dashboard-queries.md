@@ -41,8 +41,10 @@ Add a key here before adding a `useQuery`. Do not invent a second array for the 
 
 ## Session
 
-`useSession` (`query/session.ts`) is the only session read. `useSessionUser()` is the same query
-narrowed to the signed-in user, so a screen never unpacks the reader's result shape itself.
+`useSession` (`query/session.ts`) is the one query for the signed-in user. `useSessionUser()` is the
+same query narrowed to the signed-in user, so a screen never unpacks the reader's result shape
+itself. The OAuth resume in `LoginPage` and the mutation guards in `auth-client.ts` call `getSession`
+directly; they need a one-shot answer, not the shared cache.
 
 `getSession` answers with a result value instead of rejecting, so the query function turns a failed
 read into a thrown error. That matters: a failure cached as data would live as long as its
