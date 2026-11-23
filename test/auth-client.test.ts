@@ -89,6 +89,18 @@ test("a signed-out session is null, not an error", async () => {
   assert.deepEqual(await getSession(), { ok: true, value: null });
 });
 
+test("a non-2xx answer with no body is a failure, not a signed-out session", async () => {
+  useFetch(() => new Response("", { status: 500 }));
+  assert.deepEqual(await getSession(), {
+    ok: false,
+    error: "The auth service answered unexpectedly. Nothing was changed.",
+  });
+  useFetch(() => new Response("", { status: 401 }));
+  assert.equal((await getSession()).ok, false);
+  useFetch(() => new Response("", { status: 200 }));
+  assert.deepEqual(await getSession(), { ok: true, value: null });
+});
+
 test("server and network failures never leak their own text", async () => {
   useFetch(() => json({ message: "database secret-token-abc failed" }, 500));
   const server = await getSession();

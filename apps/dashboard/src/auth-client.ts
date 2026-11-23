@@ -108,9 +108,9 @@ export async function getCapabilities(): Promise<AuthResult<Capabilities>> {
 export async function getSession(): Promise<AuthResult<AuthUser | null>> {
   const response = await read("/get-session");
   if (!response) return { ok: false, error: NETWORK };
+  if (!response.ok) return { ok: false, error: UNEXPECTED };
   const body = await readJson(response);
   if (body === null) return { ok: true, value: null };
-  if (!response.ok) return { ok: false, error: UNEXPECTED };
   const user = toUser(body);
   return user ? { ok: true, value: user } : { ok: false, error: UNEXPECTED };
 }
