@@ -67,8 +67,10 @@ example, `{ "path": "page.html", "title": "Demo" }`. Tool arguments cannot carry
 very large payloads because of the model output-token limit, while the instance
 accepts documents up to its artifact cap. The file must exist on the OpenCode
 server; relative paths resolve against its working directory.
-`.md` and `.markdown` (case-insensitive) infer markdown; all other extensions infer
-HTML. Optional `kind: "html" | "markdown"` overrides the extension; `title`
+`.md` and `.markdown` (case-insensitive) infer markdown, `.canvas` and `.scene.json`
+infer canvas, `.deck` infers deck, and `.html`, `.htm` and every other extension infer
+html. Optional `kind` overrides that inference with `"html"` (the default), `"markdown"`,
+`"canvas"` or `"deck"`; `title`
 behaves exactly as for inline writes, and `artifactId` is only used together with
 `expectedRevisionId`, which must be the current revision.
 Missing files report `Artiflow write_file: file not found: <absolute path>`;

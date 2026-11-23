@@ -1,23 +1,22 @@
 # Architecture overview
 
-**Status:** migration target approved; implementation pending. **Date:** 2026-11-10.
+**Status:** current. The workspace described here is what the repository runs. **Date:** 2026-11-22.
 
-Artiflow is a self-hosted library where MCP agents publish HTML artifacts and
-markdown documents, and people manage access from a browser. It is a **modular
+Artiflow is a self-hosted library where agents publish pages, markdown documents,
+canvases and decks, and people manage access from a browser. It is a **modular
 monolith**: one repository, one PostgreSQL database, one codebase for the API,
-and two deployable containers in production. There is deliberately no microservice
-split, no message broker, and no external identity provider.
+and two deployable containers in production plus a one-shot migrator. There is
+deliberately no microservice split, no message broker, and no external identity
+provider.
 
 Harness-side integration (per-harness plugins, MCP Apps inline viewer, instance
 configuration for self-hosted deployments) is specified in
-[harness-plugins.md](harness-plugins.md). That document includes future work, not
-packages already delivered. The [target module map](modules.md#target-workspace)
-defines where new code belongs; the numbered sections below describe the current
-implementation until each migration step updates them.
+[harness-plugins.md](harness-plugins.md). The [module map](modules.md) names the
+packages. The numbered sections below describe the running system.
 
 ## Multi-surface architecture decision
 
-**Status:** accepted target, incrementally implemented. **Date:** 2026-11-10.
+**Status:** accepted and present in the tree. **Date:** 2026-11-10.
 
 Keep one core API and one database. Separate deployable applications and reusable
 packages by consumption boundary, not by the number of files. Four consumers
@@ -36,20 +35,14 @@ import API internals or reach its database/storage directly.
 | Decisions                | Keep status, date and rationale in this architecture directory, not `docs/decisions/`           |
 | Compatibility            | One coordinated rename of `ARTIFLOW_*`, `ui://artiflow/...` and the plugin package name         |
 
-### Current versus target
+### Where the code lives
 
-Today the root package owns `apps/api` and its dependencies; the dashboard lives in `apps/dashboard` and shared pure helpers in `packages/domain`. The
-OpenCode plugin has a separate installation and lockfile. HTTP DTOs are duplicated
-between handlers and browser parsers. Production serves the dashboard through
-Caddy, not through the Node process.
-
-This migration introduces `apps/api`, `apps/dashboard`, `packages/contracts`,
-`packages/domain` and `packages/sdk`. Plugin enrollment was proven by clean
-install (job evidence: regenerating the root lock with the plugin enrolled, npm
-ci clean, plugin suites green) and `plugins/opencode` is now a workspace with a
-single root lockfile. The mock marketing landing under `site/` has been removed;
-its replacement is one future web workspace publishing the site and docs at
-`artiflow.dev/docs`, planned and not implemented in this migration.
+The workspace is the landed layout. `apps/api` is the API, `apps/dashboard` is the
+React app, and `apps/web` publishes the site and docs. Shared packages are
+`packages/contracts`, `packages/domain`, `packages/sdk`, `packages/mcp-server`,
+`packages/mcp-apps` and `packages/plugin-core`. `plugins/opencode` is a workspace
+on the single root lockfile. Production serves the dashboard through Caddy, not
+through the API process.
 
 `/api/v1` is the public bearer-only API surface (delivered 2026-11-10):
 the same OAuth 2.1 provider from the MCP flow, with `/api/v1` as a second
@@ -68,23 +61,25 @@ back to an inert representation, never executable HTML.
 
 ### Deployment topologies
 
-| Topology                | Current support                                                                     | Target and limits                                                                                                                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A — self-hosted**     | Caddy serves the SPA and proxies to Node; one-shot migrator; external PostgreSQL/S3 | Same logical application. A single Node process serving a dashboard build and embedded MCP is a future packaging option, not a deployment change in this migration.                           |
-| **B — split/cloud**     | Separate web/API containers behind one origin                                       | Dashboard on CDN and API at a separate origin is a future topology; cross-origin auth/CORS and standalone MCP are not implemented here. The SDK supports injected fetch or network transport. |
-| **C — harness plugins** | OpenCode runs outside the API and speaks MCP                                        | Plugins remain external. Future SDK-based plugins/connectors must use the public API, never API internals. No new plugin or connector is created here.                                        |
+| Topology                | Current support                                                                        | Target and limits                                                                                                                                                                             |
+| ----------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A — self-hosted**     | Caddy serves the SPA and proxies to the API; one-shot migrator; external PostgreSQL/S3 | Same logical application. A single process serving a dashboard build and embedded MCP is a future packaging option, not a deployment change in this migration.                                |
+| **B — split/cloud**     | Separate web/API containers behind one origin                                          | Dashboard on CDN and API at a separate origin is a future topology; cross-origin auth/CORS and standalone MCP are not implemented here. The SDK supports injected fetch or network transport. |
+| **C — harness plugins** | OpenCode runs outside the API and speaks MCP                                           | Plugins remain external. Future SDK-based plugins/connectors must use the public API, never API internals. No new plugin or connector is created here.                                        |
 
-Embedded MCP remains in the API and shares application use cases with HTTP; the tool logic itself lives in packages/mcp-server behind the McpBackend port, with the standalone entrypoint deferred. A
-standalone MCP entrypoint, `mcp-server`, `mcp-apps`, `plugin-core`, shared UI and
-additional plugins are future boundaries, not empty workspaces to create now.
+Embedded MCP remains in the API and shares application use cases with HTTP. Tool
+handlers live in `packages/mcp-server` behind the McpBackend port;
+`packages/mcp-apps` and `packages/plugin-core` are in the workspace. A standalone
+MCP process and further plugins are not part of this deployment.
 Pagination, releases, database changes and upload/CAS/GC invariant changes are
 also outside this migration.
 
 The dependency allowlist, package exports and CI boundary check are described in
-[modules](modules.md#target-dependency-rules). The implementation order is
-documentation → dashboard → plugin installation gate → shared packages → API →
-contracts/SDK/v1 gate → HTTP/internal layering. Each move carries its necessary
-Docker, tooling, test and documentation path updates, without functional refactors.
+[modules](modules.md#target-dependency-rules). The workspace move landed in that
+order: documentation, dashboard, plugin installation gate, shared packages, API,
+then the contracts, SDK and `/api/v1` gate, then HTTP and internal layering. Each
+move carried its Docker, tooling, test and documentation path updates, without
+functional refactors.
 
 ## 1. What the system does
 
@@ -102,13 +97,13 @@ object storage holds the bytes, addressed by their SHA-256.
 
 ## 2. Deployable units
 
-| Unit               | Path               | Runtime                                                | Responsibility                                                                  |
-| ------------------ | ------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| **API**            | `src/api`          | Node 24 executing TypeScript directly (type stripping) | HTTP surfaces, MCP, OAuth, persistence, object storage, server-rendered viewers |
-| **Web app**        | `apps/dashboard`   | React 19 SPA built by Vite                             | Library, editor, auth/consent screens, account and connect pages                |
-| **Edge (prod)**    | `docker/Caddyfile` | Caddy 2                                                | TLS, static SPA serving, reverse proxy to the API                               |
-| **Database**       | external           | PostgreSQL 16                                          | Auth, OAuth, artifact metadata, shares, links, comments                         |
-| **Object storage** | external           | S3-compatible (R2, S3, MinIO, Ceph, …)                 | Immutable staging chunks and revision bodies                                    |
+| Unit               | Path               | Runtime                                | Responsibility                                                                  |
+| ------------------ | ------------------ | -------------------------------------- | ------------------------------------------------------------------------------- |
+| **API**            | `apps/api`         | Bun runs `apps/api/src/server.ts`      | HTTP surfaces, MCP, OAuth, persistence, object storage, server-rendered viewers |
+| **Web app**        | `apps/dashboard`   | React 19 SPA built by Vite             | Library, editor, auth/consent screens, account and connect pages                |
+| **Edge (prod)**    | `docker/Caddyfile` | Caddy 2                                | TLS, static SPA serving, reverse proxy to the API                               |
+| **Database**       | external           | PostgreSQL 16                          | Auth, OAuth, artifact metadata, shares, links, comments                         |
+| **Object storage** | external           | S3-compatible (R2, S3, MinIO, Ceph, …) | Immutable staging chunks and revision bodies                                    |
 
 In production `docker-compose.prod.yml` runs three services: `migrate` (one-shot),
 `api`, and `web` (Caddy + SPA). Local development runs the API and
@@ -129,7 +124,7 @@ flowchart LR
     Proxy["Same-origin router\n/api · /mcp · /.well-known · /share · /artifact"]
   end
 
-  subgraph App["Artiflow API (Node 24 + Hono)"]
+  subgraph App["Artiflow API (Bun + Hono)"]
     Auth["Better Auth\n+ OAuth 2.1 provider"]
     Mcp["MCP transport\n(Streamable HTTP, bearer)"]
     Tools["artifact tools\n(start/put/commit/get/edit/comments)"]
@@ -167,15 +162,13 @@ The code is organised by responsibility, not by framework convention:
 Edge (proxy / TLS)
   └─ HTTP adapters          apps/api/src/server.ts mounts one Hono app per surface
       ├─ auth.ts            Better Auth handler + cookie CSRF guard
-      ├─ mcp.ts             bearer-only transport
-      ├─ library.ts         owner reads, artifact viewer, delete
-      ├─ sharing.ts         grants, public links, public viewer
-      ├─ editing.ts         markdown autosave, history, restore
-      └─ comments.ts        anchored comment threads
-  └─ Application services   artifacts/commit-flow.ts, deletion.ts, artifacts/gc.ts
-      └─ Domain repositories artifacts/staging.ts, artifacts/commits.ts,
-                             artifacts/s3.ts, artifacts/markdown.ts
-          └─ Persistence     db/client.ts, db/*schema.ts, storage/client.ts
+      ├─ mcp/               bearer-only transport; tool handlers are packages/mcp-server
+      ├─ routes/library.ts  owner reads, artifact viewer, delete
+      ├─ routes/sharing.ts  grants, public links, public viewer
+      ├─ routes/editing.ts  markdown autosave, history, restore
+      └─ routes/comments.ts anchored comment threads
+  └─ Application services   apps/api/src/domain (commit-flow, deletion, gc, staging, commits)
+      └─ Persistence        apps/api/src/adapters/postgres and apps/api/src/adapters/storage
 ```
 
 `server.ts` is the composition root: it loads config once, creates the database
@@ -185,12 +178,10 @@ there is no service locator and no global state.
 
 ### Where the layering is not uniform
 
-Some HTTP adapters (`library.ts`, `sharing.ts`, `editing.ts`, `comments.ts`) issue
-SQL directly. The MCP tool layer (`artifact-tools.ts`) also issues SQL for
-comments and reads. These two transports therefore duplicate a few queries and
-guards. This is the main architectural inconsistency in the codebase and is
-recorded as an improvement. The persistence split (Drizzle for auth/migrations,
-raw `pg` for product tables) is being unified.
+HTTP routes live under `apps/api/src/routes`. MCP tool handlers live in
+`packages/mcp-server` and call the `McpBackend` port; the API adapter in
+`apps/api/src/mcp` owns persistence for that port. The persistence split (Drizzle
+for auth/migrations, raw `pg` for product tables) is being unified.
 
 ## 5. Request routing
 
@@ -259,11 +250,11 @@ opaque origin, so its requests carry no cookies and it cannot reach the parent p
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
 | Language              | TypeScript 5.9 strict, `noUncheckedIndexedAccess`, `erasableSyntaxOnly` (Bun runs API `.ts` directly) |
 | API                   | Hono 4.13 + `@hono/node-server` 2.1                                                                   |
-| Auth                  | Better Auth 1.7.10 + `@better-auth/mcp` (OAuth provider + JWT)                                        |
+| Auth                  | Better Auth 1.7.25 + `@better-auth/mcp` (OAuth provider + JWT)                                        |
 | MCP                   | Official `@modelcontextprotocol/sdk` 1.32, Streamable HTTP, stateless                                 |
 | Database              | PostgreSQL 16 + Drizzle ORM 0.45 / drizzle-kit 0.31 + `pg`                                            |
-| Storage               | `@aws-sdk/client-s3` 3.1152 (any private S3-compatible bucket)                                        |
-| Web                   | React 19.3, Vite 7.3, Tailwind 4.3, Radix UI, TipTap 3.32, markdown-it 15                             |
+| Storage               | `@aws-sdk/client-s3` 3.1169 (any private S3-compatible bucket)                                        |
+| Web                   | React 19.3, Vite 8, Tailwind 4.3, Radix UI, TipTap 3.34, markdown-it 15                               |
 | Server-rendered pages | Hand-built HTML/CSS in TypeScript (`viewer-html.ts`, `viewer-markdown.ts`)                            |
 | Deployment            | Docker Compose; Bun 1.3.10 image for the API; Caddy 2 image                                           |
 | Tests                 | Node built-in test runner (`node --test`), real HTTP/PostgreSQL/S3 integration suites                 |
