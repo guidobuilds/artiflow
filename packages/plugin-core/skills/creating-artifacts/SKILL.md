@@ -1,11 +1,11 @@
 ---
 name: creating-artifacts
-description: How to create, update and develop Artiflow artifacts. Load before writing any artifact content or calling an artifact_* MCP tool — it covers the two artifact kinds (self-contained HTML pages and markdown documents), the viewer's sandbox and CSP, the staged upload flow, markdown line editing, comments, revision updates, limits, and typed errors.
+description: How to create, update and develop Artiflow artifacts. Load before writing any artifact content or calling an artifact_* MCP tool — it covers the artifact kinds (html pages, markdown documents, canvases and decks), the viewer's sandbox and CSP, the staged upload flow, markdown line editing, comments, revision updates, limits, and typed errors.
 ---
 
 # Creating Artiflow artifacts
 
-An Artiflow artifact is one of four kinds, chosen when the artifact is created
+An Artiflow artifact's kind is chosen when the artifact is created
 (via `artifact_write` or `artifact_commit`):
 
 - **`html` (default)** — one complete, self-contained HTML document: the whole
@@ -13,8 +13,12 @@ An Artiflow artifact is one of four kinds, chosen when the artifact is created
 - **`markdown`** — one UTF-8 markdown document (GFM), rendered formatted in its
   own viewer and editable by people in the dashboard. Agents create it once and
   then edit it by line patches instead of re-uploading bytes.
+- **`canvas`** — a versioned JSON scene of frames and nodes. The canvas section
+  below is the procedure.
+- **`deck`** — the same scene, presented as slides. The deck section below is
+  the procedure.
 
-All four kinds enter the platform only through the MCP tools. This skill is the
+Every kind enters the platform only through the MCP tools. This skill is the
 creation procedure: how to author for the viewer's sandbox (HTML) or as a
 document (markdown), how to ship the bytes, how to edit later, and how to
 comment. For what the platform itself can and cannot do (sharing, links,
@@ -77,7 +81,7 @@ How the bytes reach the server depends on where the content lives:
 
 - **The content already exists in your context as text** (you just authored the
   page or document): use **`artifact_write`** — one call with the full UTF-8
-  `text`, optional `kind` (`"html"` default, `"markdown"`), `title`, and the
+  `text`, optional `kind` (`"html"` default, `"markdown"`, `"canvas"` or `"deck"`), `title`, and the
   same `artifactId`/`expectedRevisionId` CAS options as `artifact_commit`. The
   server computes the sha256 itself, so there is nothing to declare and no
   digest to get wrong. Text is capped at the artifact_write cap (1024 KiB
@@ -114,9 +118,9 @@ Use this staged stream when shipping bytes from disk; the one-call
 5. **`artifact_commit`** with `uploadId`. The server verifies every staged chunk,
    re-assembles, and re-checks the whole-artifact digest against your declaration.
    Options:
-   - `kind` — `"html"` (default) or `"markdown"`. Choose deliberately: an HTML
+   - `kind` — `"html"` (default), `"markdown"`, `"canvas"` or `"deck"`. Choose deliberately: an HTML
      artifact is a self-contained page; a markdown document is prose the user will
-     edit and comment on. Only honored when creating; on an update path a supplied
+     edit and comment on; canvas and deck are scene documents. Only honored when creating; on an update path a supplied
      `kind` must match the artifact or the commit refuses with `kind_mismatch`.
    - omit `artifactId` → a new artifact (the server assigns a UUID);
    - supply `artifactId` → it must be a canonical **lowercase UUID**

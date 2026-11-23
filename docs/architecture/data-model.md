@@ -89,7 +89,7 @@ Cardinality is enforced by foreign keys. Two pointers need attention:
 | `title`                  | text nullable      | Display title; not part of the content hash.                             |
 | `currentRevisionId`      | text FK → revision | CAS pointer. `NULL` only in malformed/legacy states.                     |
 | `observedSizeBytes`      | int nullable       | Committed size of the current revision (≤ 16 MiB).                       |
-| `kind`                   | text               | `html` (default) or `markdown`; CHECK-enforced.                          |
+| `kind`                   | text               | `html` (default), `markdown`, `canvas` or `deck`; CHECK-enforced.        |
 | `deletedAt`              | timestamptz        | Soft delete; all delivery filters test it.                               |
 | `createdAt`, `updatedAt` | timestamptz        | Audit timestamps.                                                        |
 

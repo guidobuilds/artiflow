@@ -131,12 +131,12 @@ Transport rules: `POST` only (`405` otherwise), `Accept` must include both
 `artifact_write` sends a whole text artifact in one call (at most 1 MiB decoded);
 use the staged stream for larger or binary payloads.
 
-| Step | Tool                    | Notes                                                                                                                                                               |
-| ---- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1    | `artifact_start_upload` | `declaredSizeBytes`, `declaredSha256`; returns `uploadId`, `expiresAt`. Idempotent per declaration.                                                                 |
-| 2    | `artifact_put_chunk`    | One base64 chunk per call, ≤ 1 MiB decoded; idempotent per byte-identical chunk.                                                                                    |
-| 3    | `artifact_commit`       | Verifies chunks and the whole-artifact digest, then creates the artifact or a CAS revision with `expectedRevisionId`. Optional `kind` (`html` default, `markdown`). |
-| 4    | `artifact_get`          | Reads the current or a pinned revision as base64; requires `artifacts:read`.                                                                                        |
+| Step | Tool                    | Notes                                                                                                                                                                                   |
+| ---- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `artifact_start_upload` | `declaredSizeBytes`, `declaredSha256`; returns `uploadId`, `expiresAt`. Idempotent per declaration.                                                                                     |
+| 2    | `artifact_put_chunk`    | One base64 chunk per call, ≤ 1 MiB decoded; idempotent per byte-identical chunk.                                                                                                        |
+| 3    | `artifact_commit`       | Verifies chunks and the whole-artifact digest, then creates the artifact or a CAS revision with `expectedRevisionId`. Optional `kind` (`html` default, `markdown`, `canvas` or `deck`). |
+| 4    | `artifact_get`          | Reads the current or a pinned revision as base64; requires `artifacts:read`.                                                                                                            |
 
 `artifact_write` takes `text`, `kind`, optional `title`, and the same
 `artifactId`/`expectedRevisionId` CAS rules as `artifact_commit`; it returns the

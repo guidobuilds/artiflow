@@ -39,4 +39,4 @@ Two rules for every installer:
   harness-local copy as build output.
 - When a tool changes (`artifact_*` surface, limits, errors), update
   `creating-artifacts` in the same change; the skill is the agent-facing
-  contract mirror of `src/api/artifact-tools.ts`.
+  contract mirror of `packages/mcp-server/src/server.ts`.

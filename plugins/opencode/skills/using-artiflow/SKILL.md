@@ -5,10 +5,10 @@ description: What Artiflow is and what the OpenCode plugin can and cannot do wit
 
 # Using Artiflow — the platform and its capabilities
 
-Artiflow is a self-hosted library for self-contained artifacts of two kinds —
-**interactive HTML pages** and **markdown documents** people edit and comment
-on: **agents write content through the plugin's native tools**, and owners
-manage access — sharing, public links, deletion — from a browser dashboard.
+Artiflow is a self-hosted library for self-contained artifacts — **interactive
+HTML pages**, **markdown documents**, **canvases** and **decks**: **agents write
+content through the plugin's native tools**, and owners manage access — sharing,
+public links, deletion — from a browser dashboard.
 Content enters the instance through the plugin's write tools; everything else is
 reading, sharing, linking, editing and deleting. This skill maps what the plugin
 and the platform can and cannot do. For the creation procedure itself (the
@@ -18,7 +18,7 @@ sandbox, the write paths, limits and errors), load `creating-artifacts`.
 
 **Create and update — native tools.** `artiflow_write` takes UTF-8 text for small
 payloads; `artiflow_write_file` reads a local file for large HTML or markdown.
-Both accept `kind` (`"html"` default or `"markdown"`), `title`, and the
+Both accept `kind` (`"html"` default, `"markdown"`, `"canvas"` or `"deck"`), `title`, and the
 `artifactId` + `expectedRevisionId` pair that appends a revision instead of
 overwriting blind. There is no upload form and no dashboard route that accepts
 artifact bytes — an agent with the plugin is the only programmatic writer. See
@@ -43,7 +43,7 @@ the user a link. The OpenCode panel also shows written artifacts.
 **View by kind.** HTML artifacts open in the opaque-origin sandboxed iframe
 (scripts allowed, no same-origin, no network, no forms). Markdown documents open
 in their own rendered viewer (GFM, read-only for visitors) — also sandboxed, with
-no scripts at all. Public links render either kind read-only.
+no scripts at all. Canvases and decks open as a scene. Public links render each kind read-only.
 
 **Edit — people in the dashboard.** Markdown documents are editable in the
 browser (WYSIWYG with autosave, version history and restore) by the owner and by
@@ -52,7 +52,8 @@ and are visible to everyone who can read the document.
 
 **Library — the dashboard (`/library`).** The signed-in owner sees _Owned_ (up to
 100 artifacts, newest first) and _Shared with me_ (up to 200 granted artifacts,
-marked with the granting owner's email, read-only, hidden when empty).
+marked with the granting owner's email, hidden when empty). What the recipient
+can do follows the grant role.
 
 **Share by email with roles.** The owner grants a registered account access by
 email. Grants carry a role: `reader` (default, view only), `editor` (can edit
