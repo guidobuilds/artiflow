@@ -40,6 +40,14 @@ mounting screens share one `getSession` for the life of the page. Sign-out and t
 transitions navigate with a full page load, which creates a new client. `getSession` itself stays
 the HTTP function; mutations that must prove a session still call it.
 
+## Library
+
+`libraryOwnedQuery` and `librarySharedQuery` load the two lists. They refetch every
+`LIBRARY_POLL_MS`, including while the tab is in the background, which is the interval the
+previous timer used. Deleting an artifact calls `invalidateLibrary`, and both lists refetch.
+A sign-in refusal from either list sends the browser to login. A failed shared list leaves
+the owned list on screen; a failed owned list is the error the page shows.
+
 ## After a mutation
 
 A write that used to bump a `revision` counter invalidates the key of the list it changed
