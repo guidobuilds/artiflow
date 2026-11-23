@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import { SessionRows } from "@/components/app/session-rows.tsx";
-import { getSession, signOut, type AuthUser } from "./auth-client.ts";
+import { signOut } from "./auth-client.ts";
+import { useSession } from "./query/session.ts";
 import { AppShell, PageHeader } from "@/components/app/app-shell.tsx";
 import { useTheme } from "@/components/app/theme-provider.tsx";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
@@ -45,25 +46,14 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 export default function AccountPage() {
   const { theme, setTheme } = useTheme();
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [error, setError] = useState("");
+  const session = useSession();
+  const user = session.data?.ok ? session.data.value : null;
+  const error = session.data && !session.data.ok ? session.data.error : "";
   const [busy, setBusy] = useState(false);
   const [read, setRead] = useState<SessionListRead>(EMPTY_SESSION_READ);
   const [revision, setRevision] = useState(0);
   const [notice, setNotice] = useState("");
   const [confirming, setConfirming] = useState<SessionRow | "others" | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getSession().then((result) => {
-      if (cancelled) return;
-      if (result.ok) setUser(result.value);
-      else setError(result.error);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     let live = true;

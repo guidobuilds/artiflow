@@ -209,12 +209,12 @@ throw inside the transaction and are mapped back to domain results outside it.
 
 ### Entry and shell
 
-| File                                                                       | Responsibility                                                                                                                                                               |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/dashboard/src/main.tsx`                                              | Manual pathname routing: `/`, `/library`, `/edit/:uuid`, `/login`, `/consent`, `/connect`, `/account`, else branded 404. Renders the provider stack (theme, tooltip, toast). |
-| `apps/dashboard/src/components/app/app-shell.tsx`                          | 248 px sidebar shell, navigations, account slot, session read with redirect. Also exports `BareShell` (OAuth/404) and `PageHeader`.                                          |
-| `apps/dashboard/src/components/app/account-menu.tsx`, `theme-provider.tsx` | Account row/menu and theme persistence.                                                                                                                                      |
-| `apps/dashboard/src/styles/tokens.css`, `globals.css`                      | Brand tokens (warm terminal / Studio) and Tailwind layer.                                                                                                                    |
+| File                                                                       | Responsibility                                                                                                                                                                      |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/dashboard/src/main.tsx`                                              | Manual pathname routing: `/`, `/library`, `/edit/:uuid`, `/login`, `/consent`, `/connect`, `/account`, else branded 404. Renders the provider stack (query, theme, tooltip, toast). |
+| `apps/dashboard/src/components/app/app-shell.tsx`                          | 248 px sidebar shell, navigations, account slot, shared session query with redirect. Also exports `BareShell` (OAuth/404) and `PageHeader`.                                         |
+| `apps/dashboard/src/components/app/account-menu.tsx`, `theme-provider.tsx` | Account row/menu and theme persistence.                                                                                                                                             |
+| `apps/dashboard/src/styles/tokens.css`, `globals.css`                      | Brand tokens (warm terminal / Studio) and Tailwind layer.                                                                                                                           |
 
 ### Pages
 
@@ -229,14 +229,15 @@ throw inside the transaction and are mapped back to domain results outside it.
 
 ### Client data layer
 
-| File                 | Responsibility                                                                                                                                                                                                                                             |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `auth-client.ts`     | 550-line DOM-free HTTP client: auth, session, capabilities, OAuth continuation/consent, library fetch/parse, share/link/delete management, delete double-confirm, one-time token state. Hand-written runtime validators; no shared schema with the server. |
-| `editor-api.ts`      | Document read/save/history/restore and artifact-open decision (markdown → editor, HTML → viewer).                                                                                                                                                          |
-| `comments-api.ts`    | Comment list/create/resolve/delete with strict parsing.                                                                                                                                                                                                    |
-| `editor-autosave.ts` | Debounced save state machine (saved/saving/unsaved/conflict/readonly), retry and reload semantics.                                                                                                                                                         |
-| `comment-anchors.ts` | **Cross-boundary pure module**: maps rendered TipTap selections to 1-indexed source anchors and computes comment decorations. Imported by both the SPA and the API (`artifact-tools.ts`, `comments.ts`).                                                   |
-| `components/ui/*`    | shadcn-style primitives (dialog, menu, tooltip, button, input, toast, icon, card, collection…).                                                                                                                                                            |
+| File                                                                         | Responsibility                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth-client.ts`                                                             | DOM-free HTTP client: auth, session, capabilities, OAuth continuation/consent, library fetch/parse, share/link/delete management, delete double-confirm, one-time token state. Hand-written runtime validators; no shared schema with the server. |
+| `query/client.ts`, `query/provider.tsx`, `query/keys.ts`, `query/session.ts` | TanStack Query client, key convention and the one session query. See [dashboard queries](dashboard-queries.md).                                                                                                                                   |
+| `editor-api.ts`                                                              | Document read/save/history/restore and artifact-open decision (markdown → editor, HTML → viewer).                                                                                                                                                 |
+| `comments-api.ts`                                                            | Comment list/create/resolve/delete with strict parsing.                                                                                                                                                                                           |
+| `editor-autosave.ts`                                                         | Debounced save state machine (saved/saving/unsaved/conflict/readonly), retry and reload semantics.                                                                                                                                                |
+| `comment-anchors.ts`                                                         | **Cross-boundary pure module**: maps rendered TipTap selections to 1-indexed source anchors and computes comment decorations. Imported by both the SPA and the API (`artifact-tools.ts`, `comments.ts`).                                          |
+| `components/ui/*`                                                            | shadcn-style primitives (dialog, menu, tooltip, button, input, toast, icon, card, collection…).                                                                                                                                                   |
 
 ## 3. Support trees
 

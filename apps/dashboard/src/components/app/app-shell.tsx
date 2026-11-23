@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentProps, type ReactNode, type Ref } from "react";
 
-import { getSession, type AuthUser } from "../../auth-client.ts";
 import ConnectDialog, { onOpenConnect, openConnect } from "../../ConnectDialog.tsx";
+import { useSession } from "../../query/session.ts";
 import { AccountMenu } from "@/components/app/account-menu.tsx";
 import { Icon, type IconName } from "@/components/ui/icon.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -72,26 +72,16 @@ export function AppShell({
   requireSession?: boolean;
   children: ReactNode;
 }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const session = useSession();
+  const user = session.data?.ok ? session.data.value : null;
   const [redirecting, setRedirecting] = useState(false);
   const [connecting, setConnecting] = useState(Boolean(connectOnLoad));
 
   useEffect(() => {
-    let cancelled = false;
-    void getSession().then((result) => {
-      if (cancelled) return;
-      if (result.ok && result.value) setUser(result.value);
-      else if (result.ok && requireSession) {
-        setRedirecting(true);
-        window.location.replace(
-          "/login?return=" + encodeURIComponent(window.location.pathname + window.location.search),
-        );
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [requireSession]);
+    if (!requireSession || !session.data?.ok || session.data.value !== null) return;
+    setRedirecting(true);
+    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
+  }, [requireSession, session.data]);
   useEffect(() => onOpenConnect(() => setConnecting(true)), []);
 
   if (redirecting) return null;

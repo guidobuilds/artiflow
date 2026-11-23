@@ -46,7 +46,7 @@ import {
   type CollabSession,
   type CursorMarkup,
 } from "./collab.ts";
-import { getSession } from "./auth-client.ts";
+import { useSession } from "./query/session.ts";
 import { blockTypes, currentBlockType, toolbarGroups, markdownExtensions } from "./editor-markdown.ts";
 import MarkdownComments, { type CommentSelection } from "./components/comments/markdown-comments.tsx";
 import { revealCommentsForHash } from "./comment-thread-navigation.ts";
@@ -126,6 +126,7 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
   const [document, setDocument] = useState<Document | null>(null);
   const [error, setError] = useState("");
   const [collab, setCollab] = useState<CollabOutcome | null>(null);
+  const session = useSession();
   useEffect(() => {
     let cancelled = false;
     void getDocument(artifactId).then((result) => {
@@ -147,19 +148,19 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
     };
   }, [artifactId]);
   useEffect(() => {
-    if (document === null) return;
+    if (document === null || session.data === undefined) return;
     let cancelled = false;
     let opened: CollabSession | null = null;
     const unavailable: CollabOutcome = {
       ok: false,
       fallback: { reason: "unavailable", message: COLLAB_UNAVAILABLE_MESSAGE },
     };
-    void getSession()
-      .then((result): Promise<CollabOutcome> | CollabOutcome =>
-        result.ok && result.value !== null
-          ? openCollabSession({ artifactId, origin: window.location.origin, user: result.value })
-          : unavailable,
-      )
+    const user = session.data.ok ? session.data.value : null;
+    const openedSession =
+      user === null
+        ? Promise.resolve(unavailable)
+        : openCollabSession({ artifactId, origin: window.location.origin, user });
+    void openedSession
       .then((outcome) => {
         if (!outcome.ok) {
           setCollab(outcome);
@@ -179,7 +180,7 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
       cancelled = true;
       opened?.destroy();
     };
-  }, [artifactId, document]);
+  }, [artifactId, document, session.data]);
   return (
     <TooltipProvider>
       <div className="min-w-0 flex-1">
