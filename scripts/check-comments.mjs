@@ -177,22 +177,64 @@ function looseLineComments(text) {
   return found;
 }
 
+function isTagNameChar(char) {
+  return char !== undefined && char >= "0" && char <= "9";
+}
+
+function findTag(lower, token, from) {
+  let cursor = from;
+  while (cursor < lower.length) {
+    const at = lower.indexOf(token, cursor);
+    if (at === -1) return -1;
+    const next = lower[at + token.length];
+    const continuesName = next !== undefined && ((next >= "a" && next <= "z") || isTagNameChar(next));
+    if (!continuesName) return at;
+    cursor = at + token.length;
+  }
+  return -1;
+}
+
+function scriptElements(text) {
+  const lower = text.toLowerCase();
+  const elements = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const open = findTag(lower, "<script", cursor);
+    if (open === -1) break;
+    const nameEnd = open + "<script".length;
+    const openEnd = text.indexOf(">", nameEnd);
+    if (openEnd === -1) break;
+    const close = findTag(lower, "</script", openEnd + 1);
+    if (close === -1) break;
+    let end = close + "</script".length;
+    while (end < text.length && " \t\n\r\f".includes(text[end] ?? "")) end += 1;
+    if (text[end] !== ">") {
+      cursor = close + "</script".length;
+      continue;
+    }
+    elements.push({
+      attributes: text.slice(nameEnd, openEnd),
+      body: text.slice(openEnd + 1, close),
+      bodyAt: openEnd + 1,
+    });
+    cursor = end + 1;
+  }
+  return elements;
+}
+
 function scriptBodyComments(text) {
   const found = [];
-  const pattern = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
-  for (const match of text.matchAll(pattern)) {
-    if (!JS_SCRIPT_TYPES.has(scriptAttributeType(match[1] ?? ""))) continue;
-    const body = match[2] ?? "";
-    const bodyAt = (match.index ?? 0) + match[0].indexOf(">") + 1;
-    for (const comment of parsedComments(body, true)) {
-      found.push({ pos: bodyAt + comment.pos, raw: comment.raw });
+  for (const element of scriptElements(text)) {
+    if (!JS_SCRIPT_TYPES.has(scriptAttributeType(element.attributes))) continue;
+    for (const comment of parsedComments(element.body, true)) {
+      found.push({ pos: element.bodyAt + comment.pos, raw: comment.raw });
     }
   }
   return found;
 }
 
 function commentsInEmbedded(reconstructed) {
-  if (/<script\b/i.test(reconstructed)) return scriptBodyComments(reconstructed);
+  if (findTag(reconstructed.toLowerCase(), "<script", 0) !== -1) return scriptBodyComments(reconstructed);
   if (looksLikeJavaScript(reconstructed)) return parsedComments(reconstructed, true);
   return looseLineComments(reconstructed);
 }

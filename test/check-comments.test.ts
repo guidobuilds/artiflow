@@ -71,6 +71,13 @@ test("fails on a comment inside a JavaScript template and an inline script", asy
   );
   assert.equal(html.status, 1);
   assert.match(html.stderr, /index\.html:3: .*narrative/);
+
+  const spaced = await check(
+    "spaced.html",
+    `<!doctype html><script >\nconst value = 1;\n${lineComment} narrative\n</script >\n`,
+  );
+  assert.equal(spaced.status, 1);
+  assert.match(spaced.stderr, /spaced\.html:3: .*narrative/);
 });
 
 test("ignores strings, regular expressions, protocol slashes, globs, and non-JS script bodies", async () => {
