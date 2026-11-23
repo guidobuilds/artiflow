@@ -197,7 +197,7 @@ test("a session or an account that vanished between the read and the action is r
   assert.match(panel, /\{notice\}/);
   assert.match(
     panel,
-    /if \(!result\.ok\) \{\s*setNotice\(result\.error\);\s*setRevision\(/,
+    /if \(!result\.ok\) \{\s*setNotice\(result\.error\);\s*void client\.invalidateQueries\(\{ queryKey: queryKeys\.adminSessions\(userId\) \}\)/,
     "a refused closure reports itself and reads the list again",
   );
 });

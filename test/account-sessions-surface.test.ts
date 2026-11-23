@@ -232,7 +232,7 @@ test("a session that vanished between the read and the action is reported plainl
   assert.match(page, /\{notice\}/);
   assert.match(
     page,
-    /if \(!result\.ok\) \{\s*setNotice\(result\.error\);\s*setRevision\(/,
+    /if \(!result\.ok\) \{\s*setNotice\(result\.error\);\s*void client\.invalidateQueries\(\{ queryKey: queryKeys\.accountSessions \}\)/,
     "a refused closure reports itself and reads the list again",
   );
 });
@@ -313,6 +313,6 @@ test("a failed read keeps the last list on screen and reports the failure", () =
   );
 
   const page = read(ACCOUNT_PAGE);
-  assert.match(page, /applySessionRead\(current, result\)/);
+  assert.match(page, /apply: applySessionRead/);
   assert.match(page, /read\.failure/);
 });

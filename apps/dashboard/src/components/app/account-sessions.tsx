@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { SessionRows } from "@/components/app/session-rows.tsx";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
@@ -15,27 +16,23 @@ import {
   readAccountSessions,
   revokeAccountSession,
   revokeAccountSessions,
-  type SessionListRead,
   type SessionRow,
 } from "../../sessions-client.ts";
+import { useHeldQuery } from "../../query/held.ts";
+import { queryKeys } from "../../query/keys.ts";
 
 export function AccountSessionsPanel({ userId, who }: { userId: string; who: string }) {
-  const [read, setRead] = useState<SessionListRead>(EMPTY_SESSION_READ);
-  const [revision, setRevision] = useState(0);
+  const client = useQueryClient();
+  const sessionsQuery = useHeldQuery({
+    queryKey: queryKeys.adminSessions(userId),
+    queryFn: () => readAccountSessions(userId),
+    initial: EMPTY_SESSION_READ,
+    apply: applySessionRead,
+  });
+  const read = sessionsQuery.read;
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [confirming, setConfirming] = useState<SessionRow | "all" | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    void readAccountSessions(userId).then((result) => {
-      if (!live) return;
-      setRead((current) => applySessionRead(current, result));
-    });
-    return () => {
-      live = false;
-    };
-  }, [userId, revision]);
 
   const rows = read.sessions;
   const rowCount = rows === null ? 0 : rows.length;
@@ -50,11 +47,11 @@ export function AccountSessionsPanel({ userId, who }: { userId: string; who: str
     setConfirming(null);
     if (!result.ok) {
       setNotice(result.error);
-      setRevision((current) => current + 1);
+      void client.invalidateQueries({ queryKey: queryKeys.adminSessions(userId) });
       return;
     }
     setNotice(accountSessionClosedNotice(row));
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.adminSessions(userId) });
   };
 
   const closeAll = async () => {
@@ -66,11 +63,11 @@ export function AccountSessionsPanel({ userId, who }: { userId: string; who: str
     setConfirming(null);
     if (!result.ok) {
       setNotice(result.error);
-      setRevision((current) => current + 1);
+      void client.invalidateQueries({ queryKey: queryKeys.adminSessions(userId) });
       return;
     }
     setNotice(accountSessionsClosedNotice(result.value.revoked, who));
-    setRevision((current) => current + 1);
+    void client.invalidateQueries({ queryKey: queryKeys.adminSessions(userId) });
   };
 
   return (
