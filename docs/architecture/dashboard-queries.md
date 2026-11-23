@@ -48,6 +48,14 @@ previous timer used. Deleting an artifact calls `invalidateLibrary`, and both li
 A sign-in refusal from either list sends the browser to login. A failed shared list leaves
 the owned list on screen; a failed owned list is the error the page shows.
 
+## Shares and comments
+
+Share grants and public links are keyed by artifact id. The dialog reads only the key for the
+artifact it is showing, so a slower response for a previous artifact cannot replace the list on
+screen. Inviting, removing, creating, revoking or toggling a link invalidates that artifact's key.
+Comment lists include the revision id in the key. Creating, resolving or deleting a comment
+invalidates every revision of that artifact's comment list, which refetches the open one.
+
 ## After a mutation
 
 A write that used to bump a `revision` counter invalidates the key of the list it changed

@@ -12,7 +12,10 @@ export const queryKeys = {
   libraryShared: ["library", "shared"] as const,
   shares: (artifactId: string) => ["artifact", artifactId, "shares"] as const,
   links: (artifactId: string) => ["artifact", artifactId, "links"] as const,
-  comments: (artifactId: string) => ["artifact", artifactId, "comments"] as const,
+  comments: (artifactId: string, revisionId?: string) =>
+    revisionId === undefined
+      ? (["artifact", artifactId, "comments"] as const)
+      : (["artifact", artifactId, "comments", revisionId] as const),
   accountSessions: ["account", "sessions"] as const,
   adminUsers: (filter: UserDirectoryFilter) => ["admin", "users", filter] as const,
   adminInvitations: ["admin", "invitations"] as const,

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   HIDDEN_REVEAL,
@@ -13,7 +14,6 @@ import {
   rotateLink,
   setLinkShowComments,
   tokenNotice,
-  type PublicLinkRow,
   type ShareGrant,
   type TokenReveal,
 } from "./auth-client.ts";
@@ -24,9 +24,9 @@ import { Icon } from "@/components/ui/icon.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { queryKeys } from "./query/keys.ts";
 import { useSession } from "./query/session.ts";
-
-type Rows<T> = { kind: "loading" } | { kind: "ready"; rows: T[] } | { kind: "error"; detail: string };
+import { invalidateLinkList, invalidateShareList, shareRows } from "./query/shares.ts";
 
 export default function ShareModal({
   artifactId,
@@ -38,32 +38,18 @@ export default function ShareModal({
   onClose: () => void;
 }) {
   const toast = useToast();
+  const client = useQueryClient();
   const session = useSession();
   const owner = session.data?.ok ? session.data.value : null;
-  const [shares, setShares] = useState<Rows<ShareGrant>>({ kind: "loading" });
-  const [links, setLinks] = useState<Rows<PublicLinkRow>>({ kind: "loading" });
+  const shareQuery = useQuery({ queryKey: queryKeys.shares(artifactId), queryFn: () => listShares(artifactId) });
+  const linkQuery = useQuery({ queryKey: queryKeys.links(artifactId), queryFn: () => listLinks(artifactId) });
+  const shares = shareRows(shareQuery.data);
+  const links = shareRows(linkQuery.data);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reveal, setReveal] = useState<TokenReveal>(HIDDEN_REVEAL);
   const [resetting, setResetting] = useState(false);
-
-  const loadShares = useCallback(() => {
-    void listShares(artifactId).then((result) => {
-      setShares(result.ok ? { kind: "ready", rows: result.value } : { kind: "error", detail: result.error });
-    });
-  }, [artifactId]);
-
-  const loadLinks = useCallback(() => {
-    void listLinks(artifactId).then((result) => {
-      setLinks(result.ok ? { kind: "ready", rows: result.value } : { kind: "error", detail: result.error });
-    });
-  }, [artifactId]);
-
-  useEffect(() => {
-    loadShares();
-    loadLinks();
-  }, [loadShares, loadLinks]);
 
   const invite = (event: FormEvent) => {
     event.preventDefault();
@@ -76,7 +62,7 @@ export default function ShareModal({
         return;
       }
       setEmail("");
-      loadShares();
+      void invalidateShareList(client, artifactId);
       toast.toast(`${email.trim()} can now view`);
     });
   };
@@ -88,7 +74,7 @@ export default function ShareModal({
       setBusy(null);
       if (!result.ok) setError(result.error);
       else {
-        loadShares();
+        void invalidateShareList(client, artifactId);
         toast.toast(`Removed ${grant.email}`);
       }
     });
@@ -107,7 +93,7 @@ export default function ShareModal({
         return;
       }
       setReveal(revealToken(result.value));
-      loadLinks();
+      void invalidateLinkList(client, artifactId);
       toast.toast("Anyone with the link can view");
     });
   };
@@ -121,7 +107,7 @@ export default function ShareModal({
       setBusy(null);
       if (!result.ok) setError(result.error);
       else {
-        loadLinks();
+        void invalidateLinkList(client, artifactId);
         toast.toast("Link turned off");
       }
     });
@@ -145,7 +131,7 @@ export default function ShareModal({
     void setLinkShowComments(artifactId, activeLink.id, showComments).then((result) => {
       setBusy(null);
       if (!result.ok) setError(result.error);
-      else loadLinks();
+      else void invalidateLinkList(client, artifactId);
     });
   };
 
