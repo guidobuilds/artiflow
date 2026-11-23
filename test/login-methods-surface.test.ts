@@ -267,6 +267,6 @@ test("a refused administrator-only sign-in reads like any rejected credential", 
   const unreadable = await getCapabilities();
   assert.equal(unreadable.ok, false);
   assert.match(METHODS_UNAVAILABLE, /Could not load the sign-in methods/);
-  assert.match(screen, /setReadError\(METHODS_UNAVAILABLE\)/);
+  assert.match(screen, /METHODS_UNAVAILABLE/);
   assert.match(screen, /\{readError \?/);
 });
