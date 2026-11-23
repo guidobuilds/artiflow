@@ -1,11 +1,11 @@
 ---
 title: Canvas
-description: What a canvas artifact is, how its scene is shaped, how a person navigates it, and what it does not do yet.
+description: What a canvas artifact is, how its scene is shaped, how a person navigates and edits it, and what it does not do yet.
 ---
 
-A canvas is a design surface: frames that stand for screens, and nodes inside them. It is a third
-artifact kind beside [pages](./pages.md) and [Markdown](./markdown.md), and it is **read-only**
-today — an agent publishes the scene, a person looks at it and moves between screens.
+A canvas is a design surface: frames that stand for screens, and nodes inside them. An agent publishes
+the scene, and a person opens it in the dashboard to move between frames and edit nodes. Pages and
+Markdown documents are the other text kinds; a [deck](./deck.md) is this same scene presented as slides.
 
 ## What a scene looks like
 
@@ -38,7 +38,7 @@ need it. An `assetId` the document does not reference is drawn as a labelled pla
 missing image is visible instead of silent.
 
 Ids are stable and unique across the whole scene — a node cannot reuse its frame's id — because
-they are what a later phase will anchor comments and edits to.
+they are what comments and edits anchor to.
 
 ## What the server refuses
 

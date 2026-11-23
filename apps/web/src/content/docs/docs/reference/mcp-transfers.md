@@ -101,13 +101,13 @@ and `storageKey` is the staging key `staging/<sha256>`.
 }
 ```
 
-| Field                | Required | Effect                                                                                        |
-| -------------------- | -------- | --------------------------------------------------------------------------------------------- |
-| `uploadId`           | yes      | the staged stream to finalize                                                                 |
-| `artifactId`         | no       | target id; must be a canonical lowercase UUID when supplied                                   |
-| `title`              | no       | 1–200 characters; a non-empty title renames on an update                                      |
-| `expectedRevisionId` | no       | present = compare-and-set that revision; absent = create                                      |
-| `kind`               | no       | `"html"` (default) or `"markdown"`; on the staged path it is chosen here, not at upload start |
+| Field                | Required | Effect                                                                                                              |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------------- |
+| `uploadId`           | yes      | the staged stream to finalize                                                                                       |
+| `artifactId`         | no       | target id; must be a canonical lowercase UUID when supplied                                                         |
+| `title`              | no       | 1–200 characters; a non-empty title renames on an update                                                            |
+| `expectedRevisionId` | no       | present = compare-and-set that revision; absent = create                                                            |
+| `kind`               | no       | `"html"` (default), `"markdown"`, `"canvas"` or `"deck"`; on the staged path it is chosen here, not at upload start |
 
 The commit verifies before it writes anything:
 

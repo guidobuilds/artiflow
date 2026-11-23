@@ -1,11 +1,11 @@
 ---
 name: creating-artifacts
-description: How to create, update and develop Artiflow artifacts in OpenCode. Load before writing any artifact content — it covers the two artifact kinds (self-contained HTML pages and markdown documents), the viewer's sandbox and CSP, choosing artiflow_write or artiflow_write_file, markdown line editing with artiflow_get_markdown and artiflow_edit_lines, read-only comments, revision updates, limits and typed errors.
+description: How to create, update and develop Artiflow artifacts in OpenCode. Load before writing any artifact content — it covers the artifact kinds (html pages, markdown documents, canvases and decks), the viewer's sandbox and CSP, choosing artiflow_write or artiflow_write_file, markdown line editing with artiflow_get_markdown and artiflow_edit_lines, read-only comments, revision updates, limits and typed errors.
 ---
 
 # Creating Artiflow artifacts in OpenCode
 
-An Artiflow artifact is one of four kinds, chosen when the artifact is created
+An Artiflow artifact's kind is chosen when the artifact is created
 (with `artiflow_write` or `artiflow_write_file`):
 
 - **`html` (default)** — one complete, self-contained HTML document: the whole
@@ -13,6 +13,10 @@ An Artiflow artifact is one of four kinds, chosen when the artifact is created
 - **`markdown`** — one UTF-8 markdown document (GFM), rendered formatted in its
   own viewer and editable by people in the dashboard. Create it once and then
   edit it by line patches instead of re-sending bytes.
+- **`canvas`** — a versioned JSON scene of frames and nodes. The canvas section
+  below is the procedure.
+- **`deck`** — the same scene, presented as slides. The deck section below is
+  the procedure.
 
 Content enters the instance through the plugin's native tools: `artiflow_write`
 and `artiflow_write_file` write, `artiflow_get` and `artiflow_get_markdown`
@@ -64,7 +68,7 @@ Where the bytes live decides the tool:
 
 - **The content already exists in your context as text** (you just authored the
   page or document): use **`artiflow_write`** — one call with the full UTF-8
-  `text`, optional `kind` (`"html"` default, `"markdown"`), `title`, and the
+  `text`, optional `kind` (`"html"` default, `"markdown"`, `"canvas"` or `"deck"`), `title`, and the
   same `artifactId`/`expectedRevisionId` compare-and-set options as every other
   update. The server computes the sha256 itself, so there is nothing to declare
   and no digest to get wrong. Text is capped at the inline write cap
@@ -73,8 +77,10 @@ Where the bytes live decides the tool:
   **`artiflow_write_file`** — write the complete document to a local file with
   your normal file tools, then pass that file's `path` instead of its contents.
   Relative paths resolve against the OpenCode server's working directory, and the
-  file must exist there as valid UTF-8. `.md` and `.markdown` default to
-  `markdown`; every other extension defaults to `html`; `kind` overrides both.
+  file must exist there as valid UTF-8. `.md` and `.markdown` infer `markdown`,
+  `.canvas` and `.scene.json` infer `canvas`, `.deck` infers `deck`, and `.html`,
+  `.htm` and every other extension infer `html`. `kind` overrides that inference
+  with `"html"` (default), `"markdown"`, `"canvas"` or `"deck"`.
   A missing file or invalid UTF-8 is a tool error and submits nothing.
 
 Both paths land in the same revision, kind and viewer-model rules; they differ

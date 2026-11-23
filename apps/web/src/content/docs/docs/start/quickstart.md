@@ -54,7 +54,7 @@ looks like this — substitute your own content if you prefer:
 }
 ```
 
-`text` is required. `kind` is `html` (the default) or `markdown`, `title` is 1–200 characters, and one
+`text` is required. `kind` is `html` (the default), `markdown`, `canvas` or `deck`, `title` is 1–200 characters, and one
 call may carry at most 1 MiB of decoded UTF-8 text. A successful call answers with `artifactId`,
 `revisionId`, `revisionNumber`, `sizeBytes` and `sha256`; write the `artifactId` down, it is the only
 handle the browser needs.
