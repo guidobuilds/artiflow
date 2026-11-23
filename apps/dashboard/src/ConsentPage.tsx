@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   describeScopes,
@@ -9,6 +10,7 @@ import {
   submitConsent,
   type PublicClient,
 } from "./auth-client.ts";
+import { queryKeys } from "./query/keys.ts";
 import { useSessionUser } from "./query/session.ts";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { AgentLogo, type AgentMarkName } from "@/components/ui/agent-logo.tsx";
@@ -47,8 +49,22 @@ function redirectTarget(oauthQuery: string): string | null {
 
 export default function ConsentPage({ search }: { search: string }) {
   const request = useMemo(() => parseConsentSearch(search), [search]);
-  const [state, setState] = useState<State>({ kind: "fetching" });
-  const [attempt, setAttempt] = useState(0);
+  const clientQuery = useQuery({
+    queryKey: queryKeys.auth.oauthClient(request?.clientId ?? ""),
+    queryFn: () => getPublicClient(request?.clientId ?? ""),
+    enabled: request !== null,
+  });
+  const loaded: State = !request
+    ? { kind: "error", detail: INVALID_LINK, signInRequired: false }
+    : clientQuery.isFetching || clientQuery.data === undefined
+      ? { kind: "fetching" }
+      : !clientQuery.data.ok && clientQuery.data.signInRequired
+        ? { kind: "signing-in" }
+        : clientQuery.data.ok
+          ? { kind: "ready", client: clientQuery.data.value }
+          : { kind: "error", detail: clientQuery.data.error, signInRequired: clientQuery.data.signInRequired };
+  const [decision, setState] = useState<State | null>(null);
+  const state = decision ?? loaded;
   const [busy, setBusy] = useState(false);
   const user = useSessionUser();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -65,32 +81,10 @@ export default function ConsentPage({ search }: { search: string }) {
   };
 
   useEffect(() => {
-    if (!request) {
-      setState({ kind: "error", detail: INVALID_LINK, signInRequired: false });
-      return;
-    }
-    let live = true;
-    setState({ kind: "fetching" });
-    void getPublicClient(request.clientId).then((result) => {
-      if (!live || redirecting.current) return;
-      if (!result.ok && result.signInRequired) {
-        redirecting.current = true;
-        setState({ kind: "signing-in" });
-        window.location.replace(
-          "/login?return=" + encodeURIComponent(window.location.pathname + window.location.search),
-        );
-        return;
-      }
-      setState(
-        result.ok
-          ? { kind: "ready", client: result.value }
-          : { kind: "error", detail: result.error, signInRequired: result.signInRequired },
-      );
-    });
-    return () => {
-      live = false;
-    };
-  }, [request, attempt]);
+    if (state.kind !== "signing-in" || redirecting.current) return;
+    redirecting.current = true;
+    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
+  }, [state.kind]);
 
   const decide = async (accept: boolean) => {
     if (!request || busy) return;
@@ -178,7 +172,14 @@ export default function ConsentPage({ search }: { search: string }) {
             <div role="alert">
               <p className="text-[13px] text-danger-text">{state.detail}</p>
               <div className="mt-4">
-                <Button variant="secondary" size="sm" onClick={() => setAttempt((count) => count + 1)}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setState(null);
+                    void clientQuery.refetch();
+                  }}
+                >
                   Retry
                 </Button>
               </div>
