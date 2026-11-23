@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { PageHeader } from "@/components/app/app-shell.tsx";
@@ -9,7 +9,6 @@ import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { Tag } from "@/components/ui/tag.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import type { AdminGate } from "./admin-entry.ts";
 import {
   ACCESS_PROVIDERS,
   REGISTRATION_NOTES,
@@ -20,13 +19,12 @@ import {
   readAccessConfiguration,
   registrationEntries,
   saveAccessConfiguration,
-  type AccessConfiguration,
   type AccessDraft,
   type AccessProviderDraft,
   type AccessProviderName,
 } from "./admin-access-client.ts";
-
-type Load = AdminGate;
+import { useAdminConfiguration } from "./query/held.ts";
+import { queryKeys } from "./query/keys.ts";
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -48,29 +46,16 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 export default function AdminAccessPage() {
   const toast = useToast();
-  const [load, setLoad] = useState<Load>({ kind: "loading" });
-  const [configuration, setConfiguration] = useState<AccessConfiguration | null>(null);
+  const access = useAdminConfiguration(queryKeys.admin.access, () => readAccessConfiguration());
+  const configuration = access.value;
+  const setConfiguration = access.setValue;
+  const load = access.gate;
+  const setLoad = access.setGate;
   const [draft, setDraft] = useState<AccessDraft | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    let live = true;
-    void readAccessConfiguration().then((result) => {
-      if (!live) return;
-      if (!result.ok) {
-        setLoad({ kind: "refused", message: result.error, signInRequired: result.signInRequired });
-        return;
-      }
-      setConfiguration(result.value);
-      setDraft(draftFromConfiguration(result.value));
-      setLoad({ kind: "ready" });
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
+  if (configuration !== null && draft === null) setDraft(draftFromConfiguration(configuration));
 
   const setProvider = (name: AccessProviderName, patch: Partial<AccessProviderDraft>) => {
     setDraft((current) =>

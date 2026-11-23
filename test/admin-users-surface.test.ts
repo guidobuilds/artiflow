@@ -555,7 +555,7 @@ test("a failed refresh keeps the rows on screen and reports the failure", () => 
   assert.equal(beforeAnyPage.page, null, "a refusal before the first page has no rows to keep");
 
   const page = read(USERS_PAGE);
-  assert.match(page, /applyDirectoryRead\(current, result\)/);
+  assert.match(page, /apply: applyDirectoryRead/);
   assert.match(page, /role="alert"/);
   assert.match(page, /directory\.failure/);
   assert.doesNotMatch(page, /setGate\(/, "the page no longer swaps the table for the refusal screen");
