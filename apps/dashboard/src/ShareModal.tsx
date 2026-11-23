@@ -5,7 +5,6 @@ import {
   createLink,
   createShare,
   dismissToken,
-  getSession,
   listLinks,
   listShares,
   revealToken,
@@ -14,7 +13,6 @@ import {
   rotateLink,
   setLinkShowComments,
   tokenNotice,
-  type AuthUser,
   type PublicLinkRow,
   type ShareGrant,
   type TokenReveal,
@@ -26,6 +24,7 @@ import { Icon } from "@/components/ui/icon.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useSessionUser } from "./query/session.ts";
 
 type Rows<T> = { kind: "loading" } | { kind: "ready"; rows: T[] } | { kind: "error"; detail: string };
 
@@ -39,7 +38,7 @@ export default function ShareModal({
   onClose: () => void;
 }) {
   const toast = useToast();
-  const [owner, setOwner] = useState<AuthUser | null>(null);
+  const owner = useSessionUser();
   const [shares, setShares] = useState<Rows<ShareGrant>>({ kind: "loading" });
   const [links, setLinks] = useState<Rows<PublicLinkRow>>({ kind: "loading" });
   const [email, setEmail] = useState("");
@@ -59,16 +58,6 @@ export default function ShareModal({
       setLinks(result.ok ? { kind: "ready", rows: result.value } : { kind: "error", detail: result.error });
     });
   }, [artifactId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getSession().then((result) => {
-      if (!cancelled && result.ok) setOwner(result.value);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     loadShares();

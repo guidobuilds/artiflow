@@ -89,6 +89,18 @@ test("a signed-out session is null, not an error", async () => {
   assert.deepEqual(await getSession(), { ok: true, value: null });
 });
 
+test("a non-2xx answer with no body is a failure, not a signed-out session", async () => {
+  useFetch(() => new Response("", { status: 500 }));
+  assert.deepEqual(await getSession(), {
+    ok: false,
+    error: "The auth service answered unexpectedly. Nothing was changed.",
+  });
+  useFetch(() => new Response("", { status: 401 }));
+  assert.equal((await getSession()).ok, false);
+  useFetch(() => new Response("", { status: 200 }));
+  assert.deepEqual(await getSession(), { ok: true, value: null });
+});
+
 test("server and network failures never leak their own text", async () => {
   useFetch(() => json({ message: "database secret-token-abc failed" }, 500));
   const server = await getSession();
@@ -142,6 +154,14 @@ test("sign-up and sign-out send JSON and never report unconfirmed success", asyn
 
   useFetch((_call, index) => (index === 0 ? json({ success: true }) : json(null)));
   assert.deepEqual(await signOut(), { ok: true, value: null });
+});
+
+test("sign-out fails when the confirming read is a non-2xx with no body", async () => {
+  useFetch((_call, index) => (index === 0 ? json({ success: true }) : new Response("", { status: 500 })));
+  assert.deepEqual(await signOut(), {
+    ok: false,
+    error: "The auth service answered unexpectedly. Nothing was changed.",
+  });
 });
 
 test("social sign-in posts the provider and callback and follows only a real redirect", async () => {

@@ -12,6 +12,7 @@ guides, self-hosting and contributing paths.
 | ---------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | [Architecture overview](architecture/README.md)                        | Understand the whole system in one page.                                 |
 | [Modules](architecture/modules.md)                                     | Know where a responsibility lives and what depends on what.              |
+| [Dashboard queries](architecture/dashboard-queries.md)                 | See how the dashboard loads HTTP data and names query keys.              |
 | [Data model](architecture/data-model.md)                               | Understand tables, ownership and invariants.                             |
 | [Integrations](architecture/integrations.md)                           | Know every external service, protocol and port.                          |
 | [Flows](architecture/flows.md)                                         | Follow an upload, a login, a viewer request or a deletion end to end.    |

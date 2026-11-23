@@ -8,7 +8,8 @@ import {
   type RenderedCandidate,
   type SourceSpan,
 } from "@artiflow/domain/comment-anchors";
-import { getSession, type ManageResult } from "@/auth-client.ts";
+import type { ManageResult } from "@/auth-client.ts";
+import { useSessionUser } from "@/query/session.ts";
 import { draftBlockedReason } from "@/comment-draft.ts";
 import {
   createComment as createCommentRequest,
@@ -109,16 +110,7 @@ export default function MarkdownComments({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [authorImage, setAuthorImage] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void getSession().then((result) => {
-      if (!cancelled && result.ok && result.value) setAuthorImage(result.value.image);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const authorImage = useSessionUser()?.image ?? null;
   const run = useRef(0);
   const nextDraft = useRef(0);
   const dataCallback = useRef(onData);

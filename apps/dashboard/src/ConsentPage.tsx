@@ -4,13 +4,12 @@ import {
   describeScopes,
   followConsent,
   getPublicClient,
-  getSession,
   parseConsentSearch,
   signOut,
   submitConsent,
-  type AuthUser,
   type PublicClient,
 } from "./auth-client.ts";
+import { useSessionUser } from "./query/session.ts";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { AgentLogo, type AgentMarkName } from "@/components/ui/agent-logo.tsx";
 import { UserAvatar } from "@/components/ui/avatar.tsx";
@@ -51,19 +50,12 @@ export default function ConsentPage({ search }: { search: string }) {
   const [state, setState] = useState<State>({ kind: "fetching" });
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [user, setUser] = useState<AuthUser | null>(null);
+  const user = useSessionUser();
   const heading = useRef<HTMLHeadingElement>(null);
   const redirecting = useRef(false);
 
   useEffect(() => {
     heading.current?.focus();
-    let live = true;
-    void getSession().then((result) => {
-      if (live && result.ok) setUser(result.value);
-    });
-    return () => {
-      live = false;
-    };
   }, []);
 
   const switchAccount = () => {

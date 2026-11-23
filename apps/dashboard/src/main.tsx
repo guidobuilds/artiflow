@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { ThemeProvider } from "@/components/app/theme-provider.tsx";
+import { QueryProvider } from "@/query/provider.tsx";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import AccountPage from "./AccountPage.tsx";
@@ -61,10 +62,12 @@ const page =
 
 createRoot(container).render(
   <StrictMode>
-    <ThemeProvider>
-      <TooltipProvider>
-        <ToastProvider>{page}</ToastProvider>
-      </TooltipProvider>
-    </ThemeProvider>
+    <QueryProvider>
+      <ThemeProvider>
+        <TooltipProvider>
+          <ToastProvider>{page}</ToastProvider>
+        </TooltipProvider>
+      </ThemeProvider>
+    </QueryProvider>
   </StrictMode>,
 );
