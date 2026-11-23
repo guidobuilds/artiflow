@@ -71,11 +71,12 @@ environment-gated suites execute instead of skipping, and `node:module` lacks
 | `bun run test:auth`        | `test/auth-http.integration.ts` against a disposable PostgreSQL.                                                                                          |
 | `bun run test:oauth`       | `test/oauth-http.integration.ts` against a disposable PostgreSQL.                                                                                         |
 | `bun run typecheck`        | The API TypeScript project and the dashboard workspace project.                                                                                           |
-| `bun run build`            | Docs link check, boundary check, dashboard production build and API type check.                                                                           |
+| `bun run build`            | Docs link check, boundary check, comment check, dashboard production build and API type check.                                                            |
 | `bun run check:boundaries` | Import boundaries between apps, packages and tests.                                                                                                       |
 | `bun run check:hygiene`    | Fails when a tracked file matches `.gitignore`.                                                                                                           |
 | `bun run check:changed`    | Prettier and oxlint on the files changed against `origin/main`. Pass a base ref to compare elsewhere.                                                     |
 | `bun run check:docs`       | Every relative link in `README.md` and `docs/` resolves to an existing file.                                                                              |
+| `bun run check:comments`   | `scripts/check-comments.mjs` decides which source comments are allowed.                                                                                   |
 | `bun run web:verify`       | `astro check`, the docs build, then the built-output verifier; the only docs check that reads `apps/web/dist`.                                            |
 
 The integration stack and its exact sequence live in `docs/runbook.md`; never point those commands at
@@ -137,8 +138,7 @@ search service to run.
 
 ## Conventions
 
-- Read `AGENTS.md` before changing source: no comments in source, and reasoning belongs in the
-  commit message or the pull request.
+- `bun run check:comments` (`scripts/check-comments.mjs`) decides which source comments are allowed.
 - Product queries belong behind repositories that take the typed database from `apps/api/src/db/client.ts`.
   HTTP routes and MCP tools consume the same operations instead of duplicating SQL.
 - Security invariants are summarized in `docs/architecture/README.md`; artifact bytes never execute on

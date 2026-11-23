@@ -154,9 +154,7 @@ const bumpBadge = (revision) => {
   badge.textContent = "v" + revision.revisionNumber;
 };
 
-// The frame's document is an opaque origin, so its scroll offset is usually unreadable: this is a
-// best-effort attempt that must never break the refresh.
-const frameOffset = (frame) => {
+const bestEffortFrameScrollY = (frame) => {
   try {
     return frame.contentWindow ? Number(frame.contentWindow.scrollY) || 0 : 0;
   } catch (error) {
@@ -164,13 +162,19 @@ const frameOffset = (frame) => {
   }
 };
 
-const restoreOffset = (frame, offset) => {
+const bestEffortRestoreScroll = (frame, offset) => {
   if (offset === 0) return;
   try {
     frame.contentWindow.scrollTo(0, offset);
-  } catch (error) {
-    // best-effort only; see frameOffset
-  }
+  } catch (error) {}
+};
+
+const srcdocFromGatedPage = (html) => {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const fresh = parsed.querySelector("iframe");
+  const bytes = fresh === null ? null : fresh.getAttribute("srcdoc");
+  if (typeof bytes !== "string" || bytes.length === 0) return null;
+  return bytes;
 };
 
 const swapDocument = async (frame) => {
@@ -180,29 +184,25 @@ const swapDocument = async (frame) => {
     headers: { accept: "text/html" },
   });
   if (!response.ok) return false;
-  // The gated page already escaped the stored bytes into its srcdoc attribute. Parsing is inert (no
-  // script runs) and the DOM hands those exact bytes back, so nothing here rebuilds the document.
-  const parsed = new DOMParser().parseFromString(await response.text(), "text/html");
-  const fresh = parsed.querySelector("iframe");
-  const bytes = fresh === null ? null : fresh.getAttribute("srcdoc");
-  if (typeof bytes !== "string" || bytes.length === 0) return false;
-  const offset = frameOffset(frame);
-  frame.addEventListener("load", () => restoreOffset(frame, offset), { once: true });
+  const bytes = srcdocFromGatedPage(await response.text());
+  if (bytes === null) return false;
+  const offset = bestEffortFrameScrollY(frame);
+  frame.addEventListener("load", () => bestEffortRestoreScroll(frame, offset), { once: true });
   frame.setAttribute("srcdoc", bytes);
   return true;
 };
 
+const reloadKeepingPlace = () => {
+  if (document.querySelector("[data-comment-draft='typed'], [data-comment-input='typed']") !== null) return;
+  try {
+    history.scrollRestoration = "auto";
+  } catch (error) {}
+  location.reload();
+};
+
 const applyRevision = async (revision) => {
   if (refresh.srcdocUrl === null) {
-    // A server-rendered document has no byte endpoint to read: reload, asking the browser to keep
-    // the reader where they were.
-    if (document.querySelector("[data-comment-draft='typed'], [data-comment-input='typed']") !== null) return;
-    try {
-      history.scrollRestoration = "auto";
-    } catch (error) {
-      // unsupported: the reload simply lands at the top
-    }
-    location.reload();
+    reloadKeepingPlace();
     return;
   }
   const frame = document.querySelector("iframe");
@@ -226,7 +226,6 @@ const poll = async () => {
     const revision = body !== null && typeof body === "object" && body.revision ? body.revision : body;
     if (isChanged(revision)) await applyRevision(revision);
   } catch (error) {
-    // A failed read is retried on the next tick; the page never surfaces an error of its own.
   } finally {
     inFlight = false;
   }
@@ -309,10 +308,8 @@ ${assetsScripts(comments.assets)}`
 const exitButton = document.querySelector(".vbar-exit");
 const setFocus = (on) => {
   document.body.classList.toggle("focus", on);
-  // Keep keyboard focus on this page: keys pressed inside the iframe never reach it.
   if (on && exitButton) exitButton.focus();
 };
-// Neither control exists in embed mode, where the bar is not rendered at all.
 const focusButton = document.querySelector(".vbar-focus");
 if (focusButton) focusButton.addEventListener("click", () => setFocus(true));
 if (exitButton) exitButton.addEventListener("click", () => setFocus(false));

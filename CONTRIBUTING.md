@@ -132,6 +132,7 @@ repository-wide reformat.
 ```sh
 bun run check:changed  # prettier --check + oxlint on files changed vs origin/main
 bun run check:hygiene  # no tracked file matches .gitignore
+bun run check:comments # scripts/check-comments.mjs
 bun run format         # rewrite every supported file with prettier
 bun run lint           # whole repository; warnings are allowed while debt is paid
 ```
@@ -205,8 +206,7 @@ Examples:
 
 ## Code style and decisions
 
-- **Comments:** follow [`AGENTS.md`](AGENTS.md). No comments in source: code must
-  explain itself, and reasoning belongs in the commit message or the pull request.
+- **Comments:** `bun run check:comments` (`scripts/check-comments.mjs`).
 - **Persistence:** product queries belong in repositories that receive the typed
   `AppDb`/`AppTx` from `apps/api/src/db/client.ts`. HTTP routes and MCP tools consume
   the same operations instead of duplicating SQL. Prefer Drizzle builders; keep
