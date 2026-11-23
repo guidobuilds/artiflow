@@ -104,7 +104,11 @@ test("revealed links retain their controls with a neutral temporary notice only"
 test("library and sign-in omit development copy while polling remains wired", () => {
   const library = source("../apps/dashboard/src/LibraryPage.tsx");
   assert.doesNotMatch(library, /VIEWER_NOTE|REFRESH_NOTE|Refreshing…|>Refresh</);
-  assert.match(library, /startLibraryPolling\(\(\) => load\(\)\)/);
+  assert.match(library, /useQuery\(libraryOwnedQuery\)/);
+  assert.match(library, /useQuery\(librarySharedQuery\)/);
+  assert.match(library, /invalidateLibrary\(/);
+  assert.match(source("../apps/dashboard/src/query/library.ts"), /refetchInterval: LIBRARY_POLL_MS/);
+  assert.match(source("../apps/dashboard/src/query/library.ts"), /refetchIntervalInBackground: true/);
   assert.doesNotMatch(source("../apps/dashboard/src/LoginPage.tsx"), /local account|127\.0\.0\.1|No email is sent/);
   const html = source("../apps/dashboard/index.html");
   assert.match(html, /<title>Artiflow<\/title>/);
@@ -260,7 +264,7 @@ test("session-gated pages replace the route and hide their shell while redirecti
     assert.match(page, /return null/);
     assert.doesNotMatch(page, /sign-in page/);
   }
-  assert.match(library, /state\.kind === "loading"[^;]*return null/);
+  assert.match(library, /view\.kind === "loading" \|\| view\.kind === "redirecting"\) return null/);
   const auth = source("../apps/dashboard/src/AuthScreen.tsx");
   assert.match(auth, /safeInternalPath\(new URLSearchParams\(search\)\.get\("return"\) \?\? ""\) \?\? "\/"/);
   assert.match(auth, /window\.location\.assign\(returnPath\)/);
