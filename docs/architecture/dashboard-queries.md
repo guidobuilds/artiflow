@@ -73,6 +73,15 @@ fails. `useHeldQuery` applies the new result onto that previous read, which is w
 invalidates the key instead of incrementing the counter. Access, SSO and password policy
 seed their drafts from one configuration query.
 
+## The check
+
+`bun run check:effects` (`scripts/check-effect-fetches.mjs`) parses the dashboard and fails when a
+`useEffect` or `useLayoutEffect` calls `fetch` or an imported HTTP function whose name starts with
+`get`, `list`, `read`, `fetch`, `preview`, `save`, `create`, `delete`, `revoke`, `restore`, `sign`,
+`continue`, `submit`, `issue`, `rotate`, `post`, `put` or `patch`. Nested callbacks count, so a
+timer started by an effect cannot hide the request. It is a step in `verify` and part of
+`bun run build`. Add a query instead of a new effect.
+
 ## After a mutation
 
 A write that used to bump a `revision` counter invalidates the key of the list it changed
