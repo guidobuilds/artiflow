@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 
-import { getCapabilities, signIn, signUp, socialSignIn, ssoSignIn, type Capabilities } from "./auth-client.ts";
+import { getCapabilities, signIn, signUp, socialSignIn, ssoSignIn } from "./auth-client.ts";
+import { queryKeys } from "./query/keys.ts";
 import {
   CONNECTION_ERROR_PATH,
   EMERGENCY_TITLE,
@@ -85,9 +87,10 @@ export default function AuthScreen({
   invitation,
 }: { search?: string; invitation?: InvitationMode } = {}) {
   const returnPath = safeInternalPath(new URLSearchParams(search).get("return") ?? "") ?? "/";
-  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
-  const [registrationAvailable, setRegistrationAvailable] = useState(false);
-  const [readError, setReadError] = useState("");
+  const capabilitiesQuery = useQuery({ queryKey: queryKeys.capabilities, queryFn: () => getCapabilities() });
+  const capabilities = capabilitiesQuery.data?.ok ? capabilitiesQuery.data.value : null;
+  const registrationAvailable = capabilitiesQuery.data?.ok ? capabilitiesQuery.data.value.registration === true : false;
+  const readError = capabilitiesQuery.data && !capabilitiesQuery.data.ok ? METHODS_UNAVAILABLE : "";
   const [signup, setSignup] = useState(false);
   const [values, setValues] = useState({ name: "", email: "", password: "" });
   const [error, setError] = useState(() => ssoFailure(search));
@@ -98,25 +101,6 @@ export default function AuthScreen({
   const surface = loginSurface(capabilities, search);
   const socialProviders = surface.providers;
   const signInForm = surface.password || newAccount;
-
-  useEffect(() => {
-    let live = true;
-    void getCapabilities()
-      .then((result) => {
-        if (!live) return;
-        if (!result.ok) {
-          setReadError(METHODS_UNAVAILABLE);
-          return;
-        }
-        setReadError("");
-        setCapabilities(result.value);
-        setRegistrationAvailable(result.value.registration === true);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, []);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

@@ -1,29 +1,21 @@
-import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { passwordPolicyStatements, readPasswordPolicyInForce } from "../../password-policy-client.ts";
+import { queryKeys } from "../../query/keys.ts";
 
 export type PasswordPolicyReading =
   { kind: "reading" } | { kind: "shown"; statements: string[] } | { kind: "unavailable"; message: string };
 
 export function usePasswordPolicyReading(): PasswordPolicyReading {
-  const [reading, setReading] = useState<PasswordPolicyReading>({ kind: "reading" });
-  useEffect(() => {
-    let live = true;
-    void readPasswordPolicyInForce()
-      .then((result) => {
-        if (!live) return;
-        setReading(
-          result.ok
-            ? { kind: "shown", statements: passwordPolicyStatements(result.value) }
-            : { kind: "unavailable", message: result.error },
-        );
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, []);
-  return reading;
+  const policy = useQuery({
+    queryKey: queryKeys.passwordPolicy,
+    queryFn: () => readPasswordPolicyInForce(),
+    staleTime: Infinity,
+  });
+  if (policy.data === undefined) return { kind: "reading" };
+  return policy.data.ok
+    ? { kind: "shown", statements: passwordPolicyStatements(policy.data.value) }
+    : { kind: "unavailable", message: policy.data.error };
 }
 
 export function PasswordPolicyNotice({ reading }: { reading: PasswordPolicyReading }) {

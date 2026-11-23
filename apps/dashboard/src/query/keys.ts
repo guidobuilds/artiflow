@@ -28,6 +28,7 @@ export const queryKeys = {
   invitation: (token: string) => ["auth", "invitation", token] as const,
   passwordReset: (token: string) => ["auth", "password-reset", token] as const,
   oauthClient: (clientId: string) => ["auth", "oauth-client", clientId] as const,
+  oauthResume: (search: string) => ["auth", "oauth-resume", search] as const,
   document: (artifactId: string) => ["artifact", artifactId, "document"] as const,
   revisions: (artifactId: string) => ["artifact", artifactId, "revisions"] as const,
   scene: (artifactId: string) => ["artifact", artifactId, "scene"] as const,

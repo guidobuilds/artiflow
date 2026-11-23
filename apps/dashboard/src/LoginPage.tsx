@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   authorizeUrlFromQuery,
@@ -9,10 +10,10 @@ import {
   getSession,
   signInWithOAuthQuery,
   ssoSignIn,
-  type Capabilities,
   type Continuation,
 } from "./auth-client.ts";
 import AuthScreen, { ConnectionPanel, EmergencyPanel } from "./AuthScreen.tsx";
+import { queryKeys } from "./query/keys.ts";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
@@ -32,10 +33,10 @@ export default function LoginPage({ search }: { search: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [restartable, setRestartable] = useState(false);
-  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
-  const [readError, setReadError] = useState("");
+  const capabilitiesQuery = useQuery({ queryKey: queryKeys.capabilities, queryFn: () => getCapabilities() });
+  const capabilities = capabilitiesQuery.data?.ok ? capabilitiesQuery.data.value : null;
+  const readError = capabilitiesQuery.data && !capabilitiesQuery.data.ok ? METHODS_UNAVAILABLE : "";
   const heading = useRef<HTMLHeadingElement>(null);
-  const runRef = useRef(0);
   const surface = loginSurface(capabilities, search);
   const continuation = `${window.location.pathname}${window.location.search}`;
   const fallbackHref = useMemo(() => {
@@ -46,23 +47,6 @@ export default function LoginPage({ search }: { search: string }) {
 
   useEffect(() => {
     heading.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    let live = true;
-    void getCapabilities()
-      .then((result) => {
-        if (!live) return;
-        if (!result.ok) {
-          setReadError(METHODS_UNAVAILABLE);
-          return;
-        }
-        setCapabilities(result.value);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
   }, []);
 
   const finish = (result: Continuation) => {
@@ -77,33 +61,28 @@ export default function LoginPage({ search }: { search: string }) {
     setError(FOLLOW_FAILED);
   };
 
-  const resume = useCallback(() => {
-    runRef.current += 1;
-    const run = runRef.current;
-    setStatus("checking");
-    setError("");
-    void (async () => {
+  const authorization = useQuery({
+    queryKey: queryKeys.oauthResume(search),
+    enabled: link !== null,
+    staleTime: Infinity,
+    queryFn: async () => {
       const session = await getSession();
-      if (runRef.current !== run) return;
-      if (!session.ok || session.value === null) {
-        setStatus("signin");
-        if (!session.ok) setError(session.error);
-        return;
-      }
-      const result = await continueAuthorization(search);
-      if (runRef.current !== run) return;
-      if (!result.ok) setStatus("signin");
-      finish(result);
-    })();
-  }, [search]);
-
+      if (!session.ok) return { kind: "signin" as const, error: session.error, result: null };
+      if (session.value === null) return { kind: "signin" as const, error: "", result: null };
+      return { kind: "continuation" as const, error: "", result: await continueAuthorization(search) };
+    },
+  });
   useEffect(() => {
-    if (!link) return;
-    resume();
-    return () => {
-      runRef.current += 1;
-    };
-  }, [link, resume]);
+    const data = authorization.data;
+    if (!data) return;
+    if (data.kind === "signin") {
+      setStatus("signin");
+      if (data.error !== "") setError(data.error);
+      return;
+    }
+    if (data.result && !data.result.ok) setStatus("signin");
+    if (data.result) finish(data.result);
+  }, [authorization.data]);
 
   const act = async (action: () => Promise<Continuation>) => {
     if (busy) return;

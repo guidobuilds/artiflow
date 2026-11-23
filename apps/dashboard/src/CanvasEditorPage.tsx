@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { Icon, IconAction } from "@/components/ui/icon.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
@@ -13,6 +14,7 @@ import { TextLink } from "@/components/ui/text-link.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import type { Scene, SceneFrame, SceneNode, TextNode } from "@artiflow/domain/scene";
 import { getArtifactDetail } from "./editor-api.ts";
+import { queryKeys } from "./query/keys.ts";
 import {
   addRectNode,
   addTextNode,
@@ -73,28 +75,20 @@ const nodeLabel = (node: SceneNode): string => {
 };
 
 export default function CanvasEditorPage({ artifactId }: { artifactId: string }) {
-  const [draft, setDraft] = useState<SceneDraft | null>(null);
-  const [error, setError] = useState("");
+  const scene = useQuery({ queryKey: queryKeys.scene(artifactId), queryFn: () => getScene(artifactId) });
+  const draft = scene.data?.ok ? scene.data.value : null;
+  const error =
+    scene.data && !scene.data.ok && !scene.data.signInRequired
+      ? scene.data.code === "wrong_kind"
+        ? "This artifact is not a canvas, so it has no canvas editor."
+        : scene.data.code === "forbidden"
+          ? "Read-only: this canvas is not available for editing."
+          : "Could not load this canvas."
+      : "";
   useEffect(() => {
-    let cancelled = false;
-    void getScene(artifactId).then((result) => {
-      if (cancelled) return;
-      if (result.ok) setDraft(result.value);
-      else if (result.signInRequired)
-        window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname));
-      else
-        setError(
-          result.code === "wrong_kind"
-            ? "This artifact is not a canvas, so it has no canvas editor."
-            : result.code === "forbidden"
-              ? "Read-only: this canvas is not available for editing."
-              : "Could not load this canvas.",
-        );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [artifactId]);
+    if (!scene.data || scene.data.ok || !scene.data.signInRequired) return;
+    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname));
+  }, [scene.data]);
   return (
     <TooltipProvider>
       <div className="min-w-0 flex-1">
@@ -129,7 +123,12 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [fitted, setFitted] = useState(true);
   const [zoom, setZoom] = useState(1);
-  const [revisionNumber, setRevisionNumber] = useState<number | null>(null);
+  const detail = useQuery({
+    queryKey: queryKeys.artifactDetail(initial.artifactId),
+    queryFn: () => getArtifactDetail(initial.artifactId),
+  });
+  const revisionNumber =
+    detail.data?.ok && detail.data.value.revision !== null ? detail.data.value.revision.revisionNumber : null;
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
 
@@ -147,17 +146,6 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       session.current = null;
     };
   }, [initial]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void getArtifactDetail(initial.artifactId).then((result) => {
-      if (cancelled || !result.ok || result.value.revision === null) return;
-      setRevisionNumber(result.value.revision.revisionNumber);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [initial.artifactId]);
 
   useEffect(() => {
     const element = stage.current;

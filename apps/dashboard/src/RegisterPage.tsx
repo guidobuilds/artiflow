@@ -1,7 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import AuthScreen from "./AuthScreen.tsx";
 import { completeInvitation, INVITE_REFUSED, previewInvitation, signIn, tokenFromFragment } from "./auth-client.ts";
+import { queryKeys } from "./query/keys.ts";
 import { Logo } from "@/components/ui/logo.tsx";
 import { usePasswordPolicyReading } from "@/components/ui/password-policy-notice.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
@@ -31,23 +33,21 @@ function Notice({ children }: { children: ReactNode }) {
 export default function RegisterPage({ hash = window.location.hash }: { hash?: string } = {}) {
   const [token] = useState(() => tokenFromFragment(hash));
   const policy = usePasswordPolicyReading();
-  const [state, setState] = useState<State>(() =>
-    token === null ? { kind: "refused", message: INCOMPLETE_LINK } : { kind: "checking" },
-  );
-
-  useEffect(() => {
-    if (token === null) return;
-    let live = true;
-    void previewInvitation(token)
-      .then((result) => {
-        if (!live) return;
-        setState(result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error });
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [token]);
+  const preview = useQuery({
+    queryKey: queryKeys.invitation(token ?? ""),
+    queryFn: () => previewInvitation(token ?? ""),
+    enabled: token !== null,
+  });
+  const [override, setState] = useState<State | null>(null);
+  const loaded: State =
+    token === null
+      ? { kind: "refused", message: INCOMPLETE_LINK }
+      : preview.data === undefined
+        ? { kind: "checking" }
+        : preview.data.ok
+          ? { kind: "ready", email: preview.data.value.email }
+          : { kind: "refused", message: preview.data.error };
+  const state = override ?? loaded;
 
   const submit = async (name: string, password: string): Promise<{ error: string } | null> => {
     if (token === null) return { error: INCOMPLETE_LINK };

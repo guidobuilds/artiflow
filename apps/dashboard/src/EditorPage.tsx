@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { Extension } from "@tiptap/core";
@@ -46,6 +47,8 @@ import {
   type CollabSession,
   type CursorMarkup,
 } from "./collab.ts";
+import { useHeldQuery } from "./query/held.ts";
+import { queryKeys } from "./query/keys.ts";
 import { useSession } from "./query/session.ts";
 import { blockTypes, currentBlockType, toolbarGroups, markdownExtensions } from "./editor-markdown.ts";
 import MarkdownComments, { type CommentSelection } from "./components/comments/markdown-comments.tsx";
@@ -103,6 +106,11 @@ const requireMetadata = async (artifactId: string, kind: Document["kind"]) => {
   return metadata;
 };
 
+const metadataReader = (kind: Document["kind"]) => (query: { artifactId: string }) =>
+  requireMetadata(query.artifactId, kind);
+
+const documentReader = (artifactId: string, kind: Document["kind"]) => () => readRemoteText(artifactId, kind);
+
 const readRemoteText = (artifactId: string, kind: Document["kind"]) =>
   loadRemoteText({
     document: async () => {
@@ -123,30 +131,23 @@ const readRemoteText = (artifactId: string, kind: Document["kind"]) =>
   });
 
 export default function EditorPage({ artifactId }: { artifactId: string }) {
-  const [document, setDocument] = useState<Document | null>(null);
-  const [error, setError] = useState("");
+  const documentQuery = useQuery({ queryKey: queryKeys.document(artifactId), queryFn: () => getDocument(artifactId) });
+  const result = documentQuery.data;
+  const document = result?.ok ? result.value : null;
+  const error =
+    result && !result.ok && !result.signInRequired
+      ? result.code === "wrong_kind"
+        ? "HTML artifacts use the viewer, not the markdown editor."
+        : result.code === "forbidden"
+          ? "Read-only: this document is not available for editing."
+          : "Could not load this document."
+      : "";
   const [collab, setCollab] = useState<CollabOutcome | null>(null);
   const session = useSession();
   useEffect(() => {
-    let cancelled = false;
-    void getDocument(artifactId).then((result) => {
-      if (cancelled) return;
-      if (result.ok) setDocument(result.value);
-      else if (result.signInRequired)
-        window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname));
-      else
-        setError(
-          result.code === "wrong_kind"
-            ? "HTML artifacts use the viewer, not the markdown editor."
-            : result.code === "forbidden"
-              ? "Read-only: this document is not available for editing."
-              : "Could not load this document.",
-        );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [artifactId]);
+    if (!result || result.ok || !result.signInRequired) return;
+    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname));
+  }, [result]);
   useEffect(() => {
     if (document === null || session.data === undefined) return;
     let cancelled = false;
@@ -221,7 +222,22 @@ function DocumentEditor({
     dirty: false,
   });
   const [notice, setNotice] = useState<CollabFallback | null>(fallback);
-  const [history, setHistory] = useState<Revision[]>([]);
+  const client = useQueryClient();
+  const historyQuery = useQuery({
+    queryKey: queryKeys.revisions(initial.artifactId),
+    queryFn: () => listRevisions(initial.artifactId),
+  });
+  const historyHeld = useHeldQuery({
+    queryKey: queryKeys.revisions(initial.artifactId),
+    queryFn: () => listRevisions(initial.artifactId),
+    initial: [] as Revision[],
+    apply: (current, next) => (next.ok ? next.value : current),
+  });
+  const history = historyHeld.read;
+  const [historyNotice, setHistoryError] = useState("");
+  const historyError =
+    historyNotice || (historyQuery.data && !historyQuery.data.ok ? "Could not load version history." : "");
+  const historyLoading = historyQuery.isFetching;
   const [pendingVersion, setPendingVersion] = useState<number | null>(null);
   const freshness = useRef<EditorFreshness | null>(null);
   const commentStorage = useRef(browserCommentStorage());
@@ -238,19 +254,10 @@ function DocumentEditor({
   const dismissed = useRef(false);
   const [commentSelection, setCommentSelection] = useState<CommentSelection | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyError, setHistoryError] = useState("");
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const historyRun = useRef(0);
   const refreshHistory = useCallback(() => {
-    const run = ++historyRun.current;
-    setHistoryLoading(true);
-    void listRevisions(initial.artifactId).then((result) => {
-      if (historyRun.current !== run) return;
-      setHistoryLoading(false);
-      setHistoryError(result.ok ? "" : "Could not load version history.");
-      if (result.ok) setHistory(result.value);
-    });
-  }, [initial.artifactId]);
+    setHistoryError("");
+    void client.invalidateQueries({ queryKey: queryKeys.revisions(initial.artifactId) });
+  }, [client, initial.artifactId]);
   const selectThread = (id: string) => {
     setActiveThread(id);
     setHistoryOpen(false);
@@ -375,17 +382,11 @@ function DocumentEditor({
     );
     session.current = controller;
     setState(controller.state);
-    refreshHistory();
     return () => {
       controller.dispose();
       session.current = null;
-      historyRun.current++;
     };
   }, [collab, editor, initial, refreshHistory]);
-  useEffect(() => {
-    if (collab === null) return;
-    refreshHistory();
-  }, [collab, refreshHistory]);
   useEffect(() => {
     if (collab !== null || !editor) return;
     let cancelled = false;
@@ -394,8 +395,8 @@ function DocumentEditor({
       artifactId: initial.artifactId,
       kind: initial.kind,
       initial: { revisionId: initial.revisionId, revisionNumber: initial.revisionNumber },
-      readMetadata: (query) => requireMetadata(query.artifactId, initial.kind),
-      readDocument: () => readRemoteText(initial.artifactId, initial.kind),
+      readMetadata: metadataReader(initial.kind),
+      readDocument: documentReader(initial.artifactId, initial.kind),
       isDirty: () => session.current?.state.dirty === true,
       writeRemote: (remote) => {
         const top = window.scrollY;

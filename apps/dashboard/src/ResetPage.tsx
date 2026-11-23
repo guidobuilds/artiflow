@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   completePasswordReset,
@@ -8,6 +9,7 @@ import {
   RESET_REFUSED,
   tokenFromFragment,
 } from "./auth-client.ts";
+import { queryKeys } from "./query/keys.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { Field, Input } from "@/components/ui/input.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
@@ -36,27 +38,25 @@ function Notice({ children }: { children: ReactNode }) {
 export default function ResetPage({ hash = window.location.hash }: { hash?: string } = {}) {
   const [token] = useState(() => tokenFromFragment(hash));
   const policy = usePasswordPolicyReading();
-  const [state, setState] = useState<State>(() =>
-    token === null ? { kind: "refused", message: INCOMPLETE_LINK } : { kind: "checking" },
-  );
+  const preview = useQuery({
+    queryKey: queryKeys.passwordReset(token ?? ""),
+    queryFn: () => previewPasswordReset(token ?? ""),
+    enabled: token !== null,
+  });
+  const [override, setState] = useState<State | null>(null);
+  const loaded: State =
+    token === null
+      ? { kind: "refused", message: INCOMPLETE_LINK }
+      : preview.data === undefined
+        ? { kind: "checking" }
+        : preview.data.ok
+          ? { kind: "ready", email: preview.data.value.email }
+          : { kind: "refused", message: preview.data.error };
+  const state = override ?? loaded;
   const [values, setValues] = useState({ password: "", confirmation: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
-
-  useEffect(() => {
-    if (token === null) return;
-    let live = true;
-    void previewPasswordReset(token)
-      .then((result) => {
-        if (!live) return;
-        setState(result.ok ? { kind: "ready", email: result.value.email } : { kind: "refused", message: result.error });
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [token]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
