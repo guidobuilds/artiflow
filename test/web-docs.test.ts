@@ -73,7 +73,7 @@ test("root scripts delegate to the web workspace without replacing the dashboard
   assert.equal(scriptsUnderTest["dev:web"], "vite --config apps/dashboard/vite.config.ts");
   assert.equal(
     scriptsUnderTest.build,
-    "bun run check:docs && bun run check:boundaries && bun run check:comments && vite build --config apps/dashboard/vite.config.ts && tsc -p tsconfig.api.json --noEmit",
+    "bun run check:docs && bun run check:boundaries && bun run check:comments && bun run check:effects && vite build --config apps/dashboard/vite.config.ts && tsc -p tsconfig.api.json --noEmit",
   );
   assert.equal(scriptsUnderTest.test, "node --test test/*.test.ts");
 });
