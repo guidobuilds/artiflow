@@ -115,9 +115,10 @@ test("a non-administrator is refused by the shell and never sees the form", asyn
   assert.match(result.ok === false ? result.error : "", /administrator/i);
 
   const page = read(PAGE);
+  assert.match(page, /useAdminConfiguration\(queryKeys\.admin\.sso, \(\) => readSsoConnectionConfiguration\(\)\)/);
   assert.match(
-    page,
-    /setLoad\(\{ kind: "refused", message: result\.error, signInRequired: result\.signInRequired \}\)/,
+    read("../apps/dashboard/src/query/held.ts"),
+    /setGate\(\{ kind: "refused", message: query\.data\.error, signInRequired: query\.data\.signInRequired \}\)/,
   );
   assert.equal((page.match(/<form/g) ?? []).length, 0, "the page never renders a bare form");
 });

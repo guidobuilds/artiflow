@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   anchorIsStale,
@@ -9,12 +10,12 @@ import {
   type SourceSpan,
 } from "@artiflow/domain/comment-anchors";
 import type { ManageResult } from "@/auth-client.ts";
+import { commentStatus, commentsQuery, invalidateComments } from "@/query/comments.ts";
 import { useSessionUser } from "@/query/session.ts";
 import { draftBlockedReason } from "@/comment-draft.ts";
 import {
   createComment as createCommentRequest,
   deleteComment as deleteCommentRequest,
-  listComments,
   resolveComment,
   type CommentEntry,
   type CommentList,
@@ -105,41 +106,27 @@ export default function MarkdownComments({
   onData,
   onFocusAnchor,
 }: MarkdownCommentsProps) {
-  const [data, setData] = useState<CommentList | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "empty" | "error">("loading");
+  const client = useQueryClient();
+  const comments = useQuery(commentsQuery(artifactId, revisionId));
+  const result = comments.data;
+  const data = result?.ok ? result.value : null;
+  const status = commentStatus(result);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const authorImage = useSessionUser()?.image ?? null;
-  const run = useRef(0);
   const nextDraft = useRef(0);
   const dataCallback = useRef(onData);
   dataCallback.current = onData;
   const announcedSelection = useRef<number | null>(null);
   const activateCallback = useRef(onActivate);
   activateCallback.current = onActivate;
-  const refresh = useCallback(async () => {
-    const current = ++run.current;
-    setStatus((value) => (value === "ready" || value === "empty" ? value : "loading"));
-    const result = await listComments(artifactId);
-    if (run.current !== current) return;
-    if (result.ok) {
-      setData(result.value);
-      setStatus(result.value.comments.length === 0 ? "empty" : "ready");
-      setError("");
-      dataCallback.current(result.value);
-    } else {
-      setData(null);
-      setStatus("error");
-      dataCallback.current({ canComment: false, comments: [] });
-    }
-  }, [artifactId]);
+  const refresh = useCallback(() => invalidateComments(client, artifactId), [artifactId, client]);
   useEffect(() => {
-    void refresh();
-    return () => {
-      run.current++;
-    };
-  }, [refresh, revisionId]);
+    if (result === undefined) return;
+    if (result.ok) setError("");
+    dataCallback.current(result.ok ? result.value : { canComment: false, comments: [] });
+  }, [result]);
   const canComment = data?.canComment === true && !readOnly;
   const begin = useCallback(
     (text: string, span: SourceSpan, anchorTop: number) => {
