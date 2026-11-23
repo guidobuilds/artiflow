@@ -101,3 +101,46 @@ jobs:
           cmp "$RUNNER_TEMP/pack-check/package/skills/opencode-large-artifacts/SKILL.md" plugins/opencode/skills/opencode-large-artifacts/SKILL.md
           test -f "$RUNNER_TEMP/pack-check/package/dist/server.mjs"
           test -f "$RUNNER_TEMP/pack-check/package/dist/gui-experimental.cjs"
+
+  integration:
+    name: integration
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Pull integration images
+        run: |
+          docker pull postgres:16-alpine
+          docker pull dxflrs/garage:v2.4.1
+
+      - name: Start PostgreSQL and Garage
+        run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml up -d --wait garage postgres
+
+      - name: Wait for the database and bucket
+        run: node --env-file=test/integration-config.example scripts/wait-integration-services.mjs
+
+      - name: Migrate
+        run: node --env-file=test/integration-config.example apps/api/src/adapters/postgres/db/migrate.ts
+
+      - name: Integration tests
+        run: bun run test:integration
+
+      - name: Stop integration services
+        if: always()
+        run: docker compose -f docker-compose.yml -f .github/docker-compose.ci.yml down --volumes

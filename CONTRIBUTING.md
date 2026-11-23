@@ -97,8 +97,9 @@ docs(architecture): document the OpenCode plugin roadmap
 
 ## Run the checks before opening a PR
 
-CI runs the same commands on every pull request in the `verify` workflow. Keep
-them green locally before pushing.
+CI runs on every pull request in the `verify` workflow. The `verify` job runs the
+commands below. The `integration` job starts the Compose stack, migrates, and runs
+`bun run test:integration`. Keep both green before pushing.
 
 ```sh
 bun run test        # test suite; no services required
@@ -160,9 +161,20 @@ database and bucket:
 | `bun run test:auth`        | Disposable PostgreSQL                  | Auth or session handling                       |
 | `bun run test:oauth`       | Disposable PostgreSQL                  | OAuth discovery, DCR, PKCE or consent          |
 
+`bun run test:integration` loads `test/integration-config.example` and runs every
+`test/*.test.ts` and `test/*.integration.ts` serially. It exits non-zero when any
+variable in that file is missing and when any test skips. A skip is not a pass:
+the suite did not prove the invariant. The same rule is what the `integration`
+job enforces.
+
 The self-contained stack and the exact sequence are in
-[`docs/runbook.md`](docs/runbook.md#full-integration-suite-locally). Never point
-these commands at a database or bucket that holds real data.
+[`docs/runbook.md`](docs/runbook.md#integration-suite). Never point these
+commands at a database or bucket that holds real data. The security-sandbox
+reproducer is not a CI step: its control test still requires the viewer body to
+be the stored HTML byte for byte, and the viewer now appends the comment bridge
+inside the frame, so the run exits 3 before the race says anything. Updating
+that harness is a separate change. `--suite integration` is not a CI step
+either; the `integration` job already runs those suites.
 
 ## Pull requests
 

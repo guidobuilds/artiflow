@@ -19,7 +19,7 @@ import { loadConfig } from "../apps/api/src/config.ts";
 import { createDatabase, type Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import { createLibraryApp } from "../apps/api/src/routes/library.ts";
 import { createShareViewerApp, createSharingApp } from "../apps/api/src/routes/sharing.ts";
-import { NOT_FOUND_PAGE } from "../apps/api/src/viewer/html.ts";
+import { NOT_FOUND_PAGE, VIEWER_CSP } from "../apps/api/src/viewer/html.ts";
 import { createStorage, type Storage } from "../apps/api/src/adapters/storage/client.ts";
 import { trustedSession } from "./helpers/trusted-accounts.ts";
 
@@ -34,9 +34,6 @@ const S3_VARS = [
 const ENV_READY = Boolean(DATABASE_URL) && S3_VARS.every((name) => process.env[name]);
 const SKIP = ENV_READY ? false : "DATABASE_URL or S3 missing; run with --env-file=.env.local";
 const publicOrigin = ENV_READY ? loadConfig(process.env).publicOrigin : "";
-const CSP =
-  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
-const VIEWER_CSP = `${CSP}; connect-src 'self'`;
 const HTML_A = `<!doctype html><html><body><h1>Share A</h1><script>document.title = "pwn"</script><p>quotes "a" 'b' &amp; more</p></body></html>`;
 const HTML_B = `<!doctype html><p>second artifact body</p>`;
 const MUTATION = { origin: publicOrigin, "content-type": "application/json" };

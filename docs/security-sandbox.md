@@ -127,6 +127,20 @@ integration` — create, run, remove. The runner writes its own evidence (see be
 Nothing is installed, pulled or fetched. Host Node only orchestrates; the target runs the
 container's Node.
 
+## Continuous integration
+
+The reproducer is not a CI job. A run on the current tree exits `3`: the control test
+requires `GET /artifact/:id` to return the stored HTML byte for byte, and the viewer now
+appends the comment bridge after those bytes inside the frame. That fails the control
+before the race can say whether a delete removed another artifact's object. Changing the
+harness to accept the bridge is a separate change; a CI job that expected exit `2` would
+be red for that reason, not because the stack failed to start.
+
+`--suite integration` is not a CI step either. The `verify` workflow's `integration` job
+runs `bun run test:integration` against the Compose stack and fails if any test skips.
+The sandbox mode remains the way to reproduce its ten-suite selection inside the isolated
+namespace; its default wall is 2400s.
+
 ## Retained evidence (S5)
 
 The containers are destroyed after every attempt, so the runner keeps the attempt outside the

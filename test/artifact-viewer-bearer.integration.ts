@@ -355,14 +355,15 @@ test("a v1-audience token without artifacts:read keeps the insufficient_scope re
   assert.deepEqual(await response.json(), { error: "insufficient_scope" });
 });
 
-test("markdown embed omits back navigation and title, preserving its script-free document frame", async () => {
+test("markdown embed omits back navigation and title and escapes the document", async () => {
   const response = await request(`/artifact/${markdownId}?embed=1`, {
     headers: { authorization: `Bearer ${owner.token}` },
   });
   assert.equal(response.status, 200);
   const page = await response.text();
   assert.doesNotMatch(page, /<a\b|<b>|<header|class="vbar-|Rendered document:/);
-  assert.match(page, /sandbox=""/);
+  assert.doesNotMatch(page, /<iframe\b|sandbox=/);
+  assert.match(page, /&lt;h1&gt;Bearer viewer/);
   assert.doesNotMatch(page, /sandbox="[^"]*allow-scripts/);
   const normal = await viewer(owner.token, undefined, markdownId);
   assert.equal(normal.status, 200);
@@ -408,11 +409,19 @@ test("public viewers ignore embed: they are browser-facing pages", async () => {
   }
 });
 
-test("reader share bearer renders the same viewer", async () => {
+test("a shared reader sees the same artifact bytes and cannot comment", async () => {
   const response = await viewer(reader.token);
   assert.equal(response.status, 200);
   const cookie = await viewer(undefined, owner.cookie);
-  assert.equal(await response.text(), await cookie.text());
+  assert.equal(cookie.status, 200);
+  const readerPage = await response.text();
+  const ownerPage = await cookie.text();
+  const srcdoc = (html: string) => /srcdoc="([^"]*)"/.exec(html)?.[1] ?? "";
+  assert.equal(srcdoc(readerPage), srcdoc(ownerPage));
+  const canComment = (html: string) =>
+    JSON.parse(/id="viewer-comments-data">([^<]*)/.exec(html)?.[1] ?? "{}").canComment;
+  assert.equal(canComment(readerPage), false);
+  assert.equal(canComment(ownerPage), true);
 });
 
 test("unrelated bearer cannot borrow an owner cookie and is indistinguishable from missing", async () => {
