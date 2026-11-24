@@ -71,8 +71,8 @@ network, keeps no storage and loads no external font or script.
 ## What it does not do yet
 
 - **Editing is young.** A person can move, resize, add, retype and delete nodes and save with the
-  sequence it read; there is no z-order control yet, because reordering would cost a whole replacement
-  until the difference engine learns it.
+  sequence it read. Reordering is expressible as `reorder_node`, but the editor still has no z-order
+  control.
 - **Comments anchor to nodes, and only where they can be shown.** A thread carries the node and a point
   inside it, so a pin follows the node when it moves; a thread whose node is gone is listed as orphaned
   instead of drawn at a stale position. The dashboard editor and the owner's viewer show them; a public

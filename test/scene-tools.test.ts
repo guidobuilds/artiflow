@@ -576,6 +576,35 @@ test("a deck opens its scene draft, applies one batch and reads it back through 
   assert.equal(workspace.revisions.length, 1, "below the freeze threshold a deck publishes nothing");
 });
 
+test("scene_apply reorders a slide's nodes and the read shows the new order", async () => {
+  const workspace = canvasWorkspace({ kind: "deck", text: canvasText([HOME()]) });
+  const { callTool } = await connect(workspace.backend);
+  const before = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: before.seq,
+      idempotencyKey: "reorder-1",
+      ops: [
+        { op: "add_node", frameId: "f1", node: { id: "n2", type: "rect", x: 5, y: 6, w: 7, h: 8, fill: "#0af" } },
+        { op: "reorder_node", id: "n2", index: 0 },
+      ],
+    }),
+  );
+  assert.equal(applied.applied, 2);
+  assert.deepEqual(
+    applied.boxes,
+    [{ id: "n2", frameId: "f1", x: 105, y: 6, w: 7, h: 8 }],
+    "a reordering reports no box of its own",
+  );
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  assert.deepEqual(
+    ((read.frame as ToolPayload).nodes as ToolPayload[]).map((node) => node.id),
+    ["n2", "n1"],
+    "the read shows the new painting order",
+  );
+});
+
 test("a deck accepts the replace_scene escape hatch the canvas accepts", async () => {
   const workspace = canvasWorkspace({ kind: "deck", text: canvasText([HOME()]) });
   const { callTool } = await connect(workspace.backend);

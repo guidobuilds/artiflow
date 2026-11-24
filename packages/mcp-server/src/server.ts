@@ -1144,6 +1144,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         w: z.number().optional(),
         h: z.number().optional(),
       }),
+      z.object({ op: z.literal("reorder_node"), id: sceneId, index: z.number().int().min(0) }),
       z.object({ op: z.literal("remove_node"), id: sceneId }),
       z.object({ op: z.literal("replace_scene"), scene: sceneDocument }),
     ]);
@@ -1151,7 +1152,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       "scene_apply",
       {
         title: "Apply operations to a canvas scene",
-        description: `Apply a batch of id-addressed operations to one owned canvas in one atomic call, instead of resending the scene. Requires ${scope}. baseSeq is the draft sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: add_frame, update_frame, remove_frame, add_node, update_node, move_node, remove_node and replace_scene (the escape hatch that replaces the whole scene). A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged scene. The reply carries the new sequence, how many operations applied, the computed box of every touched node so the result can be judged without pixels, the violations the scene engine reports, and whether this call froze a snapshot: published reports whether it froze one and revisionId names it.`,
+        description: `Apply a batch of id-addressed operations to one owned canvas in one atomic call, instead of resending the scene. Requires ${scope}. baseSeq is the draft sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: add_frame, update_frame, remove_frame, add_node, update_node, move_node, reorder_node, remove_node and replace_scene (the escape hatch that replaces the whole scene). A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged scene. The reply carries the new sequence, how many operations applied, the computed box of every touched node so the result can be judged without pixels, the violations the scene engine reports, and whether this call froze a snapshot: published reports whether it froze one and revisionId names it.`,
         inputSchema: {
           artifactId: documentIdSchema,
           baseSeq: z.number().int().min(0),
