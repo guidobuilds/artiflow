@@ -640,7 +640,7 @@ test("an invalid scene keeps the operation_rejected vocabulary and writes nothin
   assert.equal(world.revisions.length, 1, "an invalid scene writes no snapshot");
 });
 
-test("a change the operations cannot express falls back to one replace_scene", async () => {
+test("a reordering stays one reorder operation instead of a whole replacement", async () => {
   const world = routeWorld();
   const response = await save(world, { scene: REORDERED, expectedSeq: 0 });
   assert.equal(response.status, 200);
@@ -648,8 +648,8 @@ test("a change the operations cannot express falls back to one replace_scene", a
   assert.equal(body.applied, 1);
   assert.deepEqual(
     world.operations[0]?.ops,
-    [{ op: "replace_scene", scene: REORDERED }],
-    "a reordering the diff cannot express is refused by the replay check and replaced whole",
+    [{ op: "reorder_node", id: "n2", index: 0 }],
+    "a pure reordering is expressed as a reorder, so the scene is never replaced whole",
   );
   assert.deepEqual(world.draftScene(), REORDERED);
 });
