@@ -7,6 +7,7 @@ import {
   redirect,
   useLocation,
   type ErrorComponentProps,
+  type SearchSchemaInput,
 } from "@tanstack/react-router";
 
 import { Button } from "@/components/ui/button.tsx";
@@ -28,9 +29,18 @@ import ResetPage from "./ResetPage.tsx";
 import { queryClient } from "./query/client.ts";
 import { queryKeys } from "./query/keys.ts";
 import { signedOutRedirect } from "./route-guards.ts";
+import {
+  parseAdminUsersSearch,
+  parseLibrarySearch,
+  type AdminUsersSearchParams,
+  type LibrarySearchParams,
+} from "./route-search.ts";
 import { getScene } from "./scene-api.ts";
 
 const ARTIFACT_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+
+const validateLibrarySearch = (search: LibrarySearchParams & SearchSchemaInput) => parseLibrarySearch(search);
+const validateAdminUsersSearch = (search: AdminUsersSearchParams & SearchSchemaInput) => parseAdminUsersSearch(search);
 
 function fragmentOf(hash: string): string {
   return hash === "" ? "" : `#${hash}`;
@@ -74,6 +84,21 @@ function RouteError({ reset }: ErrorComponentProps) {
 
 function ConnectRoute() {
   return <LibraryPage connect />;
+}
+
+function IndexRoute() {
+  const { filter } = indexRoute.useSearch();
+  return <LibraryPage filter={filter} />;
+}
+
+function LibraryRoute() {
+  const { filter } = libraryRoute.useSearch();
+  return <LibraryPage filter={filter} />;
+}
+
+function AdminUsersRoute() {
+  const search = adminUsersRoute.useSearch();
+  return <AdminUsersPage filter={search} />;
 }
 
 function LoginRoute() {
@@ -140,15 +165,17 @@ const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  validateSearch: validateLibrarySearch,
   beforeLoad: requireSession,
-  component: LibraryPage,
+  component: IndexRoute,
 });
 
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/library",
+  validateSearch: validateLibrarySearch,
   beforeLoad: requireSession,
-  component: LibraryPage,
+  component: LibraryRoute,
 });
 
 const connectRoute = createRoute({
@@ -192,8 +219,9 @@ const accountRoute = createRoute({
 const adminUsersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/users",
+  validateSearch: validateAdminUsersSearch,
   beforeLoad: requireSession,
-  component: AdminUsersPage,
+  component: AdminUsersRoute,
 });
 
 const adminAccessRoute = createRoute({
@@ -269,3 +297,9 @@ export const router = createRouter({
   context: { queryClient },
   defaultPreload: "intent",
 });
+
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}

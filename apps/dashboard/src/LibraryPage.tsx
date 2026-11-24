@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 
 import { type ArtifactSummary } from "./auth-client.ts";
 import { invalidateLibrary, libraryOwnedQuery, librarySharedQuery, libraryView } from "./query/library.ts";
-import { AppShell, PageHeader, type LibraryFilter } from "@/components/app/app-shell.tsx";
+import { librarySearch, type LibraryFilter } from "./route-search.ts";
+import { AppShell, PageHeader } from "@/components/app/app-shell.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Menu, MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
@@ -69,11 +71,6 @@ function preference<T extends string>(key: string, values: readonly T[], fallbac
   }
 }
 
-function initialFilter(): LibraryFilter {
-  const value = new URLSearchParams(window.location.search).get("filter");
-  return value === "mine" || value === "shared" ? value : "all";
-}
-
 function timestamp(artifact: ArtifactSummary, sort: Sort): number {
   const value = sort === "updated" ? (artifact.updatedAt ?? artifact.createdAt) : artifact.createdAt;
   const time = Date.parse(value ?? "");
@@ -91,9 +88,16 @@ function groupOf(artifact: ArtifactSummary, today: number): string {
   return distance <= 7 ? "Previous 7 days" : "Earlier";
 }
 
-export default function LibraryPage({ connect = false }: { connect?: boolean }) {
+export default function LibraryPage({
+  connect = false,
+  filter = "all",
+}: {
+  connect?: boolean;
+  filter?: LibraryFilter;
+}) {
   const { toast } = useToast();
   const client = useQueryClient();
+  const navigate = useNavigate();
   const owned = useQuery(libraryOwnedQuery);
   const sharedQuery = useQuery(librarySharedQuery);
   const view = libraryView(owned.data, sharedQuery.data);
@@ -103,7 +107,6 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
   const collection = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<{ artifact: ArtifactSummary; panel: "share" | "delete" } | null>(null);
   const [removed, setRemoved] = useState<string[]>([]);
-  const [filter, setFilter] = useState<LibraryFilter>(initialFilter);
   const [layout, setLayout] = useState<Layout>(() => preference("artiflow-library-layout", ["list", "grid"], "grid"));
   const [sort, setSort] = useState<Sort>(() =>
     preference("artiflow-library-sort", ["updated", "created", "name"], "updated"),
@@ -128,6 +131,9 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
     setRemoved((current) => [...current, id]);
     setActive(null);
     void invalidateLibrary(client);
+  };
+  const selectFilter = (next: LibraryFilter) => {
+    void navigate({ to: "/", search: librarySearch(next) });
   };
   const artifacts = (view.kind === "ready" ? view.artifacts : []).filter((artifact) => !removed.includes(artifact.id));
   const sharedRows = (view.kind === "ready" || view.kind === "error" ? view.shared : []).filter(
@@ -297,7 +303,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
       recent={recent}
       artifactCount={view.kind === "ready" ? artifacts.length : undefined}
       connectOnLoad={connect}
-      onFilter={setFilter}
+      onFilter={selectFilter}
       onSearch={() => setPaletteOpen(true)}
     >
       <section
@@ -520,7 +526,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
           shared={sharedRows}
           onClose={() => setPaletteOpen(false)}
           onConnect={openConnect}
-          onSelectFilter={setFilter}
+          onSelectFilter={selectFilter}
         />
       ) : null}
       {active?.panel === "share" ? (

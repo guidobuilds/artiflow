@@ -22,15 +22,15 @@ test("the router owns the route tree and carries the query client", () => {
 test("every path the entry dispatched still mounts the same screen", () => {
   const router = read(ROUTER);
   const routes = [
-    ["/", "component: LibraryPage"],
-    ["/library", "component: LibraryPage"],
+    ["/", "component: IndexRoute"],
+    ["/library", "component: LibraryRoute"],
     ["/connect", "component: ConnectRoute"],
     ["/login", "component: LoginRoute"],
     ["/register", "component: RegisterRoute"],
     ["/reset-password", "component: ResetRoute"],
     ["/consent", "component: ConsentRoute"],
     ["/account", "component: AccountPage"],
-    ["/admin/users", "component: AdminUsersPage"],
+    ["/admin/users", "component: AdminUsersRoute"],
     ["/admin/access", "component: AdminAccessPage"],
     ["/admin/sso", "component: AdminSsoPage"],
     ["/admin/password-policy", "component: AdminPasswordPolicyPage"],
@@ -43,6 +43,8 @@ test("every path the entry dispatched still mounts the same screen", () => {
     assert.ok(router.includes(component), `the ${path} route mounts ${component.slice("component: ".length)}`);
   }
   assert.match(router, /<LibraryPage connect \/>/);
+  assert.match(router, /<LibraryPage filter=\{filter\} \/>/);
+  assert.match(router, /<AdminUsersPage filter=\{search\} \/>/);
   assert.match(router, /<EditorPage artifactId=\{artifactId\} \/>/);
   assert.match(router, /<CanvasEditorPage artifactId=\{artifactId\} \/>/);
 });

@@ -323,7 +323,7 @@ test("the invitations entry reaches the shipped surface instead of the console p
   for (const route of ["/admin/users", "/admin/access", "/admin/invitations"]) {
     assert.ok(router.includes(`path: "${route}"`), `the router routes ${route}`);
   }
-  assert.match(router, /component: AdminUsersPage/, "the user directory keeps its own route");
+  assert.match(router, /component: AdminUsersRoute/, "the user directory keeps its own route");
   assert.match(router, /notFoundComponent: NotFoundPage/, "unknown paths still render the not-found page");
 });
 
@@ -364,7 +364,7 @@ test("the status filter travels to the server next to the role and the search", 
   }
   assert.match(page, /status: "deactivated"/);
   assert.match(page, /status: "active"/);
-  assert.match(page, /setFilter\(\(current\) => \(\{ \.\.\.current, page: 1, status:/);
+  assert.match(page, /updateFilter\(\{ page: 1, status:/);
 });
 
 test("the access method filter travels to the server next to the role, the status and the search", async () => {
@@ -398,7 +398,7 @@ test("the access method filter travels to the server next to the role, the statu
   }
   assert.match(page, /method: "github"/);
   assert.match(page, /method: "artiflow"/);
-  assert.match(page, /setFilter\(\(current\) => \(\{ \.\.\.current, page: 1, method:/);
+  assert.match(page, /updateFilter\(\{ page: 1, method:/);
   assert.match(page, /filter\.method !== null/, "an empty answer offers to clear the method filter");
 });
 

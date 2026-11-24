@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentProps, type ReactNode, type Ref } fr
 
 import ConnectDialog, { onOpenConnect, openConnect } from "../../ConnectDialog.tsx";
 import { useSession } from "../../query/session.ts";
+import { type LibraryFilter } from "../../route-search.ts";
 import { AccountMenu } from "@/components/app/account-menu.tsx";
 import { Icon, type IconName } from "@/components/ui/icon.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -9,7 +10,6 @@ import { Logo } from "@/components/ui/logo.tsx";
 import { cn } from "@/lib/utils.ts";
 
 export type NavItem = "all" | "mine" | "shared" | "account";
-export type LibraryFilter = "all" | "mine" | "shared";
 export type RecentItem = { key: string; title: string; when: string; onOpen: () => void };
 
 const LIBRARY_LINKS: { key: LibraryFilter; label: string; icon: IconName; href: string }[] = [
