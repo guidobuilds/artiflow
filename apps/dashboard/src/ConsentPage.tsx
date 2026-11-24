@@ -77,9 +77,7 @@ export default function ConsentPage({ search }: { search: string }) {
 
   const switchAccount = () => {
     setBusy(true);
-    void signOut().then(() =>
-      window.location.assign(loginHref(window.location.pathname, window.location.search)),
-    );
+    void signOut().then(() => window.location.assign(loginHref(window.location.pathname, window.location.search)));
   };
 
   useEffect(() => {

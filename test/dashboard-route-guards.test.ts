@@ -121,9 +121,12 @@ test("every session route declares the guard and the public routes stay open", (
   for (const path of PUBLIC_ROUTES) assert.doesNotMatch(routeBlock(router, path), /beforeLoad/, path);
   assert.match(
     router,
-    /const requireSession = async \(\{\s*context,\s*location,\s*\}: \{\s*context: \{ queryClient: QueryClient \};\s*location: \{ pathname: string; searchStr: string \};\s*\}\)/, 
+    /const requireSession = async \(\{\s*context,\s*location,\s*\}: \{\s*context: \{ queryClient: QueryClient \};\s*location: \{ pathname: string; searchStr: string \};\s*\}\)/,
   );
-  assert.match(router, /const target = await signedOutRedirect\(context\.queryClient, location\.pathname, location\.searchStr\);/);
+  assert.match(
+    router,
+    /const target = await signedOutRedirect\(context\.queryClient, location\.pathname, location\.searchStr\);/,
+  );
   assert.match(router, /if \(target !== null\) throw redirect\(target\);/);
   assert.doesNotMatch(router, /\.clear\(\)|resetQueries|removeQueries/);
 });
@@ -143,5 +146,8 @@ test("the shell and the screens no longer redirect on their own", () => {
 });
 
 test("consent still bounces a visitor the request needs signed in", () => {
-  assert.match(read(`${SRC}/ConsentPage.tsx`), /window\.location\.replace\(loginHref\(window\.location\.pathname, window\.location\.search\)\)/);
+  assert.match(
+    read(`${SRC}/ConsentPage.tsx`),
+    /window\.location\.replace\(loginHref\(window\.location\.pathname, window\.location\.search\)\)/,
+  );
 });
