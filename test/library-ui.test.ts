@@ -2,15 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 
-import {
-  LIBRARY_POLL_MS,
-  fetchArtifacts,
-  fetchSharedArtifacts,
-  formatBytes,
-  getPublicClient,
-  parseArtifactList,
-  startLibraryPolling,
-} from "../apps/dashboard/src/auth-client.ts";
+import { fetchArtifacts, formatBytes, getPublicClient, parseArtifactList } from "../apps/dashboard/src/auth-client.ts";
 import { labelFor, editsDocumentInApp, editsSceneInApp } from "@artiflow/domain/kinds";
 import { safeInternalPath } from "../apps/dashboard/src/lib/utils.ts";
 
@@ -270,25 +262,6 @@ test("session-gated pages replace the route and hide their shell while redirecti
   assert.match(auth, /window\.location\.assign\(returnPath\)/);
 });
 
-test("polling exposes expired sessions from either library read without an empty success", async (t) => {
-  t.mock.timers.enable({ apis: ["setInterval"] });
-  useFetch(() => json({ error: "unauthorized" }, 401));
-  let refresh: Promise<unknown[]> | undefined;
-  const stop = startLibraryPolling(() => {
-    refresh = Promise.all([fetchArtifacts(), fetchSharedArtifacts()]);
-  });
-  t.mock.timers.tick(15_000);
-  assert.deepEqual(
-    await refresh,
-    Array(2).fill({
-      ok: false,
-      error: "This browser has no signed-in account, so the library cannot be listed. Sign in first.",
-      signInRequired: true,
-    }),
-  );
-  stop();
-});
-
 test("consent read distinguishes a missing session from retryable errors", async () => {
   useFetch(() => json({ error: "unauthorized" }, 401));
   assert.deepEqual(await getPublicClient("client"), {
@@ -334,37 +307,6 @@ test("refresh refetches the list instead of reusing the previous answer", async 
   const second = await fetchArtifacts();
   assert.equal(second.ok === true && second.value.length, 1);
   assert.equal(calls.length, 2);
-});
-
-test("polling is one slow bounded timer that the returned stop clears", () => {
-  const realSet = globalThis.setInterval;
-  const realClear = globalThis.clearInterval;
-  const scheduled: { handler: () => void; delay: number }[] = [];
-  const cleared: unknown[] = [];
-  const timer: unknown = { id: "timer-1" };
-  globalThis.setInterval = ((handler: () => void, delay: number) => {
-    scheduled.push({ handler, delay });
-    return timer;
-  }) as unknown as typeof setInterval;
-  globalThis.clearInterval = ((handle: unknown) => {
-    cleared.push(handle);
-  }) as unknown as typeof clearInterval;
-  try {
-    let refreshed = 0;
-    const stop = startLibraryPolling(() => {
-      refreshed += 1;
-    });
-    assert.equal(scheduled.length, 1);
-    assert.equal(scheduled[0]?.delay, LIBRARY_POLL_MS);
-    assert.equal(LIBRARY_POLL_MS >= 10_000, true);
-    scheduled[0]?.handler();
-    assert.equal(refreshed, 1);
-    stop();
-    assert.deepEqual(cleared, [timer]);
-  } finally {
-    globalThis.setInterval = realSet;
-    globalThis.clearInterval = realClear;
-  }
 });
 
 test("the connect overlay is a labelled dialog with agent tabs and three named steps", () => {

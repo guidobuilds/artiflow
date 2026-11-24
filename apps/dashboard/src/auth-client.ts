@@ -326,10 +326,6 @@ export type LibraryResult =
 const NO_LIBRARY_SESSION = "This browser has no signed-in account, so the library cannot be listed. Sign in first.";
 const LIBRARY_FAILED = "Could not load the library. No list is shown, because no answer was verified.";
 export const LIBRARY_POLL_MS = 15_000;
-export function startLibraryPolling(refresh: () => void, intervalMs: number = LIBRARY_POLL_MS): () => void {
-  const timer = setInterval(refresh, Math.max(10_000, intervalMs));
-  return () => clearInterval(timer);
-}
 export function formatBytes(bytes: number | null): string {
   if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return "size unknown";
   if (bytes < 1024) return `${bytes} B`;
