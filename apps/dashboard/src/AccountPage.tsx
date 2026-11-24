@@ -103,7 +103,7 @@ export default function AccountPage() {
   };
 
   return (
-    <AppShell active="account" requireSession>
+    <AppShell active="account">
       <section className="grid w-full max-w-[780px] gap-[18px] px-7 pt-[30px] pb-10 max-[760px]:px-4 max-[760px]:pt-[22px]">
         <PageHeader title="Account" lede="Your profile, your sessions and how this browser shows artiflow." />
         {error ? (

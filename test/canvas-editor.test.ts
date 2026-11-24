@@ -350,11 +350,27 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
 });
 
 test("the canvas route is gated by the registry and leaves the markdown route untouched", () => {
-  const main = source("../apps/dashboard/src/main.tsx");
-  assert.match(main, /const canvas = \/\^\\\/canvas\\\/\(\[a-f0-9\]\{8\}/);
-  assert.match(main, /<CanvasEditorPage artifactId=/);
-  assert.match(main, /<EditorPage artifactId=/);
-  assert.doesNotMatch(main, /kind === "canvas"/);
+  const router = source("../apps/dashboard/src/router.tsx");
+  const guard = router.match(/const ARTIFACT_ID = (\/.*\/);\n/)?.[1];
+  assert.ok(guard, "the editors share one artifact identifier gate");
+  const artifactId = new RegExp(guard.slice(1, guard.lastIndexOf("/")));
+  assert.equal(artifactId.test("0f0a0b1c-2d3e-4f50-8a9b-0c1d2e3f4a5b"), true);
+  assert.equal(artifactId.test("not-a-uuid"), false);
+  assert.equal(artifactId.test("0f0a0b1c-2d3e-4f50-8a9b-0c1d2e3f4a5"), false);
+  assert.match(router, /path: "\/canvas\/\$artifactId"/);
+  assert.match(router, /path: "\/edit\/\$artifactId"/);
+  assert.equal(
+    (
+      router.match(
+        /params: \{\s*parse: \(params\) => \(ARTIFACT_ID\.test\(params\.artifactId\) \? params : false\),\s*\}/g,
+      ) ?? []
+    ).length,
+    2,
+    "a non-UUID segment must not mount either editor",
+  );
+  assert.match(router, /<CanvasEditorPage artifactId=/);
+  assert.match(router, /<EditorPage artifactId=/);
+  assert.doesNotMatch(router, /kind === "canvas"/);
   const library = source("../apps/dashboard/src/LibraryPage.tsx");
   assert.match(library, /editsSceneInApp\(artifact\.kind\)/);
   assert.match(library, /openCanvas\(artifact, window\.location\)/);

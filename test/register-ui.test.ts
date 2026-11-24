@@ -9,19 +9,17 @@ const read = (path: string): string => {
 };
 const REGISTER = "../apps/dashboard/src/RegisterPage.tsx";
 const SCREEN = "../apps/dashboard/src/AuthScreen.tsx";
-const MAIN = "../apps/dashboard/src/main.tsx";
+const ROUTER = "../apps/dashboard/src/router.tsx";
 const bothWays = (left: string, right: string): RegExp =>
   new RegExp(`${left}\\s*&&\\s*${right}|${right}\\s*&&\\s*${left}`);
 
 test("the invitation page is routed from /register and its fragment, before the 404 fallback", () => {
-  const main = read(MAIN);
-  assert.match(main, /from "\.\/RegisterPage\.tsx"/);
-  assert.match(main, /path === "\/register"/);
-  assert.match(main, /window\.location\.hash/);
-  const register = main.indexOf("<RegisterPage");
-  const notFound = main.indexOf("<NotFoundPage />");
-  assert.ok(register > 0, "main.tsx must render <RegisterPage />");
-  assert.ok(notFound > register, "the /register branch must precede the NotFoundPage fallback");
+  const router = read(ROUTER);
+  assert.match(router, /from "\.\/RegisterPage\.tsx"/);
+  assert.match(router, /path: "\/register"/);
+  assert.match(router, /hash=\{fragmentOf\(location\.hash\)\}/);
+  assert.match(router, /component: RegisterRoute/, "the registration page keeps its own route");
+  assert.match(router, /notFoundComponent: NotFoundPage/, "unknown paths still render the not-found page");
 });
 
 test("the invitation page reads the fragment token and previews it before showing the form", () => {

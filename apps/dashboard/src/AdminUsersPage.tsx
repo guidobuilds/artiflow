@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 
 import { AdminShell } from "@/components/app/admin-shell.tsx";
 import { AccountSessionsPanel } from "@/components/app/account-sessions.tsx";
@@ -49,8 +50,8 @@ import {
 } from "./admin-users-client.ts";
 import { useHeldQuery } from "./query/held.ts";
 import { queryKeys } from "./query/keys.ts";
+import { FIRST_ADMIN_USERS_FILTER, adminUsersSearch } from "./route-search.ts";
 
-const FIRST_PAGE: AdminUserFilter = { page: 1, search: "", role: null, status: null, method: null };
 const EMAIL_NOTICE =
   "No verification is required in this version: the new address takes effect immediately and the person keeps their linked sign-in methods.";
 
@@ -81,9 +82,9 @@ function gateOf(directory: DirectoryRead): AdminGate {
   return { kind: "loading" };
 }
 
-export default function AdminUsersPage() {
+export default function AdminUsersPage({ filter }: { filter: AdminUserFilter }) {
   const client = useQueryClient();
-  const [filter, setFilter] = useState<AdminUserFilter>(FIRST_PAGE);
+  const navigate = useNavigate();
   const directoryQuery = useHeldQuery({
     queryKey: queryKeys.admin.users(filter),
     queryFn: () => readAdminUserPage(filter),
@@ -92,7 +93,7 @@ export default function AdminUsersPage() {
   });
   const directory = directoryQuery.read;
   const setDirectory = directoryQuery.setRead;
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(filter.search);
   const [notice, setNotice] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [editError, setEditError] = useState("");
@@ -107,11 +108,19 @@ export default function AdminUsersPage() {
   const gate = gateOf(directory);
   const subject = draft === null || rows === null ? null : (rows.users.find((row) => row.id === draft.id) ?? null);
 
-  const applySearch = () => setFilter((current) => ({ ...current, page: 1, search }));
+  useEffect(() => {
+    setSearch(filter.search);
+  }, [filter.search]);
+
+  const updateFilter = (next: Partial<AdminUserFilter>) => {
+    void navigate({ to: "/admin/users", search: adminUsersSearch({ ...filter, ...next }) });
+  };
+
+  const applySearch = () => updateFilter({ page: 1, search });
 
   const clearFilters = () => {
-    setSearch("");
-    setFilter(FIRST_PAGE);
+    setSearch(FIRST_ADMIN_USERS_FILTER.search);
+    updateFilter(FIRST_ADMIN_USERS_FILTER);
   };
 
   const openEditor = (row: AdminUserRow) => {
@@ -244,73 +253,61 @@ export default function AdminUsersPage() {
             />
           </Field>
           <Segmented label="Role filter">
-            <SegmentedItem
-              pressed={filter.role === null}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, role: null }))}
-            >
+            <SegmentedItem pressed={filter.role === null} onClick={() => updateFilter({ page: 1, role: null })}>
               All roles
             </SegmentedItem>
-            <SegmentedItem
-              pressed={filter.role === "member"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, role: "member" }))}
-            >
+            <SegmentedItem pressed={filter.role === "member"} onClick={() => updateFilter({ page: 1, role: "member" })}>
               Members
             </SegmentedItem>
             <SegmentedItem
               pressed={filter.role === "administrator"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, role: "administrator" }))}
+              onClick={() => updateFilter({ page: 1, role: "administrator" })}
             >
               Administrators
             </SegmentedItem>
           </Segmented>
           <Segmented label="Status filter">
-            <SegmentedItem
-              pressed={filter.status === null}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, status: null }))}
-            >
+            <SegmentedItem pressed={filter.status === null} onClick={() => updateFilter({ page: 1, status: null })}>
               Any status
             </SegmentedItem>
             <SegmentedItem
               pressed={filter.status === "active"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, status: "active" }))}
+              onClick={() => updateFilter({ page: 1, status: "active" })}
             >
               Active
             </SegmentedItem>
             <SegmentedItem
               pressed={filter.status === "deactivated"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, status: "deactivated" }))}
+              onClick={() => updateFilter({ page: 1, status: "deactivated" })}
             >
               Deactivated
             </SegmentedItem>
           </Segmented>
           <Segmented label="Access method filter">
-            <SegmentedItem
-              pressed={filter.method === null}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, method: null }))}
-            >
+            <SegmentedItem pressed={filter.method === null} onClick={() => updateFilter({ page: 1, method: null })}>
               Any method
             </SegmentedItem>
             <SegmentedItem
               pressed={filter.method === "credential"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "credential" }))}
+              onClick={() => updateFilter({ page: 1, method: "credential" })}
             >
               Password
             </SegmentedItem>
             <SegmentedItem
               pressed={filter.method === "google"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "google" }))}
+              onClick={() => updateFilter({ page: 1, method: "google" })}
             >
               Google
             </SegmentedItem>
             <SegmentedItem
               pressed={filter.method === "github"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "github" }))}
+              onClick={() => updateFilter({ page: 1, method: "github" })}
             >
               GitHub
             </SegmentedItem>
             <SegmentedItem
               pressed={filter.method === "artiflow"}
-              onClick={() => setFilter((current) => ({ ...current, page: 1, method: "artiflow" }))}
+              onClick={() => updateFilter({ page: 1, method: "artiflow" })}
             >
               SSO
             </SegmentedItem>
@@ -399,7 +396,7 @@ export default function AdminUsersPage() {
                 size="sm"
                 variant="secondary"
                 disabled={page <= 1}
-                onClick={() => setFilter((current) => ({ ...current, page: Math.max(1, page - 1) }))}
+                onClick={() => updateFilter({ page: Math.max(1, page - 1) })}
               >
                 Previous
               </Button>
@@ -407,7 +404,7 @@ export default function AdminUsersPage() {
                 size="sm"
                 variant="secondary"
                 disabled={page * pageSize >= total}
-                onClick={() => setFilter((current) => ({ ...current, page: page + 1 }))}
+                onClick={() => updateFilter({ page: page + 1 })}
               >
                 Next
               </Button>

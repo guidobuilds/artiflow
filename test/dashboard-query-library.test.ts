@@ -33,7 +33,7 @@ test("the library view waits for both lists, keeps a failed share list empty, an
     "an owned list does not render while the shared list is still in flight",
   );
   const signedOut = libraryView({ ok: false, error: "Sign in", signInRequired: true }, { ok: true, value: [] });
-  assert.equal(signedOut.kind, "redirecting");
+  assert.equal(signedOut.kind, "error", "the route guard owns the sign-in redirect, so the list reports the read");
   const sharedOnly = libraryView(
     { ok: true, value: [artifact("mine")] },
     { ok: false, error: "down", signInRequired: false },

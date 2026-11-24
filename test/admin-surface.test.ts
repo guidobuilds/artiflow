@@ -26,7 +26,7 @@ const MUTATION_ORIGIN = "http://127.0.0.1:5173";
 const TYPED_INPUT = "replacement-input";
 const PAGE = "../apps/dashboard/src/AdminAccessPage.tsx";
 const CLIENT = "../apps/dashboard/src/admin-access-client.ts";
-const MAIN = "../apps/dashboard/src/main.tsx";
+const ROUTER = "../apps/dashboard/src/router.tsx";
 const SHELL = "../apps/dashboard/src/components/app/app-shell.tsx";
 const ADMIN_SHELL = "../apps/dashboard/src/components/app/admin-shell.tsx";
 
@@ -89,13 +89,11 @@ afterEach(() => {
 });
 
 test("the administration surface has its own route, before the 404, and stays out of member navigation", () => {
-  const main = read(MAIN);
-  assert.match(main, /from "\.\/AdminAccessPage\.tsx"/);
-  assert.match(main, /path === "\/admin\/access"/);
-  const admin = main.indexOf("<AdminAccessPage />");
-  const notFound = main.indexOf("<NotFoundPage />");
-  assert.ok(admin > 0, "main.tsx must render <AdminAccessPage />");
-  assert.ok(notFound > admin, "the /admin/access branch must precede the NotFoundPage fallback");
+  const router = read(ROUTER);
+  assert.match(router, /from "\.\/AdminAccessPage\.tsx"/);
+  assert.match(router, /path: "\/admin\/access"/);
+  assert.match(router, /component: AdminAccessPage/, "the router must mount <AdminAccessPage /> at its own route");
+  assert.match(router, /notFoundComponent: NotFoundPage/, "unknown paths still render the not-found page");
 
   const page = read(PAGE);
   const adminShell = read(ADMIN_SHELL);

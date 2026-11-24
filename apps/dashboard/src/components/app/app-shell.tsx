@@ -2,6 +2,7 @@ import { useEffect, useState, type ComponentProps, type ReactNode, type Ref } fr
 
 import ConnectDialog, { onOpenConnect, openConnect } from "../../ConnectDialog.tsx";
 import { useSession } from "../../query/session.ts";
+import { type LibraryFilter } from "../../route-search.ts";
 import { AccountMenu } from "@/components/app/account-menu.tsx";
 import { Icon, type IconName } from "@/components/ui/icon.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
@@ -9,7 +10,6 @@ import { Logo } from "@/components/ui/logo.tsx";
 import { cn } from "@/lib/utils.ts";
 
 export type NavItem = "all" | "mine" | "shared" | "account";
-export type LibraryFilter = "all" | "mine" | "shared";
 export type RecentItem = { key: string; title: string; when: string; onOpen: () => void };
 
 const LIBRARY_LINKS: { key: LibraryFilter; label: string; icon: IconName; href: string }[] = [
@@ -59,7 +59,6 @@ export function AppShell({
   connectOnLoad,
   onFilter,
   onSearch,
-  requireSession,
   children,
 }: {
   active: NavItem;
@@ -69,22 +68,13 @@ export function AppShell({
   connectOnLoad?: boolean;
   onFilter?: (filter: LibraryFilter) => void;
   onSearch?: () => void;
-  requireSession?: boolean;
   children: ReactNode;
 }) {
   const session = useSession();
   const user = session.data ?? null;
-  const [redirecting, setRedirecting] = useState(false);
   const [connecting, setConnecting] = useState(Boolean(connectOnLoad));
 
-  useEffect(() => {
-    if (!requireSession || session.isPending || session.isError || user !== null) return;
-    setRedirecting(true);
-    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
-  }, [requireSession, session.isPending, session.isError, user]);
   useEffect(() => onOpenConnect(() => setConnecting(true)), []);
-
-  if (redirecting) return null;
 
   const closeConnect = () => {
     setConnecting(false);

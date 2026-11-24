@@ -51,8 +51,9 @@ test("SPA 404 shows the safely rendered requested path in a terminal sample", ()
   const css = source("../apps/dashboard/src/styles/globals.css");
   assert.match(css, /\.caret\s*\{/);
   assert.match(css, /@media\s*\(prefers-reduced-motion:\s*reduce\)/);
-  const library = source("../apps/dashboard/src/LibraryPage.tsx");
-  assert.match(library, /window\.location\.replace\(\s*"\/login\?return="/);
+  const guards = source("../apps/dashboard/src/route-guards.ts");
+  assert.match(guards, /export function loginTarget\(/);
+  assert.match(source("../apps/dashboard/src/router.tsx"), /beforeLoad: requireSession/);
 });
 
 test("authorization states remain perceivable without decorative status tags", () => {
@@ -244,19 +245,18 @@ test("return paths allow only internal paths without whitespace or backslashes",
   }
 });
 
-test("session-gated pages replace the route and hide their shell while redirecting", () => {
+test("only the consent screen still replaces the route when the request needs a session", () => {
   const library = source("../apps/dashboard/src/LibraryPage.tsx");
   const consent = source("../apps/dashboard/src/ConsentPage.tsx");
-  for (const page of [library, consent]) {
-    assert.match(
-      page,
-      /window\.location\.replace\(\s*"\/login\?return=" \+ encodeURIComponent\(window\.location\.pathname \+ window\.location\.search\),?\s*\)/,
-    );
-    assert.match(page, /redirecting/);
-    assert.match(page, /return null/);
-    assert.doesNotMatch(page, /sign-in page/);
-  }
-  assert.match(library, /view\.kind === "loading" \|\| view\.kind === "redirecting"\) return null/);
+  assert.match(
+    consent,
+    /window\.location\.replace\(loginHref\(window\.location\.pathname, window\.location\.search\)\)/,
+  );
+  assert.match(consent, /redirecting/);
+  assert.match(consent, /return null/);
+  assert.doesNotMatch(library, /window\.location\.replace/);
+  assert.doesNotMatch(library, /redirecting/);
+  assert.match(library, /if \(view\.kind === "loading"\) return null;/);
   const auth = source("../apps/dashboard/src/AuthScreen.tsx");
   assert.match(auth, /safeInternalPath\(new URLSearchParams\(search\)\.get\("return"\) \?\? ""\) \?\? "\/"/);
   assert.match(auth, /window\.location\.assign\(returnPath\)/);
@@ -320,8 +320,9 @@ test("the connect overlay is a labelled dialog with agent tabs and three named s
   assert.ok(figure);
   assert.doesNotMatch(figure, /<button\b|<Button\b/);
   assert.match(dialog, /artifactCount !== undefined \? \(\s*<p role="status"/);
-  const main = source("../apps/dashboard/src/main.tsx");
-  assert.match(main, /path === "\/connect" \? \(\s*<LibraryPage connect \/>/);
+  const router = source("../apps/dashboard/src/router.tsx");
+  assert.match(router, /path: "\/connect"/);
+  assert.match(router, /<LibraryPage connect \/>/);
 });
 
 test("sidebar recent titles truncate inside the fixed column and keep the full text on hover", () => {

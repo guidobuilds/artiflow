@@ -704,8 +704,8 @@ test("editor wiring keeps explicit discard confirmations, history and reader con
   assert.match(page, /Version \{revision\.revisionNumber\}/);
   assert.match(page, /dateTime=\{revision\.createdAt\}/);
   assert.match(page, /disabled=\{\s*busy \|\| readOnly/);
-  const main = readFileSync(new URL("../apps/dashboard/src/main.tsx", import.meta.url), "utf8");
-  assert.match(main, /<EditorPage artifactId=/);
+  const router = readFileSync(new URL("../apps/dashboard/src/router.tsx", import.meta.url), "utf8");
+  assert.match(router, /<EditorPage artifactId=/);
   for (const file of ["LibraryPage.tsx", "CommandPalette.tsx"]) {
     assert.match(
       readFileSync(new URL(`../apps/dashboard/src/${file}`, import.meta.url), "utf8"),
