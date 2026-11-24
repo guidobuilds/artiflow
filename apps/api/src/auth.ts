@@ -463,7 +463,7 @@ export function createAuthApp(
     return response;
   });
 
-  app.get(AUTHORIZE_PATH, (c) => {
+  app.get(AUTHORIZE_PATH, (c): Response | Promise<Response> => {
     const resource = c.req.query("resource")?.trim() ?? "";
     if (resource.length === 0) {
       return c.json({ error: "invalid_target", error_description: "resource parameter is required" }, 400);
