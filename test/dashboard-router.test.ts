@@ -99,3 +99,20 @@ test("nothing dehydrates or hydrates the query cache", () => {
     assert.doesNotMatch(read(path), /dehydrate|hydrate/i, path);
   }
 });
+
+test("the detail routes prefetch their read on intent", () => {
+  const router = read(ROUTER);
+  assert.match(router, /import \{ getDocument \} from "\.\/editor-api\.ts";/);
+  assert.match(router, /import \{ getScene \} from "\.\/scene-api\.ts";/);
+  assert.match(router, /defaultPreload: "intent"/);
+  assert.match(
+    router,
+    /async function prefetchDocument\(\{[\s\S]*?queryKey: queryKeys\.artifact\.document\(params\.artifactId\)[\s\S]*?queryFn: \(\) => getDocument\(params\.artifactId\)/,
+  );
+  assert.match(
+    router,
+    /async function prefetchScene\(\{[\s\S]*?queryKey: queryKeys\.artifact\.scene\(params\.artifactId\)[\s\S]*?queryFn: \(\) => getScene\(params\.artifactId\)/,
+  );
+  assert.match(router, /path: "\/edit\/\$artifactId",\s*beforeLoad: requireSession,\s*loader: prefetchDocument,/);
+  assert.match(router, /path: "\/canvas\/\$artifactId",\s*beforeLoad: requireSession,\s*loader: prefetchScene,/);
+});

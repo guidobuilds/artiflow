@@ -18,6 +18,7 @@ import AdminSsoPage from "./AdminSsoPage.tsx";
 import AdminUsersPage from "./AdminUsersPage.tsx";
 import CanvasEditorPage from "./CanvasEditorPage.tsx";
 import ConsentPage from "./ConsentPage.tsx";
+import { getDocument } from "./editor-api.ts";
 import EditorPage from "./EditorPage.tsx";
 import LibraryPage from "./LibraryPage.tsx";
 import LoginPage from "./LoginPage.tsx";
@@ -25,7 +26,9 @@ import NotFoundPage from "./NotFoundPage.tsx";
 import RegisterPage from "./RegisterPage.tsx";
 import ResetPage from "./ResetPage.tsx";
 import { queryClient } from "./query/client.ts";
+import { queryKeys } from "./query/keys.ts";
 import { signedOutRedirect } from "./route-guards.ts";
+import { getScene } from "./scene-api.ts";
 
 const ARTIFACT_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
@@ -101,6 +104,32 @@ function EditorRoute() {
 function CanvasRoute() {
   const { artifactId } = canvasRoute.useParams();
   return <CanvasEditorPage artifactId={artifactId} />;
+}
+
+async function prefetchDocument({
+  context,
+  params,
+}: {
+  context: { queryClient: QueryClient };
+  params: { artifactId: string };
+}) {
+  await context.queryClient.prefetchQuery({
+    queryKey: queryKeys.artifact.document(params.artifactId),
+    queryFn: () => getDocument(params.artifactId),
+  });
+}
+
+async function prefetchScene({
+  context,
+  params,
+}: {
+  context: { queryClient: QueryClient };
+  params: { artifactId: string };
+}) {
+  await context.queryClient.prefetchQuery({
+    queryKey: queryKeys.artifact.scene(params.artifactId),
+    queryFn: () => getScene(params.artifactId),
+  });
 }
 
 const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
@@ -199,6 +228,7 @@ const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/edit/$artifactId",
   beforeLoad: requireSession,
+  loader: prefetchDocument,
   params: {
     parse: (params) => (ARTIFACT_ID.test(params.artifactId) ? params : false),
   },
@@ -209,6 +239,7 @@ const canvasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/canvas/$artifactId",
   beforeLoad: requireSession,
+  loader: prefetchScene,
   params: {
     parse: (params) => (ARTIFACT_ID.test(params.artifactId) ? params : false),
   },
@@ -236,4 +267,5 @@ const routeTree = rootRoute.addChildren([
 export const router = createRouter({
   routeTree,
   context: { queryClient },
+  defaultPreload: "intent",
 });
