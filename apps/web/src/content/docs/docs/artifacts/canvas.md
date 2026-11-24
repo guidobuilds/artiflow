@@ -5,7 +5,7 @@ description: What a canvas artifact is, how its scene is shaped, how a person na
 
 A canvas is a design surface: frames that stand for screens, and nodes inside them. An agent publishes
 the scene, and a person opens it in the dashboard to move between frames and edit nodes. Pages and
-Markdown documents are the other text kinds; a [deck](./deck.md) is this same scene presented as slides.
+Markdown documents are the other text kinds; a [deck](/docs/artifacts/deck/) is this same scene presented as slides.
 
 ## What a scene looks like
 
@@ -49,7 +49,7 @@ Validation answers with a named reason rather than a screenshot that looks wrong
 - a node that sits outside its frame, or a coordinate that is not a finite number;
 - a property the renderer cannot honour — `layout`, `constraints`, a component reference — because
   accepting it and ignoring it would be a lie;
-- more frames or nodes than the [limits](../reference/limits.md) allow, or nesting deeper than one
+- more frames or nodes than the [limits](/docs/reference/limits/) allow, or nesting deeper than one
   frame level.
 
 An unknown property on a node is preserved rather than dropped, so a scene written by a newer client

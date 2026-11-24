@@ -3,7 +3,7 @@ title: Deck
 description: What a deck artifact is, how its slides work, how it is presented, and what it does not do yet.
 ---
 
-A deck is the [canvas](./canvas.md) scene format with an order and a way to present it: the frames are
+A deck is the [canvas](/docs/artifacts/canvas/) scene format with an order and a way to present it: the frames are
 slides, in array order. There is no second document format to learn — a scene that works as a canvas
 works as a deck.
 

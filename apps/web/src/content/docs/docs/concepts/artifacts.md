@@ -21,14 +21,14 @@ stable id, and an ordered list of **revisions**.
 
 ## Kinds available today
 
-| Kind             | What you get                                                                                                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `html` (default) | One self-contained page. Inline CSS and JavaScript run inside a sandboxed frame.                                                                  |
-| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well.                                     |
-| `canvas`         | A versioned JSON scene of frames and nodes, rendered as a navigable document and editable in the dashboard. See [Canvas](../artifacts/canvas.md). |
-| `deck`           | The same scene format, with slides in order and a presentation view. See [Deck](../artifacts/deck.md).                                            |
+| Kind             | What you get                                                                                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `html` (default) | One self-contained page. Inline CSS and JavaScript run inside a sandboxed frame.                                                                   |
+| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well.                                      |
+| `canvas`         | A versioned JSON scene of frames and nodes, rendered as a navigable document and editable in the dashboard. See [Canvas](/docs/artifacts/canvas/). |
+| `deck`           | The same scene format, with slides in order and a presentation view. See [Deck](/docs/artifacts/deck/).                                            |
 
-Canvas and deck comments anchor to a node. See [Canvas](../artifacts/canvas.md) and [Deck](../artifacts/deck.md).
+Canvas and deck comments anchor to a node. See [Canvas](/docs/artifacts/canvas/) and [Deck](/docs/artifacts/deck/).
 
 ## Limits
 
