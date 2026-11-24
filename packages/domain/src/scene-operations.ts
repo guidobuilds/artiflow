@@ -70,6 +70,7 @@ export type SceneOperation =
   | { op: "add_node"; frameId: string; node: SceneNode }
   | { op: "update_node"; id: string; props: SceneNodePatch }
   | { op: "move_node"; id: string; x: number; y: number; w?: number; h?: number }
+  | { op: "reorder_node"; id: string; index: number }
   | { op: "remove_node"; id: string }
   | { op: "replace_scene"; scene: Scene };
 
@@ -198,6 +199,18 @@ function moveNode(draft: Scene, raw: Record<string, unknown>): Step {
   return { ok: true, touched: [found.node.id] };
 }
 
+function reorderNode(draft: Scene, raw: Record<string, unknown>): Step {
+  const found = nodeOf(draft, raw.id);
+  if (!found) return stepRefusal("unknown_node", { id: identifier(raw.id) });
+  const detail = { id: found.node.id, frameId: found.frame.id };
+  const index = raw.index;
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index > found.frame.nodes.length - 1)
+    return stepRefusal("invalid_arguments", { property: "index", ...detail });
+  found.frame.nodes.splice(found.position, 1);
+  found.frame.nodes.splice(index, 0, found.node);
+  return { ok: true, touched: [] };
+}
+
 function removeNode(draft: Scene, raw: Record<string, unknown>): Step {
   const found = nodeOf(draft, raw.id);
   if (!found) return stepRefusal("unknown_node", { id: identifier(raw.id) });
@@ -232,6 +245,8 @@ function applyStep(draft: Scene, operation: unknown): Step {
       return updateNode(draft, operation);
     case "move_node":
       return moveNode(draft, operation);
+    case "reorder_node":
+      return reorderNode(draft, operation);
     case "remove_node":
       return removeNode(draft, operation);
     case "replace_scene":
@@ -328,6 +343,25 @@ const placedNodes = (scene: Scene): Map<string, PlacedNode> => {
   return placed;
 };
 
+function orderingOperations(before: Scene, after: Scene): SceneOperation[] {
+  const frames = new Map(before.frames.map((frame) => [frame.id, frame]));
+  const operations: SceneOperation[] = [];
+  for (const frame of after.frames) {
+    const source = frames.get(frame.id);
+    if (!source) continue;
+    const ids = nodeIdsOf(source);
+    for (const [index, id] of nodeIdsOf(frame).entries()) {
+      if (ids[index] === id) continue;
+      const from = ids.indexOf(id);
+      if (from < 0) continue;
+      ids.splice(from, 1);
+      ids.splice(index, 0, id);
+      operations.push({ op: "reorder_node", id, index });
+    }
+  }
+  return operations;
+}
+
 export function diffSceneOperations(previous: Scene, next: Scene): SceneOperation[] {
   const whole: SceneOperation[] = [{ op: "replace_scene", scene: next }];
   if (canonicalScene(previous) === canonicalScene(next)) return [];
@@ -370,7 +404,7 @@ export function diffSceneOperations(previous: Scene, next: Scene): SceneOperatio
     if (!beforeFrames.has(placed.frameId)) continue;
     addedNodes.push({ op: "add_node", frameId: placed.frameId, node: placed.node });
   }
-  const operations: SceneOperation[] = [
+  const base: SceneOperation[] = [
     ...addedFrames,
     ...grownFrames,
     ...removedNodes,
@@ -379,6 +413,14 @@ export function diffSceneOperations(previous: Scene, next: Scene): SceneOperatio
     ...shrunkFrames,
     ...removedFrames,
   ];
+  const interim = base.length === 0 ? null : applySceneOperations(previous, base);
+  const ordering =
+    interim === null
+      ? orderingOperations(previous, next)
+      : interim.ok
+        ? orderingOperations(interim.value.scene, next)
+        : [];
+  const operations: SceneOperation[] = [...base, ...ordering];
   if (operations.length === 0) return whole;
   const replay = applySceneOperations(previous, operations);
   if (!replay.ok) return whole;

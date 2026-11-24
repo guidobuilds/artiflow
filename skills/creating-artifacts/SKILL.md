@@ -190,8 +190,8 @@ Read a published scene by outline and by frame, never the whole document:
 Edit after publishing with one atomic batch instead of republishing:
 
 - `scene_apply` takes `baseSeq` from the read, an `idempotencyKey` and `ops`: `add_frame`,
-  `update_frame`, `remove_frame`, `add_node`, `update_node`, `move_node`, `remove_node`,
-  `replace_scene`.
+  `update_frame`, `remove_frame`, `add_node`, `update_node`, `move_node`, `reorder_node`,
+  `remove_node`, `replace_scene`.
 - the reply carries the absolute box of every touched node plus the validation verdict: read it
   instead of assuming the result.
 - a stale `baseSeq` refuses with the current sequence, and replaying the same key applies once.

@@ -9,7 +9,7 @@ import {
   type Scene,
   type SceneNode,
 } from "@artiflow/domain/scene";
-import { applySceneOperations, type SceneOperation } from "@artiflow/domain/scene-operations";
+import { applySceneOperations, diffSceneOperations, type SceneOperation } from "@artiflow/domain/scene-operations";
 
 const accepted = (input: unknown): Scene => {
   const result = validateScene(input);
@@ -119,6 +119,43 @@ test("move_node moves and optionally resizes inside the node's frame", () => {
   const resized = outcomeOf(accepted(base()), [{ op: "move_node", id: "n1", x: 0, y: 0, w: 25, h: 35 }]);
   assert.deepEqual(resized.boxes, [{ id: "n1", frameId: "f1", x: 100, y: 50, w: 25, h: 35 }]);
   assert.equal(nodeOf(resized.scene, "n2")?.w, 20, "a sibling keeps its geometry");
+});
+
+test("reorder_node moves one node to an index inside its frame", () => {
+  const value = outcomeOf(accepted(base()), [{ op: "reorder_node", id: "n1", index: 1 }]);
+  assert.deepEqual(
+    value.scene.frames[0]?.nodes.map((node) => node.id),
+    ["n2", "n1"],
+    "index 1 puts the node in front of its sibling",
+  );
+  assert.equal(value.applied, 1);
+  assert.deepEqual(value.boxes, [], "a reordering changes no geometry");
+  assert.deepEqual(value.violations, []);
+  assert.equal(nodeOf(value.scene, "n1")?.x, 10, "the node keeps its coordinates");
+  assert.equal(nodeOf(value.scene, "n2")?.x, 60, "the sibling keeps its coordinates");
+  const back = outcomeOf(value.scene, [{ op: "reorder_node", id: "n1", index: 0 }]);
+  assert.deepEqual(
+    back.scene.frames[0]?.nodes.map((node) => node.id),
+    ["n1", "n2"],
+    "index 0 is the back of the frame",
+  );
+});
+
+test("reorder_node refuses an index outside its frame or an unknown node", () => {
+  for (const index of [-1, 2, 1.5]) {
+    const refusal = refusalOf(accepted(base()), [{ op: "reorder_node", id: "n1", index }] as SceneOperation[]);
+    assert.equal(refusal.reason, "invalid_arguments", String(index));
+    assert.equal(refusal.detail.property, "index", String(index));
+    assert.equal(refusal.opIndex, 0);
+  }
+  const notANumber = refusalOf(accepted(base()), [
+    { op: "reorder_node", id: "n1", index: "1" },
+  ] as unknown as SceneOperation[]);
+  assert.equal(notANumber.reason, "invalid_arguments");
+  assert.equal(notANumber.detail.property, "index");
+  const missing = refusalOf(accepted(base()), [{ op: "reorder_node", id: "ghost", index: 0 }]);
+  assert.equal(missing.reason, "unknown_node");
+  assert.equal(missing.detail.id, "ghost");
 });
 
 test("remove_node drops the node and reports no box for it", () => {
@@ -340,6 +377,107 @@ test("the same batch on the same scene serialises to the same bytes", () => {
     ["n1", "n2", "n4"],
     "boxes arrive in scene order whatever order the operations arrived in",
   );
+});
+
+test("a pure reordering diffs to one reorder operation, not a whole scene", () => {
+  const before = accepted(base());
+  const frame = before.frames[0]!;
+  const after = accepted({
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [{ ...frame, nodes: [frame.nodes[1], frame.nodes[0]] }, before.frames[1]],
+  });
+  const operations = diffSceneOperations(before, after);
+  assert.deepEqual(
+    operations,
+    [{ op: "reorder_node", id: "n2", index: 0 }],
+    "a reordering is expressible, so it is not replaced whole",
+  );
+  const replay = applySceneOperations(before, operations);
+  assert.equal(replay.ok, true);
+  if (replay.ok) assert.equal(canonicalScene(replay.value.scene), canonicalScene(after));
+});
+
+test("a frame reordering the operations cannot express still falls back whole", () => {
+  const before = accepted(base());
+  const after = accepted({
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [before.frames[1], before.frames[0]],
+  });
+  assert.deepEqual(
+    diffSceneOperations(before, after),
+    [{ op: "replace_scene", scene: after }],
+    "no operation reorders frames, so the escape hatch stays the only answer",
+  );
+});
+
+test("a reorder mixed with a removal, an add and a move replays exactly", () => {
+  const before = accepted(base());
+  const frame = before.frames[0]!;
+  const after = accepted({
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [
+      {
+        ...frame,
+        nodes: [
+          { id: "n9", type: "rect", x: 5, y: 50, w: 10, h: 10, fill: "#0af" },
+          { ...frame.nodes[1]!, x: 70 },
+        ],
+      },
+      before.frames[1],
+    ],
+  });
+  const operations = diffSceneOperations(before, after);
+  assert.deepEqual(
+    operations.map((operation) => operation.op),
+    ["remove_node", "add_node", "move_node", "reorder_node"],
+    "a batch that mixes a reorder keeps its deterministic order",
+  );
+  const replay = applySceneOperations(before, operations);
+  assert.equal(replay.ok, true);
+  if (replay.ok) assert.equal(canonicalScene(replay.value.scene), canonicalScene(after));
+});
+
+test("every ordering of a frame's nodes diffs to reorders that replay exactly", () => {
+  const frame = {
+    id: "f1",
+    name: "Home",
+    x: 100,
+    y: 50,
+    w: 200,
+    h: 100,
+    nodes: [
+      { id: "a", type: "rect", x: 10, y: 10, w: 20, h: 20, fill: "#ffffff" },
+      { id: "b", type: "rect", x: 40, y: 10, w: 20, h: 20, fill: "#000000" },
+      { id: "c", type: "rect", x: 70, y: 10, w: 20, h: 20, fill: "#0af" },
+    ],
+  };
+  const before = accepted({ formatVersion: SCENE_FORMAT_VERSION, frames: [frame] });
+  const orders = [
+    ["a", "b", "c"],
+    ["a", "c", "b"],
+    ["b", "a", "c"],
+    ["b", "c", "a"],
+    ["c", "a", "b"],
+    ["c", "b", "a"],
+  ];
+  for (const order of orders) {
+    const nodes = order.map((id) => frame.nodes.find((node) => node.id === id)!);
+    const after = accepted({ formatVersion: SCENE_FORMAT_VERSION, frames: [{ ...frame, nodes }] });
+    const operations = diffSceneOperations(before, after);
+    const label = order.join();
+    if (label === "a,b,c") {
+      assert.deepEqual(operations, [], "the identity order needs no operation");
+      continue;
+    }
+    assert.equal(
+      operations.every((operation) => operation.op === "reorder_node"),
+      true,
+      `${label}: only reorders, never a whole replacement`,
+    );
+    const replay = applySceneOperations(before, operations);
+    assert.equal(replay.ok, true, label);
+    if (replay.ok) assert.equal(canonicalScene(replay.value.scene), canonicalScene(after), label);
+  }
 });
 
 test("a scene that does not validate refuses the batch before any operation runs", () => {

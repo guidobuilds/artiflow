@@ -658,16 +658,17 @@ Node geometry is relative to its frame and `bbox` is absolute. One read returns 
 
 Each operation is one of:
 
-| Op              | Fields                                                                     |
-| --------------- | -------------------------------------------------------------------------- |
-| `add_frame`     | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`                  |
-| `update_frame`  | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`                   |
-| `remove_frame`  | `id`                                                                       |
-| `add_node`      | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields |
-| `update_node`   | `id`, and `props` with any node property except `id`                       |
-| `move_node`     | `id`, `x`, `y`, optional `w` and `h`                                       |
-| `remove_node`   | `id`                                                                       |
-| `replace_scene` | `scene`: the escape hatch that replaces the whole scene                    |
+| Op              | Fields                                                                         |
+| --------------- | ------------------------------------------------------------------------------ |
+| `add_frame`     | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`                      |
+| `update_frame`  | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`                       |
+| `remove_frame`  | `id`                                                                           |
+| `add_node`      | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields     |
+| `update_node`   | `id`, and `props` with any node property except `id`                           |
+| `move_node`     | `id`, `x`, `y`, optional `w` and `h`                                           |
+| `reorder_node`  | `id`, and `index` inside its frame (`0` is the back, the last index the front) |
+| `remove_node`   | `id`                                                                           |
+| `replace_scene` | `scene`: the escape hatch that replaces the whole scene                        |
 
 Node types and their extra fields are `rect` (`fill`, optional `radius`), `text` (`text`, optional
 `style`), `image` (`assetId`) and `path` (`d`, optional `fill`, `stroke`, `strokeWidth`). Geometry is
