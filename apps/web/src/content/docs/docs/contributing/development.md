@@ -111,8 +111,9 @@ formatting, typecheck, tests and build). The same workflow's `integration` job s
 stack, migrates, and runs `bun run test:integration`, which fails when configuration is missing
 or any test skips. The security-sandbox reproducer stays out of CI: its control test still
 requires the viewer body to be the stored HTML, and the frame now also carries the comment
-bridge, so the run exits 3. The workflow does not build or deploy the documentation site, so
-run `bun run web:verify` locally before opening a docs change.
+bridge, so the run exits 3. The workflow builds the documentation site and runs both checks as
+its `Web site` step, and deploys nothing: a relative `.md` link or an undocumented variable fails
+that pull request instead of the deploy.
 
 The gate audits the resolved tree with bun: after `bun install --frozen-lockfile` it runs
 `bun audit --json` through `scripts/audit.mjs` (`bun run audit`) and fails on any high or critical

@@ -123,8 +123,7 @@
     "oxlint": "^1.94.0",
     "prettier": "^3.10.1",
     "tailwindcss": "^4.3.3",
-    "typescript": "7.0.2",
-    "typescript-legacy": "npm:typescript@5.9.3",
+    "typescript": "6.0.3",
     "vite": "8.3.8"
   }
 }

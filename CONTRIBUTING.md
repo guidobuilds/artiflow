@@ -105,6 +105,7 @@ commands below. The `integration` job starts the Compose stack, migrates, and ru
 bun run test        # test suite; no services required
 bun run typecheck   # API TypeScript project + the dashboard workspace project
 bun run build       # Vite production build + API type check
+bun run web:verify  # docs site: astro check, build, link and reference parity
 ```
 
 ### Runtime: Bun for the API, Node for the tooling
@@ -223,10 +224,10 @@ Examples:
 - **Dashboard effects:** `bun run check:effects` (`scripts/check-effect-fetches.mjs`) fails when a
   `useEffect` or `useLayoutEffect` in `apps/dashboard` calls `fetch` or an HTTP client function
   (`get…`, `list…`, `read…`, `save…`, and the same prefixes). Load that data with TanStack Query.
-- **Compilers:** the project type-checks with TypeScript 7, the native compiler. Its package no
-  longer exposes the classic parser API, so both checks above import `typescript-legacy`
-  (an alias for 5.9) to read the AST with `typescript`. Keep that import inside `scripts/`:
-  application code must use the modern compiler only.
+- **Compilers:** the project type-checks with TypeScript 6, the newest release whose package still
+  exposes the classic parser API that `astro check` and the two checks above rely on. Do not move
+  to TypeScript 7 until Astro's `ts-content-mapper` replaces that API: with 7, `astro check` exits
+  on startup and the parser API is gone.
 - **Persistence:** product queries belong in repositories that receive the typed
   `AppDb`/`AppTx` from `apps/api/src/db/client.ts`. HTTP routes and MCP tools consume
   the same operations instead of duplicating SQL. Prefer Drizzle builders; keep
