@@ -223,6 +223,10 @@ Examples:
 - **Dashboard effects:** `bun run check:effects` (`scripts/check-effect-fetches.mjs`) fails when a
   `useEffect` or `useLayoutEffect` in `apps/dashboard` calls `fetch` or an HTTP client function
   (`get…`, `list…`, `read…`, `save…`, and the same prefixes). Load that data with TanStack Query.
+- **Compilers:** the project type-checks with TypeScript 7, the native compiler. Its package no
+  longer exposes the classic parser API, so both checks above import `typescript-legacy`
+  (an alias for 5.9) to read the AST with `typescript`. Keep that import inside `scripts/`:
+  application code must use the modern compiler only.
 - **Persistence:** product queries belong in repositories that receive the typed
   `AppDb`/`AppTx` from `apps/api/src/db/client.ts`. HTTP routes and MCP tools consume
   the same operations instead of duplicating SQL. Prefer Drizzle builders; keep

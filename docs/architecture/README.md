@@ -248,7 +248,7 @@ opaque origin, so its requests carry no cookies and it cannot reach the parent p
 
 | Area                  | Choice                                                                                                |
 | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| Language              | TypeScript 5.9 strict, `noUncheckedIndexedAccess`, `erasableSyntaxOnly` (Bun runs API `.ts` directly) |
+| Language              | TypeScript 7.0 strict, `noUncheckedIndexedAccess`, `erasableSyntaxOnly` (Bun runs API `.ts` directly) |
 | API                   | Hono 4.13 + `@hono/node-server` 2.1                                                                   |
 | Auth                  | Better Auth 1.7.25 + `@better-auth/mcp` (OAuth provider + JWT)                                        |
 | MCP                   | Official `@modelcontextprotocol/sdk` 1.32, Streamable HTTP, stateless                                 |
