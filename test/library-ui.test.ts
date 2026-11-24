@@ -2,13 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { afterEach, test } from "node:test";
 
-import {
-  fetchArtifacts,
-  fetchSharedArtifacts,
-  formatBytes,
-  getPublicClient,
-  parseArtifactList,
-} from "../apps/dashboard/src/auth-client.ts";
+import { fetchArtifacts, formatBytes, getPublicClient, parseArtifactList } from "../apps/dashboard/src/auth-client.ts";
 import { labelFor, editsDocumentInApp, editsSceneInApp } from "@artiflow/domain/kinds";
 import { safeInternalPath } from "../apps/dashboard/src/lib/utils.ts";
 
