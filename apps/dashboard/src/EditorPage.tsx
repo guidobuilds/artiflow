@@ -141,7 +141,7 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
   const result = documentQuery.data;
   const document = result?.ok ? result.value : null;
   const error =
-    result && !result.ok && !result.signInRequired
+    result && !result.ok
       ? result.code === "wrong_kind"
         ? "HTML artifacts use the viewer, not the markdown editor."
         : result.code === "forbidden"
@@ -150,10 +150,6 @@ export default function EditorPage({ artifactId }: { artifactId: string }) {
       : "";
   const [collab, setCollab] = useState<CollabOutcome | null>(null);
   const session = useSession();
-  useEffect(() => {
-    if (!result || result.ok || !result.signInRequired) return;
-    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname));
-  }, [result]);
   useEffect(() => {
     if (document === null || session.isPending) return;
     let cancelled = false;

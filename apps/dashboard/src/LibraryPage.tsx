@@ -109,13 +109,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
     preference("artiflow-library-sort", ["updated", "created", "name"], "updated"),
   );
   const heading = useRef<HTMLHeadingElement>(null);
-  const redirected = useRef(false);
 
-  useEffect(() => {
-    if (view.kind !== "redirecting" || redirected.current) return;
-    redirected.current = true;
-    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
-  }, [view.kind]);
   useEffect(() => {
     if (view.kind === "ready") heading.current?.focus();
   }, [view.kind]);
@@ -234,7 +228,7 @@ export default function LibraryPage({ connect = false }: { connect?: boolean }) 
     };
   }, [rows, selectedHref]);
 
-  if (view.kind === "loading" || view.kind === "redirecting") return null;
+  if (view.kind === "loading") return null;
 
   const counts = { all: allRows.length, mine: artifacts.length, shared: sharedRows.length };
   const kindOf = (artifact: ArtifactSummary) => ({

@@ -11,6 +11,7 @@ import {
   type PublicClient,
 } from "./auth-client.ts";
 import { queryKeys } from "./query/keys.ts";
+import { loginHref } from "./route-guards.ts";
 import { useSessionUser } from "./query/session.ts";
 import { BareShell } from "@/components/app/app-shell.tsx";
 import { AgentLogo, type AgentMarkName } from "@/components/ui/agent-logo.tsx";
@@ -76,14 +77,15 @@ export default function ConsentPage({ search }: { search: string }) {
 
   const switchAccount = () => {
     setBusy(true);
-    const back = window.location.pathname + window.location.search;
-    void signOut().then(() => window.location.assign("/login?return=" + encodeURIComponent(back)));
+    void signOut().then(() =>
+      window.location.assign(loginHref(window.location.pathname, window.location.search)),
+    );
   };
 
   useEffect(() => {
     if (state.kind !== "signing-in" || redirecting.current) return;
     redirecting.current = true;
-    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
+    window.location.replace(loginHref(window.location.pathname, window.location.search));
   }, [state.kind]);
 
   const decide = async (accept: boolean) => {

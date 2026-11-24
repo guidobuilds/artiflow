@@ -59,7 +59,6 @@ export function AppShell({
   connectOnLoad,
   onFilter,
   onSearch,
-  requireSession,
   children,
 }: {
   active: NavItem;
@@ -69,22 +68,13 @@ export function AppShell({
   connectOnLoad?: boolean;
   onFilter?: (filter: LibraryFilter) => void;
   onSearch?: () => void;
-  requireSession?: boolean;
   children: ReactNode;
 }) {
   const session = useSession();
   const user = session.data ?? null;
-  const [redirecting, setRedirecting] = useState(false);
   const [connecting, setConnecting] = useState(Boolean(connectOnLoad));
 
-  useEffect(() => {
-    if (!requireSession || session.isPending || session.isError || user !== null) return;
-    setRedirecting(true);
-    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname + window.location.search));
-  }, [requireSession, session.isPending, session.isError, user]);
   useEffect(() => onOpenConnect(() => setConnecting(true)), []);
-
-  if (redirecting) return null;
 
   const closeConnect = () => {
     setConnecting(false);

@@ -81,17 +81,13 @@ export default function CanvasEditorPage({ artifactId }: { artifactId: string })
   const scene = useQuery({ queryKey: queryKeys.artifact.scene(artifactId), queryFn: () => getScene(artifactId) });
   const draft = scene.data?.ok ? scene.data.value : null;
   const error =
-    scene.data && !scene.data.ok && !scene.data.signInRequired
+    scene.data && !scene.data.ok
       ? scene.data.code === "wrong_kind"
         ? "This artifact is not a canvas, so it has no canvas editor."
         : scene.data.code === "forbidden"
           ? "Read-only: this canvas is not available for editing."
           : "Could not load this canvas."
       : "";
-  useEffect(() => {
-    if (!scene.data || scene.data.ok || !scene.data.signInRequired) return;
-    window.location.replace("/login?return=" + encodeURIComponent(window.location.pathname));
-  }, [scene.data]);
   return (
     <TooltipProvider>
       <div className="min-w-0 flex-1">

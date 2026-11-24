@@ -4,6 +4,7 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  redirect,
   useLocation,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
@@ -24,12 +25,24 @@ import NotFoundPage from "./NotFoundPage.tsx";
 import RegisterPage from "./RegisterPage.tsx";
 import ResetPage from "./ResetPage.tsx";
 import { queryClient } from "./query/client.ts";
+import { signedOutRedirect } from "./route-guards.ts";
 
 const ARTIFACT_ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 
 function fragmentOf(hash: string): string {
   return hash === "" ? "" : `#${hash}`;
 }
+
+const requireSession = async ({
+  context,
+  location,
+}: {
+  context: { queryClient: QueryClient };
+  location: { pathname: string; searchStr: string };
+}): Promise<void> => {
+  const target = await signedOutRedirect(context.queryClient, location.pathname, location.searchStr);
+  if (target !== null) throw redirect(target);
+};
 
 function RouteError({ reset }: ErrorComponentProps) {
   const queryErrorResetBoundary = useQueryErrorResetBoundary();
@@ -98,18 +111,21 @@ const rootRoute = createRootRouteWithContext<{ queryClient: QueryClient }>()({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
+  beforeLoad: requireSession,
   component: LibraryPage,
 });
 
 const libraryRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/library",
+  beforeLoad: requireSession,
   component: LibraryPage,
 });
 
 const connectRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/connect",
+  beforeLoad: requireSession,
   component: ConnectRoute,
 });
 
@@ -140,42 +156,49 @@ const consentRoute = createRoute({
 const accountRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/account",
+  beforeLoad: requireSession,
   component: AccountPage,
 });
 
 const adminUsersRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/users",
+  beforeLoad: requireSession,
   component: AdminUsersPage,
 });
 
 const adminAccessRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/access",
+  beforeLoad: requireSession,
   component: AdminAccessPage,
 });
 
 const adminSsoRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/sso",
+  beforeLoad: requireSession,
   component: AdminSsoPage,
 });
 
 const adminPasswordPolicyRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/password-policy",
+  beforeLoad: requireSession,
   component: AdminPasswordPolicyPage,
 });
 
 const adminInvitationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/admin/invitations",
+  beforeLoad: requireSession,
   component: AdminInvitationsPage,
 });
 
 const editorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/edit/$artifactId",
+  beforeLoad: requireSession,
   params: {
     parse: (params) => (ARTIFACT_ID.test(params.artifactId) ? params : false),
   },
@@ -185,6 +208,7 @@ const editorRoute = createRoute({
 const canvasRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/canvas/$artifactId",
+  beforeLoad: requireSession,
   params: {
     parse: (params) => (ARTIFACT_ID.test(params.artifactId) ? params : false),
   },
