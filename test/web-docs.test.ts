@@ -201,14 +201,14 @@ test("the docs home is served at /docs and every docs link resolves to a real pa
   const broken: string[] = [];
   for (const file of pages) {
     for (const target of linkTargets(file)) {
-      if (!target.startsWith("/")) continue;
+      if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(target)) continue;
       const url = target.split("#")[0] as string;
       if (!url.startsWith("/docs/") || !resolvesToPage(url)) {
         broken.push(`${path.relative(repoRoot, file)}: ${target}`);
       }
     }
   }
-  assert.deepEqual(broken, []);
+  assert.deepEqual(broken, [], "internal docs links are absolute /docs/ routes that resolve to an authored page");
 });
 
 test("the site root renders the landing page and links into the docs", () => {

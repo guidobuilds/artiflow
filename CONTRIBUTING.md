@@ -105,6 +105,7 @@ commands below. The `integration` job starts the Compose stack, migrates, and ru
 bun run test        # test suite; no services required
 bun run typecheck   # API TypeScript project + the dashboard workspace project
 bun run build       # Vite production build + API type check
+bun run web:verify  # docs site: astro check, build, link and reference parity
 ```
 
 ### Runtime: Bun for the API, Node for the tooling
