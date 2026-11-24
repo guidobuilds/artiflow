@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript-legacy";
+import ts from "typescript";
 
 const DASHBOARD = "apps/dashboard";
 const EXTENSIONS = new Set([".ts", ".tsx"]);
