@@ -917,6 +917,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  user-select: none;
   background-color: var(--bg-raised);
   background-image: radial-gradient(circle at 1px 1px var(--line) 1px, transparent 0);
   background-size: 24px 24px;
