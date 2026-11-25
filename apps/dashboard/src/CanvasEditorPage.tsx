@@ -296,7 +296,10 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (readOnly || event.button !== 0) return;
     event.stopPropagation();
     nodeDragged.current = false;
-    if (event.shiftKey) return;
+    if (event.shiftKey) {
+      event.preventDefault();
+      return;
+    }
     const group = mode === "move" && isSelected(node.id) && selected.length > 1;
     if (!group) setSelected([node.id]);
     drag.current = {
@@ -384,6 +387,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   };
   const startMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    event.preventDefault();
     marqueeStart.current = { clientX: event.clientX, clientY: event.clientY };
     marqueeDragged.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);

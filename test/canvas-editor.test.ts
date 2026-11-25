@@ -716,6 +716,39 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   );
 });
 
+test("a shift click on the canvas adds to the selection instead of starting a native text selection", () => {
+  const page = source("../apps/dashboard/src/CanvasEditorPage.tsx");
+  const css = source("../apps/dashboard/src/styles/globals.css");
+
+  const startDrag = /const startDrag =[\s\S]*?const onPointerMove/.exec(page)?.[0];
+  assert.ok(startDrag, "the node pointer path is still one function");
+  assert.match(
+    startDrag,
+    /if \(readOnly \|\| event\.button !== 0\) return;/,
+    "a read-only canvas and a non-left button still end the gesture before anything else",
+  );
+  assert.match(startDrag, /event\.stopPropagation\(\);/, "a node press never reaches the stage marquee");
+  const shiftBranch = /if \(event\.shiftKey\) \{[\s\S]*?\}/.exec(startDrag)?.[0];
+  assert.ok(shiftBranch, "a shift press still takes its own branch before a drag starts");
+  assert.match(shiftBranch, /event\.preventDefault\(\);/, "a shift click must not extend the browser's text selection");
+  assert.match(shiftBranch, /return;/, "the shift branch still ends there instead of starting a drag");
+
+  const startMarquee = /const startMarquee =[\s\S]*?const onMarqueeMove/.exec(page)?.[0];
+  assert.ok(startMarquee, "the stage pointer path is still one function");
+  assert.match(
+    startMarquee,
+    /event\.preventDefault\(\);/,
+    "a drag on the stage must not start a native text selection either",
+  );
+
+  const stageWrap = /\.canvas-stage-wrap \{[^}]*\}/.exec(css)?.[0];
+  assert.ok(stageWrap, "the stage wrapper keeps its rule");
+  assert.match(stageWrap, /user-select: none;/, "the page text around the canvas is not selectable");
+  const inspector = /\.canvas-inspector \{[^}]*\}/.exec(css)?.[0];
+  assert.ok(inspector, "the inspector keeps its rule");
+  assert.doesNotMatch(inspector, /user-select: none/, "the text in the inspector stays selectable");
+});
+
 test("the canvas route is gated by the registry and leaves the markdown route untouched", () => {
   const router = source("../apps/dashboard/src/router.tsx");
   const guard = router.match(/const ARTIFACT_ID = (\/.*\/);\n/)?.[1];
