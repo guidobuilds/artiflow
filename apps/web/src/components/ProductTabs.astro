@@ -3,7 +3,7 @@ import Mark from "./Mark.astro";
 
 const tabs = [
   { id: "html", title: "Web pages", body: "Dashboards, reports and sites, built in HTML.", doc: "Checkout conversion · October", meta: "v4", kind: "Page" },
-  { id: "markdown", title: "Docs", body: "Specs, runbooks and notes your team keeps editing.", doc: "Rate limits for the public API", meta: "v5", kind: "Doc" },
+  { id: "markdown", title: "Docs", body: "Specs, runbooks and notes your team keeps editing.", doc: "Usage limits by plan", meta: "v5", kind: "Doc" },
   { id: "deck", title: "Decks", body: "Pitch an idea or report on a quarter.", doc: "Q3 business review", meta: "v3", kind: "Deck", soon: true },
   { id: "canvas", title: "Mockups", body: "Design screens on a canvas before anyone builds them.", doc: "Stays · home", meta: "v1", kind: "Canvas", soon: true },
 ];
@@ -41,7 +41,7 @@ const limits = [
   ["Business", "3,000", "6,000"],
 ];
 const rollout = [
-  { text: "Send rate-limit headers in shadow mode", done: true },
+  { text: "Track usage before enforcing limits", done: true },
   { text: "Email Business accounts above 80% of their limit", done: true },
   { text: "Enforce limits on November 30", done: false },
 ];
@@ -52,7 +52,7 @@ const line = chartPoints.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" 
 const slides = ["cover", "agenda", "market", "growth", "plan"];
 ---
 
-<div class="pt" data-tabs>
+<div class="pt" id="examples" data-tabs>
   <div class="pt-list" role="tablist" aria-label="What you can make">
     {
       tabs.map((t, i) => (
@@ -211,7 +211,7 @@ const slides = ["cover", "agenda", "market", "growth", "plan"];
                 </nav>
                 <article class="doc">
                   <span class="doc-crumb">Engineering / RFCs / 0142</span>
-                  <h3>Rate limits for the public API</h3>
+                  <h3>Usage limits by plan</h3>
                   <div class="doc-meta">
                     <span class="doc-status">In review</span>
                     <span>Platform team</span>
@@ -223,8 +223,8 @@ const slides = ["cover", "agenda", "market", "growth", "plan"];
                   </p>
                   <h4>Limits by plan</h4>
                   <p>
-                    Each key gets a per-minute quota and a short burst allowance. Responses carry <code>RateLimit-Remaining</code> and{" "}
-                    <code>Retry-After</code> so clients can back off on their own.
+                    Each plan gets a per-minute quota and a short burst allowance. The dashboard warns at <code>80%</code> usage and shows when the
+                    quota resets at <code>100%</code>.
                   </p>
                   <table>
                     <thead>

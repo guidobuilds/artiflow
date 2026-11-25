@@ -7,9 +7,8 @@ import ProductTabs from "../components/ProductTabs.astro";
 import Wordmark from "../components/Wordmark.astro";
 
 const REPO = "https://github.com/guidobuilds/artiflow";
-const title = "artiflow · The open, cross-agent artifact library";
-const description =
-  "Make decks, docs, dashboards and mockups with any agent and any model. Keep them in a library you own, and share them with anyone you choose.";
+const title = "Artiflow · Artifacts for an open world";
+const description = "Build with any agent, any model. Keep everything portable, open, and yours.";
 
 const agentPrompt =
   "Connect artiflow for me. Add the MCP server at https://artifacts.example.com/mcp (replace the host with my artiflow server), open the sign-in page when it asks, then publish a short page called “Hello from my agent”.";
@@ -21,34 +20,35 @@ const ICON = {
   people: "M16 11a3 3 0 1 0-3-3M3 20a6 6 0 0 1 12 0M16 14a5 5 0 0 1 5 5M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
 };
 
-const walls = [
-  { label: "THEIR HARNESS", title: "Made in their app, or not at all.", body: "The artifact only exists inside their chat. Work from another agent and the feature is gone." },
-  { label: "THEIR MODELS", title: "Only the models they sell.", body: "Want a different model for the job? Then you can't make the artifact." },
-  { label: "THEIR RULES", title: "Your workspace, or the whole internet.", body: "Share inside your organization, or make it public. A client or a partner has no way in between." },
+const openStandard = [
+  { label: "MODEL CHOICE", title: "Model agnostic", body: "Build with Claude, GPT, Gemini, or local open-weight models." },
+  { label: "OPEN FORMATS", title: "Portable by design", body: "Keep your work in standard Markdown or self-contained HTML that you can reuse outside Artiflow." },
+  { label: "ON THE WEB", title: "Live URLs", body: "Every artifact gets its own address on the web." },
+];
+
+const workflows = [
+  { title: "Native MCP support", body: "Connect Claude Code, Cursor, OpenCode, or another compatible MCP client." },
+  { title: "Model agnostic", body: "Use Claude, GPT, Gemini, or open-weight models through the tools you already work with." },
+  { title: "Multi-agent handoffs", body: "Have one agent draft a spec, another build the UI, and review both in the same place." },
 ];
 
 const steps = [
-  { n: "01", title: "Connect", body: "Add artiflow to the agent and the model you already use." },
-  { n: "02", title: "Ideate", body: "Think it through with your agent, the way you already work." },
-  { n: "03", title: "Build", body: "Your agent turns it into a deck, a doc or a mockup in your library." },
-  { n: "04", title: "Share", body: "Send it to your team, a client, or anyone with a link." },
+  { n: "01", title: "Generate with any agent", body: "Ask your agent to create a document, component, or interactive view." },
+  { n: "02", title: "Review and publish", body: "Approve your agent in the browser, then publish to your library with version history." },
+  { n: "03", title: "Preview and share", body: "Open it in your browser or share a live link that works without an account." },
 ];
 const featL = [
-  { icon: ICON.people, title: "Your team, and beyond", body: "Invite a teammate, a client or a partner to one artifact. They see that artifact and nothing else." },
-  { icon: ICON.link, title: "A link for anyone", body: "Send a link that opens without an account. Reset it or turn it off whenever you want." },
+  { icon: ICON.people, title: "Granular collaboration", body: "Bring teammates, clients, or partners into a single artifact without exposing your entire workspace." },
+  { icon: ICON.link, title: "Frictionless sharing", body: "Share a live link anyone can view without signing up. Revoke or replace the link whenever you need to." },
 ];
 const featR = [
-  { icon: ICON.consent, title: "Every agent asks first", body: "An agent can publish only after you approve it in your browser." },
-  { icon: ICON.history, title: "Nothing gets lost", body: "Every change is a new version, and docs can go back to an earlier one." },
+  { icon: ICON.consent, title: "Human-in-the-loop by design", body: "Approve your MCP agent in the browser before it can write to your library. You decide what to share." },
+  { icon: ICON.history, title: "Full version history", body: "Each published edit creates a new version. Browse a Markdown document's history and restore an earlier version." },
 ];
-const compare = [
-  { cap: "Make them with any agent", theirs: "Only their app" },
-  { cap: "Use any model", theirs: "Only their models" },
-  { cap: "Share with people outside your organization", theirs: "Only as public" },
-  { cap: "Turn a link off at any time", theirs: "Varies" },
-  { cap: "Keep every version", theirs: "Varies" },
-  { cap: "Your artifacts stay with you", theirs: "—" },
-  { cap: "Open source", theirs: "—" },
+const teamUses = [
+  { title: "Beyond developers", body: "Product managers, designers, and clients can review and test in the browser. Signed-in collaborators with permission can comment on documents.", via: "Browser" },
+  { title: "Public showcases", body: "Publish interactive guides and examples with their own links. Readers can open them without signing up.", via: "Public links" },
+  { title: "Reusable workflows", body: "Share the Markdown or HTML source so others can inspect the work and adapt it with their own models.", via: "Open formats" },
 ];
 const faq = [
   { q: "Do I have to switch agents or models?", a: "No. Keep the agent and the model you already use. Any agent that connects over MCP can publish, and changing later doesn't touch your library." },
@@ -72,7 +72,7 @@ const footer = [
     links: [
       ["Self-hosting", "/docs/self-hosting/installation/"],
       ["MCP tools", "/docs/reference/mcp-tools/"],
-      ["HTTP API", "/docs/reference/http-api/"],
+      ["Artifacts and revisions", "/docs/concepts/artifacts/"],
     ],
   },
   {
@@ -107,7 +107,7 @@ const footer = [
       <a href="/" class="head-brand"><Mark label="artiflow home" /></a>
       <nav class="head-nav hide-sm" aria-label="Site">
         <a href="#why">Why artiflow</a>
-        <a href="#make">What you can make</a>
+        <a href="#make">Agent workflows</a>
         <a href="/docs/">Docs</a>
       </nav>
       <div class="head-actions">
@@ -139,19 +139,19 @@ const footer = [
         <div class="hero-mark"><Wordmark label="artiflow" /></div>
         <div class="hero-grid">
           <div class="hero-copy">
-            <span class="eyebrow">Artifacts without the walls</span>
-            <h1>Make it with any agent.<br /><span class="ember">Share it with anyone.</span></h1>
+            <span class="eyebrow">The open artifact library</span>
+            <h1>Artifacts for <br /><span class="ember">an open world.</span></h1>
             <p class="lead">{description}</p>
             <div class="row">
-              <a href="/docs/self-hosting/installation/" class="btn pill primary lg">Get started <span aria-hidden="true">→</span></a>
-              <a href="/docs/" class="btn pill soft lg">Read the docs</a>
+              <a href="/docs/self-hosting/installation/" class="btn pill primary lg">Start building free <span aria-hidden="true">→</span></a>
+              <a href="/docs/connect/mcp/" class="btn pill soft lg">Connect your agent</a>
             </div>
             <span class="small subtle">Open source · Any agent · Any model</span>
           </div>
           <div class="prompt-card">
             <div class="stack-2">
               <b>Already use an agent?</b>
-              <span class="small muted">Paste one prompt. It connects artiflow for you.</span>
+              <span class="small muted">Copy a prompt to connect your Artiflow instance via MCP.</span>
             </div>
             <div class="prompt-row">
               <AgentLogos />
@@ -163,11 +163,14 @@ const footer = [
       </section>
 
       <section class="sec" id="why">
-        <span class="seclabel">[ <b>01</b> / 06 ] · THE PROBLEM</span>
-        <h2 class="title light narrow">Today, your artifacts live inside someone else's product.</h2>
+        <span class="seclabel">[ <b>01</b> / 06 ] · AN OPEN STANDARD</span>
+        <h2 class="title light narrow">Artifacts belong everywhere, not inside a single chat.</h2>
+        <p class="answer">
+          Take your best work beyond the chat. <span class="muted">Artiflow turns it into open, standalone artifacts you can host, version, and move freely.</span>
+        </p>
         <ul class="walls">
           {
-            walls.map((w) => (
+            openStandard.map((w) => (
               <li>
                 <span class="wall-label">{w.label}</span>
                 <b>{w.title}</b>
@@ -176,27 +179,36 @@ const footer = [
             ))
           }
         </ul>
-        <p class="answer">
-          artiflow takes them out. <span class="muted">Make them with any agent and any model, keep them in a library you own, and share them with whoever you need.</span>
-        </p>
       </section>
 
       <section class="sec" id="make">
-        <span class="seclabel">[ <b>02</b> / 06 ] · WHAT YOU CAN MAKE</span>
-        <h2 class="title narrow">Whatever it takes to get the idea across.</h2>
+        <span class="seclabel">[ <b>02</b> / 06 ] · ANY AGENT, ANY WORKFLOW</span>
+        <h2 class="title narrow">Any agent. Any model. One shared canvas.</h2>
+        <p class="lead">Connect your coding agents, CLI tools, or local workflows via MCP. Publish to the same library from whichever tools you use.</p>
+        <ul class="walls">
+          {
+            workflows.map((w) => (
+              <li>
+                <b>{w.title}</b>
+                <span class="muted">{w.body}</span>
+              </li>
+            ))
+          }
+        </ul>
         <ProductTabs />
       </section>
 
       <section class="sec center">
         <span class="seclabel">[ <b>03</b> / 06 ] · HOW IT WORKS</span>
-        <h2 class="title narrow">Any agent in. Anyone you choose out.</h2>
+        <h2 class="title narrow">From agent output to live artifact in three steps.</h2>
+        <p class="lead">Once your agent is connected, turn an idea into a live link without copying its output or asking viewers to install anything.</p>
         <FlowDiagram steps={steps} />
       </section>
 
       <section class="sec">
         <div class="center stack-14">
-          <span class="seclabel">[ <b>04</b> / 06 ] · SHARE ON YOUR TERMS</span>
-          <h2 class="title narrow">Share it with anyone. Only with who you choose.</h2>
+          <span class="seclabel">[ <b>04</b> / 06 ] · BUILT FOR COLLABORATION</span>
+          <h2 class="title narrow">Open to every agent. Controlled by you.</h2>
         </div>
         <div class="feat">
           <div class="feat-col">
@@ -241,24 +253,25 @@ const footer = [
       </section>
 
       <section class="sec">
-        <span class="seclabel">[ <b>05</b> / 06 ] · ARTIFLOW VS BUILT-IN ARTIFACTS</span>
-        <h2 class="title light">Same artifacts. None of the walls.</h2>
+        <span class="seclabel">[ <b>05</b> / 06 ] · DEMOCRATIZING ARTIFACTS</span>
+        <h2 class="title light">Democratizing artifacts for every team.</h2>
+        <p class="lead">Great AI work can reach well beyond a developer's machine. Turn prompts and agent runs into shared tools anyone can open.</p>
         <table class="cmp">
           <thead>
-            <tr><th scope="col">Capability</th><th scope="col">Artiflow</th><th scope="col">Built-in</th></tr>
+            <tr><th scope="col">Use case</th><th scope="col">Artiflow</th><th scope="col">How</th></tr>
           </thead>
           <tbody>
             {
-              compare.map((r) => (
+              teamUses.map((r) => (
                 <tr>
-                  <th scope="row">{r.cap}</th>
+                  <th scope="row">{r.title}<br /><span class="muted">{r.body}</span></th>
                   <td>
                     <svg viewBox="0 0 24 24" width="18" height="18" role="img" aria-label="Yes">
                       <circle cx="12" cy="12" r="9" />
                       <path d="M8.5 12.2l2.4 2.4 4.6-4.8" />
                     </svg>
                   </td>
-                  <td class="subtle">{r.theirs === "—" ? <span aria-label="No">—</span> : r.theirs}</td>
+                  <td class="subtle">{r.via}</td>
                 </tr>
               ))
             }
@@ -269,10 +282,13 @@ const footer = [
       <section class="sec flush" id="own">
         <div class="panel">
           <div class="panel-copy">
-            <span class="seclabel on-panel">[ <b>06</b> / 06 ] · YOURS</span>
-            <h2 class="title">A library you own.</h2>
-            <p>Run artiflow wherever you want. Your artifacts stay with you, whichever agent or model made them, and no vendor can change the rules on you.</p>
-            <a href="/docs/self-hosting/installation/" class="btn pill on-panel-btn">Get started <span aria-hidden="true">→</span></a>
+            <span class="seclabel on-panel">[ <b>06</b> / 06 ] · GET STARTED</span>
+            <h2 class="title">Your open library for the agentic era.</h2>
+            <p>Start publishing artifacts from your terminal or editor. Artiflow is free and open source, and you can run it wherever you host your work.</p>
+            <div class="row">
+              <a href="/docs/connect/mcp/" class="btn pill on-panel-btn">Connect via MCP <span aria-hidden="true">→</span></a>
+              <a href="#examples" class="btn pill on-panel-btn">Explore artifact examples</a>
+            </div>
           </div>
           <svg viewBox="0 0 520 330" class="stack" role="img" aria-label="Your agents on top, artiflow in the middle, the people you share with below">
             <g class="s-muted">
@@ -313,11 +329,11 @@ const footer = [
       <section class="sec flush-top">
         <div class="cta">
           <div class="stack-8">
-            <h2>Take your artifacts out of the walled garden.</h2>
+            <h2>Give your next artifact a home on the web.</h2>
             <span class="muted">Open source. Works with the agents and models you already use.</span>
           </div>
           <div class="row">
-            <a href="/docs/self-hosting/installation/" class="btn pill primary">Get started</a>
+            <a href="/docs/self-hosting/installation/" class="btn pill primary">Start building free</a>
             <a href={REPO} class="btn pill raised">View on GitHub</a>
           </div>
         </div>
