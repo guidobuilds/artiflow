@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -155,4 +155,41 @@ test("verify workflow runs the integration suite as a required job", () => {
   assert.match(source, /docker-compose\.ci\.yml/);
   assert.equal(source.match(/!github\.event\.pull_request\.draft/g)?.length, 3);
   assert.doesNotMatch(source, /continue-on-error/);
+});
+
+function selectedIntegrationFiles(): string[] {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      'const m = await import("./scripts/integration-env.mjs"); console.log(JSON.stringify(m.integrationTestFiles()));',
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  return JSON.parse(result.stdout) as string[];
+}
+
+test("integration runner selects every suite and every unit file gated on the stack", () => {
+  const selected = new Set(selectedIntegrationFiles());
+  const testDir = path.join(repoRoot, "test");
+  for (const file of readdirSync(testDir)) {
+    const relative = `test/${file}`;
+    if (file.endsWith(".integration.ts")) {
+      assert.ok(selected.has(relative), `${relative} must run in the integration job`);
+      continue;
+    }
+    if (!file.endsWith(".test.ts")) continue;
+    const source = readFileSync(path.join(testDir, file), "utf8");
+    if (/skip:[^\n]*(DATABASE_URL|SKIP|ENV_READY|DATABASE_AVAILABLE)/.test(source)) {
+      assert.ok(selected.has(relative), `${relative} skips without the stack, so the integration job must run it`);
+    }
+  }
+});
+
+test("integration runner leaves service-free unit files to the verify job", () => {
+  const selected = selectedIntegrationFiles();
+  assert.equal(selected.includes("test/canvas-editor.test.ts"), false);
+  assert.ok(selected.length < readdirSync(path.join(repoRoot, "test")).length);
 });
