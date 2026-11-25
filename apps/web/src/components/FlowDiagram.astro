@@ -66,12 +66,11 @@ const routes = ["M-150 225 H0 V110", "M110 0 H225 V-150"];
 const faceLabels = [
   { x: 129.1, y: 319, text: "ANY AGENT · ANY MODEL" },
   { x: 459.9, y: 318, text: "YOUR LIBRARY", strong: true },
-  { x: 908.5, y: 319, text: "ANYONE YOU CHOOSE" },
+  { x: 908.5, y: 319, text: "YOUR AUDIENCE" },
 ];
 
 const callouts = [
   { x: 92, y: 72, leader: "M200 112 C200 184 250 186 250 219", end: [250, 222] },
-  { x: 300, y: 470, leader: "M410 490 C410 452 445 456 445 438", end: [445, 434] },
   { x: 730, y: 60, leader: "M800 100 C800 214 726 222 726 296", end: [726, 300] },
   { x: 950, y: 452, leader: "M1030 472 V400", end: [1030, 397] },
 ];
@@ -83,7 +82,7 @@ const pct = (x: number, y: number) => `--x: ${round((x / W) * 100)}%; --y: ${rou
     <svg
       viewBox={`0 0 ${W} ${H}`}
       role="img"
-      aria-label="Any agent, through your artiflow library of decks, docs, dashboards, mockups, flows and sheets, out to your team, a client, a partner or anyone with a link."
+      aria-label="Publish from your agent to your Artiflow library, then share artifacts with your team, clients, partners, or anyone with a link."
     >
       <defs>
         <pattern id="flow-grid" width="24" height="24" patternUnits="userSpaceOnUse">
