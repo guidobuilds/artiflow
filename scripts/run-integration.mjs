@@ -5,18 +5,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { missingIntegrationEnv, readIntegrationEnvNames } from "./integration-env.mjs";
+import { integrationTestFiles, missingIntegrationEnv, readIntegrationEnvNames } from "./integration-env.mjs";
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const reporter = path.join(repoRoot, "scripts/integration-reporter.mjs");
-const defaultFiles = ["test/*.test.ts", "test/*.integration.ts"];
 
 const usage = `usage: node --env-file=test/integration-config.example scripts/run-integration.mjs [--file <path>...]
 
-Runs test/*.test.ts and test/*.integration.ts serially against the disposable stack.
+Runs test/*.integration.ts, plus every test/*.test.ts that reads a variable from
+test/integration-config.example, serially against the disposable stack. The other
+test/*.test.ts files need no services and run in \`bun run test\`.
 Exits 1 when any variable declared in test/integration-config.example is missing or
 blank, or when any test skips. A skip is not a pass.
---file replaces the default globs; repeat it for more than one file.`;
+--file replaces the default selection; repeat it for more than one file.`;
 
 class UsageError extends Error {}
 
@@ -31,7 +32,7 @@ function parseArgs(argv) {
     files.push(value);
     index += 1;
   }
-  return { help: false, files: files.length > 0 ? files : defaultFiles };
+  return { help: false, files: files.length > 0 ? files : null };
 }
 
 function displayFile(file) {
@@ -79,6 +80,8 @@ function main(argv) {
     return 1;
   }
 
+  const files = options.files ?? integrationTestFiles(repoRoot, names);
+
   const dir = mkdtempSync(path.join(tmpdir(), "artiflow-integration-"));
   const reportPath = path.join(dir, "skips.json");
   const reporterOutput = path.join(dir, "reporter.txt");
@@ -96,7 +99,7 @@ function main(argv) {
         reporter,
         "--test-reporter-destination",
         reporterOutput,
-        ...options.files,
+        ...files,
       ],
       {
         cwd: repoRoot,

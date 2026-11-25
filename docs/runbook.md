@@ -319,7 +319,8 @@ Verified against a live local deployment with a real browser:
 
 `bun run test` runs every `*.test.ts`; integration suites self-skip without
 services.
-`bun run test:integration` loads the test config and runs `*.test.ts` and
-`*.integration.ts` serially against the Docker stack. A missing variable or a
+`bun run test:integration` loads the test config and runs `*.integration.ts`,
+plus each `*.test.ts` that reads a variable from it, serially against the Docker
+stack. A missing variable or a
 skipped test fails that command, and the `integration` CI job runs it the same
 way.

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,4 +28,18 @@ export function readIntegrationEnvNames(file = integrationConfigExample) {
     throw new Error(`integration: ${file} declares no variables`);
   }
   return names;
+}
+
+export function readsIntegrationEnv(source, names) {
+  return names.some((name) => name !== "NODE_ENV" && new RegExp(`\\b${name}\\b`).test(source));
+}
+
+export function integrationTestFiles(root = repoRoot, names = readIntegrationEnvNames()) {
+  const testDir = path.join(root, "test");
+  const files = readdirSync(testDir).sort();
+  const gatedUnits = files.filter(
+    (file) => file.endsWith(".test.ts") && readsIntegrationEnv(readFileSync(path.join(testDir, file), "utf8"), names),
+  );
+  const suites = files.filter((file) => file.endsWith(".integration.ts"));
+  return [...gatedUnits, ...suites].map((file) => path.join("test", file));
 }

@@ -165,7 +165,9 @@ database and bucket:
 | `bun run test:oauth`       | Disposable PostgreSQL                  | OAuth discovery, DCR, PKCE or consent          |
 
 `bun run test:integration` loads `test/integration-config.example` and runs every
-`test/*.test.ts` and `test/*.integration.ts` serially. It exits non-zero when any
+`test/*.integration.ts`, plus each `test/*.test.ts` that reads a variable from
+that file, serially. The other unit files need no services and run in
+`bun run test`. It exits non-zero when any
 variable in that file is missing and when any test skips. A skip is not a pass:
 the suite did not prove the invariant. The same rule is what the `integration`
 job enforces.
