@@ -21,9 +21,12 @@ import {
   bringToFront,
   fitScale,
   getScene,
+  layerRows,
   moveNode,
   moveNodes,
+  nudgeSelection,
   removeNode,
+  reorderNodeTo,
   resizeNode,
   saveScene,
   selectNodesInRect,
@@ -58,8 +61,11 @@ type Drag = {
 
 type SelectionBox = { x: number; y: number; w: number; h: number };
 
+type LayerDrag = { id: string; pointerId: number; startY: number; rowHeight: number; index: number; count: number };
+
 const MARQUEE_THRESHOLD = 4;
 const DRAG_THRESHOLD = 2;
+const LAYER_THRESHOLD = 4;
 
 const withoutNodes = (scene: Scene, ids: string[]): Scene => ids.reduce((next, id) => removeNode(next, id), scene);
 
@@ -135,6 +141,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [fitted, setFitted] = useState(true);
   const [zoom, setZoom] = useState(1);
+  const [layersOpen, setLayersOpen] = useState(false);
   const detail = useQuery({
     queryKey: queryKeys.artifact.detail(initial.artifactId),
     queryFn: () => getArtifactDetail(initial.artifactId),
@@ -146,6 +153,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const marqueeStart = useRef<{ clientX: number; clientY: number } | null>(null);
   const marqueeDragged = useRef(false);
   const nodeDragged = useRef(false);
+  const layerDrag = useRef<LayerDrag | null>(null);
+  const layerDragged = useRef(false);
 
   useEffect(() => {
     const controller = new SceneAutosave(initial, sceneSaver(initial.artifactId), setState, () => {});
@@ -245,9 +254,16 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey) return;
       const target = event.target;
       if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable]")) return;
+      if (event.altKey) {
+        const step = event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
+        if (step === 0 || selected.length === 0 || readOnly) return;
+        event.preventDefault();
+        update(nudgeSelection(session.current?.state.scene ?? scene, selected, step));
+        return;
+      }
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selected.length === 0 || readOnly) return;
         event.preventDefault();
@@ -319,6 +335,50 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
     if (drag.current === null) return;
     drag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const layerDropIndex = (pending: LayerDrag, clientY: number): number => {
+    const steps = Math.round((clientY - pending.startY) / pending.rowHeight);
+    const row = Math.min(pending.count - 1, Math.max(0, pending.index + steps));
+    return pending.count - 1 - row;
+  };
+  const startLayerDrag = (event: ReactPointerEvent<HTMLElement>, id: string) => {
+    if (readOnly || event.button !== 0 || frame === null) return;
+    const rows = layerRows(frame);
+    const index = rows.findIndex((row) => row.id === id);
+    if (index < 0) return;
+    event.stopPropagation();
+    layerDragged.current = false;
+    layerDrag.current = {
+      id,
+      pointerId: event.pointerId,
+      startY: event.clientY,
+      rowHeight: Math.max(1, event.currentTarget.getBoundingClientRect().height),
+      index,
+      count: rows.length,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onLayerDragMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const pending = layerDrag.current;
+    if (pending === null || pending.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientY - pending.startY) >= LAYER_THRESHOLD) layerDragged.current = true;
+  };
+  const endLayerDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    const pending = layerDrag.current;
+    if (pending === null) return;
+    layerDrag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (!layerDragged.current) return;
+    const current = session.current?.state.scene ?? scene;
+    const next = reorderNodeTo(current, pending.id, layerDropIndex(pending, event.clientY));
+    if (next !== current) update(next);
+  };
+  const cancelLayerDrag = (event: ReactPointerEvent<HTMLElement>) => {
+    layerDrag.current = null;
+    layerDragged.current = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
   };
@@ -396,6 +456,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const zoomLevel = Math.round(scale * 100);
   const offsetX = frame === null ? 0 : Math.round((viewport.w - frame.w * scale) / 2);
   const offsetY = frame === null ? 0 : Math.round((viewport.h - frame.h * scale) / 2);
+  const layerRowList = frame === null ? [] : layerRows(frame);
+  const inspectorOpen = selectedNode?.type === "text";
 
   const handles = (node: SceneNode) =>
     selectedNode?.id === node.id ? (
@@ -440,6 +502,16 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
           {labels[state.status]}
         </span>
         <nav aria-label="Canvas actions" className="editor-topbar-actions">
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-label="Toggle layers"
+            aria-pressed={layersOpen}
+            onClick={() => setLayersOpen((open) => !open)}
+          >
+            <Icon name="list" className="size-3.5" />
+            Layers
+          </Button>
           <Button size="sm" disabled={readOnly} onClick={() => add("text")}>
             <Icon name="plus" className="size-3.5" />
             Add text
@@ -495,7 +567,9 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
           />
         </div>
       ) : null}
-      <div className={`canvas-workspace ${selectedNode?.type === "text" ? "canvas-inspector-open" : ""}`}>
+      <div
+        className={`canvas-workspace${inspectorOpen ? " canvas-inspector-open" : ""}${layersOpen ? " canvas-layers-open" : ""}`}
+      >
         <div className="canvas-stage-wrap" ref={stage}>
           <div
             className="canvas-stage"
@@ -642,6 +716,49 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
             onChange={(patch) => update(updateTextNode(session.current?.state.scene ?? scene, selectedNode.id, patch))}
             onRemove={removeSelected}
           />
+        ) : null}
+        {layersOpen ? (
+          <aside aria-label="Layers" className="canvas-layers">
+            <h2 className="caps mb-3">Layers</h2>
+            {layerRowList.length === 0 ? (
+              <p className="canvas-layers-empty">This frame has no nodes yet.</p>
+            ) : (
+              <div className="canvas-layers-list">
+                {layerRowList.map((row) => (
+                  <div
+                    key={row.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-selected={isSelected(row.id)}
+                    className={`canvas-layer-row${isSelected(row.id) ? " canvas-layer-row-selected" : ""}`}
+                    onPointerDown={(event) => startLayerDrag(event, row.id)}
+                    onPointerMove={onLayerDragMove}
+                    onPointerUp={endLayerDrag}
+                    onPointerCancel={cancelLayerDrag}
+                    onClick={(event) => {
+                      if (layerDragged.current) return;
+                      if (event.shiftKey) {
+                        toggle(row.id);
+                        return;
+                      }
+                      setSelected([row.id]);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      if (event.shiftKey) {
+                        toggle(row.id);
+                        return;
+                      }
+                      setSelected([row.id]);
+                    }}
+                  >
+                    {row.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </aside>
         ) : null}
       </div>
       <nav className="canvas-frames" aria-label="Frames">
