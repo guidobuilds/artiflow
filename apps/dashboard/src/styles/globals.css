@@ -1014,6 +1014,29 @@
   color: var(--fg-muted);
   font-size: 13px;
 }
+.canvas-marquee {
+  position: absolute;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+}
+.canvas-selection-bar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+  color: var(--fg-muted);
+  font-size: 12px;
+  transform: translateX(-50%);
+}
 .canvas-zoom {
   position: absolute;
   right: 12px;

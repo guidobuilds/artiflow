@@ -18,12 +18,16 @@ import { queryKeys } from "./query/keys.ts";
 import {
   addRectNode,
   addTextNode,
+  bringToFront,
   fitScale,
   getScene,
   moveNode,
+  moveNodes,
   removeNode,
   resizeNode,
   saveScene,
+  selectNodesInRect,
+  sendToBack,
   updateTextNode,
   zoomBy,
   type SceneDraft,
@@ -44,12 +48,20 @@ type Mode = "move" | "width" | "height" | "both";
 
 type Drag = {
   nodeId: string;
-  mode: Mode;
+  ids: string[];
+  mode: Mode | "group";
   startX: number;
   startY: number;
   snapshot: Scene;
   origin: { x: number; y: number; w: number; h: number };
 };
+
+type SelectionBox = { x: number; y: number; w: number; h: number };
+
+const MARQUEE_THRESHOLD = 4;
+const DRAG_THRESHOLD = 2;
+
+const withoutNodes = (scene: Scene, ids: string[]): Scene => ids.reduce((next, id) => removeNode(next, id), scene);
 
 const nodeStyle = (node: SceneNode): CSSProperties => {
   const box: CSSProperties = { left: node.x, top: node.y, width: node.w, height: node.h };
@@ -117,7 +129,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     status: "saved",
     dirty: false,
   }));
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [marquee, setMarquee] = useState<SelectionBox | null>(null);
   const [activeFrame, setActiveFrame] = useState<string | null>(initial.scene.frames[0]?.id ?? null);
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [fitted, setFitted] = useState(true);
@@ -130,6 +143,9 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     detail.data?.ok && detail.data.value.revision !== null ? detail.data.value.revision.revisionNumber : null;
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  const marqueeStart = useRef<{ clientX: number; clientY: number } | null>(null);
+  const marqueeDragged = useRef(false);
+  const nodeDragged = useRef(false);
 
   useEffect(() => {
     const controller = new SceneAutosave(initial, sceneSaver(initial.artifactId), setState, () => {});
@@ -170,29 +186,45 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     state.status === "conflict" ||
     state.status === "restoring" ||
     state.code === "reload_required";
-  const selectedNode: SceneNode | null = frame?.nodes.find((node) => node.id === selected) ?? null;
+  const selectedNode: SceneNode | null =
+    selected.length === 1 ? (frame?.nodes.find((node) => node.id === selected[0]) ?? null) : null;
   const busy = state.status === "saving" || state.status === "restoring";
+  const isSelected = (id: string) => selected.includes(id);
 
   const update = useCallback((next: Scene) => {
     session.current?.change(next);
   }, []);
 
+  const toggle = (id: string) => {
+    setSelected((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
+  };
+
   const add = (kind: "text" | "rect") => {
     if (frame === null || readOnly) return;
     const id = crypto.randomUUID();
     update(kind === "text" ? addTextNode(scene, frame.id, id) : addRectNode(scene, frame.id, id));
-    setSelected(id);
+    setSelected([id]);
   };
 
   const removeSelected = () => {
-    if (selected === null || readOnly) return;
-    update(removeNode(scene, selected));
-    setSelected(null);
+    if (selected.length === 0 || readOnly) return;
+    update(withoutNodes(session.current?.state.scene ?? scene, selected));
+    setSelected([]);
+  };
+
+  const bringSelectedToFront = () => {
+    if (selected.length === 0 || readOnly) return;
+    update(bringToFront(session.current?.state.scene ?? scene, selected));
+  };
+
+  const sendSelectedToBack = () => {
+    if (selected.length === 0 || readOnly) return;
+    update(sendToBack(session.current?.state.scene ?? scene, selected));
   };
 
   const showFrame = (id: string) => {
     setActiveFrame(id);
-    setSelected(null);
+    setSelected([]);
   };
 
   const stepFrame = useCallback(
@@ -205,7 +237,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       const next = frames[Math.min(frames.length - 1, Math.max(0, at + delta))];
       if (next !== undefined) {
         setActiveFrame(next.id);
-        setSelected(null);
+        setSelected([]);
       }
     },
     [frames, activeFrame],
@@ -217,14 +249,17 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       const target = event.target;
       if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable]")) return;
       if (event.key === "Delete" || event.key === "Backspace") {
-        if (selected === null || readOnly) return;
+        if (selected.length === 0 || readOnly) return;
         event.preventDefault();
-        update(removeNode(session.current?.state.scene ?? scene, selected));
-        setSelected(null);
+        update(withoutNodes(session.current?.state.scene ?? scene, selected));
+        setSelected([]);
         return;
       }
       if (event.key === "Escape") {
-        setSelected(null);
+        marqueeStart.current = null;
+        marqueeDragged.current = false;
+        setMarquee(null);
+        setSelected([]);
         return;
       }
       const delta =
@@ -244,10 +279,14 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const startDrag = (event: ReactPointerEvent<HTMLElement>, node: SceneNode, mode: Mode) => {
     if (readOnly || event.button !== 0) return;
     event.stopPropagation();
-    setSelected(node.id);
+    nodeDragged.current = false;
+    if (event.shiftKey) return;
+    const group = mode === "move" && isSelected(node.id) && selected.length > 1;
+    if (!group) setSelected([node.id]);
     drag.current = {
       nodeId: node.id,
-      mode,
+      ids: group ? selected : [node.id],
+      mode: group ? "group" : mode,
       startX: event.clientX,
       startY: event.clientY,
       snapshot: session.current?.state.scene ?? scene,
@@ -261,6 +300,11 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     const unit = scale === 0 ? 1 : scale;
     const dx = (event.clientX - current.startX) / unit;
     const dy = (event.clientY - current.startY) / unit;
+    nodeDragged.current = nodeDragged.current || Math.abs(dx) >= DRAG_THRESHOLD || Math.abs(dy) >= DRAG_THRESHOLD;
+    if (current.mode === "group") {
+      update(moveNodes(current.snapshot, current.ids, dx, dy));
+      return;
+    }
     const next =
       current.mode === "move"
         ? moveNode(current.snapshot, current.nodeId, dx, dy)
@@ -278,6 +322,60 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
   };
+  const startMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    marqueeStart.current = { clientX: event.clientX, clientY: event.clientY };
+    marqueeDragged.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onMarqueeMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = marqueeStart.current;
+    if (start === null) return;
+    const w = Math.abs(event.clientX - start.clientX);
+    const h = Math.abs(event.clientY - start.clientY);
+    if (!marqueeDragged.current && w < MARQUEE_THRESHOLD && h < MARQUEE_THRESHOLD) return;
+    marqueeDragged.current = true;
+    const bounds = stage.current?.getBoundingClientRect();
+    setMarquee({
+      x: Math.min(start.clientX, event.clientX) - (bounds?.left ?? 0),
+      y: Math.min(start.clientY, event.clientY) - (bounds?.top ?? 0),
+      w,
+      h,
+    });
+  };
+  const endMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const start = marqueeStart.current;
+    const dragged = marqueeDragged.current;
+    marqueeStart.current = null;
+    marqueeDragged.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    setMarquee(null);
+    if (start === null) return;
+    if (!dragged || frame === null) {
+      setSelected([]);
+      return;
+    }
+    const unit = scale === 0 ? 1 : scale;
+    const bounds = stage.current?.getBoundingClientRect();
+    const left = Math.min(start.clientX, event.clientX) - (bounds?.left ?? 0) - offsetX;
+    const top = Math.min(start.clientY, event.clientY) - (bounds?.top ?? 0) - offsetY;
+    setSelected(
+      selectNodesInRect(frame, {
+        x: left / unit,
+        y: top / unit,
+        w: Math.abs(event.clientX - start.clientX) / unit,
+        h: Math.abs(event.clientY - start.clientY) / unit,
+      }),
+    );
+  };
+  const cancelMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+    marqueeStart.current = null;
+    marqueeDragged.current = false;
+    setMarquee(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  };
 
   const reload = async () => {
     const controller = session.current;
@@ -292,7 +390,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     }
     controller.replace(result.value);
     setActiveFrame(result.value.scene.frames[0]?.id ?? null);
-    setSelected(null);
+    setSelected([]);
   };
   const retry = () => session.current?.retry();
   const zoomLevel = Math.round(scale * 100);
@@ -300,7 +398,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const offsetY = frame === null ? 0 : Math.round((viewport.h - frame.h * scale) / 2);
 
   const handles = (node: SceneNode) =>
-    selected === node.id ? (
+    selectedNode?.id === node.id ? (
       <>
         <span
           aria-hidden="true"
@@ -352,8 +450,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
           </Button>
           <IconAction
             icon="trash"
-            label="Delete node"
-            disabled={readOnly || selected === null}
+            label="Delete selection"
+            disabled={readOnly || selected.length === 0}
             onClick={removeSelected}
           />
         </nav>
@@ -399,7 +497,13 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       ) : null}
       <div className={`canvas-workspace ${selectedNode?.type === "text" ? "canvas-inspector-open" : ""}`}>
         <div className="canvas-stage-wrap" ref={stage}>
-          <div className="canvas-stage" onPointerDown={() => setSelected(null)}>
+          <div
+            className="canvas-stage"
+            onPointerDown={startMarquee}
+            onPointerMove={onMarqueeMove}
+            onPointerUp={endMarquee}
+            onPointerCancel={cancelMarquee}
+          >
             {frame === null ? (
               <p className="canvas-empty" role="status">
                 This canvas has no frames yet.
@@ -420,8 +524,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                     role="button"
                     tabIndex={0}
                     aria-label={nodeLabel(node)}
-                    aria-pressed={selected === node.id}
-                    className={`canvas-node canvas-node-${node.type} ${selected === node.id ? "canvas-node-selected" : ""}`}
+                    aria-pressed={isSelected(node.id)}
+                    className={`canvas-node canvas-node-${node.type} ${isSelected(node.id) ? "canvas-node-selected" : ""}`}
                     style={nodeStyle(node)}
                     onPointerDown={(event) => startDrag(event, node, "move")}
                     onPointerMove={onPointerMove}
@@ -429,12 +533,21 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                     onPointerCancel={endDrag}
                     onClick={(event) => {
                       event.stopPropagation();
-                      setSelected(node.id);
+                      if (nodeDragged.current) return;
+                      if (event.shiftKey) {
+                        toggle(node.id);
+                        return;
+                      }
+                      setSelected([node.id]);
                     }}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      setSelected(node.id);
+                      if (event.shiftKey) {
+                        toggle(node.id);
+                        return;
+                      }
+                      setSelected([node.id]);
                     }}
                   >
                     {node.type === "text" ? node.text : null}
@@ -463,6 +576,38 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
               </div>
             )}
           </div>
+          {marquee === null ? null : (
+            <div
+              aria-hidden="true"
+              className="canvas-marquee"
+              style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }}
+            />
+          )}
+          {selected.length > 1 ? (
+            <div role="group" aria-label="Selection actions" className="canvas-selection-bar">
+              <span aria-live="polite">{selected.length} selected</span>
+              <Button
+                size="sm"
+                aria-label="Bring selection to front"
+                disabled={readOnly}
+                onClick={bringSelectedToFront}
+              >
+                Front
+              </Button>
+              <Button size="sm" aria-label="Send selection to back" disabled={readOnly} onClick={sendSelectedToBack}>
+                Back
+              </Button>
+              <Button
+                size="sm"
+                variant="danger-ghost"
+                aria-label="Delete selection"
+                disabled={readOnly}
+                onClick={removeSelected}
+              >
+                Delete
+              </Button>
+            </div>
+          ) : null}
           <div role="group" aria-label="Canvas zoom" className="canvas-zoom">
             <IconAction
               icon="min"

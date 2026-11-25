@@ -113,12 +113,52 @@ function insideFrame(frame: SceneFrame, node: SceneNode): SceneNode {
   return { ...node, x, y, w, h };
 }
 
+export type SceneRect = { x: number; y: number; w: number; h: number };
+
+const finite = (value: number): boolean => Number.isFinite(value);
+
+export function selectNodesInRect(frame: SceneFrame, rect: SceneRect): string[] {
+  if (!finite(rect.x) || !finite(rect.y) || !finite(rect.w) || !finite(rect.h)) return [];
+  const left = Math.min(rect.x, rect.x + rect.w);
+  const right = Math.max(rect.x, rect.x + rect.w);
+  const top = Math.min(rect.y, rect.y + rect.h);
+  const bottom = Math.max(rect.y, rect.y + rect.h);
+  return frame.nodes
+    .filter((node) => node.x <= right && left <= node.x + node.w && node.y <= bottom && top <= node.y + node.h)
+    .map((node) => node.id);
+}
+
 export function moveNode(scene: Scene, nodeId: string, dx: number, dy: number): Scene {
   const located = locate(scene, nodeId);
   if (located === null) return scene;
   const { frame, node } = located;
   const moved = insideFrame(frame, { ...node, x: node.x + rounded(dx), y: node.y + rounded(dy) });
   return replaceNode(scene, frame.id, moved);
+}
+
+export function moveNodes(scene: Scene, ids: string[], dx: number, dy: number): Scene {
+  const start = ids.map((id) => locate(scene, id)).find((located) => located !== null);
+  if (start === undefined) return scene;
+  const frame = start.frame;
+  const seen = new Set<string>();
+  const group = frame.nodes.filter((node) => {
+    if (!ids.includes(node.id) || seen.has(node.id)) return false;
+    seen.add(node.id);
+    return true;
+  });
+  if (group.length === 0) return scene;
+  const left = Math.min(...group.map((node) => node.x));
+  const top = Math.min(...group.map((node) => node.y));
+  const right = Math.max(...group.map((node) => node.x + node.w));
+  const bottom = Math.max(...group.map((node) => node.y + node.h));
+  const leastX = -left;
+  const mostX = frame.w - right;
+  const leastY = -top;
+  const mostY = frame.h - bottom;
+  const moveX = leastX <= mostX && finite(dx) ? clamp(rounded(dx), leastX, mostX) : 0;
+  const moveY = leastY <= mostY && finite(dy) ? clamp(rounded(dy), leastY, mostY) : 0;
+  const moved = group.map((node) => insideFrame(frame, { ...node, x: node.x + moveX, y: node.y + moveY }));
+  return moved.reduce((next, node) => replaceNode(next, frame.id, node), scene);
 }
 
 export function resizeNode(scene: Scene, nodeId: string, w: number, h: number): Scene {
@@ -154,6 +194,26 @@ export function removeNode(scene: Scene, nodeId: string): Scene {
     ),
   };
 }
+
+function reorderNodes(scene: Scene, ids: string[], front: boolean): Scene {
+  if (ids.length === 0) return scene;
+  const wanted = new Set(ids);
+  let changed = false;
+  const frames = scene.frames.map((frame) => {
+    const chosen = frame.nodes.filter((node) => wanted.has(node.id));
+    if (chosen.length === 0) return frame;
+    const rest = frame.nodes.filter((node) => !wanted.has(node.id));
+    const nodes = front ? [...rest, ...chosen] : [...chosen, ...rest];
+    if (nodes.every((node, at) => node.id === frame.nodes[at]?.id)) return frame;
+    changed = true;
+    return { ...frame, nodes };
+  });
+  return changed ? { ...scene, frames } : scene;
+}
+
+export const bringToFront = (scene: Scene, ids: string[]): Scene => reorderNodes(scene, ids, true);
+
+export const sendToBack = (scene: Scene, ids: string[]): Scene => reorderNodes(scene, ids, false);
 
 export function updateTextNode(
   scene: Scene,
