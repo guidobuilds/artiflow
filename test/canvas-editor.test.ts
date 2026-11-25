@@ -8,11 +8,14 @@ import {
   bringToFront,
   fitScale,
   getScene,
+  layerRows,
   moveNode,
   moveNodes,
+  nudgeSelection,
   openCanvas,
   rectNode,
   removeNode,
+  reorderNodeTo,
   resizeNode,
   saveScene,
   selectNodesInRect,
@@ -418,6 +421,176 @@ test("reordering a selection preserves the relative order inside and outside the
   );
 });
 
+test("a layer drag moves one node to the exact index it was dropped on", () => {
+  const three = addNode(scene(), "frame-1", rectNode("rect-3", 400, 420));
+  const idsOf = (value: Scene) => value.frames[0]?.nodes.map((node) => node.id) ?? [];
+  const twoFrames: Scene = {
+    ...three,
+    frames: [
+      ...three.frames,
+      {
+        id: "frame-2",
+        name: "Other",
+        x: 0,
+        y: 0,
+        w: 400,
+        h: 400,
+        nodes: [{ id: "rect-2", type: "rect", x: 10, y: 10, w: 50, h: 50, fill: "#e5e7eb" }],
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    idsOf(reorderNodeTo(three, "rect-1", 2)),
+    ["text-1", "rect-3", "rect-1"],
+    "a row dropped at an explicit index lands there",
+  );
+  assert.deepEqual(
+    idsOf(reorderNodeTo(three, "rect-3", 0)),
+    ["rect-3", "rect-1", "text-1"],
+    "a row dropped before every other node becomes the back of the frame",
+  );
+  assert.deepEqual(
+    idsOf(reorderNodeTo(three, "text-1", 99)),
+    ["rect-1", "rect-3", "text-1"],
+    "an index past the last node clamps to the last position",
+  );
+  assert.deepEqual(
+    idsOf(reorderNodeTo(three, "text-1", -4)),
+    ["text-1", "rect-1", "rect-3"],
+    "an index before the first node clamps to the first position",
+  );
+  assert.equal(reorderNodeTo(three, "text-1", 1), three, "the index a node already holds leaves the scene as it is");
+  assert.equal(reorderNodeTo(three, "missing", 0), three, "an unknown node leaves the scene as it is");
+  assert.equal(
+    nodeOf(reorderNodeTo(three, "rect-1", 2), "rect-1")?.x,
+    40,
+    "reordering a row moves no node on the canvas",
+  );
+  assert.deepEqual(
+    reorderNodeTo(twoFrames, "rect-3", 0).frames[1],
+    twoFrames.frames[1],
+    "reordering a row leaves every other frame untouched",
+  );
+});
+
+test("a nudge moves the selected block one step and preserves its own order", () => {
+  const three = addNode(scene(), "frame-1", rectNode("rect-3", 400, 420));
+  const four = addNode(three, "frame-1", rectNode("rect-4", 0, 0));
+  const idsOf = (value: Scene) => value.frames[0]?.nodes.map((node) => node.id) ?? [];
+  assert.deepEqual(idsOf(four), ["rect-1", "text-1", "rect-3", "rect-4"], "the frame paints back to front");
+
+  assert.deepEqual(
+    idsOf(nudgeSelection(three, ["text-1"], 1)),
+    ["rect-1", "rect-3", "text-1"],
+    "a single selection moves one step toward the front",
+  );
+  assert.deepEqual(
+    idsOf(nudgeSelection(three, ["text-1"], -1)),
+    ["text-1", "rect-1", "rect-3"],
+    "a single selection moves one step toward the back",
+  );
+  assert.deepEqual(
+    nudgeSelection(three, ["text-1"], 1),
+    reorderNodeTo(three, "text-1", 2),
+    "a single step is the explicit reorder one index up",
+  );
+  assert.deepEqual(
+    nudgeSelection(three, ["text-1"], -1),
+    reorderNodeTo(three, "text-1", 0),
+    "a single step is the explicit reorder one index down",
+  );
+
+  assert.deepEqual(
+    idsOf(nudgeSelection(four, ["rect-1", "text-1"], 1)),
+    ["rect-3", "rect-1", "text-1", "rect-4"],
+    "a block moves one step forward keeping its own relative order",
+  );
+  assert.deepEqual(
+    idsOf(nudgeSelection(four, ["rect-3", "rect-4"], -1)),
+    ["rect-1", "rect-3", "rect-4", "text-1"],
+    "a block moves one step back keeping its own relative order",
+  );
+  assert.equal(
+    nudgeSelection(four, ["rect-3", "rect-4"], 1),
+    four,
+    "a block already at the front stops instead of leaving the frame",
+  );
+  assert.equal(
+    nudgeSelection(four, ["rect-1", "text-1"], -1),
+    four,
+    "a block already at the back stops instead of leaving the frame",
+  );
+  assert.deepEqual(
+    idsOf(nudgeSelection(four, ["rect-1", "rect-3"], 1)),
+    ["text-1", "rect-1", "rect-3", "rect-4"],
+    "an interleaved block still moves as one",
+  );
+  assert.equal(nudgeSelection(four, [], 1), four, "an empty selection leaves the paint order as it is");
+  assert.equal(
+    nudgeSelection(four, ["rect-1", "text-1"], 0),
+    four,
+    "a step that is not up or down leaves the paint order as it is",
+  );
+  assert.equal(nudgeSelection(four, ["missing"], 1), four, "an unknown id leaves the paint order as it is");
+  assert.equal(nodeOf(nudgeSelection(four, ["rect-1"], 1), "rect-1")?.x, 40, "a nudge moves no node on the canvas");
+});
+
+test("the layers panel lists the frame from front to back with a compact label", () => {
+  const frame = scene().frames[0]!;
+  const labelOf = (value: Scene, id: string) => layerRows(value.frames[0]!).find((row) => row.id === id)?.label;
+
+  assert.deepEqual(
+    layerRows(frame),
+    [
+      { id: "text-1", label: "Hello" },
+      { id: "rect-1", label: "Rectangle 1" },
+    ],
+    "the list runs from the node that paints last to the one that paints first",
+  );
+
+  const stacked = addNode(
+    addNode(scene(), "frame-1", rectNode("rect-2", 0, 0)),
+    "frame-1",
+    rectNode("rect-3", 300, 300),
+  );
+  assert.deepEqual(
+    layerRows(stacked.frames[0]!).map((row) => row.id),
+    ["rect-3", "rect-2", "text-1", "rect-1"],
+    "every node gets one row",
+  );
+  assert.equal(labelOf(stacked, "rect-3"), "Rectangle 3", "the ordinal counts the rectangles in paint order");
+  assert.equal(labelOf(stacked, "rect-1"), "Rectangle 1", "the backmost node of its type keeps the first ordinal");
+
+  const mixed = addNode(
+    addNode(stacked, "frame-1", { id: "image-1", type: "image", x: 0, y: 300, w: 100, h: 100, assetId: "asset-1" }),
+    "frame-1",
+    { id: "image-2", type: "image", x: 300, y: 300, w: 100, h: 100, assetId: "asset-2" },
+  );
+  const withPath = addNode(mixed, "frame-1", {
+    id: "path-1",
+    type: "path",
+    x: 500,
+    y: 100,
+    w: 100,
+    h: 100,
+    d: "M0 0 L10 10",
+  });
+  assert.equal(labelOf(withPath, "image-2"), "Image 2", "each node type counts on its own");
+  assert.equal(labelOf(withPath, "path-1"), "Path 1", "a type that appears once reads as its own first ordinal");
+
+  const long = addNode(scene(), "frame-1", {
+    ...textNode("text-2", 0, 300),
+    text: "   A very long heading that goes on and on past any readable row width   ",
+  });
+  const snippet = labelOf(long, "text-2") ?? "";
+  assert.equal(snippet.startsWith("A very long heading"), true, "the text snippet is trimmed and has no type prefix");
+  assert.equal(snippet.includes("Text node"), false, "the row label carries no accessibility vocabulary");
+  assert.equal(snippet.length <= 41, true, "a long snippet is cut to a readable length");
+  assert.equal(snippet.endsWith("…"), true, "a cut snippet says that it was cut");
+  assert.deepEqual(layerRows(frame), layerRows(frame), "reading the rows twice gives the same labels");
+});
+
 test("a save sends the sequence it read and adopts the sequence the save reports", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const calls: unknown[] = [];
@@ -519,7 +692,19 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /aria-label="Delete selection"/);
   assert.match(page, /canvas-marquee/);
   assert.match(page, /event\.shiftKey/);
-  assert.match(source("../apps/dashboard/src/styles/globals.css"), /\.canvas-marquee\b/);
+  assert.match(page, /reorderNodeTo\(/);
+  assert.match(page, /nudgeSelection\(/);
+  assert.match(page, /layerRows\(/);
+  assert.match(page, /aria-label="Layers"/);
+  assert.match(page, /aria-label="Toggle layers"/);
+  assert.match(page, /event\.altKey/);
+  assert.match(page, /event\.key === "ArrowUp"/);
+  assert.match(page, /event\.key === "ArrowDown"/);
+  const css = source("../apps/dashboard/src/styles/globals.css");
+  assert.match(css, /\.canvas-layers\b/);
+  assert.match(css, /\.canvas-workspace\.canvas-layers-open/);
+  assert.match(css, /grid-template-columns: minmax\(0, 1fr\) 280px 240px/);
+  assert.match(css, /\.canvas-marquee\b/);
   assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
   assert.doesNotMatch(page, /replace_scene|add_frame|move_node|update_node/);
   const conflict = /Someone saved a newer version\.[^<]*/.exec(markdown)?.[0];

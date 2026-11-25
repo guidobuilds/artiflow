@@ -215,6 +215,67 @@ export const bringToFront = (scene: Scene, ids: string[]): Scene => reorderNodes
 
 export const sendToBack = (scene: Scene, ids: string[]): Scene => reorderNodes(scene, ids, false);
 
+const withFrameNodes = (scene: Scene, frameId: string, nodes: SceneNode[]): Scene => ({
+  ...scene,
+  frames: scene.frames.map((frame) => (frame.id === frameId ? { ...frame, nodes } : frame)),
+});
+
+export function reorderNodeTo(scene: Scene, id: string, index: number): Scene {
+  const located = locate(scene, id);
+  if (located === null || !Number.isFinite(index)) return scene;
+  const from = located.frame.nodes.findIndex((node) => node.id === id);
+  const to = clamp(rounded(index), 0, located.frame.nodes.length - 1);
+  if (from < 0 || from === to) return scene;
+  const nodes = [...located.frame.nodes];
+  nodes.splice(from, 1);
+  nodes.splice(to, 0, located.node);
+  return withFrameNodes(scene, located.frame.id, nodes);
+}
+
+export function nudgeSelection(scene: Scene, ids: string[], delta: number): Scene {
+  if (ids.length === 0) return scene;
+  const start = ids.map((id) => locate(scene, id)).find((located) => located !== null);
+  if (start === undefined) return scene;
+  const step = delta > 0 ? 1 : delta < 0 ? -1 : 0;
+  if (step === 0) return scene;
+  const frame = start.frame;
+  const wanted = new Set(ids);
+  const chosen = frame.nodes.filter((node) => wanted.has(node.id));
+  if (chosen.length === 0) return scene;
+  const first = frame.nodes.findIndex((node) => wanted.has(node.id));
+  const last = frame.nodes.findLastIndex((node) => wanted.has(node.id));
+  if (step > 0 && last >= frame.nodes.length - 1) return scene;
+  if (step < 0 && first <= 0) return scene;
+  const rest = frame.nodes.filter((node) => !wanted.has(node.id));
+  rest.splice(first + step, 0, ...chosen);
+  return withFrameNodes(scene, frame.id, rest);
+}
+
+const LAYER_SNIPPET_LENGTH = 40;
+
+const layerTypeName = (node: SceneNode): string => {
+  if (node.type === "rect") return "Rectangle";
+  if (node.type === "image") return "Image";
+  return "Path";
+};
+
+const layerSnippet = (text: string): string => {
+  const trimmed = text.trim();
+  if (trimmed === "") return "Text";
+  return trimmed.length > LAYER_SNIPPET_LENGTH ? `${trimmed.slice(0, LAYER_SNIPPET_LENGTH)}…` : trimmed;
+};
+
+export function layerRows(frame: SceneFrame): { id: string; label: string }[] {
+  const ordinals = new Map<SceneNode["type"], number>();
+  const rows = frame.nodes.map((node) => {
+    const ordinal = (ordinals.get(node.type) ?? 0) + 1;
+    ordinals.set(node.type, ordinal);
+    const label = node.type === "text" ? layerSnippet(node.text) : `${layerTypeName(node)} ${ordinal}`;
+    return { id: node.id, label };
+  });
+  return rows.reverse();
+}
+
 export function updateTextNode(
   scene: Scene,
   nodeId: string,
