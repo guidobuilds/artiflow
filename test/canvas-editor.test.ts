@@ -5,20 +5,24 @@ import { afterEach, test } from "node:test";
 import { openArtifact } from "../apps/dashboard/src/editor-api.ts";
 import {
   addNode,
+  bringToFront,
   fitScale,
   getScene,
   moveNode,
+  moveNodes,
   openCanvas,
   rectNode,
   removeNode,
   resizeNode,
   saveScene,
+  selectNodesInRect,
+  sendToBack,
   textNode,
   updateTextNode,
 } from "../apps/dashboard/src/scene-api.ts";
 import { SceneAutosave } from "../apps/dashboard/src/scene-autosave.ts";
 import { AUTOSAVE_MS } from "../apps/dashboard/src/editor-autosave.ts";
-import type { Scene } from "@artiflow/domain/scene";
+import type { Scene, SceneFrame } from "@artiflow/domain/scene";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -248,6 +252,172 @@ test("dragging and resizing keep a node inside its frame and every other gesture
   assert.equal(rectNode("rect-3", 10, 10).fill.length > 0, true, "a new rectangle arrives with a visible fill");
 });
 
+test("a selection rectangle takes every node of the active frame that it touches, in frame order", () => {
+  const active = scene().frames[0]!;
+  assert.deepEqual(
+    selectNodesInRect(active, { x: 0, y: 0, w: 800, h: 600 }),
+    ["rect-1", "text-1"],
+    "a rectangle over the whole frame takes every node in the order the frame paints them",
+  );
+  assert.deepEqual(
+    selectNodesInRect(active, { x: 220, y: 30, w: 40, h: 40 }),
+    ["rect-1"],
+    "a rectangle that overlaps only part of a node still takes it",
+  );
+  assert.deepEqual(
+    selectNodesInRect(active, { x: 240, y: 100, w: 10, h: 10 }),
+    ["rect-1"],
+    "a rectangle that only touches an edge counts as an overlap",
+  );
+  assert.deepEqual(
+    selectNodesInRect(active, { x: 400, y: 400, w: 50, h: 50 }),
+    [],
+    "a rectangle over empty space takes nothing",
+  );
+  assert.deepEqual(selectNodesInRect(active, { x: 0, y: 0, w: 0, h: 0 }), [], "an empty rectangle takes nothing");
+
+  const reversed: SceneFrame = { ...active, nodes: [...active.nodes].reverse() };
+  assert.deepEqual(
+    selectNodesInRect(reversed, { x: 0, y: 0, w: 800, h: 600 }),
+    ["text-1", "rect-1"],
+    "the answer follows the frame's node order instead of the geometry",
+  );
+  assert.deepEqual(
+    selectNodesInRect(active, { x: 0, y: 0, w: 800, h: 600 }),
+    selectNodesInRect(active, { x: 0, y: 0, w: 800, h: 600 }),
+    "asking twice gives the same answer",
+  );
+  assert.equal(active.nodes.length, 2, "the frame it reads is left untouched");
+});
+
+test("moving a selection keeps one delta for the whole group and stops it at the frame edge", () => {
+  const moved = moveNodes(scene(), ["rect-1", "text-1"], 30, 20);
+  assert.deepEqual(
+    [nodeOf(moved, "rect-1")?.x, nodeOf(moved, "rect-1")?.y, nodeOf(moved, "text-1")?.x, nodeOf(moved, "text-1")?.y],
+    [70, 60, 70, 220],
+    "every selected node moves by the same delta",
+  );
+  assert.deepEqual(
+    [nodeOf(moved, "rect-1")?.w, nodeOf(moved, "rect-1")?.h, nodeOf(moved, "text-1")?.w, nodeOf(moved, "text-1")?.h],
+    [200, 120, 300, 60],
+    "a move never resizes a node",
+  );
+  assert.equal(nodeOf(scene(), "rect-1")?.x, 40, "the scene before the drag is untouched");
+
+  const forward = moveNodes(scene(), ["rect-1", "text-1"], 5000, 5000);
+  assert.deepEqual(
+    [
+      nodeOf(forward, "rect-1")?.x,
+      nodeOf(forward, "rect-1")?.y,
+      nodeOf(forward, "text-1")?.x,
+      nodeOf(forward, "text-1")?.y,
+    ],
+    [500, 380, 500, 540],
+    "the group stops when its own bounding box reaches the frame edge",
+  );
+
+  const backward = moveNodes(scene(), ["rect-1", "text-1"], -5000, -5000);
+  assert.deepEqual(
+    [
+      nodeOf(backward, "rect-1")?.x,
+      nodeOf(backward, "rect-1")?.y,
+      nodeOf(backward, "text-1")?.x,
+      nodeOf(backward, "text-1")?.y,
+    ],
+    [0, 0, 0, 160],
+    "a backward drag stops at the same edge without stacking the nodes",
+  );
+
+  assert.deepEqual(moveNodes(scene(), [], 10, 10), scene(), "an empty selection leaves the scene as it is");
+  assert.deepEqual(moveNodes(scene(), ["missing"], 10, 10), scene(), "ids the scene does not know leave it as it is");
+  assert.deepEqual(
+    moveNodes(scene(), ["rect-1"], 30, 25),
+    moveNode(scene(), "rect-1", 30, 25),
+    "a one-node group moves exactly like a single node",
+  );
+
+  const twoFrames: Scene = {
+    ...scene(),
+    frames: [
+      ...scene().frames,
+      {
+        id: "frame-2",
+        name: "Other",
+        x: 0,
+        y: 0,
+        w: 400,
+        h: 400,
+        nodes: [{ id: "rect-2", type: "rect", x: 10, y: 10, w: 50, h: 50, fill: "#e5e7eb" }],
+      },
+    ],
+  };
+  const crossFrame = moveNodes(twoFrames, ["rect-1", "rect-2"], 20, 20);
+  assert.deepEqual(
+    [
+      crossFrame.frames[0]?.nodes.find((node) => node.id === "rect-1")?.x,
+      crossFrame.frames[1]?.nodes.find((node) => node.id === "rect-2")?.x,
+    ],
+    [60, 10],
+    "only nodes of the frame the group started in move",
+  );
+});
+
+test("reordering a selection preserves the relative order inside and outside the group", () => {
+  const three = addNode(scene(), "frame-1", rectNode("rect-3", 400, 420));
+  const idsOf = (value: Scene) => value.frames[0]?.nodes.map((node) => node.id) ?? [];
+  assert.deepEqual(idsOf(three), ["rect-1", "text-1", "rect-3"], "the frame paints back to front");
+
+  assert.deepEqual(idsOf(bringToFront(three, ["rect-1"])), ["text-1", "rect-3", "rect-1"]);
+  assert.deepEqual(
+    idsOf(bringToFront(three, ["rect-1", "rect-3"])),
+    ["text-1", "rect-1", "rect-3"],
+    "the group keeps its own relative order on its way to the front",
+  );
+  assert.deepEqual(
+    idsOf(bringToFront(three, ["text-1"])),
+    ["rect-1", "rect-3", "text-1"],
+    "a node that sits in the middle still lands in front of the rest",
+  );
+  assert.deepEqual(idsOf(sendToBack(three, ["text-1"])), ["text-1", "rect-1", "rect-3"]);
+  assert.deepEqual(
+    idsOf(sendToBack(three, ["text-1", "rect-3"])),
+    ["text-1", "rect-3", "rect-1"],
+    "the group keeps its own relative order on its way to the back",
+  );
+
+  assert.deepEqual(bringToFront(three, []), three, "an empty selection leaves the paint order as it is");
+  assert.deepEqual(sendToBack(three, []), three, "an empty selection leaves the paint order as it is");
+  assert.deepEqual(bringToFront(three, ["missing"]), three, "an unknown id leaves the paint order as it is");
+  assert.deepEqual(sendToBack(three, ["missing"]), three, "an unknown id leaves the paint order as it is");
+  assert.equal(idsOf(bringToFront(three, ["rect-1", "rect-1"])).length, 3, "a repeated id never duplicates a node");
+  assert.deepEqual(
+    [nodeOf(bringToFront(three, ["rect-3"]), "rect-3")?.x, nodeOf(sendToBack(three, ["rect-3"]), "rect-3")?.x],
+    [400, 400],
+    "reordering moves no node",
+  );
+
+  const twoFrames: Scene = {
+    ...three,
+    frames: [
+      ...three.frames,
+      {
+        id: "frame-2",
+        name: "Other",
+        x: 0,
+        y: 0,
+        w: 400,
+        h: 400,
+        nodes: [{ id: "rect-2", type: "rect", x: 10, y: 10, w: 50, h: 50, fill: "#e5e7eb" }],
+      },
+    ],
+  };
+  assert.deepEqual(
+    sendToBack(twoFrames, ["rect-3"]).frames[1],
+    twoFrames.frames[1],
+    "reordering a frame leaves the other frames untouched",
+  );
+});
+
 test("a save sends the sequence it read and adopts the sequence the save reports", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const calls: unknown[] = [];
@@ -338,6 +508,18 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /aria-label="Font size"/);
   assert.match(page, /aria-label="Font weight"/);
   assert.match(page, /aria-label="Text colour"/);
+  assert.match(page, /useState<string\[\]>\(\[\]\)/);
+  assert.match(page, /selectNodesInRect\(frame/);
+  assert.match(page, /MARQUEE_THRESHOLD/);
+  assert.match(page, /moveNodes\(/);
+  assert.match(page, /bringToFront\(/);
+  assert.match(page, /sendToBack\(/);
+  assert.match(page, /aria-label="Bring selection to front"/);
+  assert.match(page, /aria-label="Send selection to back"/);
+  assert.match(page, /aria-label="Delete selection"/);
+  assert.match(page, /canvas-marquee/);
+  assert.match(page, /event\.shiftKey/);
+  assert.match(source("../apps/dashboard/src/styles/globals.css"), /\.canvas-marquee\b/);
   assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
   assert.doesNotMatch(page, /replace_scene|add_frame|move_node|update_node/);
   const conflict = /Someone saved a newer version\.[^<]*/.exec(markdown)?.[0];
