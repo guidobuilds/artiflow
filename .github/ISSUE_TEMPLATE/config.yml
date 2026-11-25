@@ -3,6 +3,6 @@ contact_links:
   - name: Report a security vulnerability
     url: https://github.com/guidobuilds/artiflow/security/advisories/new
     about: Do not open a public issue. Use a private security advisory.
-  - name: Local runbook
-    url: https://github.com/guidobuilds/artiflow/blob/main/docs/runbook.md
-    about: Setup, MCP flow and troubleshooting for a local instance.
+  - name: Development setup
+    url: https://artiflow.dev/docs/contributing/development/
+    about: Setup, checks and troubleshooting for a local instance.

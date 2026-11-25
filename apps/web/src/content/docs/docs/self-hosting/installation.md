@@ -32,6 +32,21 @@ OAuth issuer and every viewer URL derive from that origin. Agents paste the orig
 https://artifacts.example.com/mcp
 ```
 
+### Deployment profiles
+
+The repository runs in three profiles, and only the last is a public deployment:
+
+| Setting                  | Local development              | Integration tests                 | Production                                            |
+| ------------------------ | ------------------------------ | --------------------------------- | ----------------------------------------------------- |
+| Entry point              | `bun run dev`                  | `bun run test:integration`        | `bun run deploy:up`                                   |
+| `NODE_ENV`               | `development`                  | `development`                     | `production`                                          |
+| `ARTIFLOW_PUBLIC_ORIGIN` | `http://127.0.0.1:5173`        | `http://127.0.0.1:5173`           | `https://` plus your hostname                         |
+| Services                 | Your external database, bucket | Disposable PostgreSQL and Garage  | Your external database, bucket                        |
+| Cookies                  | Not `Secure`                   | Not used                          | `Secure`, `HttpOnly`, `SameSite=Lax`                  |
+| Database TLS             | Usually off                    | Off                               | `?sslmode=require` (or `verify-full`)                 |
+| Migrations               | Loopback target allowed        | Loopback target allowed           | `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1`, set by `deploy:up` |
+| Environment file         | `.env.local`                   | `test/integration-config.example` | `.env.prod`, or `ARTIFLOW_PROD_ENV_FILE`              |
+
 ## Local instance
 
 Local development uses the same external services. The Vite dev server listens on `5173` and proxies
@@ -120,6 +135,11 @@ the MCP transport's DNS-rebinding guard trusts only the public origin host, the 
 `ARTIFLOW_PUBLIC_ORIGIN`. If you put another proxy in front and it rewrites `Host`, declare the
 authority it sends or `/mcp` answers `403`.
 
+To verify bearer tokens, the API fetches its own signing keys from `/api/auth/jwks`, by default over
+`http://127.0.0.1:<API port>`. If loopback HTTP is not available to the process — a strict sidecar
+policy, for example — set `ARTIFLOW_INTERNAL_ORIGIN` to an origin it can reach, or every MCP call
+fails verification.
+
 ## Verify the instance
 
 ```sh
@@ -179,6 +199,19 @@ sessions and tokens; see [operate and upgrade](/docs/self-hosting/operations/).
 Changing `ARTIFLOW_PUBLIC_ORIGIN` moves the OAuth issuer and every resource identifier. Clients
 registered and tokens issued under the previous origin stop matching, so re-register and
 re-authenticate each harness after the change.
+
+## Pre-flight checklist
+
+- [ ] DNS for the dedicated hostname points at the server; ports 80 and 443 are reachable.
+- [ ] `ARTIFLOW_SITE_ADDRESS` is the hostname, and `ARTIFLOW_PUBLIC_ORIGIN` is `https://` plus the same
+      hostname. This origin is final: changing it later re-registers every client.
+- [ ] The database is reachable from the server, with TLS in `DATABASE_URL` if the server requires it.
+- [ ] The bucket exists, is private, and its credentials reach only it; path style is set for non-AWS
+      providers.
+- [ ] `ARTIFLOW_AUTH_SECRET` is at least 32 characters and `.env.prod` is mode `0600`.
+- [ ] Any proxy in front passes the original `Host`, or its authority is in `ARTIFLOW_ALLOWED_HOSTS`.
+- [ ] After `deploy:up`, `/api/health` answers `200`.
+- [ ] One client connects to `/mcp`, completes consent and publishes one artifact.
 
 ## Scope of what is verified
 

@@ -22,7 +22,7 @@ What you walk away with:
   publish a link or delete.
 
 > **Alpha — not production-ready.** Artiflow is pre-1.0 and may include breaking changes or data
-> loss between releases. Keep backups, read the [deployment guide](docs/deployment-guide.md) before
+> loss between releases. Keep backups, read the [installation guide](https://artiflow.dev/docs/self-hosting/installation/) before
 > exposing an instance, and report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 [Documentation](https://artiflow.dev/docs/) · [Releases](https://github.com/guidobuilds/artiflow/releases) ·
@@ -43,7 +43,7 @@ disposable stack in `docker-compose.yml` is for tests and never touches real dat
 first publish and day-to-day operation are in the
 [quickstart](https://artiflow.dev/docs/start/quickstart/), the
 [installation guide](https://artiflow.dev/docs/self-hosting/installation/) and
-[docs/runbook.md](docs/runbook.md).
+[development setup](https://artiflow.dev/docs/contributing/development/).
 
 ```bash
 git clone https://github.com/guidobuilds/artiflow.git
@@ -60,8 +60,8 @@ Open <http://127.0.0.1:5173/>. Use that IPv4 address: on some machines `localhos
 unrelated IPv6 listener and shows a different application. Create a local account, then connect an
 agent.
 
-Production — domain, TLS, the proxy and upgrades — is
-[docs/deployment-guide.md](docs/deployment-guide.md). `bun run deploy:up` builds the images, migrates
+Production — domain, TLS, the proxy and upgrades — is in the
+[installation guide](https://artiflow.dev/docs/self-hosting/installation/#production-instance). `bun run deploy:up` builds the images, migrates
 the database you named and starts the stack. `bun run deploy:logs` follows it and `bun run deploy:down`
 stops it.
 
@@ -76,8 +76,8 @@ The site in [`apps/web`](apps/web/README.md) is the guide for using and hosting 
 - [Install](https://artiflow.dev/docs/self-hosting/installation/) and
   [operate](https://artiflow.dev/docs/self-hosting/operations/) — hosting, upgrades, backups.
 
-How the system is put together, including the stack, lives in
-[`docs/architecture/README.md`](docs/architecture/README.md). The tool and kind contracts are the
+How the system is put together, including the stack, lives in the
+[architecture overview](https://artiflow.dev/docs/contributing/architecture/). The tool and kind contracts are the
 code: [`packages/domain/src/kinds.ts`](packages/domain/src/kinds.ts) and
 [`packages/mcp-server/src/server.ts`](packages/mcp-server/src/server.ts), with the narrative reference
 at [MCP tools](https://artiflow.dev/docs/reference/mcp-tools/). Copy those, not a count from prose.

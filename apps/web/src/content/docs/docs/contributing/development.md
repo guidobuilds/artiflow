@@ -36,6 +36,25 @@ bun run dev           # API on 8787, dashboard on 5173
 Open <http://127.0.0.1:5173/>. `bun run dev` owns only its child processes and refuses to start when
 either port is taken; `ARTIFLOW_DEV_RUNTIME=bun|node` picks the API runtime (default `bun`).
 
+Registration is closed in every profile, so the first account comes from the console:
+
+```sh
+bun run user:invite you@example.com   # prints a single-use registration URL, valid 24 hours
+bun run admin:grant you@example.com   # once the account exists: opens the /admin screens
+```
+
+Local secrets live in `.env.local` (mode `0600`, git-ignored). Never commit, print or paste them.
+
+### When the local instance does not start
+
+| Symptom                                 | Check                                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------------------------- |
+| `bun run dev` refuses to start          | Port `5173` or `8787` is already taken by another process.                            |
+| The API runs on an unexpected runtime   | The startup line `[dev] api runtime: …` names it; pin it with `ARTIFLOW_DEV_RUNTIME`. |
+| `.runtime/artiflow-dev.pid` looks stale | The pid file can lag behind reality; trust `ps`.                                      |
+| `/api/health` answers `503`             | Run `bun run check:local`: it reports the database and the bucket separately.         |
+| `localhost` does not answer             | Use `127.0.0.1`: on some machines `localhost` resolves to an unrelated IPv6 listener. |
+
 ## Where the code lives
 
 | Path                           | Responsibility                                                                              |
@@ -54,9 +73,9 @@ either port is taken; `ARTIFLOW_DEV_RUNTIME=bun|node` picks the API runtime (def
 | `test`                         | Root suite: unit tests plus service-gated integration suites.                               |
 | `scripts`, `drizzle`, `docker` | Repository checks, additive migrations, images and the Caddyfile.                           |
 
-The architecture notes under `docs/architecture/` describe current behavior, module boundaries and the
-security model; `docs/runbook.md` is the local operations guide. Both are repository-facing, not part of
-this site.
+[Architecture overview](/docs/contributing/architecture/), [Module map](/docs/contributing/modules/),
+[Data model](/docs/contributing/data-model/) and [Request flows](/docs/contributing/flows/) describe how
+these pieces work together.
 
 ## Tests and checks
 
@@ -80,8 +99,9 @@ environment-gated suites execute instead of skipping, and `node:module` lacks
 | `bun run check:effects`    | `scripts/check-effect-fetches.mjs` fails when a dashboard effect calls `fetch` or an HTTP client.                                                                                                                                             |
 | `bun run web:verify`       | `astro check`, the docs build, then the built-output verifier; the only docs check that reads `apps/web/dist`.                                                                                                                                |
 
-The integration stack and its exact sequence live in `docs/runbook.md`; never point those commands at
-data you care about. The docs site has its own checks:
+The integration stack and its exact sequence are in
+[Integration tests and the sandbox](/docs/contributing/testing/); never point those commands at data
+you care about. The docs site has its own checks:
 
 ```sh
 node --test test/web-docs.test.ts         # workspace config, sidebar groups and every /docs/ link
@@ -147,14 +167,15 @@ search service to run.
 - `bun run check:comments` (`scripts/check-comments.mjs`) decides which source comments are allowed.
 - `bun run check:effects` (`scripts/check-effect-fetches.mjs`) rejects a `fetch` or an HTTP client
   call inside a dashboard `useEffect` or `useLayoutEffect`. Those loads belong in TanStack Query.
-- Product queries belong behind repositories that take the typed database from `apps/api/src/db/client.ts`.
+- Product queries belong behind repositories that take the typed database from
+  `apps/api/src/adapters/postgres/db/client.ts`.
   HTTP routes and MCP tools consume the same operations instead of duplicating SQL.
-- Security invariants are summarized in `docs/architecture/README.md`; artifact bytes never execute on
-  the application origin and permissions are checked before any byte is read.
+- Security invariants are summarized in [Architecture overview](/docs/contributing/architecture/#security-model);
+  artifact bytes never execute on the application origin and permissions are checked before any byte is read.
 - Migrations are additive and generated with `bun run db:generate`; never create roles, databases,
   buckets or bucket policies from this repository.
-- If a statement in `README.md` or `docs/` stops being true after your change, fix it in the same pull
-  request.
+- If a statement in `README.md`, `CONTRIBUTING.md` or this site stops being true after your change, fix
+  it in the same pull request.
 
 ## Next
 

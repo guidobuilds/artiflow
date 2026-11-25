@@ -10,8 +10,7 @@ area holds the surfaces, and every action is enforced by the server: hiding a co
 control. This page is written for whoever runs the instance, and covers what each action does, what
 it deliberately does not do, and which of those effects are reversed by a later action.
 
-The design behind these rules, endpoint by endpoint and table by table, is recorded in the
-repository at `docs/architecture/authentication-and-access.md`.
+The tables behind these rules are described in [Data model](/docs/contributing/data-model/#identity-and-settings).
 
 ## The administrator role
 

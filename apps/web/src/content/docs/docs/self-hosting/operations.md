@@ -42,6 +42,19 @@ never raced. Each run examines at most 2,000 keys in pages of 200 and keeps no c
 touches the database. `listFailed=true` means a listing page could not be read, so the run stopped
 early and retried nothing: check bucket permissions and storage availability.
 
+A third sweep applies the same bounds to image assets once a day, about 90 seconds after start:
+
+```text
+[asset-gc] examined=N candidates=M deleted=K failed=F kept=K listFailed=true|false
+```
+
+It removes an `assets/<sha256>` object older than 24 hours that no artifact references, together with
+its row; `kept` counts objects that gained a reference while the sweep ran.
+
+None of the sweeps collects the bytes of a soft-deleted artifact whose best-effort delete was refused:
+the kept revision rows still name those keys. The staging sweep is driven by upload rows, so a staging
+object whose row was never written (a crash between the put and the insert) is not collected either.
+
 Administration writes one JSON object per line to standard output, and the console commands that print
 a link write theirs to standard error so standard output stays the link alone. The event set is closed
 in code, every line carries no credential, token, link or request body, and the events are described
@@ -122,7 +135,15 @@ way. Without a valid link there is no way to start the change from the web.
 ## Upgrades
 
 Migrations are additive and idempotent, and there are no down migrations. The `migrate` container
-applies whatever is pending and exits; the API starts only after it succeeds.
+applies whatever is pending and exits; the API starts only after it succeeds. The migrator is
+Drizzle's, the SQL is in `drizzle/`, and applied migrations are tracked in
+`drizzle.__drizzle_migrations`.
+
+The migrator refuses any database whose host is not loopback unless `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1`
+is set, and opens no connection when it refuses; `deploy:up` sets it for the `migrate` container.
+Set it by hand only when the configured database is the one you mean to migrate. There is no shadow
+database and no automatic backup before migrating, and a rolling deploy where the previous API keeps
+serving during a migration has not been tested.
 
 ```sh
 git pull
@@ -184,6 +205,19 @@ production data: `test:integration`, `test:auth` and `test:oauth` write to the s
 - `.env.prod` is never committed. `bun run setup:local` refuses to read or modify an env file it does
   not own, and the API's configuration errors name variables, never values.
 
+## Shutdown and capacity
+
+On `SIGINT` or `SIGTERM` the API closes its collaboration rooms, stops accepting connections, stops the
+sweeps, closes the database pool and exits `0`. There is no timeout on closing open connections, so a
+stuck client can delay a restart.
+
+- One API process holds at most 4 PostgreSQL connections, shared by requests and the sweeps.
+- The library lists at most 100 owned and 200 shared artifacts, and history at most 200 revisions;
+  there is no pagination.
+- The API does not compress responses; Caddy's `encode` covers the dashboard and the proxied paths.
+- There is no metrics endpoint, no access log in the API or in Caddy, and no trace export: the sweep
+  lines, startup lines and the administration events are the log.
+
 ## Known limits
 
 - There is no rate limiting on `/share`, and public links never expire. Rotate or revoke a link from
@@ -202,6 +236,10 @@ production data: `test:integration`, `test:auth` and `test:oauth` write to the s
 | `/api/health` is `503`                             | Database and bucket probes; credentials, TLS, bucket name and endpoint reachability.                                            |
 | `403` from `/mcp` while the URL works in a browser | The proxy sends a `Host` the origin does not cover. Preserve `Host` or add it to `ARTIFLOW_ALLOWED_HOSTS`.                      |
 | `401` on every MCP call                            | Sign-in never completed, or the client discarded its token; re-run the client's login.                                          |
+| MCP verification fails although the token is fresh | The API cannot reach its own JWKS over loopback; set `ARTIFLOW_INTERNAL_ORIGIN`.                                                |
+| `403` or `415` on a dashboard action               | The page origin must equal `ARTIFLOW_PUBLIC_ORIGIN`, and mutations need `content-type: application/json`.                       |
+| `db:migrate` refuses                               | The database is not on loopback; set `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1` only if it is the database you mean.                     |
+| `502` from Caddy                                   | The API is not ready yet; check its healthcheck and `bun run deploy:logs`.                                                      |
 | MCP client fails after the origin changed          | `ARTIFLOW_PUBLIC_ORIGIN` moved the issuer; re-register the client and authenticate it again.                                    |
 | Certificate never issues                           | Ports 80/443 reachable, DNS already pointing at the server, `ARTIFLOW_SITE_ADDRESS` correct.                                    |
 | Containers exit after a config change              | Startup names the invalid variable; compare `.env.prod` with the table in [Install Artiflow](/docs/self-hosting/installation/). |

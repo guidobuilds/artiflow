@@ -11,7 +11,7 @@ body:
     id: location
     attributes:
       label: Page or file
-      description: URL or repository path, for example `docs/runbook.md`.
+      description: URL or repository path, for example `https://artiflow.dev/docs/start/quickstart/`.
     validations:
       required: true
 

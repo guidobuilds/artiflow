@@ -8,7 +8,7 @@ const KINDS_FILE = "packages/domain/src/kinds.ts";
 const TOOLS_FILE = "packages/mcp-server/src/server.ts";
 const DOC_ROOTS = [
   "README.md",
-  "docs",
+  "CONTRIBUTING.md",
   "skills",
   "apps/web/src/content/docs",
   "packages/plugin-core/skills",

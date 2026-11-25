@@ -22,9 +22,12 @@ external services that you provide; nothing here creates or provisions them.
 Read, in this order:
 
 - [`README.md`](README.md) — requirements, quick path and deployment overview.
-- [`docs/runbook.md`](docs/runbook.md) — first run, MCP flow and troubleshooting.
-- [`docs/architecture/README.md`](docs/architecture/README.md) — how the system is
-  put together.
+- [Development setup](https://artiflow.dev/docs/contributing/development/) — first
+  run, checks and troubleshooting.
+- [Architecture overview](https://artiflow.dev/docs/contributing/architecture/) — how
+  the system is put together.
+- [Integration tests and the sandbox](https://artiflow.dev/docs/contributing/testing/) —
+  the disposable stack and the security sandbox.
 
 ## Get the project running
 
@@ -173,7 +176,7 @@ the suite did not prove the invariant. The same rule is what the `integration`
 job enforces.
 
 The self-contained stack and the exact sequence are in
-[`docs/runbook.md`](docs/runbook.md#integration-suite). Never point these
+[Integration tests and the sandbox](https://artiflow.dev/docs/contributing/testing/#the-integration-stack). Never point these
 commands at a database or bucket that holds real data. The security-sandbox
 reproducer is not a CI step: its control test still requires the viewer body to
 be the stored HTML byte for byte, and the viewer now appends the comment bridge
@@ -231,15 +234,15 @@ Examples:
   to TypeScript 7 until Astro's `ts-content-mapper` replaces that API: with 7, `astro check` exits
   on startup and the parser API is gone.
 - **Persistence:** product queries belong in repositories that receive the typed
-  `AppDb`/`AppTx` from `apps/api/src/db/client.ts`. HTTP routes and MCP tools consume
+  `AppDb`/`AppTx` from `apps/api/src/adapters/postgres/db/client.ts`. HTTP routes and MCP tools consume
   the same operations instead of duplicating SQL. Prefer Drizzle builders; keep
   typed `sql` fragments for CAS, database-clock expressions and constructs
-  without a builder. See [`docs/architecture/modules.md`](docs/architecture/modules.md).
+  without a builder. See [Module map](https://artiflow.dev/docs/contributing/modules/#persistence-strategy).
 - **Errors:** configuration and migration failures are explicit error classes
   (`ConfigError`, `MigrationTargetError`). Expected domain refusals are mapped to
   typed results at the transaction boundary, not thrown through the HTTP layer.
 - **Security:** the invariants are in
-  [`docs/architecture/README.md` §7](docs/architecture/README.md#7-security-model-summary).
+  [Architecture overview](https://artiflow.dev/docs/contributing/architecture/#security-model).
   Artifact bytes never execute on the application origin, and permissions are
   checked before any byte is read. Do not relax those guards to make a feature
   easier.
@@ -271,9 +274,10 @@ Examples:
 Documentation is part of the change, not a follow-up:
 
 - `README.md` — user-facing setup, requirements or deployment behavior.
-- `docs/runbook.md` — how to operate, verify or troubleshoot the system.
-- `docs/architecture/*` — module boundaries, data model, flows or invariants.
-- `docs/README.md` — the documentation index and planned site navigation.
+- `apps/web/src/content/docs/docs/` — the documentation site: using, hosting and
+  operating Artiflow, and, under `contributing/`, development setup, tests, module
+  boundaries, the data model, request flows and invariants. See
+  [Add a documentation page](https://artiflow.dev/docs/contributing/development/#add-a-documentation-page).
 
 If a statement in the docs is no longer true after your change, fix it in the same
 PR.

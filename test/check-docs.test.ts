@@ -77,10 +77,10 @@ test("check-docs accepts docs that match the source of truth", async () => {
     await writeFixture(fixture, {
       "README.md": [
         "Kind is `html` (the default), `markdown`, `canvas` or `deck`.",
-        "See [the runbook](docs/runbook.md).",
+        "See [the contributing guide](CONTRIBUTING.md).",
         "",
       ].join("\n"),
-      "docs/runbook.md": "The tools are registered in the server.\n",
+      "CONTRIBUTING.md": "The tools are registered in the server.\n",
     });
     const result = runChecker(fixture, ["--root", fixture]);
     assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);

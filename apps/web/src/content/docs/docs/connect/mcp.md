@@ -111,6 +111,19 @@ consequences worth planning around:
 - **The endpoint trusts only the hosts your operator configured.** A connection error or `403` while
   the same URL opens in a browser usually means the client's host is not in that list.
 
+### Cloud-hosted agents need a public origin
+
+Some clients connect from the provider's infrastructure, not from your machine: ChatGPT in developer
+mode and remote connectors in Claude, for example. Those cannot see an instance that only answers on
+`127.0.0.1` or a private network. They need the instance on a public HTTPS origin with a valid
+certificate — the topology in [Install Artiflow](/docs/self-hosting/installation/) — and whatever
+enablement the provider itself requires for custom connectors on your account or organization.
+Clients that run as a local process, such as OpenCode, Cursor or Claude Code, reach a private instance
+as long as your machine can.
+
+Each client registers its own OAuth client on first connect, so access can be revoked per client, and
+one client can hold tokens for several instances, such as a work and a personal one.
+
 ## What the agent can do
 
 The MCP server exposes artifact creation and reading, Markdown line editing, and comments with
