@@ -1,4 +1,7 @@
 import { assetsHead, assetsScripts, type viewerCommentsAssets } from "./assets.ts";
+import type { RefreshPlan } from "./model.ts";
+
+export type { RefreshPlan } from "./model.ts";
 
 export const WRAPPER_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
@@ -108,8 +111,6 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
 @media(prefers-reduced-motion:reduce){*{transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}}`;
 
 export type ViewerMeta = { title: string | null; version: number | null };
-
-export type RefreshPlan = { kind: "reload"; metaUrl: string } | { kind: "none" };
 
 export type ViewerRefresh = {
   plan: RefreshPlan;

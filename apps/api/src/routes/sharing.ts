@@ -22,15 +22,13 @@ import {
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
   originOf,
-  refreshPlan,
   sceneHeaders,
   VIEWER_HEADERS,
   wrapperPage,
 } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
-import { viewerCommentsAssets } from "../viewer/assets.ts";
-import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
-import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
+import { bridgeComments, commentThreads, marginalComments } from "../viewer/model.ts";
+import { prepareViewer } from "../viewer/prepare.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
 import { rendersInlineMarkdown, rendersScene, viewerFor } from "@artiflow/domain/kinds";
@@ -182,6 +180,8 @@ async function publicArtifact(db: AppDb, tokenHash: string) {
     await db
       .select({
         artifactId: artifactPublicLinks.artifactId,
+        ownerId: artifacts.ownerId,
+        title: artifacts.title,
         showComments: artifactPublicLinks.showComments,
         storageKey: artifactRevisions.storageKey,
         sha256: artifactRevisions.sha256,
@@ -486,33 +486,27 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       );
     const read = await getRevisionBytes({ storage, storageKey: row.storageKey, sha256: row.sha256, maxBytes });
     if (!read.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-    const refresh = {
-      plan: refreshPlan(`/share/${token}?meta=1`),
+    const artifact = {
+      ...row,
+      id: row.artifactId,
+      revisionId: null,
       revisionNumber: row.revisionNumber,
       sha256: row.sha256,
-      comments: commentsShown,
     };
+    const request = { kind: "public", token, showComments: row.showComments } as const;
     if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-      const visible = commentsShown ? await listComments(db, row.artifactId, true) : [];
-      const comments = commentsShown
-        ? {
-            config: viewerCommentsConfig({
-              artifactId: row.artifactId,
-              source: decoded.text,
-              rows: visible,
-              viewerId: null,
-              canComment: false,
-              canDeleteOwn: false,
-              deleteAny: false,
-              endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
-            }),
-            assets: viewerCommentsAssets(),
-          }
-        : undefined;
+      const model = await prepareViewer({ db, artifact, request, embed: false, source: decoded.text });
       return c.html(
-        markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh, comments),
+        markdownViewerPage(
+          renderMarkdownFragment(decoded.text),
+          model.backHref,
+          model.meta,
+          model.embed,
+          model.refresh,
+          marginalComments(model.comments),
+        ),
         200,
         {
           ...VIEWER_HEADERS,
@@ -533,13 +527,16 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
               digests: await sceneAssetDigests(db, row.artifactId, scene.value),
               token,
             };
+      const model = await prepareViewer({ db, artifact, request, embed: false, source: null });
       return c.html(
         wrapperPage(
-          escapeAttribute(renderSceneDocument(scene.value, c.req.query("frame"), images, [], row.kind)),
-          undefined,
-          undefined,
-          false,
-          refresh,
+          escapeAttribute(
+            renderSceneDocument(scene.value, c.req.query("frame"), images, commentThreads(model.comments), row.kind),
+          ),
+          model.backHref,
+          model.meta,
+          model.embed,
+          model.refresh,
         ),
         200,
         {
@@ -548,37 +545,10 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
         },
       );
     }
+    const model = await prepareViewer({ db, artifact, request, embed: false, source: null });
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    const visible = row.showComments ? await listComments(db, row.artifactId, true) : [];
-    const nonce = bridgeNonce(row.artifactId, row.sha256);
-    const htmlConfig = viewerCommentsConfig({
-      artifactId: row.artifactId,
-      mode: "element",
-      bridgeNonce: nonce,
-      source: "",
-      rows: visible,
-      viewerId: null,
-      canComment: false,
-      canDeleteOwn: false,
-      deleteAny: false,
-      endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
-    });
     return c.html(
-      wrapperPage(
-        escaped,
-        undefined,
-        undefined,
-        false,
-        refresh,
-        commentsShown
-          ? {
-              nonce,
-              bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
-              config: htmlConfig,
-              assets: viewerCommentsAssets(),
-            }
-          : undefined,
-      ),
+      wrapperPage(escaped, model.backHref, model.meta, model.embed, model.refresh, bridgeComments(model.comments)),
       200,
       {
         ...VIEWER_HEADERS,

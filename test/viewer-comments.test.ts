@@ -179,20 +179,29 @@ test("a public link builds a read-only config whose endpoints cannot mutate", ()
 });
 
 test("the shared viewer loads comments for a reader but refuses writes", () => {
-  const library = read("../apps/api/src/routes/library.ts");
-  assert.match(library, /document: \(\) => commentDocument\(db, ownerId, artifactId, "shared"\)/);
-  assert.match(library, /list: \(\) => listComments\(db, artifactId, true\)/);
-  assert.match(library, /canComment: degraded\.canComment/);
+  const prepare = read("../apps/api/src/viewer/prepare.ts");
   assert.match(
-    library,
-    /import \{ loadViewerComments \} from "\.\.\/viewer\/comments-degrade\.ts"/,
+    prepare,
+    /const shared = await commentDocument\(db, viewerId, artifactId, "shared"\)/,
+    "the access level is read for the viewer, never for an owner",
+  );
+  assert.match(prepare, /list: \(\) => listComments\(db, artifactId, true\)/);
+  assert.match(prepare, /canComment: loaded\.canComment/);
+  assert.match(
+    prepare,
+    /import \{ loadViewerComments, type ViewerCommentLoad \} from "\.\/comments-degrade\.ts"/,
     "a comment-store failure degrades instead of failing the document",
   );
+  for (const route of ["library", "sharing"] as const) {
+    const source = read(`../apps/api/src/routes/${route}.ts`);
+    assert.equal(/loadViewerComments/.test(source), false, `the ${route} route no longer builds the loader`);
+    assert.equal(/commentDocument\(/.test(source), false, `the ${route} route no longer reads the access level itself`);
+  }
 });
 
 test("the owner config advertises the list endpoint and the public config does not", () => {
-  const library = read("../apps/api/src/routes/library.ts");
-  assert.match(library, /list: `\/artifact\/\$\{artifactId\}\/comments`/);
+  const prepare = read("../apps/api/src/viewer/prepare.ts");
+  assert.match(prepare, /list: `\/artifact\/\$\{artifactId\}\/comments`/);
   const sharing = read("../apps/api/src/routes/sharing.ts");
   assert.equal(/list:/.test(sharing), false);
   const config = viewerCommentsConfig({
@@ -225,7 +234,7 @@ test("the comments list route is registered before the artifact catch-all and ga
   assert.notEqual(route, -1);
   assert.ok(route < library.indexOf('app.all("/artifact/*", methodNotAllowed)'), "the route precedes the catch-all");
   const body = library.slice(route, library.indexOf("if (options.deletion)"));
-  assert.match(body, /commentsListGate\(\{ bearerPresent, sessionUserId: ownerId, artifact: row \}\)/);
+  assert.match(body, /commentsListGate\(\{ bearerPresent, sessionUserId: viewerId, artifact: row \}\)/);
   assert.match(body, /if \(gate\.kind === "unauthorized"\) return c\.json\(\{ error: "unauthorized" \}, 401\)/);
   assert.match(body, /if \(gate\.kind === "not_found"\) return c\.json\(\{ error: "not_found" \}, 404\)/);
   assert.match(body, /c\.header\("cache-control", "no-store"\)/);
@@ -238,10 +247,17 @@ test("the comments list route is registered before the artifact catch-all and ga
 });
 
 test("the public viewer only reads comments while the link option is on", () => {
+  const prepare = read("../apps/api/src/viewer/prepare.ts");
+  assert.match(
+    prepare,
+    /if \(!request\.showComments \|\| viewerFor\(artifact\.kind\) === "scene"\) return \{ kind: "none" \}/,
+    "no option, no plan: the rows are never read",
+  );
+  assert.match(prepare, /const rows = await listComments\(input\.db, artifactId, true\)/);
+  assert.match(prepare, /canComment: false/);
+  assert.match(prepare, /comments: `\/share\/\$\{token\}\/comments`/);
   const sharing = read("../apps/api/src/routes/sharing.ts");
-  assert.match(sharing, /row\.showComments \? await listComments\(db, row\.artifactId, true\) : \[\]/);
-  assert.match(sharing, /canComment: false/);
-  assert.match(sharing, /comments: `\/share\/\$\{token\}\/comments`/);
+  assert.equal(/viewerCommentsConfig\(/.test(sharing), false, "the share route builds no comment config of its own");
 });
 
 test("the share dialog offers the show-comments option and persists it with the link patch", () => {

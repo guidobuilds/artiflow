@@ -27,20 +27,16 @@ import {
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
   originOf,
-  refreshPlan,
   sceneHeaders,
   VIEWER_HEADERS,
   wrapperPage,
 } from "../viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
-import { viewerCommentsAssets } from "../viewer/assets.ts";
-import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comments-data.ts";
-import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
-import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
-import { loadViewerComments } from "../viewer/comments-degrade.ts";
+import { bridgeComments, commentConfig, commentThreads, marginalComments } from "../viewer/model.ts";
+import { prepareViewer } from "../viewer/prepare.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
-import { acceptsSceneAnchors, isSceneAnchor } from "@artiflow/domain/comment-anchors";
+import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
 import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
 import { renderSceneDocument, type SceneImages } from "../viewer/scene.ts";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
@@ -61,6 +57,7 @@ export type LibraryOptions = {
 };
 const columns = {
   id: artifacts.id,
+  ownerId: artifacts.ownerId,
   title: artifacts.title,
   createdAt: artifacts.createdAt,
   updatedAt: artifacts.updatedAt,
@@ -195,43 +192,6 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     } satisfies ArtifactDetail);
   });
 
-  const ownerCommentsConfig = async (
-    artifactId: string,
-    sha256: string,
-    ownerId: string,
-    source: string | null,
-    revisionId: string,
-    publishedScene?: () => Promise<Scene | null>,
-  ) => {
-    const degraded = await loadViewerComments({
-      document: () => commentDocument(db, ownerId, artifactId, "shared"),
-      list: () => listComments(db, artifactId, true),
-      onError: (error) => console.error(`[viewer] comments degraded for ${artifactId}`, error),
-    });
-    const scene =
-      publishedScene === undefined || !degraded.rows.some((row) => isSceneAnchor(row.anchor))
-        ? null
-        : await publishedScene();
-    return viewerCommentsConfig({
-      artifactId,
-      ...(source === null ? { mode: "element" as const, bridgeNonce: bridgeNonce(artifactId, sha256) } : {}),
-      ...(revisionId === "" ? {} : { revisionId }),
-      source: source ?? "",
-      rows: degraded.rows,
-      viewerId: ownerId,
-      canComment: degraded.canComment,
-      canDeleteOwn: true,
-      deleteAny: degraded.deleteAny,
-      ...(scene === null ? {} : { scene }),
-      endpoints: {
-        comments: `/api/artifacts/${artifactId}/comments`,
-        resolve: `/api/artifacts/${artifactId}/comments`,
-        deleteComment: `/api/artifacts/${artifactId}/comments`,
-        list: `/artifact/${artifactId}/comments`,
-      },
-    });
-  };
-
   const publishedSceneOf = (storageKey: string, sha256: string) => async (): Promise<Scene | null> => {
     const read = await getRevisionBytes({ storage, storageKey, sha256, maxBytes });
     if (!read.ok) return null;
@@ -239,11 +199,20 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     return parsed.ok ? parsed.value : null;
   };
 
-  const viewerPage = async (c: Context, artifactId: string, ownerId: string, embed: boolean) => {
-    const row = await readableArtifact(db, artifactId, ownerId);
+  const viewerPage = async (
+    c: Context,
+    artifactId: string,
+    viewerId: string,
+    embed: boolean,
+    transport: "session" | "bearer",
+  ) => {
+    const row = await readableArtifact(db, artifactId, viewerId);
     if (!row) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
     if (!row.storageKey || !row.sha256 || row.revisionNumber === null)
       return c.json({ error: "no_current_revision" }, 409);
+    const artifact = { ...row, revisionNumber: row.revisionNumber, sha256: row.sha256 };
+    const request =
+      transport === "bearer" ? ({ kind: "bearer", viewerId } as const) : ({ kind: "session", viewerId } as const);
     const read = await getRevisionBytes({
       storage,
       storageKey: row.storageKey,
@@ -251,26 +220,18 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       maxBytes,
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    const refresh = {
-      plan: refreshPlan(`/api/artifacts/${row.id}`),
-      revisionNumber: row.revisionNumber,
-      sha256: row.sha256,
-    };
     if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const comments = {
-        config: await ownerCommentsConfig(row.id, row.sha256, ownerId, decoded.text, row.revisionId ?? ""),
-        assets: viewerCommentsAssets(),
-      };
+      const model = await prepareViewer({ db, artifact, request, embed, source: decoded.text });
       return c.html(
         markdownViewerPage(
           renderMarkdownFragment(decoded.text),
-          embed ? undefined : "/",
-          { title: row.title, version: row.revisionNumber },
-          embed,
-          refresh,
-          comments,
+          model.backHref,
+          model.meta,
+          model.embed,
+          model.refresh,
+          marginalComments(model.comments),
         ),
         200,
         VIEWER_HEADERS,
@@ -285,36 +246,30 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         origin === null
           ? undefined
           : { origin, artifactId: row.id, digests: await sceneAssetDigests(db, row.id, scene.value) };
-      const config = await ownerCommentsConfig(
-        row.id,
-        row.sha256,
-        ownerId,
-        null,
-        row.revisionId ?? "",
-        async () => scene.value,
-      );
+      const model = await prepareViewer({
+        db,
+        artifact,
+        request,
+        embed,
+        source: null,
+        publishedScene: async () => scene.value,
+      });
       return c.html(
         wrapperPage(
-          escapeAttribute(renderSceneDocument(scene.value, frame, images, config.threads, row.kind)),
-          embed ? undefined : "/",
-          { title: row.title, version: row.revisionNumber },
-          embed,
-          refresh,
+          escapeAttribute(renderSceneDocument(scene.value, frame, images, commentThreads(model.comments), row.kind)),
+          model.backHref,
+          model.meta,
+          model.embed,
+          model.refresh,
         ),
         200,
         sceneHeaders(origin),
       );
     }
+    const model = await prepareViewer({ db, artifact, request, embed, source: null });
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    const htmlConfig = await ownerCommentsConfig(row.id, row.sha256, ownerId, null, row.revisionId ?? "");
-    const nonce = bridgeNonce(row.id, row.sha256);
     return c.html(
-      wrapperPage(escaped, embed ? undefined : "/", { title: row.title, version: row.revisionNumber }, embed, refresh, {
-        nonce,
-        bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
-        config: htmlConfig,
-        assets: viewerCommentsAssets(),
-      }),
+      wrapperPage(escaped, model.backHref, model.meta, model.embed, model.refresh, bridgeComments(model.comments)),
       200,
       VIEWER_HEADERS,
     );
@@ -332,19 +287,19 @@ export function createLibraryApp(options: LibraryOptions): Hono {
           c.header("www-authenticate", 'Bearer error="insufficient_scope", scope="artifacts:read"');
           return c.json({ error: "insufficient_scope" }, 401);
         }
-        return viewerPage(c, c.req.param("id"), claims.userId, c.req.query("embed") === "1");
+        return viewerPage(c, c.req.param("id"), claims.userId, c.req.query("embed") === "1", "bearer");
       });
     }
-    const ownerId = await sessionUserId(auth, c.req.raw.headers);
-    if (!ownerId) return c.json({ error: "unauthorized" }, 401);
-    return viewerPage(c, c.req.param("id"), ownerId, c.req.query("embed") === "1");
+    const viewerId = await sessionUserId(auth, c.req.raw.headers);
+    if (!viewerId) return c.json({ error: "unauthorized" }, 401);
+    return viewerPage(c, c.req.param("id"), viewerId, c.req.query("embed") === "1", "session");
   });
 
   app.get("/artifact/:id/comments", async (c) => {
     const bearerPresent = c.req.raw.headers.has("authorization");
-    const ownerId = bearerPresent ? null : await sessionUserId(auth, c.req.raw.headers);
-    const row = ownerId === null ? null : await readableArtifact(db, c.req.param("id"), ownerId);
-    const gate = commentsListGate({ bearerPresent, sessionUserId: ownerId, artifact: row });
+    const viewerId = bearerPresent ? null : await sessionUserId(auth, c.req.raw.headers);
+    const row = viewerId === null ? null : await readableArtifact(db, c.req.param("id"), viewerId);
+    const gate = commentsListGate({ bearerPresent, sessionUserId: viewerId, artifact: row });
     if (gate.kind === "unauthorized") return c.json({ error: "unauthorized" }, 401);
     if (gate.kind === "not_found") return c.json({ error: "not_found" }, 404);
     if (gate.kind === "no_current_revision") return c.json({ error: "no_current_revision" }, 409);
@@ -362,14 +317,18 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       source = decoded.text;
     }
-    const config = await ownerCommentsConfig(
-      gate.artifact.id,
-      gate.sha256,
-      gate.ownerId,
+    const model = await prepareViewer({
+      db,
+      artifact: { ...gate.artifact, revisionNumber: gate.revisionNumber, sha256: gate.sha256 },
+      request: { kind: "session", viewerId: gate.ownerId },
+      embed: false,
       source,
-      gate.artifact.revisionId ?? "",
-      acceptsSceneAnchors(gate.artifact.kind) ? publishedSceneOf(gate.storageKey, gate.sha256) : undefined,
-    );
+      ...(acceptsSceneAnchors(gate.artifact.kind)
+        ? { publishedScene: publishedSceneOf(gate.storageKey, gate.sha256) }
+        : {}),
+    });
+    const config = commentConfig(model.comments);
+    if (config === null) return c.json({ error: "not_found" }, 404);
     c.header("cache-control", "no-store");
     return c.json({ canComment: config.canComment, threads: config.threads });
   });
