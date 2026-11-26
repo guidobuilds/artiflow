@@ -243,6 +243,49 @@ const shareView = async (input: {
   };
 };
 
+type CommentsReply = {
+  status: number;
+  body: string;
+  cache: string | null;
+  contentType: string | null;
+};
+
+const shareCommentsReply = async (input: {
+  bytes: Uint8Array;
+  kind: string;
+  showComments?: boolean;
+  method?: "GET" | "POST";
+  commentRows?: readonly unknown[];
+}): Promise<CommentsReply> => {
+  const revision = revisionOf(input.bytes);
+  const rows = queryBuilder(
+    [
+      [
+        {
+          artifactId: ARTIFACT_ID,
+          showComments: input.showComments ?? false,
+          kind: input.kind,
+          ...revision,
+        },
+      ],
+      [...(input.commentRows ?? [])],
+    ],
+    () => undefined,
+  );
+  const app = new Hono();
+  app.route(
+    "/",
+    createShareViewerApp({ database: { db: rows } as unknown as Database, storage: storageWith(input.bytes) }),
+  );
+  const response = await app.request(`/share/${SHARE_TOKEN}/comments`, { method: input.method ?? "GET" });
+  return {
+    status: response.status,
+    body: await response.text(),
+    cache: response.headers.get("cache-control"),
+    contentType: response.headers.get("content-type"),
+  };
+};
+
 const unescapeAttribute = (value: string): string =>
   value
     .replaceAll("&lt;", "<")
@@ -263,6 +306,33 @@ const frameTag = (html: string, id: string): string =>
 const sectionTags = (html: string): string[] => html.match(/<section class="scene-frame"[^>]*>/g) ?? [];
 
 const surfaceTag = (html: string): string => html.match(/<div class="scene-surface"[^>]*>/)?.[0] ?? "";
+
+test("a public link to a scene refuses the comments endpoint on read and on write", async () => {
+  for (const kind of ["canvas", "deck"]) {
+    for (const showComments of [false, true]) {
+      const label = `${kind} option=${String(showComments)}`;
+      const read = await shareCommentsReply({ bytes: SCENE_BYTES, kind, showComments, commentRows: [boardThread] });
+      assert.equal(read.status, 404, `${label} read is a refusal, not an empty list`);
+      assert.deepEqual(JSON.parse(read.body), { error: "not_found" }, `${label} read names its reason`);
+      assert.equal(read.cache, "no-store", `${label} read is not cached`);
+      assert.equal(read.body.includes(String(boardThread.body)), false, `${label} read leaks no thread`);
+      const write = await shareCommentsReply({ bytes: SCENE_BYTES, kind, showComments, method: "POST" });
+      assert.equal(write.status, 404, `${label} write is a refusal`);
+    }
+  }
+});
+
+test("PRESERVE: the public comments endpoint still lists what an html or markdown link shows", async () => {
+  for (const kind of ["markdown", "html"]) {
+    const bytes = new TextEncoder().encode(kind === "markdown" ? MARKDOWN_SOURCE : HTML_SOURCE);
+    const shown = await shareCommentsReply({ bytes, kind, showComments: true });
+    assert.equal(shown.status, 200, `${kind} still answers its threads`);
+    assert.deepEqual(JSON.parse(shown.body), { comments: [] }, `${kind} keeps its list shape`);
+    assert.equal(shown.cache, "no-store");
+    const hidden = await shareCommentsReply({ bytes, kind, showComments: false });
+    assert.equal(hidden.status, 404, `${kind} hides its threads while the link option is off`);
+  }
+});
 
 test("the owner viewer of a canvas serves the rendered scene inside the one sandboxed frame", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
