@@ -139,7 +139,11 @@ const postJson = async (url: string, body: unknown): Promise<void> => {
 };
 
 const deleteRequest = async (url: string): Promise<void> => {
-  const response = await fetch(url, { method: "DELETE", credentials: "same-origin" });
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    credentials: "same-origin",
+  });
   if (!response.ok) throw new Error(`Could not delete the comment (${response.status}).`);
 };
 

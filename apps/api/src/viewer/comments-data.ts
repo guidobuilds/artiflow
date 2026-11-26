@@ -126,6 +126,7 @@ export function viewerCommentsConfig(input: {
   viewerId: string | null;
   canComment: boolean;
   canDeleteOwn: boolean;
+  deleteAny: boolean;
   endpoints: ViewerCommentsConfig["endpoints"];
   mode?: "text" | "element";
   bridgeNonce?: string;
@@ -133,17 +134,18 @@ export function viewerCommentsConfig(input: {
 }): ViewerCommentsConfig {
   const mode = input.mode ?? "text";
   const role = { comment: input.canComment, resolve: input.canComment };
-  const owned = (row: Row): boolean => input.canDeleteOwn && row.authorId === input.viewerId;
+  const mayDelete = (row: Row): boolean =>
+    input.deleteAny || (input.canDeleteOwn && row.authorId === input.viewerId);
   const roots = input.rows
     .filter((row) => row.parentId === null)
     .map((row) => ({
       ...mapRow(input.source, row, input.viewerId ?? "", role, mode, input.scene),
-      canDelete: row.canDelete === true || owned(row),
+      canDelete: row.canDelete === true || mayDelete(row),
       replies: input.rows
         .filter((reply) => reply.parentId === row.id)
         .map((reply) => ({
           ...mapRow(input.source, reply, input.viewerId ?? "", role, mode, input.scene),
-          canDelete: reply.canDelete === true || owned(reply),
+          canDelete: reply.canDelete === true || mayDelete(reply),
         })),
     }));
   return {

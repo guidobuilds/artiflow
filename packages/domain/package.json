@@ -10,6 +10,7 @@
   "exports": {
     "./avatars": "./src/avatars.ts",
     "./comment-anchors": "./src/comment-anchors.ts",
+    "./comment-permissions": "./src/comment-permissions.ts",
     "./document-operations": "./src/document-operations.ts",
     "./html-bridge": "./src/html-bridge.ts",
     "./kinds": "./src/kinds.ts",

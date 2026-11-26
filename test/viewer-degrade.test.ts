@@ -12,7 +12,7 @@ test("a comment-store failure costs the viewer its comments, not the document", 
     list: () => Promise.resolve(["never-read"]),
     onError: (error) => errors.push(error),
   });
-  assert.deepEqual(result, { rows: [], canComment: false });
+  assert.deepEqual(result, { rows: [], canComment: false, deleteAny: false });
   assert.equal(errors.length, 1, "the failure is reported once");
 });
 
@@ -23,7 +23,7 @@ test("a failing comment list degrades the same way", async () => {
     list: () => Promise.reject(new Error("statement timeout")),
     onError: (error) => errors.push(error),
   });
-  assert.deepEqual(result, { rows: [], canComment: false });
+  assert.deepEqual(result, { rows: [], canComment: false, deleteAny: false });
   assert.equal(errors.length, 1);
 });
 
@@ -34,7 +34,7 @@ test("a healthy store keeps the rows and refuses comment rights to a reader", as
       list: () => Promise.resolve([{ id: "c1" }]),
       onError: () => undefined,
     }),
-    { rows: [{ id: "c1" }], canComment: true },
+    { rows: [{ id: "c1" }], canComment: true, deleteAny: false },
   );
   assert.deepEqual(
     await loadViewerComments({
@@ -42,8 +42,23 @@ test("a healthy store keeps the rows and refuses comment rights to a reader", as
       list: () => Promise.resolve([{ id: "c1" }]),
       onError: () => undefined,
     }),
-    { rows: [{ id: "c1" }], canComment: false },
+    { rows: [{ id: "c1" }], canComment: false, deleteAny: false },
   );
+});
+
+test("the load decides deletion rights from the same role table as the endpoints", async () => {
+  const owner = await loadViewerComments({
+    document: () => Promise.resolve({ access: "owner" }),
+    list: () => Promise.resolve([{ id: "c1" }]),
+    onError: () => undefined,
+  });
+  assert.deepEqual(owner, { rows: [{ id: "c1" }], canComment: true, deleteAny: true });
+  const unknown = await loadViewerComments({
+    document: () => Promise.resolve({ access: "admin" }),
+    list: () => Promise.resolve([{ id: "c1" }]),
+    onError: () => undefined,
+  });
+  assert.deepEqual(unknown, { rows: [{ id: "c1" }], canComment: false, deleteAny: false }, "an unknown role grants nothing");
 });
 
 test("an artifact without a shared comment document reads as no comments", async () => {
@@ -53,7 +68,7 @@ test("an artifact without a shared comment document reads as no comments", async
       list: () => Promise.resolve([{ id: "never" }]),
       onError: () => undefined,
     }),
-    { rows: [], canComment: false },
+    { rows: [], canComment: false, deleteAny: false },
   );
 });
 

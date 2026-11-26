@@ -19,6 +19,14 @@ import {
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
+test("the viewer sends the JSON content type its own delete route demands", () => {
+  const island = read("../apps/dashboard/src/viewer-comments.tsx");
+  const request = /const deleteRequest[^]*?\n\};/.exec(island)?.[0] ?? "";
+  assert.match(request, /method: "DELETE"/);
+  assert.match(request, /"content-type": "application\/json"/, "a cookie delete without JSON is refused with 415");
+  assert.match(request, /credentials: "same-origin"/);
+});
+
 const source = "# Pricing\n\nThe second paragraph target text.\n\nAnother target text later.\n";
 
 const row = (overrides: Partial<Record<string, unknown>> = {}) => ({
@@ -94,6 +102,7 @@ test("the config reports staleness, occurrence and the viewer's own permissions"
     viewerId: "u1",
     canComment: false,
     canDeleteOwn: true,
+    deleteAny: false,
     endpoints,
   });
   assert.equal(config.canComment, false);
@@ -105,6 +114,20 @@ test("the config reports staleness, occurrence and the viewer's own permissions"
   assert.deepEqual(config.threads[0]?.author, { id: "u1", name: "Ann", image: null });
 });
 
+test("the owner may delete a thread somebody else wrote", () => {
+  const config = viewerCommentsConfig({
+    artifactId: "a1",
+    source,
+    rows: [row({ id: "c2", authorId: "u2" })],
+    viewerId: "u1",
+    canComment: true,
+    canDeleteOwn: true,
+    deleteAny: true,
+    endpoints,
+  });
+  assert.equal(config.threads[0]?.canDelete, true, "owning the artifact outranks authorship of the comment");
+});
+
 test("the second identical quote keeps its own occurrence index", () => {
   const config = viewerCommentsConfig({
     artifactId: "a1",
@@ -113,6 +136,7 @@ test("the second identical quote keeps its own occurrence index", () => {
     viewerId: null,
     canComment: false,
     canDeleteOwn: false,
+    deleteAny: false,
     endpoints,
   });
   assert.equal(config.threads[0]?.occurrence, 1, "the later quote is the second occurrence");
@@ -126,6 +150,7 @@ test("a public link builds a read-only config whose endpoints cannot mutate", ()
     viewerId: null,
     canComment: false,
     canDeleteOwn: false,
+    deleteAny: false,
     endpoints: { comments: "/share/t/comments", resolve: "", deleteComment: "" },
   });
   assert.equal(config.canComment, false);
@@ -158,6 +183,7 @@ test("the owner config advertises the list endpoint and the public config does n
     viewerId: null,
     canComment: false,
     canDeleteOwn: false,
+    deleteAny: false,
     endpoints: { comments: "/share/t/comments", resolve: "", deleteComment: "" },
   });
   assert.equal("list" in config.endpoints, false);
@@ -168,6 +194,7 @@ test("the owner config advertises the list endpoint and the public config does n
     viewerId: "u1",
     canComment: true,
     canDeleteOwn: true,
+    deleteAny: false,
     endpoints: { ...endpoints, list: "/artifact/a1/comments" },
   });
   assert.equal(owner.endpoints.list, "/artifact/a1/comments");

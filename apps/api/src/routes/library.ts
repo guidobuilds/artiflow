@@ -218,6 +218,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       viewerId: ownerId,
       canComment: degraded.canComment,
       canDeleteOwn: true,
+      deleteAny: degraded.deleteAny,
       ...(scene === null ? {} : { scene }),
       endpoints: {
         comments: `/api/artifacts/${artifactId}/comments`,

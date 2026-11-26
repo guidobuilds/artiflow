@@ -430,6 +430,7 @@ test("PRESERVE: an html artifact keeps its exact page bytes", async () => {
     viewerId: VIEWER_ID,
     canComment: true,
     canDeleteOwn: true,
+    deleteAny: false,
     endpoints: {
       comments: `/api/artifacts/${ARTIFACT_ID}/comments`,
       resolve: `/api/artifacts/${ARTIFACT_ID}/comments`,
@@ -475,6 +476,7 @@ test("PRESERVE: a markdown artifact keeps its exact page bytes", async () => {
     viewerId: VIEWER_ID,
     canComment: true,
     canDeleteOwn: true,
+    deleteAny: false,
     endpoints: {
       comments: `/api/artifacts/${ARTIFACT_ID}/comments`,
       resolve: `/api/artifacts/${ARTIFACT_ID}/comments`,

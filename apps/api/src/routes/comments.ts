@@ -14,6 +14,7 @@ import type { createAuth } from "../auth.ts";
 import { MAX_ARTIFACT_BYTES, MAX_COMMENT_BODY, MAX_COMMENT_QUOTE } from "../adapters/postgres/db/artifact-schema.ts";
 import { getRevisionBytes } from "../adapters/storage/s3.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { artifactPermissions } from "@artiflow/domain/comment-permissions";
 import { cookieMutationGuard, isUuid, Rollback } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 import {
@@ -46,7 +47,7 @@ type Options = {
 type Doc = CommentDocument;
 type Row = Awaited<ReturnType<typeof listComments>>[number];
 
-const canComment = (doc: Doc) => ["owner", "editor", "commenter"].includes(doc.access);
+const canComment = (doc: Doc) => artifactPermissions(doc.access).comment;
 
 export function createCommentsApp({ database, auth, storage, publicOrigin, principal, documentStore }: Options) {
   const db = database.db;
@@ -188,7 +189,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
   for (const operation of ["resolve", "unresolve"] as const) {
     app.post(`/api/artifacts/:id/comments/:commentId/${operation}`, (c) =>
       mutate(c, async (client, { doc, userId }) => {
-        if (!canComment(doc)) return c.json({ error: "forbidden" }, 403);
+        if (!artifactPermissions(doc.access).resolve) return c.json({ error: "forbidden" }, 403);
         const id = c.req.param("commentId");
         const row = await findComment(client, doc.id, id);
         if (!row) return c.json({ error: "comment_not_found" }, 404);
@@ -203,7 +204,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
       const id = c.req.param("commentId");
       const row = await findComment(client, doc.id, id);
       if (!row) return c.json({ error: "comment_not_found" }, 404);
-      if (doc.ownerId !== userId && row.authorId !== userId) return c.json({ error: "forbidden" }, 403);
+      if (!artifactPermissions(doc.access).deleteAny && row.authorId !== userId) return c.json({ error: "forbidden" }, 403);
       await deleteComment(client, id);
       return c.json({ id } satisfies CommentMutationResponse);
     }),

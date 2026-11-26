@@ -313,10 +313,21 @@ const setFocus = (on) => {
 const focusButton = document.querySelector(".vbar-focus");
 if (focusButton) focusButton.addEventListener("click", () => setFocus(true));
 if (exitButton) exitButton.addEventListener("click", () => setFocus(false));
+const isEditable = (target) => {
+  if (target === null || typeof target !== "object") return false;
+  if (target.isContentEditable === true) return true;
+  if (typeof target.closest === "function")
+    return target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true']") !== null;
+  const tag = typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
+  return tag === "input" || tag === "textarea" || tag === "select";
+};
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") setFocus(false);
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-  if (event.key === "f" || event.key === "F") setFocus(!document.body.classList.contains("focus"));
+  if (event.key === "f" || event.key === "F") {
+    if (isEditable(event.target)) return;
+    setFocus(!document.body.classList.contains("focus"));
+  }
 });
 ${viewerRefreshScript(refresh)}
 </script></body></html>`;

@@ -495,6 +495,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
           viewerId: null,
           canComment: false,
           canDeleteOwn: false,
+          deleteAny: false,
           endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
         }),
         assets: viewerCommentsAssets(),
@@ -548,6 +549,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       viewerId: null,
       canComment: false,
       canDeleteOwn: false,
+      deleteAny: false,
       endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
     });
     return c.html(
