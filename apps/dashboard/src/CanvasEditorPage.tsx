@@ -12,7 +12,7 @@ import { Icon, IconAction } from "@/components/ui/icon.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
-import type { Scene, SceneFrame, SceneNode, TextNode } from "@artiflow/domain/scene";
+import { canonicalScene, type Scene, type SceneFrame, type SceneNode, type TextNode } from "@artiflow/domain/scene";
 import { getArtifactDetail } from "./editor-api.ts";
 import { queryKeys } from "./query/keys.ts";
 import {
@@ -62,7 +62,17 @@ type Drag = {
 
 type SelectionBox = { x: number; y: number; w: number; h: number };
 
-type LayerDrag = { id: string; pointerId: number; startY: number; rowHeight: number; index: number; count: number };
+type LayerDrag = {
+  id: string;
+  pointerId: number;
+  startY: number;
+  rowHeight: number;
+  index: number;
+  count: number;
+  snapshot: Scene;
+};
+
+type TextEdit = { id: string; snapshot: Scene };
 
 type Point = { x: number; y: number };
 
@@ -72,6 +82,33 @@ const MARQUEE_THRESHOLD = 4;
 const DRAG_THRESHOLD = 2;
 const LAYER_THRESHOLD = 4;
 const WHEEL_ZOOM_STEP = 400;
+
+export const HISTORY_LIMIT = 50;
+
+export const commitHistory = (undo: Scene[], redo: Scene[], before: Scene): { undo: Scene[]; redo: Scene[] } => ({
+  undo: [...undo, before].slice(-HISTORY_LIMIT),
+  redo: [],
+});
+
+export const undoHistory = (
+  undo: Scene[],
+  redo: Scene[],
+  current: Scene,
+): { undo: Scene[]; redo: Scene[]; scene: Scene } | null => {
+  const before = undo.at(-1);
+  if (before === undefined) return null;
+  return { undo: undo.slice(0, -1), redo: [...redo, current].slice(-HISTORY_LIMIT), scene: before };
+};
+
+export const redoHistory = (
+  undo: Scene[],
+  redo: Scene[],
+  current: Scene,
+): { undo: Scene[]; redo: Scene[]; scene: Scene } | null => {
+  const after = redo.at(-1);
+  if (after === undefined) return null;
+  return { undo: [...undo, current].slice(-HISTORY_LIMIT), redo: redo.slice(0, -1), scene: after };
+};
 
 const withoutNodes = (scene: Scene, ids: string[]): Scene => ids.reduce((next, id) => removeNode(next, id), scene);
 
@@ -167,6 +204,9 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const layerDragged = useRef(false);
   const panDrag = useRef<PanDrag | null>(null);
   const spaceHeld = useRef(false);
+  const undoStack = useRef<Scene[]>([]);
+  const redoStack = useRef<Scene[]>([]);
+  const textEdit = useRef<TextEdit | null>(null);
 
   useEffect(() => {
     const controller = new SceneAutosave(initial, sceneSaver(initial.artifactId), setState, () => {});
@@ -281,6 +321,58 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     session.current?.change(next);
   }, []);
 
+  const commitEdit = useCallback((before: Scene) => {
+    const next = commitHistory(undoStack.current, redoStack.current, before);
+    undoStack.current = next.undo;
+    redoStack.current = next.redo;
+  }, []);
+
+  const editScene = useCallback(
+    (next: Scene) => {
+      const current = session.current?.state.scene ?? scene;
+      if (next !== current) commitEdit(current);
+      update(next);
+    },
+    [commitEdit, scene, update],
+  );
+
+  const endTextEdit = useCallback(() => {
+    const pending = textEdit.current;
+    textEdit.current = null;
+    if (pending === null) return;
+    const current = session.current?.state.scene ?? scene;
+    if (canonicalScene(pending.snapshot) === canonicalScene(current)) return;
+    commitEdit(pending.snapshot);
+  }, [commitEdit, scene]);
+
+  const trackTextEdit = useCallback(() => {
+    if (selectedNode === null) return;
+    const pending = textEdit.current;
+    if (pending !== null && pending.id !== selectedNode.id) endTextEdit();
+    if (textEdit.current === null)
+      textEdit.current = { id: selectedNode.id, snapshot: session.current?.state.scene ?? scene };
+  }, [endTextEdit, scene, selectedNode]);
+
+  const undo = useCallback(() => {
+    if (readOnly) return;
+    endTextEdit();
+    const step = undoHistory(undoStack.current, redoStack.current, session.current?.state.scene ?? scene);
+    if (step === null) return;
+    undoStack.current = step.undo;
+    redoStack.current = step.redo;
+    update(step.scene);
+  }, [endTextEdit, readOnly, scene, update]);
+
+  const redo = useCallback(() => {
+    if (readOnly) return;
+    endTextEdit();
+    const step = redoHistory(undoStack.current, redoStack.current, session.current?.state.scene ?? scene);
+    if (step === null) return;
+    undoStack.current = step.undo;
+    redoStack.current = step.redo;
+    update(step.scene);
+  }, [endTextEdit, readOnly, scene, update]);
+
   const toggle = (id: string) => {
     setSelected((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
   };
@@ -288,27 +380,28 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const add = (kind: "text" | "rect") => {
     if (frame === null || readOnly) return;
     const id = crypto.randomUUID();
-    update(kind === "text" ? addTextNode(scene, frame.id, id) : addRectNode(scene, frame.id, id));
+    editScene(kind === "text" ? addTextNode(scene, frame.id, id) : addRectNode(scene, frame.id, id));
     setSelected([id]);
   };
 
   const removeSelected = () => {
     if (selected.length === 0 || readOnly) return;
-    update(withoutNodes(session.current?.state.scene ?? scene, selected));
+    editScene(withoutNodes(session.current?.state.scene ?? scene, selected));
     setSelected([]);
   };
 
   const bringSelectedToFront = () => {
     if (selected.length === 0 || readOnly) return;
-    update(bringToFront(session.current?.state.scene ?? scene, selected));
+    editScene(bringToFront(session.current?.state.scene ?? scene, selected));
   };
 
   const sendSelectedToBack = () => {
     if (selected.length === 0 || readOnly) return;
-    update(sendToBack(session.current?.state.scene ?? scene, selected));
+    editScene(sendToBack(session.current?.state.scene ?? scene, selected));
   };
 
   const showFrame = (id: string) => {
+    endTextEdit();
     setActiveFrame(id);
     setSelected([]);
   };
@@ -322,33 +415,43 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       );
       const next = frames[Math.min(frames.length - 1, Math.max(0, at + delta))];
       if (next !== undefined) {
+        endTextEdit();
         setActiveFrame(next.id);
         setSelected([]);
       }
     },
-    [frames, activeFrame],
+    [frames, activeFrame, endTextEdit],
   );
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey) return;
+      if (event.defaultPrevented || event.isComposing) return;
+      if (event.metaKey || event.ctrlKey) {
+        if ((event.key === "z" || event.key === "Z") && !event.altKey && !readOnly) {
+          event.preventDefault();
+          if (event.shiftKey) redo();
+          else undo();
+        }
+        return;
+      }
       const target = event.target;
       if (target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable]")) return;
       if (event.altKey) {
         const step = event.key === "ArrowUp" ? 1 : event.key === "ArrowDown" ? -1 : 0;
         if (step === 0 || selected.length === 0 || readOnly) return;
         event.preventDefault();
-        update(nudgeSelection(session.current?.state.scene ?? scene, selected, step));
+        editScene(nudgeSelection(session.current?.state.scene ?? scene, selected, step));
         return;
       }
       if (event.key === "Delete" || event.key === "Backspace") {
         if (selected.length === 0 || readOnly) return;
         event.preventDefault();
-        update(withoutNodes(session.current?.state.scene ?? scene, selected));
+        editScene(withoutNodes(session.current?.state.scene ?? scene, selected));
         setSelected([]);
         return;
       }
       if (event.key === "Escape") {
+        endTextEdit();
         marqueeStart.current = null;
         marqueeDragged.current = false;
         setMarquee(null);
@@ -367,12 +470,13 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [selected, readOnly, scene, stepFrame, update]);
+  }, [selected, readOnly, scene, stepFrame, editScene, endTextEdit, redo, undo]);
 
   const startDrag = (event: ReactPointerEvent<HTMLElement>, node: SceneNode, mode: Mode) => {
     if (readOnly || event.button !== 0) return;
     event.stopPropagation();
     nodeDragged.current = false;
+    endTextEdit();
     if (event.shiftKey) {
       event.preventDefault();
       return;
@@ -413,10 +517,14 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     update(next);
   };
   const endDrag = (event: ReactPointerEvent<HTMLElement>) => {
-    if (drag.current === null) return;
+    const current = drag.current;
+    if (current === null) return;
     drag.current = null;
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
+    if (!nodeDragged.current) return;
+    if (canonicalScene(current.snapshot) === canonicalScene(session.current?.state.scene ?? scene)) return;
+    commitEdit(current.snapshot);
   };
   const layerDropIndex = (pending: LayerDrag, clientY: number): number => {
     const steps = Math.round((clientY - pending.startY) / pending.rowHeight);
@@ -437,6 +545,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       rowHeight: Math.max(1, event.currentTarget.getBoundingClientRect().height),
       index,
       count: rows.length,
+      snapshot: session.current?.state.scene ?? scene,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -454,7 +563,9 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (!layerDragged.current) return;
     const current = session.current?.state.scene ?? scene;
     const next = reorderNodeTo(current, pending.id, layerDropIndex(pending, event.clientY));
-    if (next !== current) update(next);
+    if (next === current) return;
+    commitEdit(pending.snapshot);
+    update(next);
   };
   const cancelLayerDrag = (event: ReactPointerEvent<HTMLElement>) => {
     layerDrag.current = null;
@@ -534,6 +645,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     });
   };
   const endMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
+    endTextEdit();
     const start = marqueeStart.current;
     const dragged = marqueeDragged.current;
     marqueeStart.current = null;
@@ -582,6 +694,9 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     controller.replace(result.value);
     setActiveFrame(result.value.scene.frames[0]?.id ?? null);
     setSelected([]);
+    undoStack.current = [];
+    redoStack.current = [];
+    textEdit.current = null;
   };
   const retry = () => session.current?.retry();
   const zoomLevel = Math.round(scale * 100);
@@ -842,7 +957,11 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
           <TextInspector
             node={selectedNode}
             disabled={readOnly}
-            onChange={(patch) => update(updateTextNode(session.current?.state.scene ?? scene, selectedNode.id, patch))}
+            onChange={(patch) => {
+              trackTextEdit();
+              update(updateTextNode(session.current?.state.scene ?? scene, selectedNode.id, patch));
+            }}
+            onEndEdit={endTextEdit}
             onRemove={removeSelected}
           />
         ) : null}
@@ -911,15 +1030,25 @@ function TextInspector({
   node,
   disabled,
   onChange,
+  onEndEdit,
   onRemove,
 }: {
   node: TextNode;
   disabled: boolean;
   onChange: (patch: { text?: string; style?: { fontSize?: number; fontWeight?: number; color?: string } }) => void;
+  onEndEdit: () => void;
   onRemove: () => void;
 }) {
   return (
-    <aside aria-label="Text properties" className="canvas-inspector">
+    <aside
+      aria-label="Text properties"
+      className="canvas-inspector"
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        onEndEdit();
+      }}
+    >
       <h2 className="caps mb-3">Text</h2>
       <label className="canvas-field">
         <span>Content</span>
