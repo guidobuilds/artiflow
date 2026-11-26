@@ -75,6 +75,9 @@ const WHEEL_ZOOM_STEP = 400;
 
 const withoutNodes = (scene: Scene, ids: string[]): Scene => ids.reduce((next, id) => removeNode(next, id), scene);
 
+const wheelPan = (deltaX: number, deltaY: number, shiftKey: boolean): Point =>
+  shiftKey ? { x: -deltaY, y: 0 } : { x: -deltaX, y: -deltaY };
+
 const nodeStyle = (node: SceneNode): CSSProperties => {
   const box: CSSProperties = { left: node.x, top: node.y, width: node.w, height: node.h };
   if (node.type === "rect") return { ...box, background: node.fill, borderRadius: node.radius ?? 0 };
@@ -237,13 +240,20 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (element === null) return;
     const onWheel = (event: WheelEvent) => {
       if (frames.length === 0) return;
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const bounds = element.getBoundingClientRect();
+        zoomAt(event.clientX - bounds.left, event.clientY - bounds.top, Math.exp(-event.deltaY / WHEEL_ZOOM_STEP));
+        return;
+      }
       event.preventDefault();
-      const bounds = element.getBoundingClientRect();
-      zoomAt(event.clientX - bounds.left, event.clientY - bounds.top, Math.exp(-event.deltaY / WHEEL_ZOOM_STEP));
+      const moved = wheelPan(event.deltaX, event.deltaY, event.shiftKey);
+      setFitted(false);
+      setPan({ x: view.x + moved.x, y: view.y + moved.y });
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [frames.length, zoomAt]);
+  }, [frames.length, zoomAt, view.x, view.y]);
 
   useEffect(() => {
     const typing = (target: EventTarget | null) =>

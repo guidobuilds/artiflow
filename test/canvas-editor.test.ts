@@ -823,6 +823,8 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /layerRows\(/);
   assert.match(page, /surfaceLayout\(/);
   assert.match(page, /onWheel/);
+  assert.match(page, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(page, /wheelPan\(/);
   assert.match(page, /aria-label="Fit surface"/);
   assert.match(page, /aria-label="Layers"/);
   assert.match(page, /aria-label="Toggle layers"/);
@@ -842,6 +844,45 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
     page.includes(conflict),
     true,
     "the canvas screen shows the same conflict message instead of inventing its own",
+  );
+});
+
+test("the canvas wheel pans the view by default and zooms only with ctrl or cmd", () => {
+  const page = source("../apps/dashboard/src/CanvasEditorPage.tsx");
+  const handler = /const onWheel = [\s\S]*?\n    \};/.exec(page)?.[0];
+  assert.ok(handler, "the stage still owns one native wheel listener");
+
+  const zoomBranch = /if \(event\.ctrlKey \|\| event\.metaKey\) \{[\s\S]*?\n      \}/.exec(handler)?.[0];
+  assert.ok(zoomBranch, "ctrl or cmd plus the wheel takes its own branch");
+  assert.match(zoomBranch, /event\.preventDefault\(\);/, "the zoom branch keeps the page from scrolling");
+  assert.match(zoomBranch, /zoomAt\(/, "the zoom branch reuses the cursor-anchored zoom");
+  assert.match(
+    zoomBranch,
+    /Math\.exp\(-event\.deltaY \/ WHEEL_ZOOM_STEP\)/,
+    "ctrl plus a downward wheel still zooms out",
+  );
+
+  const panBranch = handler.replace(zoomBranch, "");
+  assert.match(
+    panBranch,
+    /event\.preventDefault\(\);[\s\S]*?const moved = wheelPan\(event\.deltaX, event\.deltaY, event\.shiftKey\);/,
+    "a plain wheel takes the pan path with its own deltaX, deltaY and shift",
+  );
+  assert.match(panBranch, /setFitted\(false\);/, "the first wheel leaves the fitted view so the pan sticks");
+  assert.match(panBranch, /setPan\(/, "the pan branch writes the shared pan state");
+  assert.match(panBranch, /view\.x \+ moved\.x/, "the pan is relative to where the view already is");
+  assert.equal(
+    handler.indexOf("event.ctrlKey || event.metaKey") < handler.indexOf("wheelPan("),
+    true,
+    "the zoom is decided before a wheel is allowed to pan",
+  );
+
+  const helper = /const wheelPan = [\s\S]*?;\n/.exec(page)?.[0];
+  assert.ok(helper, "the wheel-to-pan mapping lives in one helper");
+  assert.match(
+    helper,
+    /shiftKey \? \{ x: -deltaY, y: 0 \} : \{ x: -deltaX, y: -deltaY \}/,
+    "scrolling down lifts the surface so the content below comes into view, and shift borrows deltaY for x",
   );
 });
 
