@@ -44,7 +44,7 @@ export type SceneFrame = {
   nodes: SceneNode[];
 } & SceneUnknowns;
 
-export type Scene = { formatVersion: number; frames: SceneFrame[] } & SceneUnknowns;
+export type Scene = { formatVersion: number; frames: SceneFrame[]; nodes?: SceneNode[] } & SceneUnknowns;
 
 export type SceneRefusalReason =
   | "malformed_scene"
@@ -118,6 +118,21 @@ function styleRefusal(style: unknown, where: string): SceneRefusal | null {
   return null;
 }
 
+function sharedNodeRefusal(node: unknown, where: string, ids: Set<string>): SceneRefusal | null {
+  if (!isRecord(node)) return refusal("malformed_scene", where);
+  const property = unsupportedPropertyOf(node);
+  if (property !== null) return refusal("unsupported_property", `${where}.${property}`, { property });
+  if ("nodes" in node) return refusal("too_deep", `${where}.nodes`, { depth: SCENE_MAX_DEPTH + 1 });
+  if (!isId(node.id)) return refusal("malformed_scene", `${where}.id`);
+  if (ids.has(node.id)) return refusal("duplicate_id", `${where}.id`, { id: node.id });
+  ids.add(node.id);
+  if (!isNodeType(node.type)) return refusal("unknown_node_type", `${where}.type`, { type: String(node.type) });
+  for (const key of GEOMETRY_KEYS) if (!finite(node[key])) return refusal("non_finite_number", `${where}.${key}`);
+  if ((node.w as number) < 0) return refusal("malformed_scene", `${where}.w`);
+  if ((node.h as number) < 0) return refusal("malformed_scene", `${where}.h`);
+  return null;
+}
+
 function nodeShapeRefusal(node: Record<string, unknown>, where: string): SceneRefusal | null {
   if (node.type === "rect") {
     if (typeof node.fill !== "string" || node.fill === "") return refusal("malformed_scene", `${where}.fill`);
@@ -182,25 +197,29 @@ export function validateScene(input: unknown): SceneResult<Scene> {
       nodeCount += 1;
       if (nodeCount > SCENE_MAX_NODES)
         return refusal("node_limit", where, { limit: SCENE_MAX_NODES, frameId: frame.id });
-      const node = frame.nodes[position];
-      if (!isRecord(node)) return refusal("malformed_scene", where);
-      const nodeProperty = unsupportedPropertyOf(node);
-      if (nodeProperty !== null)
-        return refusal("unsupported_property", `${where}.${nodeProperty}`, { property: nodeProperty });
-      if ("nodes" in node) return refusal("too_deep", `${where}.nodes`, { depth: SCENE_MAX_DEPTH + 1 });
-      if (!isId(node.id)) return refusal("malformed_scene", `${where}.id`);
-      if (ids.has(node.id)) return refusal("duplicate_id", `${where}.id`, { id: node.id });
-      ids.add(node.id);
-      if (!isNodeType(node.type)) return refusal("unknown_node_type", `${where}.type`, { type: String(node.type) });
-      for (const key of GEOMETRY_KEYS) if (!finite(node[key])) return refusal("non_finite_number", `${where}.${key}`);
+      const shared = sharedNodeRefusal(frame.nodes[position], where, ids);
+      if (shared !== null) return shared;
+      const node = frame.nodes[position] as Record<string, unknown>;
       const x = node.x as number;
       const y = node.y as number;
       const w = node.w as number;
       const h = node.h as number;
-      if (w < 0 || h < 0) return refusal("malformed_scene", w < 0 ? `${where}.w` : `${where}.h`);
       if (x < 0 || y < 0 || x + w > (frame.w as number) || y + h > (frame.h as number))
-        return refusal("outside_frame_bounds", where, { id: node.id, frameId: frame.id });
+        return refusal("outside_frame_bounds", where, { id: node.id as string, frameId: frame.id });
       const shape = nodeShapeRefusal(node, where);
+      if (shape !== null) return shape;
+    }
+  }
+
+  if (input.nodes !== undefined) {
+    if (!Array.isArray(input.nodes)) return refusal("malformed_scene", "nodes");
+    for (let index = 0; index < input.nodes.length; index += 1) {
+      const where = `nodes[${index}]`;
+      nodeCount += 1;
+      if (nodeCount > SCENE_MAX_NODES) return refusal("node_limit", where, { limit: SCENE_MAX_NODES });
+      const shared = sharedNodeRefusal(input.nodes[index], where, ids);
+      if (shared !== null) return shared;
+      const shape = nodeShapeRefusal(input.nodes[index] as Record<string, unknown>, where);
       if (shape !== null) return shape;
     }
   }
@@ -226,7 +245,14 @@ const canonicalValue = (value: unknown): unknown => {
   return sorted;
 };
 
-export const canonicalScene = (scene: Scene): string => JSON.stringify(canonicalValue(scene));
+const sceneValue = (scene: Scene): Record<string, unknown> => {
+  const copy: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(scene)) copy[key] = entry;
+  if (Array.isArray(copy.nodes) && copy.nodes.length === 0) delete copy.nodes;
+  return copy;
+};
+
+export const canonicalScene = (scene: Scene): string => JSON.stringify(canonicalValue(sceneValue(scene)));
 
 export const sceneBytes = (scene: Scene): Uint8Array => new TextEncoder().encode(canonicalScene(scene));
 

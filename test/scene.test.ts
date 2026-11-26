@@ -346,3 +346,145 @@ test("an unknown property survives a round trip through the canonical bytes", ()
   assert.equal(writtenNode?.hidden, true);
   assert.equal(canonicalScene(reread.value), bytes, "a reread scene serialises to the same bytes");
 });
+
+const loose = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+  id: "c1",
+  type: "rect",
+  x: 0,
+  y: 0,
+  w: 10,
+  h: 10,
+  fill: "#ffffff",
+  ...overrides,
+});
+
+test("a scene with loose canvas nodes validates them without any frame", () => {
+  const valid = accepted(
+    scene({
+      nodes: [
+        loose({ id: "c-rect", x: -40, y: -20, radius: 2 }),
+        loose({ id: "c-text", type: "text", text: "Loose", style: { align: "right" } }),
+        loose({ id: "c-image", type: "image", assetId: "sha256-abc", w: 5000, h: 5000 }),
+        loose({ id: "c-path", type: "path", d: "M0 0 L1 1", stroke: "#000", strokeWidth: 1 }),
+      ],
+    }),
+  );
+  assert.deepEqual(
+    valid.nodes?.map((entry) => entry.id),
+    ["c-rect", "c-text", "c-image", "c-path"],
+  );
+  assert.deepEqual(
+    valid.nodes?.map((entry) => entry.type),
+    ["rect", "text", "image", "path"],
+  );
+  assert.deepEqual(
+    valid.frames[0]?.nodes.map((entry) => entry.id),
+    ["n1"],
+    "a loose node never lands in a frame",
+  );
+  assert.equal(
+    valid.nodes?.[0]?.x,
+    -40,
+    "a loose node has no frame, so negative coordinates and overflowing sizes are legal",
+  );
+});
+
+test("a loose node is refused by the same checks as a frame node", () => {
+  const cases: [string, Record<string, unknown>, string, string][] = [
+    ["a loose id a frame node already uses", scene({ nodes: [loose({ id: "n1" })] }), "duplicate_id", "nodes[0].id"],
+    [
+      "two loose nodes sharing an id",
+      scene({ nodes: [loose({ id: "c1" }), loose({ id: "c1" })] }),
+      "duplicate_id",
+      "nodes[1].id",
+    ],
+    ["a loose id a frame uses", scene({ nodes: [loose({ id: "f1" })] }), "duplicate_id", "nodes[0].id"],
+    [
+      "a loose type the renderer cannot draw",
+      scene({ nodes: [loose({ type: "video" })] }),
+      "unknown_node_type",
+      "nodes[0].type",
+    ],
+    [
+      "a coordinate that is not finite",
+      scene({ nodes: [loose({ x: Number.NaN })] }),
+      "non_finite_number",
+      "nodes[0].x",
+    ],
+    ["an infinite size", scene({ nodes: [loose({ h: Number.POSITIVE_INFINITY })] }), "non_finite_number", "nodes[0].h"],
+    ["a negative width", scene({ nodes: [loose({ w: -1 })] }), "malformed_scene", "nodes[0].w"],
+    ["a negative height", scene({ nodes: [loose({ h: -1 })] }), "malformed_scene", "nodes[0].h"],
+    ["a nested nodes key", scene({ nodes: [loose({ nodes: [] })] }), "too_deep", "nodes[0].nodes"],
+    [
+      "a property the renderer cannot honour",
+      scene({ nodes: [loose({ layout: "auto" })] }),
+      "unsupported_property",
+      "nodes[0].layout",
+    ],
+    [
+      "a shape the node type requires",
+      scene({ nodes: [loose({ fill: undefined })] }),
+      "malformed_scene",
+      "nodes[0].fill",
+    ],
+    ["a loose node that is not an object", scene({ nodes: ["c1"] }), "malformed_scene", "nodes[0]"],
+  ];
+  for (const [label, input, reason, path] of cases) {
+    const refusal = refusalOf(input);
+    assert.equal(refusal.reason, reason, label);
+    assert.equal(refusal.path, path, label);
+  }
+  assert.equal(refusalOf(scene({ nodes: [loose({ id: "n1" })] })).detail?.id, "n1");
+  assert.equal(refusalOf(scene({ nodes: [loose({ type: "video" })] })).detail?.type, "video");
+  assert.equal(refusalOf(scene({ nodes: [loose({ layout: "auto" })] })).detail?.property, "layout");
+});
+
+test("a nodes key that is not an array of nodes is refused instead of half read", () => {
+  for (const nodes of ["c1", { id: "c1" }, 7]) {
+    const refusal = refusalOf(scene({ nodes }));
+    assert.equal(refusal.reason, "malformed_scene", JSON.stringify(nodes));
+    assert.equal(refusal.path, "nodes");
+  }
+});
+
+test("loose nodes and frame nodes share one node budget", () => {
+  const inside = Array.from({ length: SCENE_MAX_NODES - 1 }, (_unused, index) => node({ id: `n${index}`, w: 0, h: 0 }));
+  const full = accepted(scene({ frames: [frame({ nodes: inside })], nodes: [loose({ id: "c1", w: 0, h: 0 })] }));
+  assert.equal((full.frames[0]?.nodes.length ?? 0) + (full.nodes?.length ?? 0), SCENE_MAX_NODES);
+  const refusal = refusalOf(
+    scene({ frames: [frame({ nodes: inside })], nodes: [loose({ id: "c1", w: 0, h: 0 }), loose({ id: "c2" })] }),
+  );
+  assert.equal(refusal.reason, "node_limit");
+  assert.equal(refusal.detail?.limit, SCENE_MAX_NODES);
+  assert.equal(refusal.path, "nodes[1]");
+});
+
+test("a scene without loose nodes serialises to the bytes it always had", () => {
+  const canonical = canonicalScene(accepted(scene()));
+  assert.equal(
+    canonical,
+    '{"formatVersion":1,"frames":[{"h":100,"id":"f1","name":"Home","nodes":[{"fill":"#ffffff","h":10,"id":"n1","type":"rect","w":10,"x":0,"y":0}],"w":100,"x":0,"y":0}]}',
+    "the frame-only bytes are unchanged",
+  );
+  assert.equal(canonicalScene(accepted(scene({ nodes: [] }))), canonical, "an empty nodes array adds no key");
+  const reread = readScene(canonical);
+  assert.equal(reread.ok, true);
+  if (reread.ok) assert.equal("nodes" in (reread.value as Record<string, unknown>), false, "no nodes key is invented");
+});
+
+test("loose nodes serialise after the frames and round trip exactly", () => {
+  const first = accepted(scene({ nodes: [loose({ id: "c1" })] }));
+  const bytes = canonicalScene(first);
+  assert.equal(
+    bytes,
+    '{"formatVersion":1,"frames":[{"h":100,"id":"f1","name":"Home","nodes":[{"fill":"#ffffff","h":10,"id":"n1","type":"rect","w":10,"x":0,"y":0}],"w":100,"x":0,"y":0}],"nodes":[{"fill":"#ffffff","h":10,"id":"c1","type":"rect","w":10,"x":0,"y":0}]}',
+  );
+  const reread = readScene(bytes);
+  assert.equal(reread.ok, true);
+  if (!reread.ok) throw new Error("unreachable");
+  assert.deepEqual(
+    reread.value.nodes?.map((entry) => entry.id),
+    ["c1"],
+  );
+  assert.equal(canonicalScene(reread.value), bytes, "a reread scene serialises to the same bytes");
+});
