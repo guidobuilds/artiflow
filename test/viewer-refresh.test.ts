@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import { test } from "node:test";
+
+import { Hono } from "hono";
+
+import type { Database } from "../apps/api/src/adapters/postgres/db/client.ts";
+import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
+import { newRevisionStorageKey } from "../apps/api/src/adapters/storage/s3.ts";
+import { createShareViewerApp } from "../apps/api/src/routes/sharing.ts";
 
 import {
   escapeAttribute,
@@ -280,6 +288,7 @@ type Environment = {
   history: { scrollRestoration: string };
   element: (selector: string) => StubElement;
   fireDocument: (type: string, event?: { key?: string; target?: unknown }) => void;
+  fireWindow: (type: string) => void;
   setHidden: (hidden: boolean) => void;
   mutate: (element: StubElement) => void;
 };
@@ -387,6 +396,9 @@ function makeEnvironment(options: {
     element: elementOf,
     fireDocument: (type: string, event?: { key?: string; target?: unknown }): void => {
       for (const handler of Array.from(documentListeners.get(type) ?? [])) handler(event);
+    },
+    fireWindow: (type: string): void => {
+      for (const handler of Array.from(windowListeners.get(type) ?? [])) handler();
     },
     setHidden: (hidden: boolean): void => {
       documentStub.hidden = hidden;
@@ -712,4 +724,208 @@ test("the Markdown viewer still reloads when nothing is being typed", async () =
   await environment.tick();
 
   assert.equal(environment.reloads(), 1, "the reload path still runs for a server-rendered document");
+});
+
+const SHARE_LINK = "a".repeat(43);
+const SHARE_ROW = {
+  artifactId: "artifact-one",
+  storageKey: newRevisionStorageKey(),
+  revisionNumber: 2,
+  sizeBytes: 12,
+};
+
+type ShareTable = Promise<unknown> & {
+  from: () => ShareTable;
+  leftJoin: () => ShareTable;
+  innerJoin: () => ShareTable;
+  where: () => ShareTable;
+  orderBy: () => ShareTable;
+  limit: () => ShareTable;
+  $dynamic: () => ShareTable;
+};
+
+const shareRows = (results: readonly unknown[]) => {
+  let next = 0;
+  const chain = (): ShareTable => {
+    const query: ShareTable = Object.assign(
+      Promise.resolve().then(() => results[next++]),
+      {
+        from: () => query,
+        leftJoin: () => query,
+        innerJoin: () => query,
+        where: () => query,
+        orderBy: () => query,
+        limit: () => query,
+        $dynamic: () => query,
+      },
+    );
+    return query;
+  };
+  return { select: chain };
+};
+
+const shareStorage = (bytes: Uint8Array): Storage =>
+  ({
+    client: {
+      send: async (command: { constructor: { name: string } }): Promise<unknown> => {
+        if (command.constructor.name === "HeadObjectCommand") return { ContentLength: bytes.length };
+        if (command.constructor.name === "GetObjectCommand")
+          return {
+            Body: (async function* (): AsyncIterable<Uint8Array> {
+              yield bytes;
+            })(),
+          };
+        throw new Error(`unexpected command ${command.constructor.name}`);
+      },
+    },
+    bucket: "test-bucket",
+    checkBucket: async (): Promise<void> => undefined,
+    destroy: (): void => undefined,
+  }) as unknown as Storage;
+
+const SHARE_MARKDOWN = new TextEncoder().encode("# Notas\n\nUn párrafo\n");
+const SHARE_HTML = new TextEncoder().encode("<!doctype html><p>body</p>");
+
+const shareProbe = async (input: {
+  bytes: Uint8Array;
+  kind: string;
+  showComments: boolean;
+  query?: string;
+}): Promise<{ status: number; body: string; json: Record<string, unknown> | null; headers: Headers }> => {
+  const sha256 = createHash("sha256").update(input.bytes).digest("hex");
+  const database = {
+    db: shareRows([[{ ...SHARE_ROW, showComments: input.showComments, kind: input.kind, sha256 }], []]),
+  } as unknown as Database;
+  const app = new Hono();
+  app.route("/", createShareViewerApp({ database, storage: shareStorage(input.bytes) }));
+  const response = await app.request(`/share/${SHARE_LINK}${input.query ?? ""}`);
+  const text = await response.text();
+  return {
+    status: response.status,
+    body: text,
+    json: (response.headers.get("content-type") ?? "").startsWith("application/json")
+      ? (JSON.parse(text) as Record<string, unknown>)
+      : null,
+    headers: response.headers,
+  };
+};
+
+test("the public meta publishes the comment flag the served page can honour", async () => {
+  for (const showComments of [false, true]) {
+    for (const kind of ["markdown", "html"]) {
+      const reply = await shareProbe({ bytes: SHARE_MARKDOWN, kind, showComments, query: "?meta=1" });
+      assert.equal(reply.status, 200);
+      assert.deepEqual(
+        Object.keys(reply.json ?? {}).sort(),
+        ["comments", "kind", "revisionNumber", "sha256", "sizeBytes"],
+        "the projection carries the flag and nothing else",
+      );
+      assert.equal(reply.json?.comments, showComments, `${kind} mounts a margin, so the flag is the option`);
+      assert.equal(reply.headers.get("x-robots-tag"), "noindex", "the projection stays unindexable");
+      assert.equal(reply.headers.get("cache-control"), "no-store");
+    }
+  }
+  for (const kind of ["canvas", "deck"]) {
+    const reply = await shareProbe({ bytes: SHARE_MARKDOWN, kind, showComments: true, query: "?meta=1" });
+    assert.equal(reply.status, 200);
+    assert.equal(
+      reply.json?.comments,
+      false,
+      `${kind} draws its threads inside the frame and mounts no margin, so the flag cannot be on`,
+    );
+  }
+});
+
+test("a link that hides comments serves no comments host, config or bundle", async () => {
+  for (const [kind, bytes] of [
+    ["markdown", SHARE_MARKDOWN],
+    ["html", SHARE_HTML],
+  ] as const) {
+    const off = await shareProbe({ bytes, kind, showComments: false });
+    assert.equal(off.status, 200);
+    assert.equal(off.body.includes('id="viewer-comments"'), false, `${kind} ships no comments host`);
+    assert.equal(off.body.includes("viewer-comments-data"), false, `${kind} ships no comments config`);
+    assert.equal(/<script type="module"/.test(off.body), false, `${kind} ships no comments bundle`);
+    assert.equal(off.body.includes("comments-available"), false, "and the shell claims no comments");
+    assert.equal(off.headers.get("x-robots-tag"), "noindex", `${kind} stays unindexable`);
+
+    const on = await shareProbe({ bytes, kind, showComments: true });
+    assert.equal(on.status, 200);
+    assert.ok(on.body.includes('id="viewer-comments"'), `${kind} keeps its host when the link shows comments`);
+    assert.ok(on.body.includes("viewer-comments-data"), `${kind} keeps its config when the link shows comments`);
+    assert.equal(on.headers.get("x-robots-tag"), "noindex");
+  }
+});
+
+test("the public page records the served comments flag for its poller", async () => {
+  for (const showComments of [false, true]) {
+    const reply = await shareProbe({ bytes: SHARE_HTML, kind: "html", showComments });
+    assert.ok(reply.body.includes("const refresh = {metaUrl:"), "the poller config keeps its shape");
+    assert.ok(
+      reply.body.includes(`,comments:${showComments}}`),
+      `the served flag is what the poller compares against: ${showComments}`,
+    );
+  }
+});
+
+const sharePageWith = (comments: boolean): string =>
+  wrapperPage(escapeAttribute(BYTES), undefined, undefined, false, {
+    plan: { kind: "reload", metaUrl: SHARE_META },
+    revisionNumber: 2,
+    sha256: "bbb",
+    comments,
+  });
+
+test("the public poller reloads once when the link stops showing comments", async () => {
+  const environment = makeEnvironment({
+    selectors: ["iframe", "#docshell"],
+    respond: () => json({ revisionNumber: 2, sha256: "bbb", sizeBytes: 42, kind: "html", comments: false }),
+  });
+  environment.run(refreshScriptOf(sharePageWith(true)));
+  await environment.tick();
+
+  assert.deepEqual(environment.fetches, [SHARE_META]);
+  assert.equal(environment.reloads(), 1, "the reader's page is reloaded without its comments");
+  await environment.tick();
+  assert.equal(environment.reloads(), 1, "one reload for one flag change");
+});
+
+test("a public page served without comments never reacts to the flag it was served", async () => {
+  const environment = makeEnvironment({
+    selectors: ["iframe", "#docshell"],
+    respond: () => json({ revisionNumber: 2, sha256: "bbb", sizeBytes: 42, kind: "html", comments: false }),
+  });
+  environment.run(refreshScriptOf(sharePageWith(false)));
+  await environment.tick();
+
+  assert.deepEqual(environment.fetches, [SHARE_META]);
+  assert.equal(environment.reloads(), 0, "a page with nothing to hide reloads for nothing");
+  assert.equal(environment.intervals(), 1, "and keeps polling for revisions");
+});
+
+test("the comments flag never reloads a page on a metadata body that does not carry it", async () => {
+  const environment = makeEnvironment({
+    selectors: ["iframe", "#docshell"],
+    respond: () => json({ revisionNumber: 2, sha256: "bbb", sizeBytes: 42, kind: "html" }),
+  });
+  environment.run(refreshScriptOf(sharePageWith(true)));
+  await environment.tick();
+
+  assert.equal(environment.reloads(), 0, "an unchanged revision without the flag is not a change");
+  assert.equal(environment.intervals(), 1);
+});
+
+test("a served-off public page never reloads when the link turns comments on", async () => {
+  const environment = makeEnvironment({
+    selectors: ["iframe", "#docshell"],
+    respond: () => json({ revisionNumber: 2, sha256: "bbb", sizeBytes: 42, kind: "html", comments: true }),
+  });
+  environment.run(refreshScriptOf(sharePageWith(false)));
+  await environment.tick();
+  environment.fireWindow("pageshow");
+  await settle();
+
+  assert.deepEqual(environment.fetches.length > 1, true, "the page kept polling across the resumed read");
+  assert.equal(environment.reloads(), 0, "a page with no margin to reveal reloads for nothing");
+  assert.equal(environment.intervals(), 1, "and keeps polling for revisions");
 });

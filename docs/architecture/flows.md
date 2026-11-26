@@ -243,11 +243,20 @@ Modules: `editing.ts`, `documents/service.ts`, `documents/commit-flow.ts`,
 2. `POST /api/artifacts/:id/comments` locks the artifact row (`FOR UPDATE OF a`),
    re-reads the **current** revision after the lock, validates the discriminated
    anchor against the document kind, verifies the anchor and the exact quote,
-   then inserts with that revision id.
+   checks that the root's `expectedRevisionId` is that revision, then inserts
+   with that revision id. A root comment names the revision its writer was
+   looking at: both owner viewers ship the served revision id in the comment
+   config (the public one ships none, since it cannot write), the editor sends
+   the revision it was last saved against, and a page that has been republished
+   since is refused instead of landing on text nobody saw. Replies carry no
+   anchor and no revision of their own.
 3. A stale quote → `400 anchor_mismatch`; invalid range or malformed anchor →
    `400 invalid_anchor`; an anchor kind the document kind does not accept →
    `400 unsupported_anchor_kind`; a root without an anchor → `400
-root_requires_anchor`; a reply carrying an anchor → `400 reply_has_no_anchor`.
+root_requires_anchor`; a reply carrying an anchor → `400 reply_has_no_anchor`;
+   a root that names no revision → `400 expected_revision_required`; a root whose
+   `expectedRevisionId` is not the current revision → `409 revision_conflict` and
+   nothing is inserted.
 4. Replies store only a body and inherit their context from the root; replies to
    replies are refused. Resolve/unresolve affects roots only and records
    `resolvedBy`.
@@ -257,7 +266,13 @@ Comments never create revisions. A reader sees the threads and is refused every 
 `403 forbidden`. HTML documents accept `element` and `page-point` anchors, which the server validates
 for shape only and the client positions; Markdown keeps `text-range`. A public link serves its threads
 read-only through `GET /share/:token/comments` only while the link's `showComments` option is on, with
-authors reduced to `{ id, name, image }`.
+authors reduced to `{ id, name, image }`. For the kinds that mount a margin — pages and docs; a canvas
+or a deck draws its pins inside the frame — the option also decides whether the public page mounts it:
+`?meta=1` publishes the effective flag as `comments`, it is false for canvas and deck whatever the link
+says, and a page served with it off ships no comment host, config or bundle. The public poller reads
+that flag on every tick, so turning the option off reloads an open page once — the margin, its data
+island and its bundle are server-emitted, and the viewer contract rebuilds the document by reload
+only.
 
 HTML documents accept `element` anchors, and the bridge injected into the viewer frame resolves them by
 `id`, then a `data-*` attribute, then a unique text hint, falling back to the stored `page-point` and a

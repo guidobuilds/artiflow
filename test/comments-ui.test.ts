@@ -12,7 +12,12 @@ import {
 import type { TextRangeAnchor } from "@artiflow/domain/comment-anchors";
 import { Autosave } from "../apps/dashboard/src/editor-autosave.ts";
 import { toolbarGroups, blockTypes } from "../apps/dashboard/src/editor-markdown.ts";
-import { DRAFT_FLAG_SELECTOR, publishDraftFlag, republishedSince } from "../apps/dashboard/src/viewer-thread-sync.ts";
+import {
+  CONFLICT_MESSAGE,
+  DRAFT_FLAG_SELECTOR,
+  publishDraftFlag,
+  republishedSince,
+} from "../apps/dashboard/src/viewer-thread-sync.ts";
 
 test("every editor chrome, selection and comment action uses the shared noninteractive tooltip", () => {
   const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -310,7 +315,10 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
   };
   try {
     assert.equal((await listComments("doc")).ok, true);
-    assert.equal((await createComment("doc", { anchor, body: "Thought" })).ok, true);
+    assert.equal(
+      (await createComment("doc", { anchor, body: "Thought", expectedRevisionId: "revision-one" })).ok,
+      true,
+    );
     assert.equal((await resolveComment("doc", "comment", true)).ok, true);
     assert.equal((await resolveComment("doc", "comment", false)).ok, true);
     assert.equal((await deleteComment("doc", "comment")).ok, true);
@@ -329,8 +337,13 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
       assert.equal(init.credentials, "same-origin");
       assert.ok(init.body);
     }
+    assert.deepEqual(
+      JSON.parse(String(calls[1]?.init.body)),
+      { anchor, body: "Thought", expectedRevisionId: "revision-one" },
+      "a root comment names the revision the editor was saved against, on the same body as its anchor",
+    );
     forbidden = true;
-    const result = await createComment("doc", { anchor, body: "Thought" });
+    const result = await createComment("doc", { anchor, body: "Thought", expectedRevisionId: "revision-one" });
     assert.ok(!result.ok);
     assert.equal(result.code, "forbidden");
     assert.deepEqual(
@@ -342,4 +355,44 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
     controller.dispose();
     globalThis.fetch = original;
   }
+});
+
+test("the island names the revision its page was served and words a conflict the reader can act on", () => {
+  const viewer = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  const submit = viewer.slice(viewer.indexOf("onSubmitDraft"), viewer.indexOf("onCancelDraft"));
+  assert.match(submit, /expectedRevisionId: config\.revisionId/, "a root comment names the served revision");
+  assert.doesNotMatch(submit, /parentId/, "a reply carries the anchor's thread and no revision");
+  assert.match(viewer, /revisionId\?: string/, "the island reads it from the page config");
+
+  const save = viewer.slice(viewer.indexOf("const postJson"), viewer.indexOf("const deleteRequest"));
+  assert.match(
+    save,
+    /if \(response\.status === 409\) throw new Error\(CONFLICT_MESSAGE\);/,
+    "the server's conflict answer is not reported as a number",
+  );
+  assert.ok(
+    save.indexOf("CONFLICT_MESSAGE") < save.indexOf("Could not save the comment"),
+    "the conflict is explained before the generic status message",
+  );
+  assert.doesNotMatch(CONFLICT_MESSAGE, /\d{3}/, "no raw status reaches the reader");
+  assert.match(CONFLICT_MESSAGE, /reload/i, "the reader is told what to do");
+});
+
+test("the editor submits the revision it was saved against and explains a conflict instead of retrying blind", () => {
+  const editor = readFileSync(
+    new URL("../apps/dashboard/src/components/comments/markdown-comments.tsx", import.meta.url),
+    "utf8",
+  );
+  const submit = editor.slice(editor.indexOf("const submitDraft"), editor.indexOf("return ("));
+  assert.match(submit, /expectedRevisionId: revisionId/, "the root comment names the revision the editor holds");
+  assert.doesNotMatch(
+    editor.slice(editor.indexOf("onReply:"), editor.indexOf("onDelete:")),
+    /expectedRevisionId/,
+    "a reply still names no revision",
+  );
+  assert.match(
+    editor,
+    /code === "revision_conflict" \|\| code === "expected_revision_required"\s*\?\s*CONFLICT_MESSAGE/,
+    "a conflict is explained rather than answered with the generic retry line",
+  );
 });

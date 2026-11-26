@@ -21,6 +21,7 @@ import {
   type CommentList,
   type CommentThread,
 } from "@/comments-api.ts";
+import { CONFLICT_MESSAGE } from "@/viewer-thread-sync.ts";
 import CommentThreadMargin, {
   type CommentDraft,
   type CommentThread as MarginThread,
@@ -64,7 +65,9 @@ const message = (code: string): string =>
       ? "The source changed. Select the text again; your comment is kept here."
       : code === "too_large"
         ? "Use at most 4,000 characters in a comment and 2,000 in a quote."
-        : "Could not confirm this comment action. Refresh comments to check before retrying.";
+        : code === "revision_conflict" || code === "expected_revision_required"
+          ? CONFLICT_MESSAGE
+          : "Could not confirm this comment action. Refresh comments to check before retrying.";
 
 const threadAuthor = (entry: CommentEntry) => entry.author;
 
@@ -198,6 +201,7 @@ export default function MarkdownComments({
         createCommentRequest(artifactId, {
           anchor: { ...draft.anchor!, kind: "text-range", quotedText: quote },
           body,
+          expectedRevisionId: revisionId,
         }),
       true,
     );

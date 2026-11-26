@@ -106,10 +106,13 @@ export const createCommentRequestSchema = z
     anchor: commentAnchorSchema.optional(),
     body: z.string(),
     parentId: z.string().optional(),
+    expectedRevisionId: z.string().trim().min(1).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.parentId === undefined && value.anchor === undefined)
       ctx.addIssue({ code: "custom", message: "root_requires_anchor", path: ["anchor"] });
+    if (value.parentId === undefined && value.expectedRevisionId === undefined)
+      ctx.addIssue({ code: "custom", message: "expected_revision_required", path: ["expectedRevisionId"] });
     if (value.parentId !== undefined && value.anchor !== undefined)
       ctx.addIssue({ code: "custom", message: "reply_has_no_anchor", path: ["anchor"] });
   });

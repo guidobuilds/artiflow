@@ -19,6 +19,9 @@ export const viewportAnchor = (docY: number, scrollY: number, frameTop: number, 
 
 export const DRAFT_FLAG_SELECTOR = "[data-comment-draft='typed'], [data-comment-input='typed']";
 
+export const CONFLICT_MESSAGE =
+  "This artifact changed since this page loaded. Reload to comment on the revision you can see.";
+
 export type DraftFlagSource = { querySelector: (selector: string) => unknown };
 
 export type DraftFlagTarget = { dataset: Record<string, string | undefined> };

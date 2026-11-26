@@ -249,3 +249,57 @@ test("a canvas with no scene anchor reads no scene bytes", async () => {
     ANCHORED_THREAD_KEYS,
   );
 });
+
+const REVISION_ID = "66666666-6666-4666-8666-666666666666";
+
+const islandConfig = (page: string): Record<string, unknown> => {
+  const raw = /<script type="application\/json" id="viewer-comments-data">([\s\S]*?)<\/script>/.exec(page)?.[1];
+  assert.ok(raw !== undefined, "the page ships the comments config");
+  return JSON.parse(raw) as Record<string, unknown>;
+};
+
+async function ownerPageFor(kind: ArtifactKind): Promise<string> {
+  const bytes = Buffer.from(kind === "markdown" ? SOURCE : "<!doctype html><p>no text</p>", "utf8");
+  const artifact = {
+    id: ARTIFACT_ID,
+    title: "Comments",
+    kind,
+    revisionId: REVISION_ID,
+    storageKey: newRevisionStorageKey(),
+    sha256: digestOf(bytes),
+    revisionNumber: 1,
+  };
+  const database = {
+    db: queryBuilder([[artifact], [{ access: "owner" }], [commentRow]]),
+  } as unknown as Database;
+  const storage = {
+    client: {
+      send: async (command: { constructor: { name: string } }): Promise<unknown> => {
+        if (command.constructor.name === "HeadObjectCommand") return { ContentLength: bytes.length };
+        if (command.constructor.name === "GetObjectCommand")
+          return {
+            Body: (async function* (): AsyncIterable<Uint8Array> {
+              yield bytes;
+            })(),
+          };
+        throw new Error(`unexpected command ${command.constructor.name}`);
+      },
+    },
+    bucket: "test-bucket",
+    checkBucket: async (): Promise<void> => undefined,
+    destroy: (): void => undefined,
+  } as unknown as Storage;
+  const app = new Hono();
+  app.route("/", createLibraryApp({ database, auth: sessionAuth, storage }));
+  const response = await app.request(`/artifact/${ARTIFACT_ID}`, { headers: { cookie: "session=one" } });
+  assert.equal(response.status, 200);
+  return response.text();
+}
+
+test("the served viewer config names the revision the page was rendered from", async () => {
+  for (const kind of ["markdown", "html"] as const) {
+    const config = islandConfig(await ownerPageFor(kind));
+    assert.equal(config.revisionId, REVISION_ID, `${kind} hands the island the revision it was served`);
+    assert.equal(config.canComment, true, "and the island already knows it may write");
+  }
+});

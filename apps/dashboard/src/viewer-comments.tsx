@@ -15,6 +15,7 @@ import {
 import { anchorOffsets } from "@/comment-thread-layout.ts";
 import { attemptMutation } from "@/viewer-mutations.ts";
 import {
+  CONFLICT_MESSAGE,
   createSequenceGuard,
   createThreadsRefetcher,
   draftFlagOf,
@@ -39,6 +40,7 @@ type Config = {
   artifactId: string;
   mode: "text" | "element";
   bridgeNonce?: string;
+  revisionId?: string;
   canComment: boolean;
   canResolve: boolean;
   threads: ViewerThread[];
@@ -172,6 +174,7 @@ const postJson = async (url: string, body: unknown): Promise<void> => {
     credentials: "same-origin",
     body: JSON.stringify(body),
   });
+  if (response.status === 409) throw new Error(CONFLICT_MESSAGE);
   if (!response.ok) throw new Error(`Could not save the comment (${response.status}).`);
 };
 
@@ -566,7 +569,7 @@ export function mountViewerCommentsInFrame(): void {
           if (state.draft === null) return;
           const anchor = state.draft.anchor;
           mutate(
-            () => postJson(config.endpoints.comments, { anchor, body }),
+            () => postJson(config.endpoints.comments, { anchor, body, expectedRevisionId: config.revisionId }),
             () => {
               state.draft = null;
               state.commenting = false;

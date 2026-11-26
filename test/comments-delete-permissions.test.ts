@@ -17,6 +17,7 @@ const CALLER = "22222222-2222-4222-8222-222222222222";
 const OTHER = "33333333-3333-4333-8333-333333333333";
 const THREAD = "44444444-4444-4444-8444-444444444444";
 const REVISION = "55555555-5555-4555-8555-555555555555";
+const OLDER_REVISION = "77777777-7777-4777-8777-777777777777";
 const ORIGIN = "https://app.test";
 const NOW = new Date("2026-11-21T12:00:00.000Z");
 
@@ -208,6 +209,7 @@ test("a comment is created only for the accesses the permission table grants", a
     const response = await call(appFor(world), "POST", commentsPath(), asPrincipal(), {
       anchor: ELEMENT_ANCHOR,
       body: "A note",
+      expectedRevisionId: REVISION,
     });
     if (access === "reader") {
       assert.equal(response.status, 403, "a reader cannot create a comment");
@@ -222,6 +224,68 @@ test("a comment is created only for the accesses the permission table grants", a
       );
     }
   }
+});
+
+test("a root comment lands only on the revision the writer was looking at", async () => {
+  const stale = worldOf("owner", []);
+  const conflicted = await call(appFor(stale), "POST", commentsPath(), asPrincipal(), {
+    anchor: ELEMENT_ANCHOR,
+    body: "A note",
+    expectedRevisionId: OLDER_REVISION,
+  });
+  assert.equal(conflicted.status, 409);
+  assert.deepEqual(await conflicted.json(), { error: "revision_conflict" }, "the refusal names its reason");
+  assert.deepEqual(stale.comments, [], "a conflicted create inserts nothing");
+
+  const unnamed = worldOf("owner", []);
+  const missing = await call(appFor(unnamed), "POST", commentsPath(), asPrincipal(), {
+    anchor: ELEMENT_ANCHOR,
+    body: "A note",
+  });
+  assert.equal(missing.status, 400);
+  assert.deepEqual(await missing.json(), { error: "expected_revision_required" });
+  assert.deepEqual(unnamed.comments, [], "a root that names no revision inserts nothing");
+
+  for (const blank of ["", "   ", "\t\n"]) {
+    const unnamedBlank = worldOf("owner", []);
+    const whitespace = await call(appFor(unnamedBlank), "POST", commentsPath(), asPrincipal(), {
+      anchor: ELEMENT_ANCHOR,
+      body: "A note",
+      expectedRevisionId: blank,
+    });
+    assert.equal(whitespace.status, 400, `${JSON.stringify(blank)} is not a revision`);
+    assert.deepEqual(await whitespace.json(), { error: "expected_revision_required" });
+    assert.deepEqual(unnamedBlank.comments, [], "a blank identity inserts nothing");
+  }
+
+  const accepted = worldOf("owner", []);
+  const created = await call(appFor(accepted), "POST", commentsPath(), asPrincipal(), {
+    anchor: ELEMENT_ANCHOR,
+    body: "A note",
+    expectedRevisionId: REVISION,
+  });
+  assert.equal(created.status, 201);
+  assert.deepEqual(
+    accepted.comments.map((row) => [row.revisionId, row.body]),
+    [[REVISION, "A note"]],
+    "the accepted root is stored against the revision the writer named",
+  );
+
+  const replyWorld = worldOf("owner");
+  const reply = await call(appFor(replyWorld), "POST", commentsPath(), asPrincipal(), {
+    body: "A reply",
+    parentId: THREAD,
+    expectedRevisionId: OLDER_REVISION,
+  });
+  assert.equal(reply.status, 201, "a reply is exempt: even a stale identity does not refuse it");
+  assert.deepEqual(
+    replyWorld.comments.map((row) => [row.parentId, row.revisionId]),
+    [
+      [null, REVISION],
+      [THREAD, null],
+    ],
+    "and the reply stores no revision id of its own",
+  );
 });
 
 test("a thread is resolved only for the accesses the permission table grants", async () => {

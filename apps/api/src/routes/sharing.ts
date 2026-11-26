@@ -33,7 +33,7 @@ import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../viewer/comment
 import { htmlBridgeScript } from "../viewer/html-bridge-script.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
-import { rendersInlineMarkdown, viewerFor } from "@artiflow/domain/kinds";
+import { rendersInlineMarkdown, rendersScene, viewerFor } from "@artiflow/domain/kinds";
 import { renderSceneDocument } from "../viewer/scene.ts";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { ACTIVE_ACCOUNT_STATUS } from "../identity/account-status.ts";
@@ -471,9 +471,16 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     const row = await publicArtifact(db, hashLinkToken(token));
     if (!row?.storageKey || !row.sha256 || row.revisionNumber === null || row.sizeBytes === null)
       return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const commentsShown = row.showComments && !rendersScene(row.kind);
     if (meta.length === 1)
       return c.json(
-        { revisionNumber: row.revisionNumber, sha256: row.sha256, sizeBytes: row.sizeBytes, kind: row.kind },
+        {
+          revisionNumber: row.revisionNumber,
+          sha256: row.sha256,
+          sizeBytes: row.sizeBytes,
+          kind: row.kind,
+          comments: commentsShown,
+        },
         200,
         { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex" },
       );
@@ -483,24 +490,27 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       plan: refreshPlan(`/share/${token}?meta=1`),
       revisionNumber: row.revisionNumber,
       sha256: row.sha256,
+      comments: commentsShown,
     };
     if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-      const visible = row.showComments ? await listComments(db, row.artifactId, true) : [];
-      const comments = {
-        config: viewerCommentsConfig({
-          artifactId: row.artifactId,
-          source: decoded.text,
-          rows: visible,
-          viewerId: null,
-          canComment: false,
-          canDeleteOwn: false,
-          deleteAny: false,
-          endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
-        }),
-        assets: viewerCommentsAssets(),
-      };
+      const visible = commentsShown ? await listComments(db, row.artifactId, true) : [];
+      const comments = commentsShown
+        ? {
+            config: viewerCommentsConfig({
+              artifactId: row.artifactId,
+              source: decoded.text,
+              rows: visible,
+              viewerId: null,
+              canComment: false,
+              canDeleteOwn: false,
+              deleteAny: false,
+              endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
+            }),
+            assets: viewerCommentsAssets(),
+          }
+        : undefined;
       return c.html(
         markdownViewerPage(renderMarkdownFragment(decoded.text), undefined, undefined, false, refresh, comments),
         200,
@@ -554,12 +564,21 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       endpoints: { comments: `/share/${token}/comments`, resolve: "", deleteComment: "" },
     });
     return c.html(
-      wrapperPage(escaped, undefined, undefined, false, refresh, {
-        nonce,
-        bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
-        config: htmlConfig,
-        assets: viewerCommentsAssets(),
-      }),
+      wrapperPage(
+        escaped,
+        undefined,
+        undefined,
+        false,
+        refresh,
+        commentsShown
+          ? {
+              nonce,
+              bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
+              config: htmlConfig,
+              assets: viewerCommentsAssets(),
+            }
+          : undefined,
+      ),
       200,
       {
         ...VIEWER_HEADERS,

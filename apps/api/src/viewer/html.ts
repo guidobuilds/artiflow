@@ -115,6 +115,7 @@ export type ViewerRefresh = {
   plan: RefreshPlan;
   revisionNumber: number;
   sha256: string;
+  comments?: boolean;
 };
 
 export const refreshPlan = (metaUrl: string): RefreshPlan =>
@@ -141,7 +142,7 @@ export function viewerRefreshScript(refresh: ViewerRefresh): string {
   if (refresh.plan.kind === "none") return "";
   const config = `{metaUrl:${scriptValue(refresh.plan.metaUrl)},revisionNumber:${scriptValue(
     refresh.revisionNumber,
-  )},sha256:${scriptValue(refresh.sha256)}}`;
+  )},sha256:${scriptValue(refresh.sha256)}${refresh.comments === undefined ? "" : `,comments:${refresh.comments}`}}`;
   return `const refresh = ${config};
 const INTERVAL_MS = 8000;
 let seen = { revisionNumber: refresh.revisionNumber, sha256: refresh.sha256 };
@@ -202,6 +203,8 @@ const isRevision = (revision) =>
 const isChanged = (revision) =>
   revision.revisionNumber !== seen.revisionNumber || revision.sha256 !== seen.sha256;
 
+const commentsHidden = (body) => body !== null && typeof body === "object" && body.comments === false;
+
 const observe = (revision) => {
   seen = { revisionNumber: revision.revisionNumber, sha256: revision.sha256 };
   bumpBadge(revision);
@@ -231,7 +234,12 @@ const poll = async () => {
       return;
     }
     if (!response.ok) return;
-    const revision = revisionOf(await response.json());
+    const body = await response.json();
+    if (refresh.comments === true && commentsHidden(body)) {
+      reloadOnce("comments:off");
+      return;
+    }
+    const revision = revisionOf(body);
     if (isRevision(revision) && isChanged(revision)) observe(revision);
   } catch (error) {
   } finally {

@@ -148,6 +148,15 @@ const createLink = async (owner: Owner, artifactId: string): Promise<Link> => {
   assert.deepEqual([created.status, typeof created.json?.token], [201, "string"]);
   return { id: created.json?.id as string, token: created.json?.token as string };
 };
+
+const enableComments = async (owner: Owner, artifactId: string, linkId: string): Promise<void> => {
+  const enabled = await read(
+    `/api/artifacts/${artifactId}/links/${linkId}`,
+    { method: "PATCH", headers: MUTATION, body: JSON.stringify({ showComments: true }) },
+    owner,
+  );
+  assert.deepEqual([enabled.status, enabled.json?.showComments], [200, true], "the link option is on");
+};
 before(async () => {
   if (!ENV_READY) return;
   const url = new URL(DATABASE_URL);
@@ -270,7 +279,18 @@ test(
       srcdocOf(reply.text).startsWith(HTML_A),
       "the escaped attribute carries the stored payload byte for byte",
     );
-    assert.ok(srcdocOf(reply.text).includes("data-artiflow-bridge"), "the comment bridge rides along the payload");
+    assert.equal(
+      srcdocOf(reply.text).includes("data-artiflow-bridge"),
+      false,
+      "a link that hides comments ships no comment bridge inside the payload either",
+    );
+    const withComments = await createLink(a, artA.id);
+    await enableComments(a, artA.id, withComments.id);
+    const enabled = await read(`/share/${withComments.token}`);
+    assert.ok(
+      srcdocOf(enabled.text).includes("data-artiflow-bridge"),
+      "the comment bridge rides along the payload when the link shows comments",
+    );
     assert.equal(reply.headers.get("x-robots-tag"), "noindex", "an unlisted link is not indexable");
   },
 );
@@ -299,7 +319,9 @@ test(
   "the public and owner viewers differ only in the owner cells and their poll target, so the wrapper has one source",
   { skip: SKIP, timeout: 60_000 },
   async () => {
-    const shared = await read(`/share/${linkA.token}`);
+    const withComments = await createLink(a, artA.id);
+    await enableComments(a, artA.id, withComments.id);
+    const shared = await read(`/share/${withComments.token}`);
     const owner = await read(`/artifact/${artA.id}`, {}, a);
     assert.deepEqual(
       [owner.status, owner.headers.get("cache-control"), owner.headers.get("x-content-type-options")],
@@ -350,12 +372,18 @@ test(
       [...reply.text.matchAll(/<\/script\s*>/gi)].length,
       "every script the page opens is closed",
     );
-    const island = /<script type="application\/json" id="viewer-comments-data">([^]*?)<\/script\s*>/i.exec(
-      reply.text,
-    )?.[1];
+    const islandOf = (page: string): string | undefined =>
+      /<script type="application\/json" id="viewer-comments-data">([^]*?)<\/script\s*>/i.exec(page)?.[1];
+    assert.equal(islandOf(reply.text), undefined, "a link without the option mounts no comment island");
+    assert.equal(reply.text.includes('id="viewer-comments"'), false, "and no margin host");
+    assert.equal(/<script type="module"/.test(reply.text), false, "and no comment bundle");
+    const withComments = await createLink(a, doc.id);
+    await enableComments(a, doc.id, withComments.id);
+    const enabled = await read(`/share/${withComments.token}`);
+    const island = islandOf(enabled.text);
     assert.notEqual(island, undefined, "the margin mounts with an authorized data island");
     const shared = JSON.parse(island ?? "{}") as { threads?: unknown[]; canComment?: boolean };
-    assert.deepEqual(shared.threads ?? [], [], "a link without the option carries no thread");
+    assert.deepEqual(shared.threads ?? [], [], "a link carries no thread the document never had");
     assert.equal(shared.canComment ?? false, false, "the public reader never writes");
     assert.ok(/<h1>Notas<\/h1>/.test(reply.text), "the sanitized fragment is inline");
     assert.ok(/&lt;strong&gt;negrita|<strong>negrita|negrita/.test(reply.text), "emphasis survives rendering");
@@ -442,7 +470,7 @@ test(
 );
 
 test(
-  "?meta=1 serves exactly the four-field projection and never the viewer",
+  "?meta=1 serves exactly the five-field projection and never the viewer",
   { skip: SKIP, timeout: 60_000 },
   async () => {
     const reply = await read(`/share/${linkA.token}?meta=1`);
@@ -454,8 +482,8 @@ test(
     );
     assert.deepEqual(
       Object.keys(reply.json ?? {}).sort(),
-      ["kind", "revisionNumber", "sha256", "sizeBytes"],
-      "exactly four keys: no artifactId, revisionId or title in the public projection",
+      ["comments", "kind", "revisionNumber", "sha256", "sizeBytes"],
+      "exactly five keys: no artifactId, revisionId or title in the public projection",
     );
     assert.deepEqual(
       reply.json,
@@ -464,8 +492,9 @@ test(
         sha256: revision.sha256,
         sizeBytes: revision.sizeBytes,
         kind: revision.kind,
+        comments: false,
       },
-      "the row's own numbers, and the seeded digest and byte length",
+      "the row's own numbers, the seeded digest and byte length, and the link's comment option",
     );
     assert.deepEqual(
       [
@@ -592,8 +621,9 @@ test(
         sha256: revision.sha256,
         sizeBytes: revision.sizeBytes,
         kind: revision.kind,
+        comments: false,
       },
-      "the four keys still come from the revision row",
+      "the five keys still come from the revision and link rows",
     );
     const bytes = await read(`/share/${link.token}`);
     assert.deepEqual(

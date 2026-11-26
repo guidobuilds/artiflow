@@ -130,14 +130,14 @@ function env(options: {
     reloads: () => reloads,
     intervals: () => timers.size,
     async tick() {
-      for (const handler of [...timers.values()]) handler();
+      for (const handler of Array.from(timers.values())) handler();
       await settle();
     },
     fire(name: "visibilitychange"): void {
-      for (const callback of [...(documentListeners.get(name) ?? [])]) callback();
+      for (const callback of Array.from(documentListeners.get(name) ?? [])) callback();
     },
     async fireWindow(name: string) {
-      for (const callback of [...(windowListeners.get(name) ?? [])]) callback();
+      for (const callback of Array.from(windowListeners.get(name) ?? [])) callback();
       await settle();
     },
     setHidden(hidden: boolean): void {
