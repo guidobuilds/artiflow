@@ -246,17 +246,27 @@ test("a root comment lands only on the revision the writer was looking at", asyn
   assert.deepEqual(await missing.json(), { error: "expected_revision_required" });
   assert.deepEqual(unnamed.comments, [], "a root that names no revision inserts nothing");
 
-  for (const blank of ["", "   ", "\t\n"]) {
-    const unnamedBlank = worldOf("owner", []);
-    const whitespace = await call(appFor(unnamedBlank), "POST", commentsPath(), asPrincipal(), {
-      anchor: ELEMENT_ANCHOR,
-      body: "A note",
-      expectedRevisionId: blank,
-    });
-    assert.equal(whitespace.status, 400, `${JSON.stringify(blank)} is not a revision`);
-    assert.deepEqual(await whitespace.json(), { error: "expected_revision_required" });
-    assert.deepEqual(unnamedBlank.comments, [], "a blank identity inserts nothing");
-  }
+  const padded = worldOf("owner", []);
+  const normalized = await call(appFor(padded), "POST", commentsPath(), asPrincipal(), {
+    anchor: ELEMENT_ANCHOR,
+    body: "A note",
+    expectedRevisionId: `  ${REVISION}\t`,
+  });
+  assert.equal(normalized.status, 201, "the contract trims, so a padded current id is the current id");
+  assert.deepEqual(
+    padded.comments.map((row) => row.revisionId),
+    [REVISION],
+  );
+
+  const paddedStale = worldOf("owner", []);
+  const stillStale = await call(appFor(paddedStale), "POST", commentsPath(), asPrincipal(), {
+    anchor: ELEMENT_ANCHOR,
+    body: "A note",
+    expectedRevisionId: ` ${OLDER_REVISION} `,
+  });
+  assert.equal(stillStale.status, 409, "trimming does not turn another revision into this one");
+  assert.deepEqual(await stillStale.json(), { error: "revision_conflict" });
+  assert.deepEqual(paddedStale.comments, [], "a padded stale id inserts nothing");
 
   const accepted = worldOf("owner", []);
   const created = await call(appFor(accepted), "POST", commentsPath(), asPrincipal(), {

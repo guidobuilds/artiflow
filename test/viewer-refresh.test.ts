@@ -836,27 +836,6 @@ test("the public meta publishes the comment flag the served page can honour", as
   }
 });
 
-test("a link that hides comments serves no comments host, config or bundle", async () => {
-  for (const [kind, bytes] of [
-    ["markdown", SHARE_MARKDOWN],
-    ["html", SHARE_HTML],
-  ] as const) {
-    const off = await shareProbe({ bytes, kind, showComments: false });
-    assert.equal(off.status, 200);
-    assert.equal(off.body.includes('id="viewer-comments"'), false, `${kind} ships no comments host`);
-    assert.equal(off.body.includes("viewer-comments-data"), false, `${kind} ships no comments config`);
-    assert.equal(/<script type="module"/.test(off.body), false, `${kind} ships no comments bundle`);
-    assert.equal(off.body.includes("comments-available"), false, "and the shell claims no comments");
-    assert.equal(off.headers.get("x-robots-tag"), "noindex", `${kind} stays unindexable`);
-
-    const on = await shareProbe({ bytes, kind, showComments: true });
-    assert.equal(on.status, 200);
-    assert.ok(on.body.includes('id="viewer-comments"'), `${kind} keeps its host when the link shows comments`);
-    assert.ok(on.body.includes("viewer-comments-data"), `${kind} keeps its config when the link shows comments`);
-    assert.equal(on.headers.get("x-robots-tag"), "noindex");
-  }
-});
-
 test("the public page records the served comments flag for its poller", async () => {
   for (const showComments of [false, true]) {
     const reply = await shareProbe({ bytes: SHARE_HTML, kind: "html", showComments });

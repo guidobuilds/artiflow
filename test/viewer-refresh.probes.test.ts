@@ -299,7 +299,8 @@ test("P9 the republished reader follows the draft and the mark", () => {
   assert.equal(republishedSince(shell), false, "a draft alone is not a republish");
   shell.dataset.revisionStale = "4";
   assert.equal(republishedSince(shell), true);
-  assert.equal(draftFlagOf(hostEmpty) === null ? false : republishedSince(shell), false, "no draft, no line");
+  publishDraftFlag(hostTyped, shell);
+  assert.equal(republishedSince(shell), true, "a republish stays readable while a typed draft is open");
   publishDraftFlag(hostEmpty, shell);
   assert.equal("commentDraft" in shell.dataset, false, "clearing the draft removes the flag");
   shell.dataset.revisionStale = "";

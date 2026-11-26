@@ -177,9 +177,8 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         if (sceneAnchorRefusal(scene, anchor) !== null) return c.json({ error: "unknown_node" }, 400);
       }
       if (parentId === null) {
-        const expectedRevisionId = body.expectedRevisionId;
-        if (typeof expectedRevisionId !== "string" || expectedRevisionId.trim() === "")
-          return c.json({ error: "expected_revision_required" }, 400);
+        const expectedRevisionId = typeof body.expectedRevisionId === "string" ? body.expectedRevisionId.trim() : "";
+        if (expectedRevisionId === "") return c.json({ error: "expected_revision_required" }, 400);
         if (expectedRevisionId !== revision.id) return c.json({ error: "revision_conflict" }, 409);
       }
       const inserted = await insertComment(client, {

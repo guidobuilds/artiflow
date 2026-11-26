@@ -267,9 +267,10 @@ Comments never create revisions. A reader sees the threads and is refused every 
 for shape only and the client positions; Markdown keeps `text-range`. A public link serves its threads
 read-only through `GET /share/:token/comments` only while the link's `showComments` option is on, with
 authors reduced to `{ id, name, image }`. For the kinds that mount a margin — pages and docs; a canvas
-or a deck draws its pins inside the frame — the option also decides whether the public page mounts it:
-`?meta=1` publishes the effective flag as `comments`, it is false for canvas and deck whatever the link
-says, and a page served with it off ships no comment host, config or bundle. The public poller reads
+or a deck shows its threads as pins inside the frame on the owner page, and a public scene link ships
+none — the option also decides whether the public page mounts it: `?meta=1` publishes the effective
+flag as `comments`, it is false for canvas and deck whatever the link says, and a page served with it
+off ships no comment host, config or bundle. The public poller reads
 that flag on every tick, so turning the option off reloads an open page once — the margin, its data
 island and its bundle are server-emitted, and the viewer contract rebuilds the document by reload
 only.
