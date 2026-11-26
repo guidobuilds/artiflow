@@ -9,6 +9,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 
 import { UserAvatar } from "@/components/ui/avatar.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -90,6 +91,7 @@ export type CommentThreadMarginProps = {
   storage?: CommentStorage | null;
   visible?: boolean;
   onVisibleChange?: (visible: boolean) => void;
+  toggleHost?: HTMLElement | null;
   showResolved?: boolean;
   onShowResolvedChange?: (show: boolean) => void;
   draftAnchorTop?: number;
@@ -102,6 +104,21 @@ export type CommentThreadMarginProps = {
 
 const PILL_HEIGHT = 32;
 const PILL_GAP = 6;
+
+export type CommentsChrome = {
+  hostDisplay: "block" | "none";
+  panelShown: boolean;
+  togglePlacement: "inside" | "floating";
+};
+
+export function commentsVisibilityChrome(visible: boolean, floatingHost: boolean): CommentsChrome {
+  const floating = floatingHost && !visible;
+  return {
+    hostDisplay: visible ? "block" : "none",
+    panelShown: visible,
+    togglePlacement: floating ? "floating" : "inside",
+  };
+}
 
 type Reader = { getItem(key: string): string | null };
 type Writer = { setItem(key: string, value: string): void };
@@ -510,6 +527,7 @@ export default function CommentThreadMargin({
   storage,
   visible: visibleProp,
   onVisibleChange,
+  toggleHost = null,
   showResolved: showResolvedProp,
   onShowResolvedChange,
   draftAnchorTop = 0,
@@ -537,6 +555,27 @@ export default function CommentThreadMargin({
     onShowResolvedChange?.(next);
   };
   const toggle = () => setVisible(!visible);
+  const chrome = commentsVisibilityChrome(visible, toggleHost !== null);
+  const toggleId = `${label}-toggle`;
+  const settledPlacement = useRef(chrome.togglePlacement);
+  useEffect(() => {
+    if (settledPlacement.current === chrome.togglePlacement) return;
+    settledPlacement.current = chrome.togglePlacement;
+    document.getElementById(toggleId)?.focus();
+  }, [chrome.togglePlacement, toggleId]);
+  const toggleControl = (
+    <Button
+      id={toggleId}
+      size="sm"
+      variant="ghost"
+      aria-pressed={visible}
+      aria-controls={label}
+      onClick={toggle}
+      className="min-h-11"
+    >
+      {visible ? "Hide comments" : "Show comments"}
+    </Button>
+  );
   const [measured, setMeasured] = useState<Record<string, number>>({});
   const onMeasure = useCallback((id: string, height: number) => {
     const rounded = Math.ceil(height);
@@ -657,16 +696,7 @@ export default function CommentThreadMargin({
       aria-label="Comments"
     >
       <div className="comment-thread-bar">
-        <Button
-          size="sm"
-          variant="ghost"
-          aria-pressed={visible}
-          aria-controls={label}
-          onClick={toggle}
-          className="min-h-11"
-        >
-          {visible ? "Hide comments" : "Show comments"}
-        </Button>
+        {chrome.togglePlacement === "inside" ? toggleControl : null}
         <span className="text-[11.5px] text-fg-subtle" aria-live="polite">
           {openCount} open
         </span>
@@ -700,91 +730,99 @@ export default function CommentThreadMargin({
           {publishError}
         </p>
       ) : null}
-      {visible ? (
-        <div id={label} className="comment-thread-margin" style={{ minHeight: marginHeight(placements, PILL_GAP) }}>
-          {status === "loading" ? <Skeleton /> : null}
-          {status === "error" ? (
-            <div role="alert" className="comment-thread-error">
-              <p>Could not load comments.</p>
-              {onRetry ? (
-                <Button size="sm" onClick={onRetry}>
-                  Retry
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
-          {status === "empty" && draft === null ? (
-            <p className="comment-thread-empty">Select text in the document to start a thread.</p>
-          ) : null}
-          {status !== "error" ? (
-            <div className="comment-thread-pills">
-              <div className="comment-thread-pills-layer" style={{ transform: `translateY(${layerOffset}px)` }}>
-                {placed.map((thread) => {
-                  const placement = placementOf(placements, thread.id);
-                  if (!placement) return null;
-                  return (
-                    <ThreadPill
-                      key={thread.id}
-                      thread={thread}
-                      placement={placement}
-                      active={thread.id === activeId}
-                      onActivate={() => onActivate(thread.id === activeId ? null : thread.id)}
-                      onMeasure={onMeasure}
-                    />
-                  );
-                })}
-                {draft !== null && draft !== undefined ? (
-                  <span
-                    aria-hidden="true"
-                    className="comment-thread-pill comment-thread-pill-solo comment-thread-pill-draft"
-                    style={{ top: draftTop }}
-                  >
-                    <UserAvatar aria-hidden="true" image={draft.authorImage} />
-                  </span>
+      <div
+        id={label}
+        className="comment-thread-margin"
+        hidden={!visible}
+        style={visible ? { minHeight: marginHeight(placements, PILL_GAP) } : undefined}
+      >
+        {visible ? (
+          <>
+            {status === "loading" ? <Skeleton /> : null}
+            {status === "error" ? (
+              <div role="alert" className="comment-thread-error">
+                <p>Could not load comments.</p>
+                {onRetry ? (
+                  <Button size="sm" onClick={onRetry}>
+                    Retry
+                  </Button>
                 ) : null}
               </div>
-            </div>
-          ) : null}
-          {status !== "error" && !compact ? (
-            <div className="comment-thread-dock-rail">
-              {draft !== null && draft !== undefined ? (
-                <DockSlot top={draftTop + layerOffset}>
-                  <DraftPanel draft={draft} onSubmit={onSubmitDraft} onCancel={onCancelDraft} />
-                </DockSlot>
-              ) : activeThread !== null ? (
-                <DockSlot top={(placementOf(placements, activeThread.id)?.top ?? 0) + layerOffset}>
-                  <ThreadPanel
-                    key={activeThread.id}
-                    thread={activeThread}
-                    index={dockIndex}
-                    total={dockOrder.length}
-                    canComment={canComment}
-                    onPrevious={() => stepTo(-1)}
-                    onNext={() => stepTo(1)}
-                    onClose={() => onActivate(null)}
-                    onResolve={onResolve}
-                    onReply={onReply}
-                    onDelete={onDelete}
-                  />
-                </DockSlot>
-              ) : unplaced.length > 0 ? (
-                <div role="group" aria-label="No location" className="comment-thread-unplaced">
-                  <h3 className="comment-thread-unplaced-title">No location</h3>
-                  {unplaced.map((thread) => (
-                    <ThreadPill
-                      key={thread.id}
-                      thread={thread}
-                      placement={null}
-                      active={false}
-                      onActivate={() => onActivate(thread.id)}
-                    />
-                  ))}
+            ) : null}
+            {status === "empty" && draft === null ? (
+              <p className="comment-thread-empty">Select text in the document to start a thread.</p>
+            ) : null}
+            {status !== "error" ? (
+              <div className="comment-thread-pills">
+                <div className="comment-thread-pills-layer" style={{ transform: `translateY(${layerOffset}px)` }}>
+                  {placed.map((thread) => {
+                    const placement = placementOf(placements, thread.id);
+                    if (!placement) return null;
+                    return (
+                      <ThreadPill
+                        key={thread.id}
+                        thread={thread}
+                        placement={placement}
+                        active={thread.id === activeId}
+                        onActivate={() => onActivate(thread.id === activeId ? null : thread.id)}
+                        onMeasure={onMeasure}
+                      />
+                    );
+                  })}
+                  {draft !== null && draft !== undefined ? (
+                    <span
+                      aria-hidden="true"
+                      className="comment-thread-pill comment-thread-pill-solo comment-thread-pill-draft"
+                      style={{ top: draftTop }}
+                    >
+                      <UserAvatar aria-hidden="true" image={draft.authorImage} />
+                    </span>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+              </div>
+            ) : null}
+            {status !== "error" && !compact ? (
+              <div className="comment-thread-dock-rail">
+                {draft !== null && draft !== undefined ? (
+                  <DockSlot top={draftTop + layerOffset}>
+                    <DraftPanel draft={draft} onSubmit={onSubmitDraft} onCancel={onCancelDraft} />
+                  </DockSlot>
+                ) : activeThread !== null ? (
+                  <DockSlot top={(placementOf(placements, activeThread.id)?.top ?? 0) + layerOffset}>
+                    <ThreadPanel
+                      key={activeThread.id}
+                      thread={activeThread}
+                      index={dockIndex}
+                      total={dockOrder.length}
+                      canComment={canComment}
+                      onPrevious={() => stepTo(-1)}
+                      onNext={() => stepTo(1)}
+                      onClose={() => onActivate(null)}
+                      onResolve={onResolve}
+                      onReply={onReply}
+                      onDelete={onDelete}
+                    />
+                  </DockSlot>
+                ) : unplaced.length > 0 ? (
+                  <div role="group" aria-label="No location" className="comment-thread-unplaced">
+                    <h3 className="comment-thread-unplaced-title">No location</h3>
+                    {unplaced.map((thread) => (
+                      <ThreadPill
+                        key={thread.id}
+                        thread={thread}
+                        placement={null}
+                        active={false}
+                        onActivate={() => onActivate(thread.id)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+      {chrome.togglePlacement === "floating" && toggleHost !== null ? createPortal(toggleControl, toggleHost) : null}
       {sheetOpen ? (
         <MobileSheet onBackdrop={() => (draft !== null ? onCancelDraft?.() : onActivate(null))}>
           {draft !== null && draft !== undefined ? (

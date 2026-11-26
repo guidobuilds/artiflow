@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { compileFunction } from "node:vm";
 
 import {
   resetViewerCommentsAssetCache,
@@ -18,6 +19,24 @@ import {
 } from "../apps/dashboard/src/viewer-thread-sync.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
+
+const exportedPolicy = (
+  source: string,
+  name: string,
+): ((visible: boolean, floatingHost: boolean) => Record<string, unknown>) => {
+  const start = source.indexOf(`export function ${name}(`);
+  assert.notEqual(start, -1, `${name} is exported from the comments margin`);
+  const open = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = open; index < source.length; index++) {
+    if (source[index] === "{") depth++;
+    else if (source[index] === "}") depth--;
+    if (depth !== 0) continue;
+    const run = compileFunction(source.slice(open + 1, index), ["visible", "floatingHost"]);
+    return (visible: boolean, floatingHost: boolean) => run(visible, floatingHost) as Record<string, unknown>;
+  }
+  throw new Error(`${name} has no body`);
+};
 
 test("the viewer sends the JSON content type its own delete route demands", () => {
   const island = read("../apps/dashboard/src/viewer-comments.tsx");
@@ -271,6 +290,61 @@ test("the viewers share one coordinate system, refetch in place and reveal the o
   assert.match(viewer, /\(\) => \{\s*state\.draft = null;/, "the draft is cleared only after a successful create");
   assert.match(viewer, /block: "center", behavior: reducedMotion\(\) \? "instant" : "smooth"/);
   assert.match(viewer, /classList\.add\(`\$\{MARK\}-flash`\)/);
+});
+
+test("hiding the comments panel never leaves the restoring control inside the host it hides", () => {
+  const margin = read("../apps/dashboard/src/components/comments/comment-thread-margin.tsx");
+  const chrome = exportedPolicy(margin, "commentsVisibilityChrome");
+  assert.deepEqual(chrome(true, true), { hostDisplay: "block", panelShown: true, togglePlacement: "inside" });
+  assert.deepEqual(
+    chrome(true, false),
+    { hostDisplay: "block", panelShown: true, togglePlacement: "inside" },
+    "the visible panel renders as it does today",
+  );
+  assert.deepEqual(
+    chrome(false, true),
+    { hostDisplay: "none", panelShown: false, togglePlacement: "floating" },
+    "a hidden host hands the control to the surface outside it",
+  );
+  assert.equal(chrome(false, false).panelShown, false);
+  assert.equal(
+    chrome(false, false).togglePlacement,
+    "inside",
+    "without a floating surface the bar keeps the control, as the editor relies on",
+  );
+  for (const visible of [true, false])
+    for (const floatingHost of [true, false]) {
+      const state = chrome(visible, floatingHost);
+      assert.equal(
+        state.hostDisplay === "none" && state.togglePlacement === "inside" && floatingHost,
+        false,
+        `visible=${visible}, floatingHost=${floatingHost}: the toggle cannot ride inside the host it just hid`,
+      );
+    }
+});
+
+test("both viewer mounts own a toggle surface outside the comments host (structural pin)", () => {
+  const viewer = read("../apps/dashboard/src/viewer-comments.tsx");
+  const margin = read("../apps/dashboard/src/components/comments/comment-thread-margin.tsx");
+  assert.equal(
+    (viewer.match(/const toggleHost = viewerToggleHost\(shell\);/g) ?? []).length,
+    2,
+    "each mount creates its own floating surface",
+  );
+  assert.equal(
+    (viewer.match(/host\.style\.display = chrome\.hostDisplay;/g) ?? []).length,
+    2,
+    "both mounts hide the host through the shared policy",
+  );
+  assert.equal(viewer.includes('host.style.display = state.visible ? "block" : "none"'), false);
+  assert.equal(
+    (viewer.match(/toggleHost=\{toggleHost\}/g) ?? []).length,
+    2,
+    "both mounts hand the surface to the margin",
+  );
+  assert.match(viewer, /shell\.append\(node\)/, "the surface is a sibling of #viewer-comments, never a child");
+  assert.match(viewer, /node\.dataset\.commentsToggle = "";/);
+  assert.match(margin, /createPortal\(toggleControl, toggleHost\)/);
 });
 
 test("viewportAnchor places a pin relative to the visible frame, negative above the viewport", () => {
