@@ -31,6 +31,7 @@ import {
   saveScene,
   selectNodesInRect,
   sendToBack,
+  surfaceLayout,
   updateTextNode,
   zoomBy,
   type SceneDraft,
@@ -63,9 +64,14 @@ type SelectionBox = { x: number; y: number; w: number; h: number };
 
 type LayerDrag = { id: string; pointerId: number; startY: number; rowHeight: number; index: number; count: number };
 
+type Point = { x: number; y: number };
+
+type PanDrag = { pointerId: number; startX: number; startY: number; origin: Point };
+
 const MARQUEE_THRESHOLD = 4;
 const DRAG_THRESHOLD = 2;
 const LAYER_THRESHOLD = 4;
+const WHEEL_ZOOM_STEP = 400;
 
 const withoutNodes = (scene: Scene, ids: string[]): Scene => ids.reduce((next, id) => removeNode(next, id), scene);
 
@@ -141,6 +147,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const [viewport, setViewport] = useState({ w: 0, h: 0 });
   const [fitted, setFitted] = useState(true);
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [layersOpen, setLayersOpen] = useState(false);
   const detail = useQuery({
     queryKey: queryKeys.artifact.detail(initial.artifactId),
@@ -155,6 +162,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const nodeDragged = useRef(false);
   const layerDrag = useRef<LayerDrag | null>(null);
   const layerDragged = useRef(false);
+  const panDrag = useRef<PanDrag | null>(null);
+  const spaceHeld = useRef(false);
 
   useEffect(() => {
     const controller = new SceneAutosave(initial, sceneSaver(initial.artifactId), setState, () => {});
@@ -189,7 +198,16 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const scene = state.scene;
   const frames = scene.frames;
   const frame: SceneFrame | null = frames.find((entry) => entry.id === activeFrame) ?? frames[0] ?? null;
-  const scale = frame === null ? 1 : fitted ? fitScale(frame, viewport) : zoom;
+  const layout = surfaceLayout(frames);
+  const fitZoom = fitScale({ w: layout.width, h: layout.height }, viewport);
+  const scale = frame === null ? 1 : fitted ? fitZoom : zoom;
+  const fitPan = {
+    x: Math.round((viewport.w - layout.width * fitZoom) / 2),
+    y: Math.round((viewport.h - layout.height * fitZoom) / 2),
+  };
+  const view = fitted ? fitPan : pan;
+  const placementOf = (id: string) =>
+    layout.placements.find((entry) => entry.frameId === id) ?? { frameId: id, x: 0, y: 0 };
   const readOnly =
     state.status === "readonly" ||
     state.status === "conflict" ||
@@ -199,6 +217,55 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     selected.length === 1 ? (frame?.nodes.find((node) => node.id === selected[0]) ?? null) : null;
   const busy = state.status === "saving" || state.status === "restoring";
   const isSelected = (id: string) => selected.includes(id);
+
+  const zoomAt = useCallback(
+    (screenX: number, screenY: number, factor: number) => {
+      const next = zoomBy(scale, factor);
+      if (next === scale) return;
+      const unit = scale === 0 ? 1 : scale;
+      const originX = (screenX - view.x) / unit;
+      const originY = (screenY - view.y) / unit;
+      setFitted(false);
+      setZoom(next);
+      setPan({ x: screenX - originX * next, y: screenY - originY * next });
+    },
+    [scale, view.x, view.y],
+  );
+
+  useEffect(() => {
+    const element = stage.current;
+    if (element === null) return;
+    const onWheel = (event: WheelEvent) => {
+      if (frames.length === 0) return;
+      event.preventDefault();
+      const bounds = element.getBoundingClientRect();
+      zoomAt(event.clientX - bounds.left, event.clientY - bounds.top, Math.exp(-event.deltaY / WHEEL_ZOOM_STEP));
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [frames.length, zoomAt]);
+
+  useEffect(() => {
+    const typing = (target: EventTarget | null) =>
+      target instanceof HTMLElement && target.closest("input, textarea, select, [contenteditable]") !== null;
+    const down = (event: KeyboardEvent) => {
+      if (event.code === "Space" && !typing(event.target)) spaceHeld.current = true;
+    };
+    const up = (event: KeyboardEvent) => {
+      if (event.code === "Space") spaceHeld.current = false;
+    };
+    const blur = () => {
+      spaceHeld.current = false;
+    };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup", up);
+    window.addEventListener("blur", blur);
+    return () => {
+      window.removeEventListener("keydown", down);
+      window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", blur);
+    };
+  }, []);
 
   const update = useCallback((next: Scene) => {
     session.current?.change(next);
@@ -385,6 +452,55 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
   };
+  const startPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    panDrag.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, origin: view };
+    setFitted(false);
+    setPan(view);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPanMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const pending = panDrag.current;
+    if (pending === null || pending.pointerId !== event.pointerId) return;
+    setPan({
+      x: pending.origin.x + (event.clientX - pending.startX),
+      y: pending.origin.y + (event.clientY - pending.startY),
+    });
+  };
+  const endPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (panDrag.current === null) return;
+    panDrag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const startStageGesture = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button === 1 || (event.button === 0 && spaceHeld.current)) {
+      event.preventDefault();
+      startPan(event);
+      return;
+    }
+    startMarquee(event);
+  };
+  const onStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (panDrag.current !== null) {
+      onPanMove(event);
+      return;
+    }
+    onMarqueeMove(event);
+  };
+  const onStagePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (panDrag.current !== null) {
+      endPan(event);
+      return;
+    }
+    endMarquee(event);
+  };
+  const onStagePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (panDrag.current !== null) {
+      endPan(event);
+      return;
+    }
+    cancelMarquee(event);
+  };
   const startMarquee = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -422,12 +538,13 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     }
     const unit = scale === 0 ? 1 : scale;
     const bounds = stage.current?.getBoundingClientRect();
-    const left = Math.min(start.clientX, event.clientX) - (bounds?.left ?? 0) - offsetX;
-    const top = Math.min(start.clientY, event.clientY) - (bounds?.top ?? 0) - offsetY;
+    const at = placementOf(frame.id);
+    const left = (Math.min(start.clientX, event.clientX) - (bounds?.left ?? 0) - view.x) / unit - at.x;
+    const top = (Math.min(start.clientY, event.clientY) - (bounds?.top ?? 0) - view.y) / unit - at.y;
     setSelected(
       selectNodesInRect(frame, {
-        x: left / unit,
-        y: top / unit,
+        x: left,
+        y: top,
         w: Math.abs(event.clientX - start.clientX) / unit,
         h: Math.abs(event.clientY - start.clientY) / unit,
       }),
@@ -458,8 +575,6 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   };
   const retry = () => session.current?.retry();
   const zoomLevel = Math.round(scale * 100);
-  const offsetX = frame === null ? 0 : Math.round((viewport.w - frame.w * scale) / 2);
-  const offsetY = frame === null ? 0 : Math.round((viewport.h - frame.h * scale) / 2);
   const layerRowList = frame === null ? [] : layerRows(frame);
   const inspectorOpen = selectedNode?.type === "text";
 
@@ -577,10 +692,10 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
         <div className="canvas-stage-wrap" ref={stage}>
           <div
             className="canvas-stage"
-            onPointerDown={startMarquee}
-            onPointerMove={onMarqueeMove}
-            onPointerUp={endMarquee}
-            onPointerCancel={cancelMarquee}
+            onPointerDown={startStageGesture}
+            onPointerMove={onStagePointerMove}
+            onPointerUp={onStagePointerUp}
+            onPointerCancel={onStagePointerCancel}
           >
             {frame === null ? (
               <p className="canvas-empty" role="status">
@@ -588,69 +703,81 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
               </p>
             ) : (
               <div
-                className="canvas-frame"
-                data-frame-id={frame.id}
-                style={{
-                  width: frame.w,
-                  height: frame.h,
-                  transform: `translate(${offsetX}px, ${offsetY}px) scale(${scale})`,
-                }}
+                className="canvas-surface"
+                style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${scale})` }}
               >
-                {frame.nodes.map((node) => (
-                  <div
-                    key={node.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={nodeLabel(node)}
-                    aria-pressed={isSelected(node.id)}
-                    className={`canvas-node canvas-node-${node.type} ${isSelected(node.id) ? "canvas-node-selected" : ""}`}
-                    style={nodeStyle(node)}
-                    onPointerDown={(event) => startDrag(event, node, "move")}
-                    onPointerMove={onPointerMove}
-                    onPointerUp={endDrag}
-                    onPointerCancel={endDrag}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (nodeDragged.current) return;
-                      if (event.shiftKey) {
-                        toggle(node.id);
-                        return;
-                      }
-                      setSelected([node.id]);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      if (event.shiftKey) {
-                        toggle(node.id);
-                        return;
-                      }
-                      setSelected([node.id]);
-                    }}
-                  >
-                    {node.type === "text" ? node.text : null}
-                    {node.type === "image" ? (
-                      <span className="canvas-image-label">Image · {node.assetId.slice(0, 12)}</span>
-                    ) : null}
-                    {node.type === "path" ? (
-                      <svg
-                        aria-hidden="true"
-                        width="100%"
-                        height="100%"
-                        viewBox={`0 0 ${node.w} ${node.h}`}
-                        fill="none"
-                      >
-                        <path
-                          d={node.d}
-                          fill={node.fill ?? "none"}
-                          stroke={node.stroke ?? "none"}
-                          strokeWidth={node.strokeWidth ?? 0}
-                        />
-                      </svg>
-                    ) : null}
-                    {handles(node)}
-                  </div>
-                ))}
+                {frames.map((entry) => {
+                  const at = placementOf(entry.id);
+                  const active = entry.id === frame.id;
+                  return (
+                    <div
+                      key={entry.id}
+                      className={`canvas-frame${active ? " canvas-frame-active" : ""}`}
+                      data-frame-id={entry.id}
+                      style={{ left: at.x, top: at.y, width: entry.w, height: entry.h }}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0 || spaceHeld.current || active) return;
+                        showFrame(entry.id);
+                      }}
+                    >
+                      {entry.nodes.map((node) => (
+                        <div
+                          key={node.id}
+                          role="button"
+                          tabIndex={active ? 0 : -1}
+                          aria-label={nodeLabel(node)}
+                          aria-pressed={isSelected(node.id)}
+                          className={`canvas-node canvas-node-${node.type} ${isSelected(node.id) ? "canvas-node-selected" : ""}`}
+                          style={nodeStyle(node)}
+                          onPointerDown={(event) => startDrag(event, node, "move")}
+                          onPointerMove={onPointerMove}
+                          onPointerUp={endDrag}
+                          onPointerCancel={endDrag}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (nodeDragged.current) return;
+                            if (event.shiftKey) {
+                              toggle(node.id);
+                              return;
+                            }
+                            setSelected([node.id]);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== "Enter" && event.key !== " ") return;
+                            event.preventDefault();
+                            if (event.shiftKey) {
+                              toggle(node.id);
+                              return;
+                            }
+                            setSelected([node.id]);
+                          }}
+                        >
+                          {node.type === "text" ? node.text : null}
+                          {node.type === "image" ? (
+                            <span className="canvas-image-label">Image · {node.assetId.slice(0, 12)}</span>
+                          ) : null}
+                          {node.type === "path" ? (
+                            <svg
+                              aria-hidden="true"
+                              width="100%"
+                              height="100%"
+                              viewBox={`0 0 ${node.w} ${node.h}`}
+                              fill="none"
+                            >
+                              <path
+                                d={node.d}
+                                fill={node.fill ?? "none"}
+                                stroke={node.stroke ?? "none"}
+                                strokeWidth={node.strokeWidth ?? 0}
+                              />
+                            </svg>
+                          ) : null}
+                          {handles(node)}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -687,30 +814,18 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
             </div>
           ) : null}
           <div role="group" aria-label="Canvas zoom" className="canvas-zoom">
-            <IconAction
-              icon="min"
-              label="Zoom out"
-              onClick={() => {
-                setFitted(false);
-                setZoom(zoomBy(scale, 0.8));
-              }}
-            />
+            <IconAction icon="min" label="Zoom out" onClick={() => zoomAt(viewport.w / 2, viewport.h / 2, 0.8)} />
             <output aria-label="Zoom level">{zoomLevel}%</output>
-            <IconAction
-              icon="max"
-              label="Fit frame"
-              onClick={() => {
-                setFitted(true);
-              }}
-            />
-            <IconAction
-              icon="plus"
-              label="Zoom in"
-              onClick={() => {
-                setFitted(false);
-                setZoom(zoomBy(scale, 1.25));
-              }}
-            />
+            <IconAction icon="plus" label="Zoom in" onClick={() => zoomAt(viewport.w / 2, viewport.h / 2, 1.25)} />
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label="Fit surface"
+              aria-pressed={fitted}
+              onClick={() => setFitted(true)}
+            >
+              Fit
+            </Button>
           </div>
         </div>
         {selectedNode?.type === "text" ? (

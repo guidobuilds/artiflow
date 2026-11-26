@@ -20,12 +20,14 @@ import {
   saveScene,
   selectNodesInRect,
   sendToBack,
+  surfaceLayout,
   textNode,
   updateTextNode,
+  type SurfaceLayout,
 } from "../apps/dashboard/src/scene-api.ts";
 import { SceneAutosave } from "../apps/dashboard/src/scene-autosave.ts";
 import { AUTOSAVE_MS } from "../apps/dashboard/src/editor-autosave.ts";
-import type { Scene, SceneFrame } from "@artiflow/domain/scene";
+import { surfaceLayout as domainSurfaceLayout, type Scene, type SceneFrame } from "@artiflow/domain/scene";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -253,6 +255,130 @@ test("dragging and resizing keep a node inside its frame and every other gesture
   );
   assert.equal(fitScale({ w: 800, h: 600 }, { w: 0, h: 0 }), 0.02, "an empty viewport falls back to the smallest zoom");
   assert.equal(rectNode("rect-3", 10, 10).fill.length > 0, true, "a new rectangle arrives with a visible fill");
+});
+
+test("the surface layout is the one domain helper the editor and the viewer share", () => {
+  assert.equal(
+    surfaceLayout,
+    domainSurfaceLayout,
+    "the dashboard re-exports the domain layout instead of keeping a second copy",
+  );
+  assert.deepEqual(
+    domainSurfaceLayout([
+      { id: "a", name: "A", x: 0, y: 0, w: 400, h: 400, nodes: [] },
+      { id: "b", name: "B", x: 0, y: 0, w: 400, h: 400, nodes: [] },
+    ]).placements,
+    [
+      { frameId: "a", x: 0, y: 0 },
+      { frameId: "b", x: 0, y: 440 },
+    ],
+    "the shared layout is importable from the domain package on its own",
+  );
+});
+
+test("the surface layout gives every frame a place of its own and falls back to a grid it can reuse", () => {
+  const frame = (id: string, x: number, y: number, w = 800, h = 600): SceneFrame => ({
+    id,
+    name: id,
+    x,
+    y,
+    w,
+    h,
+    nodes: [],
+  });
+  const boxesOf = (input: SceneFrame[], layout: SurfaceLayout) =>
+    layout.placements.map((placement) => {
+      const source = input.find((entry) => entry.id === placement.frameId)!;
+      return { x: placement.x, y: placement.y, w: source.w, h: source.h };
+    });
+  const collides = (
+    left: { x: number; y: number; w: number; h: number },
+    right: { x: number; y: number; w: number; h: number },
+  ) =>
+    left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
+  const apart = (input: SceneFrame[], layout: SurfaceLayout) => {
+    const boxes = boxesOf(input, layout);
+    return boxes.every((box, at) => boxes.every((other, index) => index === at || !collides(box, other)));
+  };
+
+  assert.deepEqual(
+    surfaceLayout([]),
+    { placements: [], width: 0, height: 0 },
+    "a canvas with no frames has an empty surface",
+  );
+
+  const single = surfaceLayout([frame("frame-1", 0, 0)]);
+  assert.deepEqual(single.placements, [{ frameId: "frame-1", x: 0, y: 0 }]);
+  assert.deepEqual([single.width, single.height], [800, 600], "one frame gives the surface its own size");
+
+  const spread = surfaceLayout([frame("frame-1", 0, 0), frame("frame-2", 1000, 40, 400, 400)]);
+  assert.deepEqual(
+    spread.placements,
+    [
+      { frameId: "frame-1", x: 0, y: 0 },
+      { frameId: "frame-2", x: 1000, y: 40 },
+    ],
+    "frames that already sit apart keep the x/y the scene stores",
+  );
+  assert.deepEqual([spread.width, spread.height], [1400, 600], "the surface bounds cover every placement");
+
+  const negative = surfaceLayout([frame("frame-1", -400, -200), frame("frame-2", 600, 0, 400, 400)]);
+  assert.deepEqual(
+    negative.placements,
+    [
+      { frameId: "frame-1", x: 0, y: 0 },
+      { frameId: "frame-2", x: 1000, y: 200 },
+    ],
+    "a frame left of or above the origin is shifted onto a surface that starts at zero",
+  );
+  assert.deepEqual([negative.width, negative.height], [1400, 600], "the shifted bounds still cover every frame");
+
+  const legacy = [frame("frame-1", 0, 0), frame("frame-2", 0, 0, 400, 400), frame("frame-3", 0, 0, 200, 200)];
+  const before = structuredClone(legacy);
+  for (const entry of legacy) Object.freeze(entry);
+  Object.freeze(legacy);
+  const grid = surfaceLayout(legacy);
+  assert.deepEqual(
+    grid.placements,
+    [
+      { frameId: "frame-1", x: 0, y: 0 },
+      { frameId: "frame-2", x: 0, y: 640 },
+      { frameId: "frame-3", x: 0, y: 1080 },
+    ],
+    "frames stacked on the same origin fall back to a spaced column instead of piling up",
+  );
+  assert.deepEqual([grid.width, grid.height], [800, 1280], "the fallback surface covers the column it built");
+  assert.deepEqual(
+    grid.placements.map((placement) => placement.frameId),
+    ["frame-1", "frame-2", "frame-3"],
+    "placements follow the order the scene stores the frames in",
+  );
+  assert.equal(apart(legacy, grid), true, "the fallback never leaves two frames on top of each other");
+  assert.deepEqual(surfaceLayout(legacy), grid, "asking twice gives the same surface");
+  assert.deepEqual(legacy, before, "the layout never rewrites the frames it reads");
+
+  const overlapping = [frame("frame-1", 0, 0), frame("frame-2", 100, 100, 400, 400)];
+  const resolved = surfaceLayout(overlapping);
+  assert.deepEqual(
+    resolved.placements.map((placement) => placement.y),
+    [0, 640],
+    "frames that only partly overlap are separated too",
+  );
+  assert.equal(apart(overlapping, resolved), true, "the separated frames no longer touch");
+
+  const crowded = [frame("frame-1", 0, 0), frame("frame-2", 0, 0, 300, 200), frame("frame-3", 0, 0, 500, 700)];
+  const crowdedLayout = surfaceLayout(crowded);
+  assert.equal(apart(crowded, crowdedLayout), true, "a legacy scene with three frames is usable on one surface");
+  assert.equal(
+    crowdedLayout.placements.every((placement) => placement.x === 0),
+    true,
+    "the fallback stacks the frames in one column",
+  );
+  assert.equal(
+    crowdedLayout.width,
+    Math.max(...crowded.map((entry) => entry.w)),
+    "the column is as wide as the widest frame and no wider",
+  );
 });
 
 test("a selection rectangle takes every node of the active frame that it touches, in frame order", () => {
@@ -695,6 +821,9 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /reorderNodeTo\(/);
   assert.match(page, /nudgeSelection\(/);
   assert.match(page, /layerRows\(/);
+  assert.match(page, /surfaceLayout\(/);
+  assert.match(page, /onWheel/);
+  assert.match(page, /aria-label="Fit surface"/);
   assert.match(page, /aria-label="Layers"/);
   assert.match(page, /aria-label="Toggle layers"/);
   assert.match(page, /event\.altKey/);

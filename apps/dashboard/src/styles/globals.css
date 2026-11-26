@@ -917,6 +917,7 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  overscroll-behavior: contain;
   user-select: none;
   background-color: var(--bg-raised);
   background-image: radial-gradient(circle at 1px 1px var(--line) 1px, transparent 0);
@@ -927,6 +928,12 @@
   inset: 0;
   overflow: hidden;
   touch-action: none;
+}
+.canvas-surface {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
 }
 .canvas-frame {
   position: absolute;
@@ -943,6 +950,9 @@
   cursor: move;
   outline: 1px solid transparent;
   user-select: none;
+}
+.canvas-frame:not(.canvas-frame-active) .canvas-node {
+  pointer-events: none;
 }
 .canvas-node:focus-visible {
   outline: 1px solid var(--accent);

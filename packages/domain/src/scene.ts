@@ -270,3 +270,46 @@ export const sceneOutline = (scene: Scene): SceneOutlineEntry[] =>
 
 export const sceneSubtree = (scene: Scene, frameId: string): SceneFrame | null =>
   scene.frames.find((frame) => frame.id === frameId) ?? null;
+
+export type SurfacePlacement = { frameId: string; x: number; y: number };
+export type SurfaceLayout = { placements: SurfacePlacement[]; width: number; height: number };
+
+type SurfaceBox = { frameId: string; x: number; y: number; w: number; h: number };
+
+const SURFACE_GAP = 40;
+
+const collides = (left: SurfaceBox, right: SurfaceBox): boolean =>
+  left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
+
+const surfaceBox = (frame: SceneFrame): SurfaceBox => ({
+  frameId: frame.id,
+  x: finite(frame.x) ? frame.x : 0,
+  y: finite(frame.y) ? frame.y : 0,
+  w: finite(frame.w) && frame.w > 0 ? frame.w : 1,
+  h: finite(frame.h) && frame.h > 0 ? frame.h : 1,
+});
+
+const surfaceColumn = (boxes: SurfaceBox[]): SurfaceBox[] => {
+  let top = 0;
+  return boxes.map((box) => {
+    const stacked = { ...box, x: 0, y: top };
+    top += box.h + SURFACE_GAP;
+    return stacked;
+  });
+};
+
+export function surfaceLayout(frames: SceneFrame[]): SurfaceLayout {
+  if (frames.length === 0) return { placements: [], width: 0, height: 0 };
+  const boxes = frames.map(surfaceBox);
+  const spread = boxes.every((box, at) => boxes.every((other, index) => index === at || !collides(box, other)));
+  const placed = spread ? boxes : surfaceColumn(boxes);
+  const left = Math.min(...placed.map((box) => box.x));
+  const top = Math.min(...placed.map((box) => box.y));
+  const right = Math.max(...placed.map((box) => box.x + box.w));
+  const bottom = Math.max(...placed.map((box) => box.y + box.h));
+  return {
+    placements: placed.map((box) => ({ frameId: box.frameId, x: box.x - left, y: box.y - top })),
+    width: right - left,
+    height: bottom - top,
+  };
+}

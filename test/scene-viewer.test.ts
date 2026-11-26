@@ -4,6 +4,7 @@ import vm from "node:vm";
 
 import {
   SCENE_FORMAT_VERSION,
+  surfaceLayout,
   type ImageNode,
   type PathNode,
   type RectNode,
@@ -85,6 +86,48 @@ const frameTag = (html: string, id: string): string =>
 
 const indexMarkup = (html: string): string => html.match(/<nav class="scene-index"[^>]*>([^]*?)<\/nav>/)?.[1] ?? "";
 
+const attrOf = (tag: string, name: string): string | null => new RegExp(` ${name}="([^"]*)"`).exec(tag)?.[1] ?? null;
+
+const sectionTags = (html: string): string[] => html.match(/<section class="scene-frame"[^>]*>/g) ?? [];
+
+const surfaceTag = (html: string): string => html.match(/<div class="scene-surface"[^>]*>/)?.[0] ?? "";
+
+const idsIn = (html: string): string[] =>
+  sectionTags(html)
+    .map((tag) => attrOf(tag, "data-frame-id"))
+    .filter((id): id is string => id !== null);
+
+const placedAt = (html: string, id: string): { x: number; y: number } => ({
+  x: Number(attrOf(frameTag(html, id), "data-frame-x")),
+  y: Number(attrOf(frameTag(html, id), "data-frame-y")),
+});
+
+const STAGE = { w: 1280, h: 800 };
+const FIT_RATIO = 0.86;
+
+type View = { x: number; y: number; scale: number };
+type Size = { w: number; h: number };
+
+const fittedSurface = (surface: { width: number; height: number }): View => {
+  const scale = Math.min(STAGE.w / surface.width, STAGE.h / surface.height) * FIT_RATIO;
+  return { scale, x: (STAGE.w - surface.width * scale) / 2, y: (STAGE.h - surface.height * scale) / 2 };
+};
+
+const centredOn = (at: { x: number; y: number }, size: Size, scale: number): View => ({
+  scale,
+  x: STAGE.w / 2 - (at.x + size.w / 2) * scale,
+  y: STAGE.h / 2 - (at.y + size.h / 2) * scale,
+});
+
+const close = (actual: number, expected: number, what: string): void =>
+  assert.ok(Math.abs(actual - expected) < 1e-6, `${what}: expected ${expected}, got ${actual}`);
+
+const sameView = (actual: View, expected: View, what: string): void => {
+  close(actual.scale, expected.scale, `${what} scale`);
+  close(actual.x, expected.x, `${what} x`);
+  close(actual.y, expected.y, `${what} y`);
+};
+
 type Listener = (event: Record<string, unknown>) => void;
 
 class FakeElement {
@@ -134,37 +177,46 @@ class FakeElement {
   }
 
   view(): { x: number; y: number; scale: number } {
-    const found = /translate\((-?[\d.]+)px, ?(-?[\d.]+)px\) scale\((-?[\d.]+)\)/.exec(this.style.transform ?? "");
-    assert.ok(found !== null, `the frame carries a transform, got ${String(this.style.transform)}`);
+    const found = /translate\((-?[\d.e+-]+)px, ?(-?[\d.e+-]+)px\) scale\((-?[\d.e+-]+)\)/.exec(
+      this.style.transform ?? "",
+    );
+    assert.ok(found !== null, `the surface carries a transform, got ${String(this.style.transform)}`);
     return { x: Number(found[1]), y: Number(found[2]), scale: Number(found[3]) };
   }
 }
 
-const runScript = (html: string, ids: readonly string[], hash = "", visible = ids[0]) => {
+const runScript = (html: string, hash = "") => {
   const host = new FakeElement("document");
   const stage = new FakeElement("div");
+  const surface = new FakeElement("div");
   const index = new FakeElement("nav");
   const fit = new FakeElement("button");
   const window = new FakeElement("window");
+  for (const name of ["data-surface-w", "data-surface-h", "data-active-frame"]) {
+    const value = attrOf(surfaceTag(html), name);
+    if (value !== null) surface.setAttribute(name, value);
+  }
   const frames = new Map<string, FakeElement>();
   const tabs = new Map<string, FakeElement>();
-  for (const id of ids) {
+  for (const id of idsIn(html)) {
+    const tag = frameTag(html, id);
     const element = new FakeElement("section");
-    element.setAttribute("data-frame-id", id);
-    element.setAttribute("data-frame-w", "400");
-    element.setAttribute("data-frame-h", "800");
-    element.hidden = id !== visible;
+    for (const name of ["data-frame-id", "data-frame-w", "data-frame-h", "data-frame-x", "data-frame-y"]) {
+      const value = attrOf(tag, name);
+      if (value !== null) element.setAttribute(name, value);
+    }
     frames.set(id, element);
     const tab = new FakeElement("button");
     tab.setAttribute("data-target", id);
     tabs.set(id, tab);
   }
   index.children.push(...tabs.values());
-  const elements = new Map([
+  const elements = new Map<string, FakeElement>([
     ["stage", stage],
     ["frame-index", index],
     ["fit", fit],
   ]);
+  if (surfaceTag(html) !== "") elements.set("surface", surface);
   const location = { hash };
   const context = {
     document: {
@@ -173,124 +225,195 @@ const runScript = (html: string, ids: readonly string[], hash = "", visible = id
       addEventListener: (type: string, listener: Listener) => host.addEventListener(type, listener),
     },
     location,
-    history: { replaceState: () => {} },
+    history: {
+      replaceState: (_state: unknown, _title: unknown, next: string) => {
+        location.hash = next;
+      },
+    },
     window,
   };
   vm.createContext(context);
   new vm.Script(inlineScript(html), { filename: "scene-viewer.js" }).runInContext(context);
-  return { host, stage, index, fit, frames, tabs, window, location };
+  return { host, stage, surface, index, fit, frames, tabs, window, location };
 };
 
-test("two frames render two index entries in order, the first visible and the rest hidden", () => {
+test("every canvas frame renders at its own placement on one surface, and all of them stay visible", () => {
   const html = renderSceneDocument(twoFrames);
+  const layout = surfaceLayout(twoFrames.frames);
   const index = indexMarkup(html);
   assert.equal((html.match(/data-target="/g) ?? []).length, 2);
   assert.ok(index.includes(">Home</button>"), index);
   assert.ok(index.includes(">Checkout</button>"), index);
   assert.ok(index.indexOf("Home") < index.indexOf("Checkout"), "the index keeps the scene order");
-  assert.equal(frameTag(html, "home").includes("hidden"), false);
-  assert.ok(frameTag(html, "checkout").includes("hidden"));
   assert.ok(html.includes('aria-label="Frames"'));
+  assert.deepEqual(idsIn(html), ["home", "checkout"], "both frames ship on the surface, in scene order");
+  for (const tag of sectionTags(html)) assert.equal(tag.includes("hidden"), false, `no frame is hidden: ${tag}`);
+  for (const placement of layout.placements) {
+    assert.deepEqual(placedAt(html, placement.frameId), { x: placement.x, y: placement.y }, placement.frameId);
+    assert.ok(
+      frameTag(html, placement.frameId).includes(`style="left:${placement.x}px;top:${placement.y}px"`),
+      `the frame is positioned where the shared layout puts it: ${frameTag(html, placement.frameId)}`,
+    );
+  }
+  const surface = surfaceTag(html);
+  assert.ok(surface.length > 0, "the frames share one surface container");
+  assert.equal(attrOf(surface, "data-surface-w"), String(layout.width));
+  assert.equal(attrOf(surface, "data-surface-h"), String(layout.height));
+  assert.ok(html.indexOf(surface) < html.indexOf('id="frame-home"'), "the surface wraps the frames");
 });
 
-test("the second frame opens from the URL fragment and the hash keeps following navigation", () => {
+test("frames that sit apart keep the x/y the scene stores, and a legacy scene shares one column", () => {
+  const spread = renderSceneDocument(scene(frame(), frame({ id: "checkout", name: "Checkout", x: 500, y: 40 })));
+  assert.deepEqual(placedAt(spread, "home"), { x: 0, y: 0 });
+  assert.deepEqual(placedAt(spread, "checkout"), { x: 500, y: 40 }, "the stored x/y is the source of truth");
+  assert.equal(attrOf(surfaceTag(spread), "data-surface-w"), "890", "the surface covers both placements");
+  assert.equal(attrOf(surfaceTag(spread), "data-surface-h"), "884");
+
+  const legacy = renderSceneDocument(twoFrames);
+  const layout = surfaceLayout(twoFrames.frames);
+  assert.deepEqual(
+    placedAt(legacy, "checkout"),
+    { x: 0, y: 884 },
+    "two frames on the same origin are separated by the shared layout",
+  );
+  assert.equal(attrOf(surfaceTag(legacy), "data-surface-h"), String(layout.height));
+  assert.deepEqual(placedAt(legacy, "home"), { x: 0, y: 0 });
+});
+
+test("the second frame opens from the URL fragment by centring it, and the hash keeps following navigation", () => {
   const html = renderSceneDocument(twoFrames);
-  const linked = runScript(html, ["home", "checkout"], "#frame-checkout");
-  assert.equal(linked.frames.get("home")?.hidden, true);
-  assert.equal(linked.frames.get("checkout")?.hidden, false);
+  const layout = surfaceLayout(twoFrames.frames);
+  const scale = fittedSurface(layout).scale;
+  const checkout = layout.placements.find((entry) => entry.frameId === "checkout");
+  const home = layout.placements.find((entry) => entry.frameId === "home");
+  assert.ok(checkout !== undefined && home !== undefined);
+
+  const linked = runScript(html, "#frame-checkout");
+  sameView(linked.surface.view(), centredOn(checkout, { w: 390, h: 844 }, scale), "the fragment centres its frame");
   assert.equal(linked.tabs.get("checkout")?.getAttribute("aria-current"), "true");
   assert.equal(linked.tabs.get("home")?.getAttribute("aria-current"), null);
+  for (const frame of linked.frames.values())
+    assert.equal(frame.style.transform, undefined, "frames are not transformed one by one");
 
-  const follow = runScript(html, ["home", "checkout"]);
-  assert.equal(follow.frames.get("home")?.hidden, false);
+  const follow = runScript(html);
+  sameView(follow.surface.view(), fittedSurface(layout), "without a fragment the whole surface is fitted");
   follow.location.hash = "#frame-checkout";
   follow.window.emit("hashchange");
-  assert.equal(follow.frames.get("checkout")?.hidden, false);
-  assert.equal(follow.frames.get("home")?.hidden, true);
+  sameView(follow.surface.view(), centredOn(checkout, { w: 390, h: 844 }, scale), "the hash follows navigation");
+  assert.equal(follow.tabs.get("checkout")?.getAttribute("aria-current"), "true");
 });
 
-test("left and right, page up and down, home and end move between frames", () => {
-  const nav = runScript(
-    renderSceneDocument(scene(frame(), frame({ id: "b", name: "B" }), frame({ id: "c", name: "C" }))),
-    ["home", "b", "c"],
-  );
-  const current = () => [...nav.frames.entries()].filter(([, element]) => !element.hidden).map(([id]) => id);
+test("left and right, page up and down, home and end move the active frame and centre it", () => {
+  const travel = scene(frame(), frame({ id: "b", name: "B" }), frame({ id: "c", name: "C" }));
+  const layout = surfaceLayout(travel.frames);
+  const scale = fittedSurface(layout).scale;
+  const nav = runScript(renderSceneDocument(travel));
+  const current = () =>
+    [...nav.tabs.entries()].filter(([, tab]) => tab.getAttribute("aria-current") === "true").map(([id]) => id);
+  const centred = (id: string) => {
+    const at = layout.placements.find((entry) => entry.frameId === id);
+    assert.ok(at !== undefined, id);
+    sameView(nav.surface.view(), centredOn(at, { w: 390, h: 844 }, scale), `${id} is centred`);
+  };
+  assert.deepEqual(current(), ["home"], "the first frame is active before any key");
   nav.host.emit("keydown", { key: "ArrowRight" });
   assert.deepEqual(current(), ["b"]);
+  centred("b");
   nav.host.emit("keydown", { key: "PageDown" });
   assert.deepEqual(current(), ["c"]);
+  centred("c");
   nav.host.emit("keydown", { key: "ArrowLeft" });
   assert.deepEqual(current(), ["b"]);
   nav.host.emit("keydown", { key: "PageUp" });
   assert.deepEqual(current(), ["home"]);
+  centred("home");
   nav.host.emit("keydown", { key: "End" });
   assert.deepEqual(current(), ["c"]);
   nav.host.emit("keydown", { key: "Home" });
   assert.deepEqual(current(), ["home"]);
+  assert.equal(nav.frames.size, 3, "every frame stays on the surface");
 });
 
-test("clicking an index entry shows that frame", () => {
-  const click = runScript(renderSceneDocument(twoFrames), ["home", "checkout"]);
+test("clicking an index entry centres that frame and leaves every other frame in place", () => {
+  const html = renderSceneDocument(twoFrames);
+  const layout = surfaceLayout(twoFrames.frames);
+  const scale = fittedSurface(layout).scale;
+  const click = runScript(html);
   const target = click.tabs.get("checkout");
   assert.ok(target !== undefined);
   click.index.emit("click", { target: { closest: () => target } });
-  assert.equal(click.frames.get("checkout")?.hidden, false);
-  assert.equal(click.frames.get("home")?.hidden, true);
+  assert.equal(click.tabs.get("checkout")?.getAttribute("aria-current"), "true");
+  const at = layout.placements.find((entry) => entry.frameId === "checkout");
+  assert.ok(at !== undefined);
+  sameView(click.surface.view(), centredOn(at, { w: 390, h: 844 }, scale), "the entry pans the surface to its frame");
+  assert.deepEqual([...click.frames.keys()], ["home", "checkout"], "no frame leaves the surface");
+  assert.equal(click.location.hash, "#frame-checkout", "the index writes the deep link");
 });
 
-test("the wheel zooms around the pointer", () => {
-  const zoom = runScript(renderSceneDocument(scene(frame())), ["home"]);
-  const home = zoom.frames.get("home");
-  assert.ok(home !== undefined);
-  const before = home.view();
+test("the wheel zooms the whole surface around the pointer", () => {
+  const html = renderSceneDocument(scene(frame()));
+  const zoom = runScript(html);
+  const before = zoom.surface.view();
   zoom.stage.emit("wheel", { deltaY: -240, deltaX: 0, clientX: 640, clientY: 400 });
-  const after = home.view();
+  const after = zoom.surface.view();
   assert.ok(after.scale > before.scale, `${after.scale} > ${before.scale}`);
-  const anchor = (view: { x: number; y: number; scale: number }) => (640 - view.x) / view.scale;
-  assert.ok(Math.abs(anchor(before) - anchor(after)) < 1e-6, "the point under the pointer stays put");
+  const anchorX = (view: View) => (640 - view.x) / view.scale;
+  const anchorY = (view: View) => (400 - view.y) / view.scale;
+  close(anchorX(after), anchorX(before), "the point under the pointer keeps its x");
+  close(anchorY(after), anchorY(before), "the point under the pointer keeps its y");
+  for (const frame of zoom.frames.values())
+    assert.equal(frame.style.transform, undefined, "the zoom belongs to the surface, not to a frame");
 });
 
-test("space-drag and middle-drag pan, and fit restores the frame", () => {
-  const pan = runScript(renderSceneDocument(scene(frame())), ["home"]);
-  const home = pan.frames.get("home");
-  assert.ok(home !== undefined);
-  const fitted = home.view();
+test("space-drag and middle-drag pan the surface, and fit frames the whole canvas", () => {
+  const html = renderSceneDocument(twoFrames);
+  const layout = surfaceLayout(twoFrames.frames);
+  const pan = runScript(html);
+  const fitted = pan.surface.view();
+  sameView(fitted, fittedSurface(layout), "the surface starts fitted to every frame");
 
   pan.host.emit("keydown", { key: " " });
   pan.stage.emit("pointerdown", { button: 0, clientX: 100, clientY: 100, pointerId: 1 });
   pan.stage.emit("pointermove", { clientX: 160, clientY: 140 });
   pan.stage.emit("pointerup", {});
-  const dragged = home.view();
-  assert.ok(Math.abs(dragged.x - (fitted.x + 60)) < 1e-6);
-  assert.ok(Math.abs(dragged.y - (fitted.y + 40)) < 1e-6);
-  assert.equal(dragged.scale, fitted.scale);
+  const dragged = pan.surface.view();
+  close(dragged.x, fitted.x + 60, "the pan follows the pointer horizontally");
+  close(dragged.y, fitted.y + 40, "the pan follows the pointer vertically");
+  close(dragged.scale, fitted.scale, "panning does not zoom");
 
   pan.host.emit("keyup", { key: " " });
   pan.stage.emit("pointerdown", { button: 0, clientX: 0, clientY: 0 });
   pan.stage.emit("pointermove", { clientX: -20, clientY: 0 });
-  assert.equal(home.view().x, dragged.x, "a plain drag without space does not pan");
+  close(pan.surface.view().x, dragged.x, "a plain drag without space does not pan");
 
   pan.stage.emit("pointerdown", { button: 1, clientX: 0, clientY: 0 });
   pan.stage.emit("pointermove", { clientX: 10, clientY: 0 });
   pan.stage.emit("pointerup", {});
-  assert.equal(home.view().x, dragged.x + 10, "the middle button pans");
+  close(pan.surface.view().x, dragged.x + 10, "the middle button pans");
 
+  pan.stage.emit("wheel", { deltaY: -400, clientX: 100, clientY: 100 });
   pan.fit.emit("click");
-  assert.deepEqual(home.view(), fitted);
+  sameView(pan.surface.view(), fitted, "fit frames the whole surface again");
+  const view = pan.surface.view();
+  assert.ok(view.x >= -1e-6 && view.y >= -1e-6, "the fitted surface starts inside the viewport");
+  assert.ok(view.x + layout.width * view.scale <= STAGE.w + 1e-6, "every frame is in view horizontally");
+  assert.ok(view.y + layout.height * view.scale <= STAGE.h + 1e-6, "and vertically");
 });
 
-test("zoom and pan are per frame and reset when the frame changes", () => {
-  const travel = runScript(renderSceneDocument(twoFrames), ["home", "checkout"]);
-  const home = travel.frames.get("home");
-  const checkout = travel.frames.get("checkout");
-  assert.ok(home !== undefined && checkout !== undefined);
-  const fitted = home.view();
+test("one shared view keeps the zoom and the pan when the active frame changes", () => {
+  const html = renderSceneDocument(twoFrames);
+  const layout = surfaceLayout(twoFrames.frames);
+  const travel = runScript(html);
+  const fitted = travel.surface.view();
   travel.stage.emit("wheel", { deltaY: -300, clientX: 200, clientY: 200 });
-  assert.notEqual(home.view().scale, fitted.scale);
+  const zoomed = travel.surface.view();
+  assert.notEqual(zoomed.scale, fitted.scale);
   travel.host.emit("keydown", { key: "ArrowRight" });
-  assert.deepEqual(checkout.view(), fitted, "the next frame starts fitted, not at the previous zoom");
-  travel.host.emit("keydown", { key: "ArrowLeft" });
-  assert.deepEqual(home.view(), fitted, "coming back resets the zoom and the pan");
+  const after = travel.surface.view();
+  const checkout = layout.placements.find((entry) => entry.frameId === "checkout");
+  assert.ok(checkout !== undefined);
+  close(after.scale, zoomed.scale, "the zoom belongs to the surface, not to a frame");
+  sameView(after, centredOn(checkout, { w: 390, h: 844 }, zoomed.scale), "the next frame is centred at the same zoom");
 });
 
 test("rect, text, path and image nodes render their markup", () => {
@@ -371,26 +494,42 @@ test("the inline script parses", () => {
   assert.doesNotThrow(() => new vm.Script(script, { filename: "scene-viewer.js" }));
 });
 
-test("the frame named in the URL query opens first and the index marks it", () => {
+test("the frame named in the URL query opens centred and the index marks it", () => {
   const html = renderSceneDocument(twoFrames, "checkout");
-  assert.ok(frameTag(html, "home").includes("hidden"), "the first frame is not the visible one");
-  assert.equal(frameTag(html, "checkout").includes("hidden"), false);
+  assert.equal(
+    attrOf(surfaceTag(html), "data-active-frame"),
+    "checkout",
+    "the server names the frame the link asked for",
+  );
+  for (const tag of sectionTags(html)) assert.equal(tag.includes("hidden"), false, "nothing is hidden to open a frame");
   const index = indexMarkup(html);
   assert.ok(index.includes('data-target="checkout" aria-current="true"'), index);
   assert.equal(index.includes('data-target="home" aria-current="true"'), false);
-  const opened = runScript(html, ["home", "checkout"], "", "checkout");
-  assert.equal(opened.frames.get("checkout")?.hidden, false, "the client honours the frame the server marked visible");
-  assert.equal(opened.frames.get("home")?.hidden, true);
+  const layout = surfaceLayout(twoFrames.frames);
+  const at = layout.placements.find((entry) => entry.frameId === "checkout");
+  assert.ok(at !== undefined);
+  const opened = runScript(html);
+  sameView(
+    opened.surface.view(),
+    centredOn(at, { w: 390, h: 844 }, fittedSurface(layout).scale),
+    "the client pans to the frame the server named",
+  );
+  assert.equal(opened.tabs.get("checkout")?.getAttribute("aria-current"), "true");
 });
 
-test("an unknown or empty frame id falls back to the first frame instead of failing the page", () => {
+test("an unknown or empty frame id fits the whole surface instead of failing the page", () => {
+  const layout = surfaceLayout(twoFrames.frames);
   for (const frameId of ["missing", "", undefined]) {
     const html = renderSceneDocument(twoFrames, frameId);
-    assert.equal(frameTag(html, "home").includes("hidden"), false, `${String(frameId)} opens the first frame`);
-    assert.ok(frameTag(html, "checkout").includes("hidden"));
+    assert.equal(attrOf(surfaceTag(html), "data-active-frame"), null, `${String(frameId)} names no frame to open`);
     assert.equal(html.includes('id="frame-missing"'), false, "the unknown id renders nothing of its own");
     assert.equal((html.match(/data-target="/g) ?? []).length, 2, "both frames stay reachable");
-    assert.doesNotThrow(() => runScript(html, ["home", "checkout"]), "the page still runs");
+    for (const tag of sectionTags(html)) assert.equal(tag.includes("hidden"), false, "every frame stays visible");
+    assert.doesNotThrow(() => runScript(html), "the page still runs");
+    const run = runScript(html);
+    sameView(run.surface.view(), fittedSurface(layout), "the whole surface is fitted");
+    run.host.emit("keydown", { key: "ArrowRight" });
+    assert.equal(run.tabs.get("checkout")?.getAttribute("aria-current"), "true", "the keys reach every frame");
   }
 });
 
@@ -400,7 +539,7 @@ test("an empty scene renders a clear empty state", () => {
   assert.ok(html.includes("no frames"), html);
   assert.equal((html.match(/class="scene-frame"/g) ?? []).length, 0);
   assert.equal((html.match(/data-target="/g) ?? []).length, 0);
-  assert.doesNotThrow(() => runScript(html, []), "the script survives an empty scene");
+  assert.doesNotThrow(() => runScript(html), "the script survives an empty scene");
 });
 
 test("a frame with no nodes still shows its name and its dimensions", () => {

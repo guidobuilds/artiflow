@@ -339,3 +339,5 @@ export function fitScale(frame: { w: number; h: number }, viewport: { w: number;
 
 export const zoomBy = (scale: number, factor: number): number =>
   clamp(Number.isFinite(scale * factor) ? scale * factor : scale, MIN_SCALE, MAX_SCALE);
+
+export { surfaceLayout, type SurfaceLayout, type SurfacePlacement } from "@artiflow/domain/scene";
