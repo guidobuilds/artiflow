@@ -494,10 +494,19 @@ const SLIDES_SCRIPT = `(() => {
     if (next !== undefined) show(idOf(next), true);
   };
 
+  const nativelyActivated = (target) => {
+    if (target === null || typeof target !== "object") return false;
+    if (typeof target.closest === "function")
+      return target.closest("button, a[href], input, select, textarea, summary") !== null;
+    const tag = typeof target.tagName === "string" ? target.tagName.toLowerCase() : "";
+    return tag === "button" || tag === "a" || tag === "input" || tag === "select" || tag === "textarea" || tag === "summary";
+  };
+
   document.addEventListener("keydown", (event) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const key = event.key;
     if (key === " " || key === "Spacebar") {
+      if (nativelyActivated(event.target)) return;
       event.preventDefault();
       step(event.shiftKey ? -1 : 1);
       return;
