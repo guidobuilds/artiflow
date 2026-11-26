@@ -134,8 +134,7 @@ export function viewerCommentsConfig(input: {
 }): ViewerCommentsConfig {
   const mode = input.mode ?? "text";
   const role = { comment: input.canComment, resolve: input.canComment };
-  const mayDelete = (row: Row): boolean =>
-    input.deleteAny || (input.canDeleteOwn && row.authorId === input.viewerId);
+  const mayDelete = (row: Row): boolean => input.deleteAny || (input.canDeleteOwn && row.authorId === input.viewerId);
   const roots = input.rows
     .filter((row) => row.parentId === null)
     .map((row) => ({

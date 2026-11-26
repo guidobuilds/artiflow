@@ -209,7 +209,11 @@ test("the slide script queries the attributes the markup emits", () => {
 test("the deck doubles answer only the selector they are given", () => {
   const html = renderSceneDocument(threeSlides, undefined, undefined, [], "deck");
   const run = runDeck(html, ["a", "b", "c"]);
-  assert.equal(run.document.querySelectorAll('[data-frame-id="a"]').length, 1, "a selector naming one frame answers it");
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="a"]').length,
+    1,
+    "a selector naming one frame answers it",
+  );
   assert.equal(
     run.document.querySelectorAll('[data-frame-id="nope"]').length,
     0,
@@ -228,7 +232,13 @@ test("space on a focused control activates it instead of stepping the deck", () 
     closest: (selector: string) => (selector.includes("button") ? button : null),
   };
   let prevented = false;
-  run.host.emit("keydown", { key: " ", target: button, preventDefault: () => { prevented = true; } });
+  run.host.emit("keydown", {
+    key: " ",
+    target: button,
+    preventDefault: () => {
+      prevented = true;
+    },
+  });
   assert.equal(prevented, false, "space keeps its native meaning on the focused control");
   assert.deepEqual(visibleSlides(run), ["a"], "the deck does not step while a control has focus");
 });

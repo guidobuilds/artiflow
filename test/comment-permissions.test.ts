@@ -12,9 +12,18 @@ test("each access level carries one decided permission set", () => {
 
 test("only the owner may delete another author's thread and manage the artifact", () => {
   const access: ArtifactAccess[] = ["owner", "editor", "commenter", "reader"];
-  assert.deepEqual(access.filter((level) => artifactPermissions(level).deleteAny), ["owner"]);
-  assert.deepEqual(access.filter((level) => artifactPermissions(level).manage), ["owner"]);
-  assert.deepEqual(access.filter((level) => artifactPermissions(level).comment), ["owner", "editor", "commenter"]);
+  assert.deepEqual(
+    access.filter((level) => artifactPermissions(level).deleteAny),
+    ["owner"],
+  );
+  assert.deepEqual(
+    access.filter((level) => artifactPermissions(level).manage),
+    ["owner"],
+  );
+  assert.deepEqual(
+    access.filter((level) => artifactPermissions(level).comment),
+    ["owner", "editor", "commenter"],
+  );
 });
 
 test("an unknown or missing access is denied, never granted", () => {

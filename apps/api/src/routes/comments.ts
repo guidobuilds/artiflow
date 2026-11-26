@@ -204,7 +204,8 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
       const id = c.req.param("commentId");
       const row = await findComment(client, doc.id, id);
       if (!row) return c.json({ error: "comment_not_found" }, 404);
-      if (!artifactPermissions(doc.access).deleteAny && row.authorId !== userId) return c.json({ error: "forbidden" }, 403);
+      if (!artifactPermissions(doc.access).deleteAny && row.authorId !== userId)
+        return c.json({ error: "forbidden" }, 403);
       await deleteComment(client, id);
       return c.json({ id } satisfies CommentMutationResponse);
     }),

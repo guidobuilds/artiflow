@@ -240,7 +240,11 @@ const runScript = (html: string, hash = "") => {
 
 test("the scene doubles answer only the selector they are given", () => {
   const run = runScript(renderSceneDocument(twoFrames));
-  assert.equal(run.document.querySelectorAll('[data-frame-id="home"]').length, 1, "a selector naming one frame answers it");
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="home"]').length,
+    1,
+    "a selector naming one frame answers it",
+  );
   assert.equal(
     run.document.querySelectorAll('[data-frame-id="nope"]').length,
     0,

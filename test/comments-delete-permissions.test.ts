@@ -198,7 +198,9 @@ const call = (
   headers: Record<string, string>,
   body?: unknown,
 ): Promise<Response> =>
-  Promise.resolve(app.request(path, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+  Promise.resolve(
+    app.request(path, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }),
+  );
 
 test("a comment is created only for the accesses the permission table grants", async () => {
   for (const access of ACCESSES) {

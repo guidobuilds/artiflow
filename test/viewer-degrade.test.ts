@@ -58,7 +58,11 @@ test("the load decides deletion rights from the same role table as the endpoints
     list: () => Promise.resolve([{ id: "c1" }]),
     onError: () => undefined,
   });
-  assert.deepEqual(unknown, { rows: [{ id: "c1" }], canComment: false, deleteAny: false }, "an unknown role grants nothing");
+  assert.deepEqual(
+    unknown,
+    { rows: [{ id: "c1" }], canComment: false, deleteAny: false },
+    "an unknown role grants nothing",
+  );
 });
 
 test("an artifact without a shared comment document reads as no comments", async () => {
