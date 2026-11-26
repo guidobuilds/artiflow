@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import { afterEach, test } from "node:test";
 
 import { openArtifact } from "../apps/dashboard/src/editor-api.ts";
@@ -48,6 +49,27 @@ const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const source = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 const flush = () => new Promise<void>((resolve) => setImmediate(resolve));
+const canvasPage = () => source("../apps/dashboard/src/CanvasEditorPage.tsx");
+const between = (text: string, start: string, end: string): string => {
+  const at = text.indexOf(start);
+  const to = at < 0 ? -1 : text.indexOf(end, at + start.length);
+  const missing = `the canvas screen still carries ${start} up to ${end}`;
+  assert.ok(at >= 0 && to > at, missing);
+  return text.slice(at, to);
+};
+const historyRegion = () => between(canvasPage(), "export const HISTORY_LIMIT", "\nconst withoutNodes");
+type HistoryStep = { undo: Scene[]; redo: Scene[]; scene: Scene };
+type HistoryModule = {
+  HISTORY_LIMIT: number;
+  commitHistory: (undo: Scene[], redo: Scene[], before: Scene) => { undo: Scene[]; redo: Scene[] };
+  undoHistory: (undo: Scene[], redo: Scene[], current: Scene) => HistoryStep | null;
+  redoHistory: (undo: Scene[], redo: Scene[], current: Scene) => HistoryStep | null;
+};
+const historyModule = async (): Promise<HistoryModule> => {
+  const code = stripTypeScriptTypes(historyRegion(), { mode: "strip" });
+  const url = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`;
+  return (await import(url)) as HistoryModule;
+};
 
 const scene = (): Scene => ({
   formatVersion: 1,
@@ -946,4 +968,210 @@ test("the canvas route is gated by the registry and leaves the markdown route un
   assert.match(library, /openCanvas\(artifact, window\.location\)/);
   assert.match(library, /openArtifact\(artifact, window\.location\)/);
   assert.doesNotMatch(library, /kind === "canvas"/);
+});
+
+test("the undo history keeps fifty snapshots, drops the oldest and empties redo on a new edit", async () => {
+  const history = await historyModule();
+  const step = (index: number) => moveNode(scene(), "rect-1", index + 1, 0);
+  const steps = Array.from({ length: 51 }, (_, index) => step(index));
+  let kept: Scene[] = [];
+  let ahead: Scene[] = [];
+  for (const before of steps) ({ undo: kept, redo: ahead } = history.commitHistory(kept, ahead, before));
+
+  assert.equal(history.HISTORY_LIMIT, 50, "the history is capped at fifty whole-scene snapshots");
+  assert.equal(kept.length, 50, "the fifty-first edit drops the oldest snapshot instead of growing the stack");
+  assert.deepEqual(kept[0], steps[1], "the snapshot that goes is the oldest one");
+  assert.deepEqual(kept.at(-1), steps.at(-1), "the newest snapshot waits at the top of the stack");
+  assert.deepEqual(ahead, [], "storing an edit leaves nothing to redo");
+
+  const undone = history.commitHistory([steps[0]!], [steps[1]!], step(2));
+  assert.deepEqual(undone.redo, [], "an edit after an undo throws away the redo it would be walked back through");
+  assert.deepEqual(undone.undo, [steps[0]!, step(2)], "the new snapshot lands on top of what was already undone");
+});
+
+test("undo and redo step one snapshot at a time and move the scene they replace to the other stack", async () => {
+  const history = await historyModule();
+  const first = moveNode(scene(), "rect-1", 10, 0);
+  const second = moveNode(scene(), "rect-1", 20, 0);
+  const current = moveNode(scene(), "rect-1", 30, 0);
+  let kept: Scene[] = [];
+  let ahead: Scene[] = [];
+  for (const before of [first, second]) ({ undo: kept, redo: ahead } = history.commitHistory(kept, ahead, before));
+
+  const back = history.undoHistory(kept, ahead, current);
+  assert.ok(back, "the last edit can be undone");
+  assert.deepEqual(back.scene, second, "undo returns the scene from before the last edit");
+  assert.deepEqual(back.undo, [first], "undo pops the snapshot it returns");
+  assert.deepEqual(back.redo, [current], "undo keeps the scene it replaced so it can be redone");
+  assert.deepEqual(kept, [first, second], "undoing never rewrites the stack it read");
+
+  const forward = history.redoHistory(back.undo, back.redo, back.scene);
+  assert.ok(forward, "an undone edit can be redone");
+  assert.deepEqual(forward.scene, current, "redo returns the scene undo replaced");
+  assert.deepEqual(forward.undo, [first, second], "redo puts the snapshot it returns back on the undo stack");
+  assert.deepEqual(forward.redo, [], "redo pops the entry it returns");
+
+  assert.equal(history.undoHistory([], [], current), null, "an empty undo stack leaves the scene as it is");
+  assert.equal(history.redoHistory(forward.undo, [], current), null, "an empty redo stack leaves the scene as it is");
+});
+
+test("the canvas editor keeps one history entry per document gesture and one burst per text edit", () => {
+  const page = canvasPage();
+  const region = historyRegion();
+  assert.match(region, /HISTORY_LIMIT = 50;/, "the cap is one named constant");
+  assert.match(region, /export const commitHistory =/, "the push and cap mechanics live in one pure helper");
+  assert.match(region, /export const undoHistory =/, "the undo step lives in one pure helper");
+  assert.match(region, /export const redoHistory =/, "the redo step lives in one pure helper");
+
+  assert.match(page, /const undoStack = useRef<Scene\[\]>\(\[\]\);/, "the undo history is a stack of whole scenes");
+  assert.match(page, /const redoStack = useRef<Scene\[\]>\(\[\]\);/, "the redo history is a stack of whole scenes");
+  const commit = between(page, "const commitEdit =", "\n  const editScene =");
+  assert.match(commit, /commitHistory\(undoStack\.current, redoStack\.current, before\)/);
+  assert.match(commit, /undoStack\.current = next\.undo;/);
+  assert.match(commit, /redoStack\.current = next\.redo;/);
+  const discrete = between(page, "const editScene =", "\n  const endTextEdit =");
+  assert.match(
+    discrete,
+    /if \(next !== current\) commitEdit\(current\);/,
+    "an edit commits the scene it replaces, and only when it replaces it",
+  );
+  assert.match(discrete, /update\(next\);/, "an edit still goes through the single update funnel");
+
+  const add = between(page, "const add =", "\n  const removeSelected =");
+  assert.match(add, /editScene\(kind === "text"/, "adding a node is one history entry");
+  assert.match(
+    between(page, "const removeSelected =", "\n  const bringSelectedToFront ="),
+    /editScene\(withoutNodes\(/,
+    "deleting the selection is one history entry",
+  );
+  assert.match(
+    between(page, "const bringSelectedToFront =", "\n  const sendSelectedToBack ="),
+    /editScene\(bringToFront\(/,
+    "bringing the selection to front is one history entry",
+  );
+  assert.match(
+    between(page, "const sendSelectedToBack =", "\n  const showFrame ="),
+    /editScene\(sendToBack\(/,
+    "sending the selection to back is one history entry",
+  );
+
+  const endDrag = between(page, "const endDrag =", "\n  const layerDropIndex =");
+  assert.match(endDrag, /if \(!nodeDragged\.current\) return;/, "a press that never moved is no entry");
+  assert.match(
+    endDrag,
+    /canonicalScene\(current\.snapshot\) === canonicalScene\(session\.current\?\.state\.scene \?\? scene\)/,
+    "a drag that left the scene as it found it is no entry either",
+  );
+  assert.match(endDrag, /commitEdit\(current\.snapshot\);/, "one drag is one entry");
+  assert.doesNotMatch(
+    between(page, "const onPointerMove =", "\n  const endDrag ="),
+    /commitEdit\(/,
+    "a drag only commits when the pointer is released, never on every move",
+  );
+
+  const startLayerDrag = between(page, "const startLayerDrag =", "\n  const onLayerDragMove =");
+  assert.match(
+    startLayerDrag,
+    /snapshot: session\.current\?\.state\.scene \?\? scene/,
+    "a layer drag snapshots the scene it starts from",
+  );
+  const endLayerDrag = between(page, "const endLayerDrag =", "\n  const cancelLayerDrag =");
+  assert.match(endLayerDrag, /commitEdit\(pending\.snapshot\);/, "a dropped layer row is one entry");
+  assert.equal(
+    endLayerDrag.indexOf("commitEdit(pending.snapshot)") < endLayerDrag.indexOf("update(next)"),
+    true,
+    "the pre-reorder scene is committed before the reorder is written",
+  );
+
+  const endTextEdit = between(page, "const endTextEdit =", "\n  const trackTextEdit =");
+  assert.match(
+    endTextEdit,
+    /canonicalScene\(pending\.snapshot\) === canonicalScene\(current\)/,
+    "an unchanged burst is no entry",
+  );
+  assert.match(endTextEdit, /commitEdit\(pending\.snapshot\)/, "the snapshot taken at the burst start is the entry");
+  assert.match(
+    between(page, "const trackTextEdit =", "\n  const undo = useCallback("),
+    /textEdit\.current = \{ id: selectedNode\.id, snapshot: session\.current\?\.state\.scene \?\? scene \}/,
+    "the burst snapshots the scene before its first keystroke",
+  );
+  assert.match(page, /trackTextEdit\(\);\s*update\(updateTextNode\(/, "the inspector tracks a burst before it writes");
+  const inspector = between(page, 'aria-label="Text properties"', "</aside>");
+  assert.match(inspector, /onBlur=\{/, "the inspector closes its burst when focus leaves it");
+  assert.match(inspector, /onEndEdit\(\)/, "the inspector hands the burst boundary back to the canvas screen");
+
+  const reload = between(page, "const reload = async", "\n  const retry =");
+  assert.match(reload, /undoStack\.current = \[\];/, "replacing the document forgets what was undone");
+  assert.match(reload, /redoStack\.current = \[\];/, "replacing the document forgets what was redone");
+});
+
+test("ctrl or cmd with z undoes and with shift redoes, on the one scene writer every edit uses", () => {
+  const page = canvasPage();
+  const keydown = between(
+    page,
+    "const keydown = (event: KeyboardEvent) => {",
+    'window.addEventListener("keydown", keydown);',
+  );
+  assert.match(keydown, /if \(event\.defaultPrevented \|\| event\.isComposing\) return;/, "an IME keeps its own keys");
+  const modifiers = between(keydown, "if (event.metaKey || event.ctrlKey) {", "const target = event.target;");
+  assert.match(modifiers, /event\.key === "z"/, "a lowercase z reaches the history");
+  assert.match(modifiers, /event\.key === "Z"/, "the shifted z that carries the redo reaches the history too");
+  assert.match(modifiers, /!event\.altKey/, "an alt combination still belongs to the frame shortcuts");
+  assert.match(modifiers, /!readOnly/, "a read-only canvas never walks its history");
+  assert.match(modifiers, /event\.preventDefault\(\)/, "the browser's own undo is replaced by the canvas one");
+  assert.match(modifiers, /if \(event\.shiftKey\) redo\(\);/, "the shifted form redoes");
+  assert.match(modifiers, /undo\(\);/, "the plain form undoes");
+  assert.equal(
+    keydown.indexOf('event.key === "z"') < keydown.indexOf("const target = event.target;"),
+    true,
+    "the shortcut is decided before the form-field guard so it works while a text field has focus",
+  );
+
+  const undo = between(page, "const undo = useCallback(", "\n  const redo = useCallback(");
+  assert.match(undo, /undoHistory\(undoStack\.current, redoStack\.current,/, "undo asks the pure step for the scene");
+  assert.match(undo, /undoStack\.current = step\.undo;/, "undo adopts the stack the step returns");
+  assert.match(undo, /redoStack\.current = step\.redo;/, "undo hands the scene it replaces to redo");
+  assert.match(undo, /update\(step\.scene\);/, "undo writes through the same funnel as every other edit");
+  assert.match(undo, /if \(readOnly\) return;/, "a read-only canvas never walks its history");
+  assert.doesNotMatch(undo, /saveScene\(/, "undo never reaches around the funnel to the server");
+
+  const redo = between(page, "const redo = useCallback(", "\n  const toggle =");
+  assert.match(redo, /redoHistory\(undoStack\.current, redoStack\.current,/, "redo asks the pure step for the scene");
+  assert.match(redo, /update\(step\.scene\);/, "redo writes through the same funnel as every other edit");
+  assert.match(redo, /if \(readOnly\) return;/, "a read-only canvas never walks its history");
+  assert.doesNotMatch(redo, /saveScene\(/, "redo never reaches around the funnel to the server");
+
+  assert.equal((page.match(/\.change\(/g) ?? []).length, 1, "one funnel still writes the scene");
+  assert.equal(
+    (page.match(/undoStack\.current =/g) ?? []).length,
+    4,
+    "only the edit, undo, redo and reload touch the stack",
+  );
+  assert.equal(
+    (page.match(/redoStack\.current =/g) ?? []).length,
+    4,
+    "only the edit, undo, redo and reload touch the stack",
+  );
+});
+
+test("selection, pan and zoom never enter the history", () => {
+  const page = canvasPage();
+  const zoomAt = between(page, "const zoomAt =", "\n\n  useEffect");
+  const pan = between(page, "const onPanMove =", "\n  const endPan =");
+  const marquee = between(page, "const onMarqueeMove =", "\n  const endMarquee =");
+  const wheel = between(page, "const onWheel = (event: WheelEvent) => {", 'element.addEventListener("wheel"');
+  const toggle = between(page, "const toggle =", "\n  const add =");
+  const showFrame = between(page, "const showFrame =", "\n  const stepFrame =");
+  for (const [label, handler] of [
+    ["a pan", pan],
+    ["a marquee", marquee],
+    ["a wheel zoom", wheel],
+    ["a click on a node", toggle],
+    ["switching frames", showFrame],
+  ] as const) {
+    assert.doesNotMatch(handler, /commitEdit\(/, `${label} never records a history entry`);
+    assert.doesNotMatch(handler, /update\(/, `${label} never writes the document`);
+  }
+  assert.match(zoomAt, /setPan\(/, "zooming stays in the view");
+  assert.doesNotMatch(zoomAt, /commitEdit\(|update\(/, "zooming stays out of the history");
 });
