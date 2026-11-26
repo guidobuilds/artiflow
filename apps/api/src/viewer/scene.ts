@@ -423,7 +423,7 @@ const SLIDES_SCRIPT = `(() => {
   const forward = document.getElementById("next");
   const strip = document.getElementById("strip");
   const counter = document.getElementById("frame-counter");
-  const frames = Array.from(document.querySelectorAll("[data-frame]"));
+  const frames = Array.from(document.querySelectorAll("[data-frame-id]"));
   const tabs = index === null ? [] : Array.from(index.querySelectorAll("button[data-target]"));
   const HASH_PREFIX = "#frame-";
   const MIN_SCALE = 0.02;

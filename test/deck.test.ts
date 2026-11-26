@@ -181,7 +181,7 @@ const runDeck = (html: string, ids: readonly string[], hash = "", visible = ids[
   const context = {
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
-      querySelectorAll: () => [...frames.values()],
+      querySelectorAll: (selector: string) => (selector === "[data-frame-id]" ? [...frames.values()] : []),
       addEventListener: (type: string, listener: Listener) => host.addEventListener(type, listener),
     },
     location,
