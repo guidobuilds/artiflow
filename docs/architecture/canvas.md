@@ -355,9 +355,11 @@ vista** sobre un plano grande (zoom y desplazamiento) o **recorrer pantallas** d
 mismo artefacto. La primera exige interacción en el cliente; la segunda se resuelve en el
 servidor. Elegir una u otra cambia el trabajo por semanas.
 
-**Resuelto y entregado en F3:** las dos cosas. Una sola pantalla visible a la vez con zoom de rueda
-y paneo por arrastre, navegación por teclado, por índice de marcos y por `?frame=<id>` en la URL, y
-el mismo documento en las dos rutas del visor y en el enlace público.
+**Resuelto y entregado en F3:** las dos cosas. Zoom de rueda y paneo por arrastre, navegación
+por teclado, por índice de marcos y por `?frame=<id>` en la URL, y el mismo documento en las
+dos rutas del visor y en el enlace público. En el visor de canvas todos los marcos viven sobre
+una misma superficie navegable, posicionados por `frame.x`/`frame.y` (con una columna de respaldo
+cuando se apilan en el origen); en un deck se muestra una diapositiva por vez.
 
 ---
 

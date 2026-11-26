@@ -27,7 +27,7 @@ import {
 } from "../apps/dashboard/src/scene-api.ts";
 import { SceneAutosave } from "../apps/dashboard/src/scene-autosave.ts";
 import { AUTOSAVE_MS } from "../apps/dashboard/src/editor-autosave.ts";
-import type { Scene, SceneFrame } from "@artiflow/domain/scene";
+import { surfaceLayout as domainSurfaceLayout, type Scene, type SceneFrame } from "@artiflow/domain/scene";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -255,6 +255,25 @@ test("dragging and resizing keep a node inside its frame and every other gesture
   );
   assert.equal(fitScale({ w: 800, h: 600 }, { w: 0, h: 0 }), 0.02, "an empty viewport falls back to the smallest zoom");
   assert.equal(rectNode("rect-3", 10, 10).fill.length > 0, true, "a new rectangle arrives with a visible fill");
+});
+
+test("the surface layout is the one domain helper the editor and the viewer share", () => {
+  assert.equal(
+    surfaceLayout,
+    domainSurfaceLayout,
+    "the dashboard re-exports the domain layout instead of keeping a second copy",
+  );
+  assert.deepEqual(
+    domainSurfaceLayout([
+      { id: "a", name: "A", x: 0, y: 0, w: 400, h: 400, nodes: [] },
+      { id: "b", name: "B", x: 0, y: 0, w: 400, h: 400, nodes: [] },
+    ]).placements,
+    [
+      { frameId: "a", x: 0, y: 0 },
+      { frameId: "b", x: 0, y: 440 },
+    ],
+    "the shared layout is importable from the domain package on its own",
+  );
 });
 
 test("the surface layout gives every frame a place of its own and falls back to a grid it can reuse", () => {

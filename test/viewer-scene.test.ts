@@ -252,6 +252,10 @@ const srcdocOf = (page: string): string => {
 const frameTag = (html: string, id: string): string =>
   html.match(new RegExp(`<section[^>]*id="frame-${id}"[^>]*>`))?.[0] ?? "";
 
+const sectionTags = (html: string): string[] => html.match(/<section class="scene-frame"[^>]*>/g) ?? [];
+
+const surfaceTag = (html: string): string => html.match(/<div class="scene-surface"[^>]*>/)?.[0] ?? "";
+
 test("the owner viewer of a canvas serves the rendered scene inside the one sandboxed frame", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
   assert.equal(reply.status, 200);
@@ -277,23 +281,52 @@ test("the canvas document arrives as markup, never as the stored JSON", async ()
     assert.equal(document.includes(dumped), false, `the stored JSON is not dumped as text: ${dumped}`);
 });
 
-test("?frame selects the initially visible frame server-side", async () => {
+test("the canvas document puts every frame on one surface, positioned by its own place", async () => {
+  const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
+  const document = srcdocOf(reply.body);
+  assert.deepEqual(
+    sectionTags(document).map((tag) => tag.includes("hidden")),
+    [false, false],
+    "both frames ship visible: a canvas is one surface, not a slideshow",
+  );
+  const surface = surfaceTag(document);
+  assert.ok(surface.length > 0, `the frames share one surface container: ${document.slice(0, 400)}`);
+  assert.ok(/data-surface-w="\d+"/.test(surface) && /data-surface-h="\d+"/.test(surface), surface);
+  assert.ok(document.indexOf(surface) < document.indexOf('id="frame-home"'), "the surface wraps the frames");
+  assert.ok(
+    frameTag(document, "home").includes('data-frame-x="0" data-frame-y="0"') &&
+      frameTag(document, "home").includes('style="left:0px;top:0px"'),
+    frameTag(document, "home"),
+  );
+  assert.ok(
+    frameTag(document, "checkout").includes('data-frame-x="0" data-frame-y="884"') &&
+      frameTag(document, "checkout").includes('style="left:0px;top:884px"'),
+    `two frames on the same origin are separated by the shared layout: ${frameTag(document, "checkout")}`,
+  );
+  assert.equal(surfaceTag(document).includes("data-active-frame"), false, "no frame was asked for, so none is opened");
+});
+
+test("?frame names the frame to open and the viewer still renders every frame", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=checkout" });
   assert.equal(reply.status, 200);
   const document = srcdocOf(reply.body);
   assert.equal(document, servedScene("checkout"));
-  assert.ok(frameTag(document, "home").includes("hidden"), "the first frame is hidden");
-  assert.equal(frameTag(document, "checkout").includes("hidden"), false);
+  assert.equal(surfaceTag(document).includes('data-active-frame="checkout"'), true, surfaceTag(document));
+  assert.deepEqual(
+    sectionTags(document).map((tag) => tag.includes("hidden")),
+    [false, false],
+    "the deep link pans to its frame instead of hiding the others",
+  );
   assert.ok(document.includes('data-target="checkout" aria-current="true"'), "the index follows the deep link");
 });
 
-test("a canvas with an unknown ?frame still renders, opening the first frame", async () => {
+test("a canvas with an unknown ?frame still renders the whole surface", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=missing" });
   assert.equal(reply.status, 200);
   const document = srcdocOf(reply.body);
-  assert.equal(document, servedScene(), "the unknown id falls back to the first frame");
-  assert.equal(frameTag(document, "home").includes("hidden"), false);
-  assert.ok(frameTag(document, "checkout").includes("hidden"));
+  assert.equal(document, servedScene(), "the unknown id falls back to the whole surface");
+  assert.equal(surfaceTag(document).includes("data-active-frame"), false, "an unknown id opens nothing in particular");
+  assert.equal(sectionTags(document).length, 2, "both frames stay on the surface");
   assert.equal((document.match(/data-target="/g) ?? []).length, 2, "both frames stay reachable");
 });
 

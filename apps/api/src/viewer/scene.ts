@@ -1,5 +1,6 @@
 import {
   TEXT_ALIGNS,
+  surfaceLayout,
   type ImageNode,
   type PathNode,
   type RectNode,
@@ -117,14 +118,21 @@ const renderOrphans = (orphans: readonly SceneThreadOrphan[]): string =>
         .join("")}</ul>
 </aside>`;
 
+type FramePlacement = { x: number; y: number };
+
 const renderFrame = (
   frame: SceneFrame,
   visible: boolean,
   images?: SceneImages,
   pins: readonly SceneThreadPin[] = [],
+  placement: FramePlacement | null = null,
 ): string => {
   const label = `${frame.name}, ${num(frame.w)} by ${num(frame.h)}`;
-  return `<section class="scene-frame" id="frame-${escapeAttribute(frame.id)}" data-frame-id="${escapeAttribute(frame.id)}" data-frame-w="${num(frame.w)}" data-frame-h="${num(frame.h)}"${visible ? "" : " hidden"} aria-label="${escapeAttribute(label)}">
+  const placed =
+    placement === null
+      ? ""
+      : ` data-frame-x="${num(placement.x)}" data-frame-y="${num(placement.y)}" style="left:${px(placement.x)};top:${px(placement.y)}"`;
+  return `<section class="scene-frame" id="frame-${escapeAttribute(frame.id)}" data-frame-id="${escapeAttribute(frame.id)}" data-frame-w="${num(frame.w)}" data-frame-h="${num(frame.h)}"${placed}${visible ? "" : " hidden"} aria-label="${escapeAttribute(label)}">
 <p class="scene-frame-name">${escapeAttribute(frame.name)}<span class="scene-frame-size">${num(frame.w)} × ${num(frame.h)}</span></p>
 <div class="scene-frame-body" style="width:${px(frame.w)};height:${px(frame.h)}">${frame.nodes.map((node) => renderNode(node, images)).join("")}${renderPins(pins)}</div>
 </section>`;
@@ -178,44 +186,90 @@ body{display:flex;flex-direction:column;overflow:hidden;background:#141414;color
 const SLIDES_CSS = `.scene-slides{background-image:none}
 .scene-counter{margin:0;display:grid;place-content:center;height:28px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#c3c8cd;font:500 12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}`;
 
+const SURFACE_CSS = `.scene-surface{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}`;
+
 const SCENE_SCRIPT = `(() => {
   const stage = document.getElementById("stage");
+  const surface = document.getElementById("surface");
   const index = document.getElementById("frame-index");
   const fitControl = document.getElementById("fit");
-  const frames = Array.from(document.querySelectorAll("[data-frame]"));
+  const frames = Array.from(document.querySelectorAll("[data-frame-id]"));
   const tabs = index === null ? [] : Array.from(index.querySelectorAll("button[data-target]"));
   const HASH_PREFIX = "#frame-";
   const MIN_SCALE = 0.02;
   const MAX_SCALE = 12;
   const FIT_RATIO = 0.86;
-  const views = new Map();
-  let active = null;
+  const view = { x: 0, y: 0, scale: 1 };
+  let active = frames.length === 0 ? null : frames[0].getAttribute("data-frame-id");
   let drag = null;
   let space = false;
 
   const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
   const idOf = (frame) => frame.getAttribute("data-frame-id");
-  const activeFrame = () => frames.find((frame) => idOf(frame) === active) || null;
 
-  const sizeOf = (frame) => {
-    const w = Number(frame.getAttribute("data-frame-w"));
-    const h = Number(frame.getAttribute("data-frame-h"));
-    return { w: Number.isFinite(w) && w > 0 ? w : 1, h: Number.isFinite(h) && h > 0 ? h : 1 };
+  const figure = (frame, name, fallback) => {
+    const value = Number(frame.getAttribute(name));
+    return Number.isFinite(value) ? value : fallback;
   };
 
-  const apply = (frame, view) => {
-    frame.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.scale + ")";
+  const sizeOf = (frame) => ({
+    w: Math.max(1, figure(frame, "data-frame-w", 1)),
+    h: Math.max(1, figure(frame, "data-frame-h", 1)),
+  });
+
+  const atOf = (frame) => ({
+    x: figure(frame, "data-frame-x", 0),
+    y: figure(frame, "data-frame-y", 0),
+  });
+
+  const stageSize = () => ({ w: stage.clientWidth || 1, h: stage.clientHeight || 1 });
+
+  const boundsOf = () => {
+    if (surface !== null) {
+      const w = Number(surface.getAttribute("data-surface-w"));
+      const h = Number(surface.getAttribute("data-surface-h"));
+      if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) return { w: w, h: h };
+    }
+    let w = 0;
+    let h = 0;
+    for (const frame of frames) {
+      const at = atOf(frame);
+      const size = sizeOf(frame);
+      w = Math.max(w, at.x + size.w);
+      h = Math.max(h, at.y + size.h);
+    }
+    return { w: Math.max(1, w), h: Math.max(1, h) };
   };
 
-  const fit = (frame) => {
+  const apply = () => {
+    if (surface === null) return;
+    surface.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.scale + ")";
+  };
+
+  const fit = () => {
+    const bounds = boundsOf();
+    const available = stageSize();
+    view.scale = clamp(Math.min(available.w / bounds.w, available.h / bounds.h) * FIT_RATIO, MIN_SCALE, MAX_SCALE);
+    view.x = (available.w - bounds.w * view.scale) / 2;
+    view.y = (available.h - bounds.h * view.scale) / 2;
+    apply();
+  };
+
+  const centre = (frame) => {
+    const at = atOf(frame);
     const size = sizeOf(frame);
-    const width = stage.clientWidth || 1;
-    const height = stage.clientHeight || 1;
-    const scale = clamp(Math.min(width / size.w, height / size.h) * FIT_RATIO, MIN_SCALE, MAX_SCALE);
-    const view = { scale: scale, x: (width - size.w * scale) / 2, y: (height - size.h * scale) / 2 };
-    views.set(idOf(frame), view);
-    apply(frame, view);
-    return view;
+    const available = stageSize();
+    view.x = available.w / 2 - (at.x + size.w / 2) * view.scale;
+    view.y = available.h / 2 - (at.y + size.h / 2) * view.scale;
+    apply();
+  };
+
+  const activate = (frame) => {
+    active = idOf(frame);
+    for (const tab of tabs) {
+      if (tab.getAttribute("data-target") === active) tab.setAttribute("aria-current", "true");
+      else tab.removeAttribute("aria-current");
+    }
   };
 
   const readHash = () => {
@@ -237,15 +291,10 @@ const SCENE_SCRIPT = `(() => {
   };
 
   const show = (id, sync) => {
-    const target = frames.find((frame) => idOf(frame) === id) || frames[0];
+    const target = frames.find((frame) => idOf(frame) === id);
     if (target === undefined) return;
-    active = idOf(target);
-    for (const frame of frames) frame.hidden = frame !== target;
-    for (const tab of tabs) {
-      if (tab.getAttribute("data-target") === active) tab.setAttribute("aria-current", "true");
-      else tab.removeAttribute("aria-current");
-    }
-    fit(target);
+    activate(target);
+    centre(target);
     if (sync) writeHash(active);
   };
 
@@ -288,9 +337,7 @@ const SCENE_SCRIPT = `(() => {
     "wheel",
     (event) => {
       event.preventDefault();
-      const frame = activeFrame();
-      const view = views.get(active);
-      if (frame === null || view === undefined) return;
+      if (surface === null) return;
       const box = stage.getBoundingClientRect();
       const x = event.clientX - box.left;
       const y = event.clientY - box.top;
@@ -299,7 +346,7 @@ const SCENE_SCRIPT = `(() => {
       view.x = x - (x - view.x) * ratio;
       view.y = y - (y - view.y) * ratio;
       view.scale = next;
-      apply(frame, view);
+      apply();
     },
     { passive: false },
   );
@@ -313,13 +360,10 @@ const SCENE_SCRIPT = `(() => {
 
   stage.addEventListener("pointermove", (event) => {
     if (drag === null) return;
-    const frame = activeFrame();
-    const view = views.get(active);
-    if (frame === null || view === undefined) return;
     view.x += event.clientX - drag.x;
     view.y += event.clientY - drag.y;
     drag = { x: event.clientX, y: event.clientY };
-    apply(frame, view);
+    apply();
   });
 
   const endDrag = () => {
@@ -331,12 +375,7 @@ const SCENE_SCRIPT = `(() => {
     if (event.button === 1) event.preventDefault();
   });
 
-  if (fitControl !== null) {
-    fitControl.addEventListener("click", () => {
-      const frame = activeFrame();
-      if (frame !== null) fit(frame);
-    });
-  }
+  if (fitControl !== null) fitControl.addEventListener("click", fit);
 
   if (index !== null) {
     index.addEventListener("click", (event) => {
@@ -354,15 +393,16 @@ const SCENE_SCRIPT = `(() => {
   });
 
   window.addEventListener("resize", () => {
-    const frame = activeFrame();
-    if (frame !== null) fit(frame);
+    fit();
   });
 
   if (frames.length > 0) {
-    const wanted = readHash();
-    const known = frames.some((frame) => idOf(frame) === wanted);
-    const rendered = frames.find((frame) => !frame.hidden) || frames[0];
-    show(known ? wanted : idOf(rendered), false);
+    fit();
+    const declared = surface === null ? null : surface.getAttribute("data-active-frame");
+    const wanted = readHash() !== "" ? readHash() : declared === null ? "" : declared;
+    const target = frames.find((frame) => idOf(frame) === wanted);
+    if (target === undefined) activate(frames[0]);
+    else show(wanted, false);
   }
 })();`;
 
@@ -519,7 +559,19 @@ export function renderSceneDocument(
   const placement = sceneThreadPlacement(scene, threads);
   const orphans = renderOrphans(placement.orphans);
   const pinsOf = (id: string): SceneThreadPin[] => placement.pins.filter((pin) => pin.frameId === id);
-  const slidesOf = scene.frames.map((frame) => renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id)));
+  const surface = slides ? null : surfaceLayout(scene.frames);
+  const placementOf = (id: string): FramePlacement => {
+    const found = surface === null ? undefined : surface.placements.find((entry) => entry.frameId === id);
+    return found === undefined ? { x: 0, y: 0 } : { x: found.x, y: found.y };
+  };
+  const requested = frameId !== undefined && scene.frames.some((frame) => frame.id === frameId) ? frameId : null;
+  const slidesOf = scene.frames.map((frame) =>
+    slides
+      ? renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id))
+      : renderFrame(frame, true, source, pinsOf(frame.id), placementOf(frame.id)),
+  );
+  const surfaceSize = `data-surface-w="${num(surface === null ? 0 : surface.width)}" data-surface-h="${num(surface === null ? 0 : surface.height)}"`;
+  const activeAttribute = requested === null ? "" : ` data-active-frame="${escapeAttribute(requested)}"`;
   const chrome = empty
     ? slides
       ? `<div class="scene-stage scene-slides" id="stage">
@@ -537,14 +589,16 @@ ${slidesOf.join("\n")}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Slides" hidden>${renderIndex(scene, selectedId)}</nav>`
       : `<div class="scene-stage" id="stage">
-<div class="scene-tools"><button type="button" id="fit" title="Fit the frame to the screen">Fit</button></div>
+<div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button></div>
+<div class="scene-surface" id="surface"${activeAttribute} ${surfaceSize}>
 ${slidesOf.join("\n")}
+</div>
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene, selectedId)}</nav>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
 <style>
-${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : DOCUMENT_CSS}
+${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : `${DOCUMENT_CSS}\n${SURFACE_CSS}`}
 </style></head>
 <body>
 ${chrome}${orphans === "" ? "" : `\n${orphans}`}
