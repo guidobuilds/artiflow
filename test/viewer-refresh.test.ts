@@ -234,7 +234,7 @@ type Environment = {
   reloads: () => number;
   history: { scrollRestoration: string };
   element: (selector: string) => StubElement;
-  fireDocument: (type: string, event?: { key?: string }) => void;
+  fireDocument: (type: string, event?: { key?: string; target?: unknown }) => void;
   setHidden: (hidden: boolean) => void;
 };
 
@@ -252,7 +252,7 @@ function makeEnvironment(options: {
     elements.set(selector, created);
     return created;
   };
-  const documentListeners = new Map<string, Array<(event?: { key?: string }) => void>>();
+  const documentListeners = new Map<string, Array<(event?: { key?: string; target?: unknown }) => void>>();
   const classes = new Set<string>();
   const timers = new Map<number, () => void>();
   const fetches: string[] = [];
@@ -285,7 +285,7 @@ function makeEnvironment(options: {
       },
     },
     querySelector: (selector: string): StubElement | null => elements.get(selector) ?? null,
-    addEventListener: (type: string, handler: (event?: { key?: string }) => void): void => {
+    addEventListener: (type: string, handler: (event?: { key?: string; target?: unknown }) => void): void => {
       const current = documentListeners.get(type) ?? [];
       current.push(handler);
       documentListeners.set(type, current);
@@ -329,7 +329,7 @@ function makeEnvironment(options: {
     reloads: (): number => reloads,
     history,
     element: elementOf,
-    fireDocument: (type: string, event?: { key?: string }): void => {
+    fireDocument: (type: string, event?: { key?: string; target?: unknown }): void => {
       for (const handler of Array.from(documentListeners.get(type) ?? [])) handler(event);
     },
     setHidden: (hidden: boolean): void => {
@@ -477,6 +477,16 @@ test("the owner bar still handles focus and the F shortcut", () => {
   assert.equal(environment.element(".vbar-exit").focused, true, "focus mode moves keyboard focus to the exit control");
   environment.element(".vbar-exit").dispatch("click");
   assert.equal(environment.element(".vbar-exit").focused, true);
+});
+
+test("the F shortcut stays native inside a form control", () => {
+  const environment = makeEnvironment({ selectors: [".vbar-focus", ".vbar-exit", "iframe"], respond: () => refused });
+  environment.run(refreshScriptOf(ownerPage()));
+  const input = { tagName: "INPUT", isContentEditable: false, closest: (s: string) => (s.includes("input") ? {} : null) };
+  environment.fireDocument("keydown", { key: "f", target: input });
+  assert.equal(environment.element(".vbar-exit").focused, false, "F in a form control never enters focus mode");
+  environment.fireDocument("keydown", { key: "f" });
+  assert.equal(environment.element(".vbar-exit").focused, true, "F outside a control still enters focus mode");
 });
 
 test("the markdown page keeps its own policy and the fragment can only add text", () => {

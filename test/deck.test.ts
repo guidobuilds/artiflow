@@ -191,7 +191,7 @@ const runDeck = (html: string, ids: readonly string[], hash = "", visible = ids[
   };
   vm.createContext(context);
   new vm.Script(inlineScript(html), { filename: "slide-viewer.js" }).runInContext(context);
-  return { host, stage, index, prev, next, strip, counter, frames, tabs, window, location };
+  return { host, stage, index, prev, next, strip, counter, frames, tabs, window, location, document: context.document };
 };
 
 const visibleSlides = (run: { frames: Map<string, FakeElement> }): string[] =>
@@ -204,6 +204,20 @@ test("the slide script queries the attributes the markup emits", () => {
   assert.ok(queried.length > 0, "the script queries at least one attribute selector");
   for (const name of queried)
     assert.ok(markup.includes(`${name}="`), `the markup emits ${name}, which the script queries`);
+});
+
+test("the deck doubles answer only the selector they are given", () => {
+  const html = renderSceneDocument(threeSlides, undefined, undefined, [], "deck");
+  const run = runDeck(html, ["a", "b", "c"]);
+  assert.equal(run.document.querySelectorAll('[data-frame-id="a"]').length, 1, "a selector naming one frame answers it");
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="nope"]').length,
+    0,
+    "a selector naming a frame the deck does not hold answers nothing",
+  );
+  assert.deepEqual(run.document.querySelectorAll("[data-not-a-frame]"), [], "an unsupported selector fails closed");
+  assert.equal(run.index.querySelectorAll('button[data-target="b"]').length, 1, "the index answers the tab it names");
+  assert.deepEqual(run.index.querySelectorAll("a[href]"), [], "the index fails closed on an unsupported selector");
 });
 
 test("space on a focused control activates it instead of stepping the deck", () => {

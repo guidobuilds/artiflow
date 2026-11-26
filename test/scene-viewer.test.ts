@@ -235,8 +235,25 @@ const runScript = (html: string, hash = "") => {
   };
   vm.createContext(context);
   new vm.Script(inlineScript(html), { filename: "scene-viewer.js" }).runInContext(context);
-  return { host, stage, surface, index, fit, frames, tabs, window, location };
+  return { host, stage, surface, index, fit, frames, tabs, window, location, document: context.document };
 };
+
+test("the scene doubles answer only the selector they are given", () => {
+  const run = runScript(renderSceneDocument(twoFrames));
+  assert.equal(run.document.querySelectorAll('[data-frame-id="home"]').length, 1, "a selector naming one frame answers it");
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="nope"]').length,
+    0,
+    "a selector naming a frame the scene does not hold answers nothing",
+  );
+  assert.deepEqual(run.document.querySelectorAll("[data-not-a-frame]"), [], "an unsupported selector fails closed");
+  assert.equal(
+    run.index.querySelectorAll('button[data-target="checkout"]').length,
+    1,
+    "the index answers the tab it names",
+  );
+  assert.deepEqual(run.index.querySelectorAll("a[href]"), [], "the index fails closed on an unsupported selector");
+});
 
 test("the scene script queries the attributes the markup emits", () => {
   const html = renderSceneDocument(twoFrames);
