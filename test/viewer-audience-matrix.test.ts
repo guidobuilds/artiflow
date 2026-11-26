@@ -178,6 +178,17 @@ const rowOf = (seat: Seat, kind: ArtifactKind): Row => {
   };
 };
 
+type Query = Promise<unknown[]> & {
+  from: (table: unknown) => Query;
+  leftJoin: (table: unknown) => Query;
+  innerJoin: (table: unknown) => Query;
+  where: () => Query;
+  orderBy: () => Query;
+  limit: () => Query;
+  for: () => Query;
+  $dynamic: () => Query;
+};
+
 const fakeDb = (row: Row, access: string | null, comments: readonly unknown[], onQuery: () => void): AppDb => {
   const rowsFor = (tables: ReadonlySet<unknown>): unknown[] => {
     if (tables.has(artifactPublicLinks)) return [{ ...row }];
@@ -188,36 +199,35 @@ const fakeDb = (row: Row, access: string | null, comments: readonly unknown[], o
     if (tables.has(artifactRevisions)) return [{ ...row }];
     return [];
   };
-  const select = (): object => {
+  const select = (): Query => {
     const tables = new Set<unknown>();
-    const node: Record<string, unknown> = {};
-    Object.assign(node, {
-      from: (table: unknown) => {
-        tables.add(table);
-        return node;
+    const chain = (): Query => query;
+    const query: Query = Object.assign(
+      Promise.resolve().then(() => {
+        onQuery();
+        return rowsFor(tables);
+      }),
+      {
+        from: (table: unknown) => {
+          tables.add(table);
+          return chain();
+        },
+        leftJoin: (table: unknown) => {
+          tables.add(table);
+          return chain();
+        },
+        innerJoin: (table: unknown) => {
+          tables.add(table);
+          return chain();
+        },
+        where: chain,
+        orderBy: chain,
+        limit: chain,
+        for: chain,
+        $dynamic: chain,
       },
-      leftJoin: (table: unknown) => {
-        tables.add(table);
-        return node;
-      },
-      innerJoin: (table: unknown) => {
-        tables.add(table);
-        return node;
-      },
-      where: () => node,
-      orderBy: () => node,
-      limit: () => node,
-      for: () => node,
-      $dynamic: () => node,
-      then: (onFulfilled: (rows: unknown[]) => unknown, onRejected: (error: unknown) => unknown): Promise<unknown> =>
-        Promise.resolve()
-          .then(() => {
-            onQuery();
-            return rowsFor(tables);
-          })
-          .then(onFulfilled, onRejected),
-    });
-    return node;
+    ) as unknown as Query;
+    return query;
   };
   return { select } as unknown as AppDb;
 };
@@ -257,13 +267,12 @@ const requestOf = (seat: Seat): ViewerRequest =>
       ? { kind: "bearer", viewerId: VIEWER_ID }
       : { kind: "session", viewerId: VIEWER_ID };
 
-const cellOf = async (seat: Seat, kind: ArtifactKind): Promise<Cell> => {
+const cellOf = async (seat: Seat, kind: ArtifactKind, grant: string | null = accessOf(seat)): Promise<Cell> => {
   const row = rowOf(seat, kind);
-  const access = accessOf(seat);
   const comments = [commentOf(kind)];
   const bytes = bytesOf(kind);
   let queries = 0;
-  const database = { db: fakeDb(row, access, comments, () => (queries += 1)) } as unknown as Database;
+  const database = { db: fakeDb(row, grant, comments, () => (queries += 1)) } as unknown as Database;
   const app = new Hono();
   if (isPublic(seat)) app.route("/", createShareViewerApp({ database, storage: storageWith(bytes) }));
   else
@@ -283,7 +292,7 @@ const cellOf = async (seat: Seat, kind: ArtifactKind): Promise<Cell> => {
       });
   const page = await response.text();
   const model = await prepareViewer({
-    db: fakeDb(row, accessOf(seat), comments, () => undefined),
+    db: fakeDb(row, grant, comments, () => undefined),
     artifact: row,
     request: requestOf(seat),
     embed: seat === "embed",
@@ -330,6 +339,61 @@ const threadAt = (island: Record<string, unknown>): Record<string, unknown> => {
 };
 
 const keysOf = (value: object): string[] => Object.keys(value).sort();
+
+test("no response carries the owner id outside the thread it authored", async () => {
+  for (const seat of SEATS) {
+    for (const kind of ARTIFACT_KINDS) {
+      const label = `${seat} x ${kind}`;
+      const { page, headers, model } = await cellOf(seat, kind);
+      for (const value of headers.values()) assert.equal(value.includes(OWNER_ID), false, `${label} header`);
+      const island = JSON.stringify(islandOf(page) ?? {});
+      assert.equal(
+        page.split(OWNER_ID).length - 1,
+        island.split(OWNER_ID).length - 1,
+        `${label} the id reaches the page only through the island`,
+      );
+      assert.equal(
+        island.split(OWNER_ID).length - 1,
+        planKindOf(seat, kind) === "page" ? 1 : 0,
+        `${label} the island carries the author it read, and nothing else`,
+      );
+      assert.equal(
+        model.comments.kind === "none" || model.comments.config.threads[0]?.author.id === OWNER_ID,
+        true,
+        `${label} the plan keeps the author the store reported`,
+      );
+    }
+  }
+});
+
+test("the page path reads the artifact, the access and the threads once; a public page reads no access", async () => {
+  for (const seat of SEATS) {
+    for (const kind of ARTIFACT_KINDS) {
+      const expected = isPublic(seat) ? (showsComments(seat) && !rendersScene(kind) ? 2 : 1) : 3;
+      assert.equal((await cellOf(seat, kind)).queries, expected, `${seat} x ${kind} query count`);
+    }
+  }
+});
+
+test("the owner seat resolves its access from the projected owner, not from the share table", async () => {
+  for (const kind of ARTIFACT_KINDS) {
+    const { model } = await cellOf("owner", kind, null);
+    assert.deepEqual(
+      model.audience,
+      { kind: "session", viewerId: VIEWER_ID, access: "owner" },
+      `${kind} owner without a share row`,
+    );
+    assert.deepEqual(model.actions, { comment: false, resolve: false, deleteOwn: true, deleteAny: false });
+  }
+  for (const seat of ["reader", "commenter", "editor"] as const) {
+    const { model } = await cellOf(seat, "html", null);
+    assert.deepEqual(
+      model.audience,
+      { kind: "session", viewerId: VIEWER_ID, access: null },
+      `${seat} without a share row has no role to report`,
+    );
+  }
+});
 
 test("the audience matrix: each seat receives only what its grant prepares", async () => {
   for (const seat of SEATS) {
