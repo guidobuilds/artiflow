@@ -350,19 +350,51 @@ test("clicking an index entry centres that frame and leaves every other frame in
   assert.equal(click.location.hash, "#frame-checkout", "the index writes the deep link");
 });
 
-test("the wheel zooms the whole surface around the pointer", () => {
+test("ctrl or cmd with the wheel zooms the whole surface around the pointer", () => {
   const html = renderSceneDocument(scene(frame()));
-  const zoom = runScript(html);
-  const before = zoom.surface.view();
-  zoom.stage.emit("wheel", { deltaY: -240, deltaX: 0, clientX: 640, clientY: 400 });
-  const after = zoom.surface.view();
-  assert.ok(after.scale > before.scale, `${after.scale} > ${before.scale}`);
-  const anchorX = (view: View) => (640 - view.x) / view.scale;
-  const anchorY = (view: View) => (400 - view.y) / view.scale;
-  close(anchorX(after), anchorX(before), "the point under the pointer keeps its x");
-  close(anchorY(after), anchorY(before), "the point under the pointer keeps its y");
-  for (const frame of zoom.frames.values())
-    assert.equal(frame.style.transform, undefined, "the zoom belongs to the surface, not to a frame");
+  for (const modifier of [{ ctrlKey: true }, { metaKey: true }]) {
+    const zoom = runScript(html);
+    const before = zoom.surface.view();
+    zoom.stage.emit("wheel", { deltaY: -240, deltaX: 0, clientX: 640, clientY: 400, ...modifier });
+    const after = zoom.surface.view();
+    assert.ok(after.scale > before.scale, `${JSON.stringify(modifier)}: ${after.scale} > ${before.scale}`);
+    const anchorX = (view: View) => (640 - view.x) / view.scale;
+    const anchorY = (view: View) => (400 - view.y) / view.scale;
+    close(anchorX(after), anchorX(before), "the point under the pointer keeps its x");
+    close(anchorY(after), anchorY(before), "the point under the pointer keeps its y");
+    for (const frame of zoom.frames.values())
+      assert.equal(frame.style.transform, undefined, "the zoom belongs to the surface, not to a frame");
+  }
+});
+
+test("a plain wheel pans the whole surface instead of zooming", () => {
+  const html = renderSceneDocument(twoFrames);
+  const wheel = runScript(html);
+  const start = wheel.surface.view();
+
+  wheel.stage.emit("wheel", { deltaY: 120, deltaX: 40, clientX: 640, clientY: 400 });
+  const scrolled = wheel.surface.view();
+  close(scrolled.scale, start.scale, "a plain wheel never zooms");
+  close(scrolled.x, start.x - 40, "a sideways deltaX moves the surface the other way");
+  close(scrolled.y, start.y - 120, "scrolling down lifts the surface so the content below comes into view");
+
+  wheel.stage.emit("wheel", { deltaY: -120, deltaX: -40, clientX: 640, clientY: 400 });
+  sameView(wheel.surface.view(), start, "scrolling back returns the surface exactly where it was");
+
+  wheel.stage.emit("wheel", { deltaY: 90, deltaX: 0, shiftKey: true, clientX: 640, clientY: 400 });
+  const shifted = wheel.surface.view();
+  close(shifted.x, start.x - 90, "shift turns a mouse wheel into a horizontal pan");
+  close(shifted.y, start.y, "a shift pan does not drift vertically");
+  close(shifted.scale, start.scale, "a shift pan never zooms");
+
+  for (const frame of wheel.frames.values())
+    assert.equal(frame.style.transform, undefined, "the pan belongs to the surface, not to a frame");
+});
+
+test("a presentation keeps its own script: no wheel, no pan", () => {
+  const deck = inlineScript(renderSceneDocument(twoFrames, undefined, undefined, [], "deck"));
+  assert.equal(deck.includes("wheel"), false, "a presentation never zooms or pans on the wheel");
+  assert.equal(deck.includes("pointerdown"), false, "a presentation never pans by dragging");
 });
 
 test("space-drag and middle-drag pan the surface, and fit frames the whole canvas", () => {
@@ -391,7 +423,7 @@ test("space-drag and middle-drag pan the surface, and fit frames the whole canva
   pan.stage.emit("pointerup", {});
   close(pan.surface.view().x, dragged.x + 10, "the middle button pans");
 
-  pan.stage.emit("wheel", { deltaY: -400, clientX: 100, clientY: 100 });
+  pan.stage.emit("wheel", { deltaY: -400, deltaX: 0, ctrlKey: true, clientX: 100, clientY: 100 });
   pan.fit.emit("click");
   sameView(pan.surface.view(), fitted, "fit frames the whole surface again");
   const view = pan.surface.view();
@@ -405,7 +437,7 @@ test("one shared view keeps the zoom and the pan when the active frame changes",
   const layout = surfaceLayout(twoFrames.frames);
   const travel = runScript(html);
   const fitted = travel.surface.view();
-  travel.stage.emit("wheel", { deltaY: -300, clientX: 200, clientY: 200 });
+  travel.stage.emit("wheel", { deltaY: -300, deltaX: 0, ctrlKey: true, clientX: 200, clientY: 200 });
   const zoomed = travel.surface.view();
   assert.notEqual(zoomed.scale, fitted.scale);
   travel.host.emit("keydown", { key: "ArrowRight" });

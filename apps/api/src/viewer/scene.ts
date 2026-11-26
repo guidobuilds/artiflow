@@ -336,16 +336,26 @@ const SCENE_SCRIPT = `(() => {
   stage.addEventListener(
     "wheel",
     (event) => {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        if (surface === null) return;
+        const box = stage.getBoundingClientRect();
+        const x = event.clientX - box.left;
+        const y = event.clientY - box.top;
+        const next = clamp(view.scale * Math.exp(-event.deltaY * 0.0015), MIN_SCALE, MAX_SCALE);
+        const ratio = next / view.scale;
+        view.x = x - (x - view.x) * ratio;
+        view.y = y - (y - view.y) * ratio;
+        view.scale = next;
+        apply();
+        return;
+      }
       event.preventDefault();
       if (surface === null) return;
-      const box = stage.getBoundingClientRect();
-      const x = event.clientX - box.left;
-      const y = event.clientY - box.top;
-      const next = clamp(view.scale * Math.exp(-event.deltaY * 0.0015), MIN_SCALE, MAX_SCALE);
-      const ratio = next / view.scale;
-      view.x = x - (x - view.x) * ratio;
-      view.y = y - (y - view.y) * ratio;
-      view.scale = next;
+      const sideways = event.shiftKey ? event.deltaY || 0 : event.deltaX || 0;
+      const vertical = event.shiftKey ? 0 : event.deltaY || 0;
+      view.x -= sideways;
+      view.y -= vertical;
       apply();
     },
     { passive: false },
