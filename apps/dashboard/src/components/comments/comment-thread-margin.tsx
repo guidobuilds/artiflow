@@ -85,6 +85,7 @@ export type CommentThreadMarginProps = {
   status: CommentThreadsStatus;
   canComment: boolean;
   draft?: CommentDraft | null;
+  republished?: boolean;
   onSubmitDraft?: (body: string) => void;
   onCancelDraft?: () => void;
   publishError?: string | null;
@@ -319,11 +320,13 @@ function ThreadPanel({
 
 function DraftPanel({
   draft,
+  republished = false,
   onSubmit,
   onCancel,
   sheet = false,
 }: {
   draft: CommentDraft;
+  republished?: boolean;
   onSubmit?: (body: string) => void;
   onCancel?: () => void;
   sheet?: boolean;
@@ -375,6 +378,11 @@ function DraftPanel({
           className="comment-thread-input"
           placeholder="Write a comment…"
         />
+        {republished ? (
+          <p role="status" className="comment-thread-flag">
+            This artifact was republished while your draft was open. The page reloads when you finish.
+          </p>
+        ) : null}
         {draft.error ? (
           <p role="alert" className="comment-thread-flag">
             {draft.error}
@@ -521,6 +529,7 @@ export default function CommentThreadMargin({
   status,
   canComment,
   draft = null,
+  republished = false,
   onSubmitDraft,
   onCancelDraft,
   publishError = null,
@@ -785,7 +794,12 @@ export default function CommentThreadMargin({
               <div className="comment-thread-dock-rail">
                 {draft !== null && draft !== undefined ? (
                   <DockSlot top={draftTop + layerOffset}>
-                    <DraftPanel draft={draft} onSubmit={onSubmitDraft} onCancel={onCancelDraft} />
+                    <DraftPanel
+                      draft={draft}
+                      republished={republished}
+                      onSubmit={onSubmitDraft}
+                      onCancel={onCancelDraft}
+                    />
                   </DockSlot>
                 ) : activeThread !== null ? (
                   <DockSlot top={(placementOf(placements, activeThread.id)?.top ?? 0) + layerOffset}>
@@ -826,7 +840,13 @@ export default function CommentThreadMargin({
       {sheetOpen ? (
         <MobileSheet onBackdrop={() => (draft !== null ? onCancelDraft?.() : onActivate(null))}>
           {draft !== null && draft !== undefined ? (
-            <DraftPanel sheet draft={draft} onSubmit={onSubmitDraft} onCancel={onCancelDraft} />
+            <DraftPanel
+              sheet
+              republished={republished}
+              draft={draft}
+              onSubmit={onSubmitDraft}
+              onCancel={onCancelDraft}
+            />
           ) : activeThread !== null ? (
             <ThreadPanel
               sheet

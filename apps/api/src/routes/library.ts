@@ -27,6 +27,7 @@ import {
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
   originOf,
+  refreshPlan,
   sceneHeaders,
   VIEWER_HEADERS,
   wrapperPage,
@@ -248,7 +249,11 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       maxBytes,
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    const refresh = { metaUrl: `/api/artifacts/${row.id}`, revisionNumber: row.revisionNumber, sha256: row.sha256 };
+    const refresh = {
+      plan: refreshPlan(`/api/artifacts/${row.id}`),
+      revisionNumber: row.revisionNumber,
+      sha256: row.sha256,
+    };
     if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
@@ -279,15 +284,13 @@ export function createLibraryApp(options: LibraryOptions): Hono {
           ? undefined
           : { origin, artifactId: row.id, digests: await sceneAssetDigests(db, row.id, scene.value) };
       const config = await ownerCommentsConfig(row.id, row.sha256, ownerId, null, async () => scene.value);
-      const srcdocUrl =
-        frame === undefined ? `/artifact/${row.id}` : `/artifact/${row.id}?frame=${encodeURIComponent(frame)}`;
       return c.html(
         wrapperPage(
           escapeAttribute(renderSceneDocument(scene.value, frame, images, config.threads, row.kind)),
           embed ? undefined : "/",
           { title: row.title, version: row.revisionNumber },
           embed,
-          { ...refresh, srcdocUrl },
+          refresh,
         ),
         200,
         sceneHeaders(origin),
@@ -297,19 +300,12 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     const htmlConfig = await ownerCommentsConfig(row.id, row.sha256, ownerId, null);
     const nonce = bridgeNonce(row.id, row.sha256);
     return c.html(
-      wrapperPage(
-        escaped,
-        embed ? undefined : "/",
-        { title: row.title, version: row.revisionNumber },
-        embed,
-        { ...refresh, srcdocUrl: `/artifact/${row.id}` },
-        {
-          nonce,
-          bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
-          config: htmlConfig,
-          assets: viewerCommentsAssets(),
-        },
-      ),
+      wrapperPage(escaped, embed ? undefined : "/", { title: row.title, version: row.revisionNumber }, embed, refresh, {
+        nonce,
+        bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
+        config: htmlConfig,
+        assets: viewerCommentsAssets(),
+      }),
       200,
       VIEWER_HEADERS,
     );

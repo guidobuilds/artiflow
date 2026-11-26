@@ -12,6 +12,7 @@ import {
 import type { TextRangeAnchor } from "@artiflow/domain/comment-anchors";
 import { Autosave } from "../apps/dashboard/src/editor-autosave.ts";
 import { toolbarGroups, blockTypes } from "../apps/dashboard/src/editor-markdown.ts";
+import { DRAFT_FLAG_SELECTOR, publishDraftFlag, republishedSince } from "../apps/dashboard/src/viewer-thread-sync.ts";
 
 test("every editor chrome, selection and comment action uses the shared noninteractive tooltip", () => {
   const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -182,6 +183,71 @@ test("anchor positions recompute on resize, scroll, content and font load", () =
   assert.match(page, /window\.addEventListener\("resize", frame\)/);
   assert.match(page, /document\.fonts\?\.ready\.then\(frame\)/);
   assert.match(page, /\[measureAnchors, comments, state\.text, commentsVisible, showResolved\]/);
+});
+
+test("the viewer island advertises a typed draft on the shell the poller reads", () => {
+  assert.equal(
+    DRAFT_FLAG_SELECTOR,
+    "[data-comment-draft='typed'], [data-comment-input='typed']",
+    "both draft surfaces the margin already renders are watched",
+  );
+  const target = { dataset: {} as Record<string, string | undefined> };
+  publishDraftFlag({ querySelector: () => null }, target);
+  assert.equal(target.dataset.commentDraft, undefined, "no draft, no flag");
+  publishDraftFlag({ querySelector: () => ({}) }, target);
+  assert.equal(target.dataset.commentDraft, "typed", "a typed draft is advertised where the poller looks");
+  publishDraftFlag({ querySelector: () => null }, target);
+  assert.equal(
+    "commentDraft" in target.dataset,
+    false,
+    "ending the draft removes the flag instead of leaving a stale one",
+  );
+
+  const viewer = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  assert.equal([...viewer.matchAll(/watchDrafts\(host, shell, /g)].length, 2, "both mounts advertise the state");
+  assert.match(viewer, /publishDraftFlag\(host, shell\)/, "the flag is published on the shell, not on a draft node");
+  const block = viewer.slice(viewer.indexOf("const watchDrafts"), viewer.indexOf("const fetchThreads"));
+  assert.match(block, /new MutationObserver\(publish\)/, "a draft opened inside the React tree is observed");
+  assert.match(block, /childList: true/, "opening a draft is a childList mutation");
+  assert.match(block, /subtree: true/, "the draft panel is nested under the host");
+  assert.match(block, /observe\(host, \{/, "the observed node is the comments host");
+  assert.match(block, /attributeFilter: \["data-comment-draft", "data-comment-input"\]/);
+  assert.ok(block.includes("publish();"), "the state is published on mount, not only on mutation");
+  assert.ok(
+    block.indexOf("publish();") < block.indexOf("new MutationObserver"),
+    "and that first publish happens before anything is observed",
+  );
+  assert.match(
+    block,
+    /new MutationObserver\(onShell\)\.observe\(shell, \{/,
+    "the shell is observed too, or the island never learns the poller marked the draft",
+  );
+  assert.match(block, /attributeFilter: \["data-revision-stale"\]/);
+});
+
+test("the draft panel says the artifact was republished while the draft was open", () => {
+  const margin = readFileSync(
+    new URL("../apps/dashboard/src/components/comments/comment-thread-margin.tsx", import.meta.url),
+    "utf8",
+  );
+  const viewer = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  assert.equal(republishedSince({ dataset: {} }), false, "a page that was never republished says nothing");
+  assert.equal(republishedSince({ dataset: { revisionStale: "4" } }), true, "the poller's mark is what is read");
+  assert.match(margin, /republished\?: boolean/, "the margin takes it as an optional prop");
+  assert.match(margin, /republished while your draft was open/, "and says what happened");
+  assert.match(margin, /role="status"/, "the line is announced, not just painted");
+  assert.equal([...margin.matchAll(/republished=\{republished\}/g)].length, 2, "both draft panels receive it");
+  assert.match(viewer, /republishedSince\(shell\)/, "the island reads the mark the poller writes");
+  assert.equal(
+    [...viewer.matchAll(/draftFlagOf\(host\) === null \? false : republishedSince\(shell\)/g)].length,
+    2,
+    "both mounts refuse the line unless a typed draft is open",
+  );
+  assert.equal(
+    [...viewer.matchAll(/republished=\{state\.republished\}/g)].length,
+    2,
+    "and both mounts hand it to the margin, not just one",
+  );
 });
 
 const anchor: TextRangeAnchor = {

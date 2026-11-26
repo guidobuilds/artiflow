@@ -22,6 +22,7 @@ import {
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
   originOf,
+  refreshPlan,
   sceneHeaders,
   VIEWER_HEADERS,
   wrapperPage,
@@ -479,7 +480,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     const read = await getRevisionBytes({ storage, storageKey: row.storageKey, sha256: row.sha256, maxBytes });
     if (!read.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
     const refresh = {
-      metaUrl: `/share/${token}?meta=1`,
+      plan: refreshPlan(`/share/${token}?meta=1`),
       revisionNumber: row.revisionNumber,
       sha256: row.sha256,
     };

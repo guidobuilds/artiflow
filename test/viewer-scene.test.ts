@@ -447,8 +447,7 @@ test("PRESERVE: an html artifact keeps its exact page bytes", async () => {
       { title: TITLE, version: revision.revisionNumber },
       false,
       {
-        metaUrl: `/api/artifacts/${ARTIFACT_ID}`,
-        srcdocUrl: `/artifact/${ARTIFACT_ID}`,
+        plan: { kind: "reload", metaUrl: `/api/artifacts/${ARTIFACT_ID}` },
         revisionNumber: revision.revisionNumber,
         sha256: revision.sha256,
       },
@@ -492,7 +491,7 @@ test("PRESERVE: a markdown artifact keeps its exact page bytes", async () => {
       { title: TITLE, version: revision.revisionNumber },
       false,
       {
-        metaUrl: `/api/artifacts/${ARTIFACT_ID}`,
+        plan: { kind: "reload", metaUrl: `/api/artifacts/${ARTIFACT_ID}` },
         revisionNumber: revision.revisionNumber,
         sha256: revision.sha256,
       },

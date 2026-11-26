@@ -17,8 +17,11 @@ import { attemptMutation } from "@/viewer-mutations.ts";
 import {
   createSequenceGuard,
   createThreadsRefetcher,
+  draftFlagOf,
   parseThreadsResponse,
+  publishDraftFlag,
   reconcileActive,
+  republishedSince,
   viewportAnchor,
 } from "@/viewer-thread-sync.ts";
 
@@ -130,6 +133,25 @@ const viewerToggleHost = (shell: HTMLElement): HTMLElement => {
   return node;
 };
 
+const watchDrafts = (host: HTMLElement, shell: HTMLElement, onShell: () => void): void => {
+  const publish = (): void => {
+    publishDraftFlag(host, shell);
+    onShell();
+  };
+  publish();
+  if (typeof MutationObserver !== "function") return;
+  new MutationObserver(publish).observe(host, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["data-comment-draft", "data-comment-input"],
+  });
+  new MutationObserver(onShell).observe(shell, {
+    attributes: true,
+    attributeFilter: ["data-revision-stale"],
+  });
+};
+
 const fetchThreads = async (url: string): Promise<{ canComment: boolean; threads: ViewerThread[] }> => {
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -177,6 +199,7 @@ export function mountViewerComments(): void {
     geometry: {} as Record<string, number>,
     error: null as string | null,
     retry: null as (() => void) | null,
+    republished: false,
   };
   const refresh = createThreadsRefetcher({
     guard: createSequenceGuard(),
@@ -318,6 +341,7 @@ export function mountViewerComments(): void {
           render();
         }}
         toggleHost={toggleHost}
+        republished={state.republished}
         showResolved={state.showResolved}
         onShowResolvedChange={(next) => {
           state.showResolved = next;
@@ -327,6 +351,13 @@ export function mountViewerComments(): void {
       />,
     );
   };
+  const publishRepublished = (): void => {
+    const next = draftFlagOf(host) === null ? false : republishedSince(shell);
+    if (next === state.republished) return;
+    state.republished = next;
+    render();
+  };
+  watchDrafts(host, shell, publishRepublished);
   repaintMarks();
   measure();
   const frame = () => window.requestAnimationFrame(measure);
@@ -386,6 +417,7 @@ export function mountViewerCommentsInFrame(): void {
     visible: true,
     showResolved: false,
     geometry: {} as Record<string, number>,
+    republished: false,
     error: null as string | null,
     staleIds: [] as string[],
     commenting: false,
@@ -513,6 +545,7 @@ export function mountViewerCommentsInFrame(): void {
           render();
         }}
         toggleHost={toggleHost}
+        republished={state.republished}
         showResolved={state.showResolved}
         onShowResolvedChange={(next) => {
           state.showResolved = next;
@@ -649,6 +682,13 @@ export function mountViewerCommentsInFrame(): void {
   window.addEventListener("message", onMessage);
   const sync = () => send({ type: "pins", pins: pins() });
   frame.addEventListener("load", sync);
+  const publishRepublished = (): void => {
+    const next = draftFlagOf(host) === null ? false : republishedSince(shell);
+    if (next === state.republished) return;
+    state.republished = next;
+    render();
+  };
+  watchDrafts(host, shell, publishRepublished);
   sync();
   render();
 }
