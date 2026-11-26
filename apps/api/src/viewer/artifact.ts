@@ -27,11 +27,13 @@ export const originOf = (url: string): string | null => {
   }
 };
 
+const imageSource = (origin: string): string => originOf(origin) ?? "'none'";
+
 export const sceneCsp = (origin: string): string =>
-  `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src ${origin}; base-uri 'none'; form-action 'none'; connect-src 'self'`;
+  `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src ${imageSource(origin)}; base-uri 'none'; form-action 'none'; connect-src 'self'`;
 
 export const sceneDocumentCsp = (origin: string): string =>
-  `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${origin}; base-uri 'none'; form-action 'none'`;
+  `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${imageSource(origin)}; base-uri 'none'; form-action 'none'`;
 
 export const sceneHeaders = (origin: string | null) =>
   ({
