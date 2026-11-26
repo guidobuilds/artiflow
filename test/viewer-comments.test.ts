@@ -180,7 +180,7 @@ test("the dev preamble reaches a page once, and a production page carries none",
       1,
       "the preamble belongs to the asset set",
     );
-    const page = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, false, refresh, {
+    const page = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, "full", refresh, {
       nonce: "n1",
       bridge: "",
       config: {},
@@ -196,7 +196,7 @@ test("the dev preamble reaches a page once, and a production page carries none",
     resetViewerCommentsAssetCache();
     const prod = viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir, NODE_ENV: "production" }, () => undefined);
     assert.equal(prod.dev, false);
-    const production = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, false, refresh, {
+    const production = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, "full", refresh, {
       nonce: "n1",
       bridge: "",
       config: {},

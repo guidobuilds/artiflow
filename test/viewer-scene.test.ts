@@ -21,6 +21,7 @@ import { viewerCommentsAssets } from "../apps/api/src/viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
 import { htmlBridgeScript } from "../apps/api/src/viewer/html-bridge-script.ts";
 import {
+  DOCUMENT_CSP,
   escapeAttribute,
   NOT_FOUND_PAGE,
   SANDBOX,
@@ -452,7 +453,7 @@ test("PRESERVE: an html artifact keeps its exact page bytes", async () => {
       escapeAttribute(HTML_SOURCE),
       "/",
       { title: TITLE, version: revision.revisionNumber },
-      false,
+      "full",
       {
         plan: { kind: "reload", metaUrl: `/api/artifacts/${ARTIFACT_ID}` },
         revisionNumber: revision.revisionNumber,
@@ -496,14 +497,14 @@ test("PRESERVE: a markdown artifact keeps its exact page bytes", async () => {
       renderMarkdownFragment(MARKDOWN_SOURCE),
       "/",
       { title: TITLE, version: revision.revisionNumber },
-      false,
+      "full",
       {
         plan: { kind: "reload", metaUrl: `/api/artifacts/${ARTIFACT_ID}` },
         revisionNumber: revision.revisionNumber,
         sha256: revision.sha256,
       },
       { config, assets: viewerCommentsAssets() },
-    ),
+    ).html,
     "the markdown path is byte-identical to the page it served before the scene branch existed",
   );
 });
@@ -584,7 +585,7 @@ test("a trailing-slash image origin produces one policy, not two", () => {
   );
 });
 
-test("PRESERVE: html and markdown keep their exact policy strings", async () => {
+test("PRESERVE: html keeps its exact policy string and markdown keeps that list without a frame", async () => {
   assert.equal(
     VIEWER_CSP,
     "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'",
@@ -601,7 +602,12 @@ test("PRESERVE: html and markdown keep their exact policy strings", async () => 
     kind: "markdown",
     commentResults: [[{ access: "owner" }], []],
   });
-  assert.equal(markdown.csp, VIEWER_CSP, "the markdown page keeps the viewer policy");
+  assert.equal(markdown.csp, DOCUMENT_CSP, "the markdown page serves its one policy in the response");
+  assert.equal(
+    DOCUMENT_CSP,
+    VIEWER_CSP.replace(" frame-src 'self';", ""),
+    "which is the viewer list without the frame source, as the meta and header together allowed",
+  );
 });
 
 test("the owner viewer emits the delivery url for a referenced asset and no share token", async () => {

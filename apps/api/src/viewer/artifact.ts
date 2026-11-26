@@ -4,18 +4,39 @@ import { commentsHost, PANEL_CSS, shellCommentsClass } from "./chrome/panel.ts";
 import { escapeAttribute, escapeJsonText, THEME_BOOTSTRAP, VIEWER_CHROME_CSS } from "./chrome/theme.ts";
 import {
   bridgeComments,
+  type ViewerChrome,
   type ViewerMeta,
   type ViewerModel,
   type ViewerRefresh,
   type WrapperComments,
 } from "./model.ts";
 
-export const VIEWER_CSP: string = `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'`;
+const CSP_DIRECTIVES = [
+  ["default-src", "'none'"],
+  ["script-src", "'self' 'unsafe-inline'"],
+  ["style-src", "'self' 'unsafe-inline'"],
+  ["frame-src", "'self'"],
+  ["img-src", "'self'"],
+  ["base-uri", "'none'"],
+  ["form-action", "'none'"],
+  ["connect-src", "'self'"],
+] as const;
+
+const cspOf = (directives: ReadonlyArray<readonly [string, string]>): string =>
+  directives.map(([directive, sources]) => `${directive} ${sources}`).join("; ");
+
+export const VIEWER_CSP: string = cspOf(CSP_DIRECTIVES);
+
+export const DOCUMENT_CSP: string = cspOf(CSP_DIRECTIVES.filter(([directive]) => directive !== "frame-src"));
+
 export const VIEWER_HEADERS = {
   "content-security-policy": VIEWER_CSP,
   "x-content-type-options": "nosniff",
   "cache-control": "no-store",
 } as const;
+
+export const DOCUMENT_HEADERS = { ...VIEWER_HEADERS, "content-security-policy": DOCUMENT_CSP } as const;
+
 export const SANDBOX = "allow-scripts";
 
 export const originOf = (url: string): string | null => {
@@ -46,8 +67,8 @@ const FRAME_CSS = `iframe{height:100%;min-height:0;width:100%;border:0;backgroun
 
 const SHELL_CSS = `.docshell{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);flex:1;min-height:0;overflow:hidden}`;
 
-const FOCUS_CSS = `.vbar-focus{height:30px;padding:0 11px;border:0;border-radius:8px;background:none;color:var(--fg-muted);font:500 12.5px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer;transition:background .12s,color .12s}
-.vbar-focus:hover{background:var(--hover);color:var(--fg)}
+const FOCUS_CSS = `button[data-control]{height:30px;padding:0 11px;border:0;border-radius:8px;background:none;color:var(--fg-muted);font:500 12.5px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer;transition:background .12s,color .12s}
+button[data-control]:hover{background:var(--hover);color:var(--fg)}
 .vbar-exit{display:none;position:fixed;top:10px;right:10px;width:30px;height:30px;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg-raised);color:var(--fg-muted);font-size:16px;line-height:1;cursor:pointer;opacity:.45;transition:opacity .12s}
 .vbar-exit:hover,.vbar-exit:focus-visible{opacity:1}
 body.focus .vbar{display:none}
@@ -58,7 +79,7 @@ ${SHELL_CSS}
 ${PANEL_CSS}
 ${FRAME_CSS}`;
 
-const FOCUS_CONTROL = `<button class="vbar-focus" type="button" title="Focus mode (F)">Focus</button>`;
+const FOCUS_CONTROL = `<button type="button" title="Focus mode (F)" data-control="focus">Focus</button>`;
 
 const FOCUS_EXIT = `<button class="vbar-exit" type="button" aria-label="Exit focus mode" title="Exit focus mode (Esc)">×</button>`;
 
@@ -67,7 +88,7 @@ const setFocus = (on) => {
   document.body.classList.toggle("focus", on);
   if (on && exitButton) exitButton.focus();
 };
-const focusButton = document.querySelector(".vbar-focus");
+const focusButton = document.querySelector('[data-control="focus"]');
 if (focusButton) focusButton.addEventListener("click", () => setFocus(true));
 if (exitButton) exitButton.addEventListener("click", () => setFocus(false));
 const isEditable = (target) => {
@@ -231,9 +252,9 @@ export type ArtifactPage = { readonly html: string; readonly headers: Record<str
 type ArtifactSlots = {
   readonly srcdoc: string;
   readonly images?: string | null;
+  readonly chrome: ViewerChrome;
   readonly backHref?: string | undefined;
   readonly meta?: ViewerMeta | undefined;
-  readonly embed: boolean;
   readonly refresh: ViewerRefresh;
   readonly comments?: WrapperComments | undefined;
 };
@@ -245,9 +266,9 @@ function artifactPage(slots: ArtifactSlots): ArtifactPage {
   const comments = slots.comments;
   const bridge = comments === undefined ? "" : escapeAttribute(comments.bridge);
   const bar = artifactBar({
+    chrome: slots.chrome,
     backHref: slots.backHref,
     meta: slots.meta,
-    embed: slots.embed,
     control: FOCUS_CONTROL,
   });
   const chrome = bar === "" ? "" : `${bar}\n${FOCUS_EXIT}`;
@@ -283,7 +304,7 @@ export const artifactView = (model: ViewerModel, frame: ArtifactFrame): Artifact
     images: frame.images,
     backHref: model.backHref,
     meta: model.meta,
-    embed: model.embed,
+    chrome: model.chrome,
     refresh: model.refresh,
     comments: bridgeComments(model.comments),
   });
@@ -292,7 +313,7 @@ export const wrapperPage = (
   escaped: string,
   backHref: string | undefined,
   meta: ViewerMeta | undefined,
-  embed: boolean,
+  chrome: ViewerChrome,
   refresh: ViewerRefresh,
   comments?: WrapperComments,
-): string => artifactPage({ srcdoc: escaped, backHref, meta, embed, refresh, comments }).html;
+): string => artifactPage({ srcdoc: escaped, backHref, meta, chrome, refresh, comments }).html;

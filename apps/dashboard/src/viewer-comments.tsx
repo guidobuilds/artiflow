@@ -7,6 +7,7 @@ import CommentThreadMargin, {
   type CommentThread,
 } from "@/components/comments/comment-thread-margin.tsx";
 import {
+  bridgePins,
   createMessageBudget,
   encodeCommand,
   parseBridgeMessage,
@@ -373,38 +374,6 @@ export function mountViewerComments(): void {
   });
 }
 
-const pinsOf = (threads: ViewerThread[]) =>
-  threads.flatMap((thread, index) => {
-    const anchor = thread.anchor as
-      | {
-          kind?: string;
-          selector?: string;
-          textHint?: string;
-          point?: { x: number; y: number };
-          x?: number;
-          y?: number;
-        }
-      | null
-      | undefined;
-    if (anchor === null || anchor === undefined) return [];
-    const number = index + 1;
-    if (anchor.kind === "element")
-      return [
-        {
-          id: thread.id,
-          number,
-          selector: anchor.selector ?? "",
-          textHint: anchor.textHint ?? "",
-          x: anchor.point?.x ?? 0.5,
-          y: anchor.point?.y ?? 0.5,
-          stale: false,
-        },
-      ];
-    if (anchor.kind === "page-point")
-      return [{ id: thread.id, number, selector: "", textHint: "", x: anchor.x ?? 0.5, y: anchor.y ?? 0, stale: true }];
-    return [];
-  });
-
 export function mountViewerCommentsInFrame(): void {
   const config = readConfig();
   const host = document.getElementById("viewer-comments");
@@ -475,7 +444,7 @@ export function mountViewerCommentsInFrame(): void {
   const send = (command: ParentCommand) => {
     frame.contentWindow?.postMessage(encodeCommand(command, nonce), "*");
   };
-  const pins = () => pinsOf(config.threads);
+  const pins = () => bridgePins(config.threads);
   const frameOffset = (): number => {
     const shelf = host.querySelector<HTMLElement>(".comment-thread-margin");
     return Math.round(frame.getBoundingClientRect().top - (shelf?.getBoundingClientRect().top ?? 0));
@@ -586,11 +555,11 @@ export function mountViewerCommentsInFrame(): void {
       />,
     );
   };
-  const commentButton = document.querySelector<HTMLElement>(".vbar-actions");
-  if (config.canComment && commentButton !== null) {
+  const commentSlot = document.querySelector<HTMLElement>('[data-control="actions"]');
+  if (config.canComment && commentSlot !== null) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "vbar-focus";
+    button.dataset.control = "comment";
     button.dataset.commentMode = "true";
     button.textContent = "Comment";
     button.title = "Comment on an element (C)";
@@ -599,7 +568,7 @@ export function mountViewerCommentsInFrame(): void {
       send({ type: "mode", on: state.commenting });
       button.setAttribute("aria-pressed", String(state.commenting));
     });
-    commentButton.prepend(button);
+    commentSlot.prepend(button);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && state.commenting && state.draft === null && state.activeId === null) {
         state.commenting = false;

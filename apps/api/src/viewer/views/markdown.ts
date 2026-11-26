@@ -1,12 +1,13 @@
 import MarkdownIt from "markdown-it";
 
 import { assetsHead, assetsScripts } from "../assets.ts";
-import { viewerRefreshScript, VIEWER_HEADERS, type ArtifactPage } from "../artifact.ts";
+import { DOCUMENT_HEADERS, viewerRefreshScript, type ArtifactPage } from "../artifact.ts";
 import { artifactBar } from "../chrome/bar.ts";
 import { commentsHost, DOCUMENT_PANEL_CSS } from "../chrome/panel.ts";
 import { escapeJsonText, VIEWER_CHROME_CSS } from "../chrome/theme.ts";
 import {
   marginalComments,
+  type ViewerChrome,
   type ViewerMarginalComments,
   type ViewerMeta,
   type ViewerModel,
@@ -47,12 +48,10 @@ export function markdownViewerPage(
   fragment: string,
   backHref: string | undefined,
   meta: ViewerMeta | undefined,
-  embed: boolean,
+  chrome: ViewerChrome,
   refresh: ViewerRefresh,
   comments?: ViewerMarginalComments,
-): string {
-  const csp =
-    "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'";
+): ArtifactPage {
   const commentsData =
     comments === undefined
       ? ""
@@ -60,8 +59,8 @@ export function markdownViewerPage(
         ? ""
         : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>
 ${assetsScripts(comments.assets)}`;
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${csp}"><title>Document</title>
+  const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Document</title>
 ${comments === undefined ? "" : assetsHead(comments.assets)}
 <style>
 ${VIEWER_CHROME_CSS}
@@ -70,7 +69,7 @@ ${DOCUMENT_CSS}
 ${DOCUMENT_SHELL_CSS}
 ${DOCUMENT_PANEL_CSS}
 </style></head>
-<body>${embed ? "" : artifactBar({ backHref, meta, embed })}
+<body>${artifactBar({ chrome, backHref, meta })}
 <div class="docshell" id="docshell"><main class="mdpage" id="document">${fragment}</main>${
     comments === undefined ? "" : commentsHost(true)
   }</div>
@@ -79,16 +78,15 @@ ${viewerRefreshScript(refresh)}
 </script>
 ${commentsData}
 </body></html>`;
+  return { html, headers: { ...DOCUMENT_HEADERS } };
 }
 
-export const markdownView = (model: ViewerModel, fragment: string): ArtifactPage => ({
-  html: markdownViewerPage(
+export const markdownView = (model: ViewerModel, fragment: string): ArtifactPage =>
+  markdownViewerPage(
     fragment,
     model.backHref,
     model.meta,
-    model.embed,
+    model.chrome,
     model.refresh,
     marginalComments(model.comments),
-  ),
-  headers: { ...VIEWER_HEADERS },
-});
+  );
