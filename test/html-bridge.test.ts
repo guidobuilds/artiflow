@@ -193,19 +193,23 @@ test("picking an element prefers id, then data-*, then a unique text hint and ne
 });
 
 test("the page injects the bridge inside the frame and keeps the margin outside it", () => {
-  const html = readFileSync(new URL("../apps/api/src/viewer/html.ts", import.meta.url), "utf8");
+  const artifact = readFileSync(new URL("../apps/api/src/viewer/artifact.ts", import.meta.url), "utf8");
+  const panel = readFileSync(new URL("../apps/api/src/viewer/chrome/panel.ts", import.meta.url), "utf8");
   assert.match(
-    html,
-    /srcdoc="\$\{escaped\}\$\{comments === undefined \? "" : escapeAttribute\(comments\.bridge\)\}"/,
+    artifact,
+    /const bridge = comments === undefined \? "" : escapeAttribute\(comments\.bridge\)/,
     "the bridge is escaped into the attribute, so its own quotes cannot close it",
   );
-  assert.match(html, /<div id="viewer-comments" class="viewer-comments"><\/div>/);
-  assert.match(html, /type="application\/json" id="viewer-comments-data"/);
-  assert.match(html, /docshell\$\{comments === undefined \? "" : " comments-available"\}/);
+  assert.match(artifact, /srcdoc="\$\{slots\.srcdoc\}\$\{bridge\}"/, "the bridge rides the srcdoc attribute");
+  assert.match(panel, /<div id="viewer-comments" class="viewer-comments"><\/div>/);
+  assert.match(panel, /mounted \? " comments-available" : ""/);
+  assert.match(artifact, /type="application\/json" id="viewer-comments-data"/);
+  assert.match(artifact, /docshell\$\{shellCommentsClass\(comments !== undefined\)\}/);
 });
 
 test("both HTML viewers pass the bridge the preparation built, the public one only with showComments", () => {
   const prepare = readFileSync(new URL("../apps/api/src/viewer/prepare.ts", import.meta.url), "utf8");
+  const artifact = readFileSync(new URL("../apps/api/src/viewer/artifact.ts", import.meta.url), "utf8");
   const library = readFileSync(new URL("../apps/api/src/routes/library.ts", import.meta.url), "utf8");
   const sharing = readFileSync(new URL("../apps/api/src/routes/sharing.ts", import.meta.url), "utf8");
   assert.match(
@@ -227,9 +231,15 @@ test("both HTML viewers pass the bridge the preparation built, the public one on
     ["library", library],
     ["sharing", sharing],
   ] as const) {
-    assert.match(source, /bridgeComments\(model\.comments\)/, `${name} passes the prepared bridge to its builder`);
+    assert.match(source, /htmlView\(model, /, `${name} passes the prepared model to its builder`);
     assert.equal(/htmlBridgeScript\(/.test(source), false, `${name} builds no bridge of its own`);
+    assert.equal(/bridgeComments\(/.test(source), false, `${name} assembles no bridge of its own`);
   }
+  assert.match(
+    artifact,
+    /comments: bridgeComments\(model\.comments\)/,
+    "the artifact document reads the prepared bridge from the model it is given",
+  );
 });
 
 test("a selector escapes everything CSS.escape escapes, including backslashes", () => {
@@ -336,8 +346,9 @@ test("the bridge announces the initial scroll position after ready and on load",
 });
 
 test("the html comments column never scrolls its own content so cards track the frame", () => {
-  const html = readFileSync(new URL("../apps/api/src/viewer/html.ts", import.meta.url), "utf8");
-  const rule = /\.docshell\.comments-visible \.viewer-comments\{([^}]*)\}/.exec(html);
+  const panel = readFileSync(new URL("../apps/api/src/viewer/chrome/panel.ts", import.meta.url), "utf8");
+  const framed = panel.slice(panel.indexOf("export const PANEL_CSS"), panel.indexOf("export const DOCUMENT_PANEL_CSS"));
+  const rule = /\.docshell\.comments-visible \.viewer-comments\{([^}]*)\}/.exec(framed);
   assert.ok(rule);
   assert.match(rule[1]!, /overflow:hidden/);
   assert.match(rule[1]!, /position:relative/);

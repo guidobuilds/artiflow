@@ -4,13 +4,14 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dashboardRoot = resolve(here, "../../../../apps/dashboard");
-const devEntry = "/src/viewer-comments.tsx";
+const COMMENTS_ENTRY = "viewer-comments.tsx";
+const devEntry = `/src/${COMMENTS_ENTRY}`;
 
 type ManifestChunk = { file?: string; css?: string[]; imports?: string[] };
 export type Assets = { script: string; styles: string[]; dev: boolean };
 export type AssetLog = (message: string) => void;
 
-let memo: { key: string; value: Assets } | null = null;
+const memo = new Map<string, Assets>();
 
 const readManifest = (file: string): Record<string, ManifestChunk> | null => {
   try {
@@ -35,12 +36,17 @@ export function viewerCommentsAssets(
 ): Assets {
   const explicit = env.ARTIFLOW_VIEWER_COMMENTS_ASSET;
   if (explicit !== undefined && explicit.trim() !== "") return { script: explicit.trim(), styles: [], dev: false };
+  return entryAssets(COMMENTS_ENTRY, env, log);
+}
+
+function entryAssets(entry: string, env: Record<string, string | undefined>, log: AssetLog): Assets {
   const dist = env.ARTIFLOW_DASHBOARD_DIST ?? join(dashboardRoot, "dist");
   const key = join(dist, ".vite", "manifest.json");
-  if (memo !== null && memo.key === key) return memo.value;
+  const cacheKey = `${key}\u0000${entry}`;
+  const cached = memo.get(cacheKey);
+  if (cached !== undefined) return cached;
   const manifest = readManifest(key);
-  const entryKey =
-    manifest === null ? undefined : Object.keys(manifest).find((name) => name.endsWith("viewer-comments.tsx"));
+  const entryKey = manifest === null ? undefined : Object.keys(manifest).find((name) => name.endsWith(entry));
   const value: Assets =
     manifest !== null && entryKey !== undefined
       ? {
@@ -52,7 +58,7 @@ export function viewerCommentsAssets(
         ? (log(`[viewer] no comment bundle in ${key}; production serves the viewer without comments`),
           { script: "", styles: [], dev: false })
         : { script: devEntry, styles: [], dev: true };
-  memo = { key, value };
+  memo.set(cacheKey, value);
   return value;
 }
 
@@ -60,7 +66,7 @@ export const viewerCommentsAsset = (env: Record<string, string | undefined> = pr
   viewerCommentsAssets(env).script;
 
 export function resetViewerCommentsAssetCache(): void {
-  memo = null;
+  memo.clear();
 }
 
 export const DEV_PREAMBLE = `<script type="module">

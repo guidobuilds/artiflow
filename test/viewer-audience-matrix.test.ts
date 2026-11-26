@@ -596,10 +596,13 @@ test("one authorized preparation: both routes call prepareViewer and decide none
       /htmlBridgeScript\(/,
       /refreshPlan\(/,
       /viewerCommentsAssets\(/,
+      /bridgeComments\(/,
+      /marginalComments\(/,
     ])
       assert.equal(derived.test(source), false, `${name} derives nothing itself: ${String(derived)}`);
-    assert.match(source, /wrapperPage\(/, `${name} still calls the wrapper builder with model values`);
-    assert.match(source, /markdownViewerPage\(/, `${name} still calls the markdown builder with model values`);
+    assert.match(source, /markdownView\(model, /, `${name} still calls the markdown builder with model values`);
+    assert.match(source, /htmlView\(model, /, `${name} still calls the html builder with model values`);
+    assert.match(source, /sceneView\(model, /, `${name} still calls the scene builder with model values`);
   }
   for (const owned of [
     /loadViewerComments[<(]/,

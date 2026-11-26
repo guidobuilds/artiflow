@@ -8,8 +8,15 @@ import { viewerCommentsAssets } from "./assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig, type ViewerCommentsConfig } from "./comments-data.ts";
 import { loadViewerComments, type ViewerCommentLoad } from "./comments-degrade.ts";
 import { htmlBridgeScript } from "./html-bridge-script.ts";
-import { refreshPlan, type ViewerRefresh } from "./html.ts";
-import type { ViewerActions, ViewerAudience, ViewerChrome, ViewerCommentsPlan, ViewerModel } from "./model.ts";
+import {
+  refreshPlan,
+  type ViewerActions,
+  type ViewerAudience,
+  type ViewerChrome,
+  type ViewerCommentsPlan,
+  type ViewerModel,
+  type ViewerRefresh,
+} from "./model.ts";
 
 export type ViewerArtifactRow = {
   readonly id: string;

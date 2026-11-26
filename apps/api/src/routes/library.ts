@@ -22,23 +22,17 @@ import type {
   ArtifactSummary,
   SharedArtifactListResponse,
 } from "@artiflow/contracts/artifacts";
-import {
-  escapeAttribute,
-  NOT_FOUND_HEADERS,
-  NOT_FOUND_PAGE,
-  originOf,
-  sceneHeaders,
-  VIEWER_HEADERS,
-  wrapperPage,
-} from "../viewer/html.ts";
-import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
-import { bridgeComments, commentConfig, commentThreads, marginalComments } from "../viewer/model.ts";
+import { originOf } from "../viewer/artifact.ts";
+import { NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
+import { commentConfig, commentThreads } from "../viewer/model.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
+import { htmlView } from "../viewer/views/html.ts";
+import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.ts";
+import { sceneView, type SceneImages } from "../viewer/views/scene.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
 import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
 import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
-import { renderSceneDocument, type SceneImages } from "../viewer/scene.ts";
 import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -224,18 +218,8 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const model = await prepareViewer({ db, artifact, request, embed, source: decoded.text });
-      return c.html(
-        markdownViewerPage(
-          renderMarkdownFragment(decoded.text),
-          model.backHref,
-          model.meta,
-          model.embed,
-          model.refresh,
-          marginalComments(model.comments),
-        ),
-        200,
-        VIEWER_HEADERS,
-      );
+      const page = markdownView(model, renderMarkdownFragment(decoded.text));
+      return c.html(page.html, 200, page.headers);
     }
     if (viewerFor(row.kind) === "scene") {
       const scene = readScene(new TextDecoder().decode(read.value.bytes));
@@ -254,25 +238,18 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         source: null,
         publishedScene: async () => scene.value,
       });
-      return c.html(
-        wrapperPage(
-          escapeAttribute(renderSceneDocument(scene.value, frame, images, commentThreads(model.comments), row.kind)),
-          model.backHref,
-          model.meta,
-          model.embed,
-          model.refresh,
-        ),
-        200,
-        sceneHeaders(origin),
-      );
+      const page = sceneView(model, {
+        scene: scene.value,
+        frameId: frame,
+        images,
+        threads: commentThreads(model.comments),
+        kind: row.kind,
+      });
+      return c.html(page.html, 200, page.headers);
     }
     const model = await prepareViewer({ db, artifact, request, embed, source: null });
-    const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    return c.html(
-      wrapperPage(escaped, model.backHref, model.meta, model.embed, model.refresh, bridgeComments(model.comments)),
-      200,
-      VIEWER_HEADERS,
-    );
+    const page = htmlView(model, new TextDecoder().decode(read.value.bytes));
+    return c.html(page.html, 200, page.headers);
   };
 
   app.get("/artifact/:id", async (c) => {

@@ -680,21 +680,32 @@ test("the markdown page keeps its own policy and the fragment can only add text"
 
 test("the public share 200s all spread the widened viewer headers", () => {
   const source = readFileSync(new URL("../apps/api/src/routes/sharing.ts", import.meta.url), "utf8");
-  assert.equal([...source.matchAll(/\.\.\.VIEWER_HEADERS/g)].length, 2, "the markdown and HTML share 200s");
-  assert.equal([...source.matchAll(/sceneHeaders\(origin\)/g)].length, 1, "the scene share 200 gets its own list");
+  const sceneView = readFileSync(new URL("../apps/api/src/viewer/views/scene.ts", import.meta.url), "utf8");
+  assert.equal(
+    [...source.matchAll(/\.\.\.page\.headers/g)].length,
+    3,
+    "the markdown, HTML and scene share 200s spread the headers their builder returned",
+  );
+  assert.equal(source.includes("VIEWER_HEADERS"), false, "the route names no policy of a page it did not build");
   assert.equal(source.includes("WRAPPER_CSP"), false, "the share viewer never serves the narrow policy");
   assert.equal(
     sceneCsp("https://canvas.test"),
     VIEWER_CSP.replace("img-src 'self'", "img-src https://canvas.test"),
     "the scene list is the viewer list with one explicit image source",
   );
+  assert.match(
+    sceneView,
+    /images: input\.images\?\.origin/,
+    "the scene builder widens the policy it returns with the origin its images came from",
+  );
   assert.equal(
     [...source.matchAll(/"x-robots-tag": "noindex"/g)].length,
     5,
     "every served page stays unindexable, as do the ?meta=1 projection and the link comments",
   );
-  assert.equal([...source.matchAll(/markdownViewerPage\(/g)].length, 1, "the markdown share page is one of them");
-  assert.equal([...source.matchAll(/wrapperPage\(/g)].length, 2, "the HTML and scene share pages are the others");
+  assert.equal([...source.matchAll(/markdownView\(model, /g)].length, 1, "the markdown share page is one of them");
+  assert.equal([...source.matchAll(/htmlView\(model, /g)].length, 1, "the HTML share page is the second");
+  assert.equal([...source.matchAll(/sceneView\(model, /g)].length, 1, "and the scene share page is the third");
 });
 
 const MARKDOWN_REFRESH: ViewerRefresh = {

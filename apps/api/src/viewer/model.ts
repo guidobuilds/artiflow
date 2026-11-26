@@ -1,8 +1,26 @@
 import type { Assets } from "./assets.ts";
 import type { ViewerCommentsConfig, ViewerCommentThread } from "./comments-data.ts";
-import type { ViewerMeta, ViewerRefresh, WrapperComments } from "./html.ts";
 
 export type RefreshPlan = { kind: "reload"; metaUrl: string } | { kind: "none" };
+
+export type ViewerMeta = { title: string | null; version: number | null };
+
+export type ViewerRefresh = {
+  plan: RefreshPlan;
+  revisionNumber: number;
+  sha256: string;
+  comments?: boolean;
+};
+
+export type WrapperComments = {
+  nonce: string;
+  bridge: string;
+  config: unknown;
+  assets: Assets;
+};
+
+export const refreshPlan = (metaUrl: string): RefreshPlan =>
+  metaUrl === "" ? { kind: "none" } : { kind: "reload", metaUrl };
 
 export type ViewerAudience =
   | { readonly kind: "session"; readonly viewerId: string; readonly access: string | null }
