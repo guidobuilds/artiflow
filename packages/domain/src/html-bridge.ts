@@ -6,12 +6,7 @@ export const BRIDGE_BUDGET_WINDOW_MS = 1_000;
 export type BridgeNonce = string;
 
 export type ParentCommand =
-  | {
-      type: "pins";
-      pins: { id: string; number: number; selector: string; textHint: string; x: number; y: number; stale: boolean }[];
-    }
-  | { type: "mode"; on: boolean }
-  | { type: "focus"; id: string | null };
+  { type: "pins"; pins: BridgePin[] } | { type: "mode"; on: boolean } | { type: "focus"; id: string | null };
 
 export type FrameEvent =
   | { type: "geometry"; id: string; x: number; y: number; visible: boolean }
@@ -40,7 +35,6 @@ export type BridgePin = {
   x: number;
   y: number;
   stale: boolean;
-  stalePixels: boolean;
 };
 
 export type PinnableThread = { readonly id: string; readonly anchor?: unknown };
@@ -69,7 +63,6 @@ export const bridgePins = (threads: readonly PinnableThread[]): BridgePin[] =>
           x: shape.point?.x ?? 0.5,
           y: shape.point?.y ?? 0.5,
           stale: false,
-          stalePixels: false,
         },
       ];
     if (shape.kind === "page-point")
@@ -82,7 +75,6 @@ export const bridgePins = (threads: readonly PinnableThread[]): BridgePin[] =>
           x: typeof shape.x === "number" ? shape.x : 0.5,
           y: typeof shape.y === "number" ? shape.y : 0,
           stale: true,
-          stalePixels: true,
         },
       ];
     return [];

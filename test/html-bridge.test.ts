@@ -15,6 +15,7 @@ import {
   parseBridgeMessage,
   resolveElement,
   type ElementLike,
+  type ParentCommand,
   type Structure,
 } from "../packages/domain/src/html-bridge.ts";
 import { htmlBridgeScript } from "../apps/api/src/viewer/html-bridge-script.ts";
@@ -24,6 +25,8 @@ import { viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
 const nonce = "nonce-1";
 const frame = { id: "frame" };
 const envelope = { channel: BRIDGE_CHANNEL, version: BRIDGE_VERSION, nonce };
+const protocolSource = readFileSync(new URL("../packages/domain/src/html-bridge.ts", import.meta.url), "utf8");
+type DeclaredPin = Extract<ParentCommand, { type: "pins" }>["pins"][number];
 
 const validate = (raw: unknown, overrides: Partial<{ source: unknown; nonce: string }> = {}) =>
   parseBridgeMessage(raw, { nonce: overrides.nonce ?? nonce, source: overrides.source ?? frame, frame });
@@ -90,7 +93,6 @@ const pin = {
   x: 0.5,
   y: 0.5,
   stale: false,
-  stalePixels: false,
 };
 
 test("no command sent to the frame carries comment text", () => {
@@ -191,7 +193,7 @@ test("a thread created in-session reaches the frame with the pin a served page w
   );
   assert.deepEqual(
     refetched[1],
-    { id: "second", number: 2, selector: "", textHint: "", x: 0.25, y: 120, stale: true, stalePixels: true },
+    { id: "second", number: 2, selector: "", textHint: "", x: 0.25, y: 120, stale: true },
     "and the new pin is the page's, with the fields the frame reads",
   );
   assert.deepEqual(
@@ -205,6 +207,42 @@ test("a thread created in-session reaches the frame with the pin a served page w
     true,
     "the projection's own pins are a valid command, field for field",
   );
+});
+
+test("the pin command declares exactly the fields the projection emits", () => {
+  const projected = bridgePins([
+    { id: "a", anchor: { kind: "element", selector: "#hero", textHint: "Hero", point: { x: 0.1, y: 0.2 } } },
+    { id: "b", anchor: { kind: "page-point", x: 0.3, y: 40 } },
+  ]);
+  const declared: DeclaredPin[] = projected;
+  assert.deepEqual(
+    declared.map((entry) => entry.id),
+    ["a", "b"],
+    "every projection pin is a declared pin, as the assignment above compiles",
+  );
+  for (const entry of projected)
+    assert.deepEqual(
+      Object.keys(entry),
+      ["id", "number", "selector", "textHint", "x", "y", "stale"],
+      "field for field, in the order the protocol table lists them",
+    );
+  assert.equal(JSON.stringify(projected).includes("stalePixels"), false, "the wire carries no field the frame derives");
+  assert.match(
+    protocolSource,
+    /type: "pins";\s*pins: BridgePin\[\]/,
+    "the command names the projection's own type, so the two cannot disagree",
+  );
+  assert.equal(/stalePixels/.test(commentsData.bridgePins.toString()), false, "the projection derives nothing");
+  const island = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  assert.equal(/stalePixels/.test(island), false, "and the island adds nothing on the way out");
+  const body = htmlBridgeScript({ nonce, pins: projected });
+  assert.equal(
+    [...body.matchAll(/stalePixels: pin\.stale === true/g)].length,
+    1,
+    "the frame derives it from stale in exactly one place",
+  );
+  assert.match(body, /PINS = positioned\(PINS\);/, "for the pins it was served");
+  assert.match(body, /PINS = positioned\(data\.pins\);/, "and for every pins command it receives");
 });
 
 test("one pin projection serves both sides of the bridge, and neither keeps a copy", () => {

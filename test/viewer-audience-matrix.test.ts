@@ -22,6 +22,7 @@ import { createLibraryApp, type LibraryOptions } from "../apps/api/src/routes/li
 import { createShareViewerApp } from "../apps/api/src/routes/sharing.ts";
 import { sceneCsp, VIEWER_CSP } from "../apps/api/src/viewer/html.ts";
 import { DOCUMENT_CSP } from "../apps/api/src/viewer/artifact.ts";
+import { renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
 import type { ViewerActions, ViewerAudience, ViewerChrome, ViewerModel } from "../apps/api/src/viewer/model.ts";
 import { prepareViewer, type ViewerRequest } from "../apps/api/src/viewer/prepare.ts";
 
@@ -135,13 +136,15 @@ const audienceOf = (seat: Seat): ViewerAudience =>
       : { kind: "session", viewerId: VIEWER_ID, access: accessOf(seat) ?? "owner" };
 
 const planKindOf = (seat: Seat, kind: ArtifactKind): "page" | "document" | "none" =>
-  rendersScene(kind)
-    ? isPublic(seat)
-      ? "none"
-      : "document"
-    : isPublic(seat) && !showsComments(seat)
-      ? "none"
-      : "page";
+  seat === "embed"
+    ? "none"
+    : rendersScene(kind)
+      ? isPublic(seat)
+        ? "none"
+        : "document"
+      : isPublic(seat) && !showsComments(seat)
+        ? "none"
+        : "page";
 
 const metaUrlOf = (seat: Seat): string => (isPublic(seat) ? `/share/${TOKEN}?meta=1` : `/api/artifacts/${ARTIFACT_ID}`);
 
@@ -383,7 +386,7 @@ test("no response carries the owner id outside the thread it authored", async ()
 test("the page path reads the artifact, the access and the threads once; a public page reads no access", async () => {
   for (const seat of SEATS) {
     for (const kind of ARTIFACT_KINDS) {
-      const expected = isPublic(seat) ? (showsComments(seat) && !rendersScene(kind) ? 2 : 1) : 3;
+      const expected = isPublic(seat) ? (showsComments(seat) && !rendersScene(kind) ? 2 : 1) : seat === "embed" ? 2 : 3;
       assert.equal((await cellOf(seat, kind)).queries, expected, `${seat} x ${kind} query count`);
     }
   }
@@ -482,6 +485,23 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
       if (model.chrome === "none") {
         assert.equal(bar, null, `${label} embed renders no bar`);
         assert.equal(/<[a-z][^>]*\sdata-control=/.test(page), false, `${label} embed renders no control`);
+        for (const [name, needle] of [
+          ["comments host", 'id="viewer-comments"'],
+          ["comments config", 'id="viewer-comments-data"'],
+          ["comments bundle", '<script type="module"'],
+          ["bridge", "data-artiflow-bridge"],
+          ["pins", "let PINS"],
+          ["comments shell class", "comments-available"],
+        ] as const)
+          assert.equal(page.includes(needle), false, `${label} embed ships no ${name}`);
+        if (kind === "html")
+          assert.equal(srcdocOf(page), HTML_SOURCE, `${label} embed hands the frame the stored bytes`);
+        if (kind === "markdown")
+          assert.equal(
+            /<main class="mdpage" id="document">([\s\S]*?)<\/main>/.exec(page)?.[1],
+            renderMarkdownFragment(MARKDOWN_SOURCE),
+            `${label} embed renders the document and nothing else`,
+          );
       } else {
         assert.notEqual(bar, null, `${label} renders the bar`);
         assert.deepEqual(

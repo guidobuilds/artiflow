@@ -282,7 +282,12 @@ test("the shared viewer loads comments for a reader but refuses writes", () => {
     /const shared = await commentDocument\(db, viewerId, artifactId, "shared"\)/,
     "the access level is read for the viewer, never for an owner",
   );
-  assert.match(prepare, /list: \(\) => listComments\(db, artifactId, true\)/);
+  assert.match(
+    prepare,
+    /list: threads \? \(\) => listComments\(db, artifactId, true\) : async \(\) => \[\]/,
+    "the threads are read for a served page and never for an embed, whose permissions do not need them",
+  );
+  assert.match(prepare, /sessionLoad\(input\.db, request\.viewerId, input\.artifact, !input\.embed\)/);
   assert.match(prepare, /canComment: loaded\.canComment/);
   assert.match(
     prepare,
