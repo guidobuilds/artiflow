@@ -9,7 +9,7 @@ import { assetsScripts, resetViewerCommentsAssetCache, viewerActionsAssets } fro
 import { artifactView } from "../apps/api/src/viewer/artifact.ts";
 import { markdownView, renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
 import { managementMenu, type ViewerModel } from "../apps/api/src/viewer/model.ts";
-import { renameMessage } from "../apps/dashboard/src/artifact-api.ts";
+import { renameMessage, renameNotice, renameState } from "../apps/dashboard/src/artifact-api.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -301,14 +301,8 @@ test("focus goes back to the trigger after a dialog closes, never to a detached 
   assert.equal((islandSource.match(/onClose=\{close\}/g) ?? []).length, 3, "all three dialogs hand their close back");
 });
 
-const renameStateOf = (): ((current: string | null, next: string) => unknown) =>
-  exportedPolicy(islandSource, "renameState", ["current", "next"]) as (current: string | null, next: string) => unknown;
-
-const renameNoticeOf = (): ((state: unknown) => unknown) =>
-  exportedPolicy(islandSource, "renameNotice", ["state"]) as (state: unknown) => unknown;
-
 test("the rename dialog fills itself with the title it has and refuses to save nothing or the same thing", () => {
-  const state = renameStateOf();
+  const state = renameState;
   assert.equal(state(TITLE, TITLE), "unchanged", "the prefilled title is not a change");
   assert.equal(state(TITLE, `  ${TITLE}  `), "unchanged", "nor is the same title with whitespace around it");
   assert.equal(state(TITLE, "Pricing artifact v2"), "ready", "a different title can be saved");
@@ -318,12 +312,39 @@ test("the rename dialog fills itself with the title it has and refuses to save n
   assert.equal(state(TITLE, "x".repeat(200)), "ready", "200 characters is inside the cap");
   assert.equal(state(TITLE, "x".repeat(201)), "too_long", "201 is outside it");
   assert.equal(state(TITLE, `  ${"x".repeat(201)}  `), "too_long", "and the cap counts the trimmed value");
+  assert.equal(state(TITLE, "\u200b"), "ready", "a zero-width space is a title, not a blank one");
 
-  const notice = renameNoticeOf();
+  const notice = renameNotice;
   assert.equal(notice("unchanged"), null, "nothing to say about an unchanged title");
   assert.equal(notice("ready"), null);
   assert.equal(notice("empty"), "Enter a title to save.", "an empty title is explained");
   assert.match(String(notice("too_long")), /200 characters/, "and so is the cap");
+});
+
+test("the island keeps no copy of the title rules: one number, one notion of blank, one import", () => {
+  assert.equal(/200/.test(islandSource), false, "the cap is not written in the island");
+  assert.equal(
+    /export type RenameState|export function renameState|export function renameNotice/.test(islandSource),
+    false,
+    "the rules are not restated in the island",
+  );
+  assert.equal(
+    /trim\(\)\.length === 0|\.trim\(\) === \(/.test(islandSource),
+    false,
+    "and the island owns no blank or unchanged rule of its own",
+  );
+  assert.match(
+    islandSource,
+    /import \{ renameArtifact, renameNotice, renameState \} from "@\/artifact-api\.ts";/,
+    "the island imports the one copy",
+  );
+  const artifactApi = read("../apps/dashboard/src/artifact-api.ts");
+  assert.match(
+    artifactApi,
+    /import \{[^}]*ARTIFACT_TITLE_LIMIT[^}]*titleProblem[^}]*\} from "@artiflow\/contracts\/artifacts";/s,
+    "and that copy is the shared contract, not a second number",
+  );
+  assert.equal(/200/.test(artifactApi), false, "the client module holds no number of its own");
 });
 
 test("the rename dialog is a shared-dialog form with a prefilled field, cancel, save and the server's answer", () => {
@@ -425,10 +446,13 @@ test("the island's rename is the metadata patch, and its refusals are words the 
   assert.equal((artifactApi.match(/"PATCH"/g) ?? []).length, 1, "the dashboard renames through that one call");
   assert.equal(renameMessage("title_required"), "Enter a title to save.", "an empty title says what to do");
   assert.match(String(renameMessage("title_too_long")), /too long/, "an over-long title says what to do");
+  const notFound = String(renameMessage("not_found"));
+  assert.match(notFound, /not yours/, "a refusal covers an artifact that is not the reader's");
+  assert.match(notFound, /no longer available/, "and one that was deleted, in the same words");
   assert.equal(
-    renameMessage("not_found"),
-    "Only the owner can rename this artifact, and only while it exists.",
-    "a refusal names the reason the reader can check",
+    /deleted|removed|does not exist|never existed/i.test(notFound),
+    false,
+    "and it never tells the caller which of the two it hit",
   );
   assert.equal(renameMessage("network"), undefined, "a transport failure keeps the client's own message");
 });

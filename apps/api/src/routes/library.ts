@@ -40,6 +40,7 @@ import { readPrincipal } from "../http/principal.ts";
 
 const LIST_LIMIT = 100;
 const SHARED_LIMIT = 200;
+const METADATA_BODY_LIMIT = 64 * 1024;
 
 type LibraryAuth = ReturnType<typeof createAuth>;
 export type LibraryOptions = {
@@ -323,7 +324,18 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       if (!ownerId) return jsonError(c, "unauthorized", 401);
       const artifactId = c.req.param("id");
       if (!isUuid(artifactId)) return jsonError(c, "not_found", 404);
-      const body = (await c.req.json().catch(() => null)) as { title?: unknown } | null;
+      const declared = c.req.header("content-length");
+      if (declared !== undefined && Number.isFinite(Number(declared)) && Number(declared) > METADATA_BODY_LIMIT)
+        return jsonError(c, "too_large", 413);
+      const raw = await c.req.text();
+      if (Buffer.byteLength(raw, "utf8") > METADATA_BODY_LIMIT) return jsonError(c, "too_large", 413);
+      const body = ((): { title?: unknown } | null => {
+        try {
+          return JSON.parse(raw) as { title?: unknown } | null;
+        } catch {
+          return null;
+        }
+      })();
       const title = typeof body?.title === "string" ? body.title.trim() : "";
       const renamed = await renameArtifact(db, { artifactId, ownerId, title });
       if (renamed.ok) return c.json(renamed.value satisfies ArtifactMetadataUpdateResponse, 200);

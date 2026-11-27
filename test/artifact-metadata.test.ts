@@ -5,7 +5,12 @@ import { test } from "node:test";
 
 import { Hono } from "hono";
 
-import { artifactMetadataUpdateResponseSchema } from "@artiflow/contracts/artifacts";
+import {
+  ARTIFACT_TITLE_LIMIT,
+  artifactMetadataUpdateResponseSchema,
+  createArtifactRequestSchema,
+  titleProblem,
+} from "@artiflow/contracts/artifacts";
 
 import {
   artifacts,
@@ -228,7 +233,9 @@ const harness = (held: Store, session: Session) => {
       headers: MUTATION,
       body: JSON.stringify({ title }),
     });
-  return { read, rename };
+  const renameBody = (body: string, headers: Record<string, string> = MUTATION): Promise<Reply> =>
+    read(`/api/artifacts/${ARTIFACT}/metadata`, { method: "PATCH", headers, body });
+  return { read, rename, renameBody };
 };
 
 const detailOf = async (read: Reply): Promise<Record<string, unknown>> => {
@@ -352,6 +359,78 @@ test("a blank or over-long title is refused and stores nothing", async () => {
       ["title", "updatedAt"],
     ],
     "only the two accepted renames reached the store",
+  );
+});
+
+const BODY_CAP = 64 * 1024;
+
+const padded = (bytes: number): string => {
+  const base = JSON.stringify({ title: "Padded", pad: "" });
+  return JSON.stringify({ title: "Padded", pad: "p".repeat(Math.max(0, bytes - base.length)) });
+};
+
+test("a body past the metadata cap is refused before it is parsed, and stores nothing", async () => {
+  const held = store();
+  const { rename, renameBody } = harness(held, sessionOf({ userId: OWNER }));
+
+  const declared = await renameBody(JSON.stringify({ title: RENAMED }), {
+    ...MUTATION,
+    "content-length": String(3 * 1024 * 1024),
+  });
+  assert.deepEqual(
+    [declared.status, declared.json],
+    [413, { error: "too_large" }],
+    "a declared oversized body is refused without being read",
+  );
+
+  const undeclared = await renameBody(padded(BODY_CAP + 1));
+  assert.deepEqual(
+    [undeclared.status, undeclared.json],
+    [413, { error: "too_large" }],
+    "a body that arrives without a declared length is still refused",
+  );
+
+  const wide = await renameBody(JSON.stringify({ title: RENAMED, pad: "\u00e9".repeat(BODY_CAP / 2 + 1) }));
+  assert.deepEqual(
+    [wide.status, wide.json],
+    [413, { error: "too_large" }],
+    "the cap counts bytes, not characters: a body under the cap in code units is over it in bytes",
+  );
+
+  const inside = await renameBody(padded(BODY_CAP - 64));
+  assert.deepEqual([inside.status, inside.json?.title], [200, "Padded"], "a body inside the cap is read and accepted");
+
+  const overLong = await rename("x".repeat(300));
+  assert.deepEqual(
+    [overLong.status, overLong.json],
+    [400, { error: "title_too_long" }],
+    "the title rule still applies",
+  );
+
+  assert.deepEqual(
+    held.writes,
+    [{ table: "artifacts", keys: ["title", "updatedAt"] }],
+    "only the body inside the cap reached the store",
+  );
+});
+
+test("one title rule: the wire schemas and the viewer's precheck read one number and one notion of blank", () => {
+  assert.equal(ARTIFACT_TITLE_LIMIT, 200, "the cap is stated once, where the wire schemas and the client both read it");
+  const wire = (title: string): boolean => createArtifactRequestSchema.safeParse({ text: "x", title }).success;
+  assert.deepEqual(
+    [wire("a".repeat(200)), wire("a".repeat(201)), wire("a"), wire("")],
+    [true, false, true, false],
+    "the create schema refuses exactly what the limit says",
+  );
+  assert.deepEqual(
+    ["", "   \n\t ", "\u200b"].map((title) => titleProblem(title)),
+    ["empty", "empty", null],
+    "one notion of blank: nothing but whitespace is blank, a zero-width space is a title",
+  );
+  assert.deepEqual(
+    ["a".repeat(200), "a".repeat(201), "  padded  ", "  " + "a".repeat(200) + "  "].map((title) => titleProblem(title)),
+    [null, "too_long", null, null],
+    "the cap and the blank test both read the trimmed value",
   );
 });
 

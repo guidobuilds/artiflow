@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import "@/styles/globals.css";
 
-import { renameArtifact } from "@/artifact-api.ts";
+import { renameArtifact, renameNotice, renameState } from "@/artifact-api.ts";
 import DeleteModal from "@/DeleteModal.tsx";
 import ShareModal from "@/ShareModal.tsx";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
@@ -15,7 +15,6 @@ import { QueryProvider } from "@/query/provider.tsx";
 
 type Config = { readonly id: string; readonly title: string | null; readonly kind: string };
 type Panel = "none" | "share" | "delete" | "rename";
-export type RenameState = "ready" | "empty" | "unchanged" | "too_long";
 
 export function triggerIntent(key: string, modified: boolean): "open" | "ignore" {
   return !modified && key === "ArrowDown" ? "open" : "ignore";
@@ -27,19 +26,6 @@ export function refocusAfterClose(trigger: () => HTMLElement | null, schedule: (
     if (node === null || node.isConnected === false) return;
     node.focus({ preventScroll: true });
   });
-}
-
-export function renameState(current: string | null, next: string): RenameState {
-  const value = next.trim();
-  if (value.length === 0) return "empty";
-  if (value.length > 200) return "too_long";
-  return value === (current ?? "").trim() ? "unchanged" : "ready";
-}
-
-export function renameNotice(state: RenameState): string | null {
-  if (state === "empty") return "Enter a title to save.";
-  if (state === "too_long") return "Titles are limited to 200 characters.";
-  return null;
 }
 
 type TitleRoot = { title: string; querySelector(selector: string): { textContent: string | null } | null };
