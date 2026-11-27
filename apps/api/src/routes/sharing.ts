@@ -17,22 +17,16 @@ import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { listComments } from "../adapters/postgres/comments-repo.ts";
 import type { Storage } from "../adapters/storage/client.ts";
-import {
-  escapeAttribute,
-  NOT_FOUND_HEADERS,
-  NOT_FOUND_PAGE,
-  originOf,
-  sceneHeaders,
-  VIEWER_HEADERS,
-  wrapperPage,
-} from "../viewer/html.ts";
-import { markdownViewerPage, renderMarkdownFragment } from "../viewer/markdown.ts";
-import { bridgeComments, commentThreads, marginalComments } from "../viewer/model.ts";
+import { originOf } from "../viewer/artifact.ts";
+import { NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
+import { commentThreads } from "../viewer/model.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
+import { htmlView } from "../viewer/views/html.ts";
+import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.ts";
+import { sceneView } from "../viewer/views/scene.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
 import { rendersInlineMarkdown, rendersScene, viewerFor } from "@artiflow/domain/kinds";
-import { renderSceneDocument } from "../viewer/scene.ts";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { ACTIVE_ACCOUNT_STATUS } from "../identity/account-status.ts";
 import { readPrincipal } from "../http/principal.ts";
@@ -498,21 +492,11 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
       const model = await prepareViewer({ db, artifact, request, embed: false, source: decoded.text });
-      return c.html(
-        markdownViewerPage(
-          renderMarkdownFragment(decoded.text),
-          model.backHref,
-          model.meta,
-          model.embed,
-          model.refresh,
-          marginalComments(model.comments),
-        ),
-        200,
-        {
-          ...VIEWER_HEADERS,
-          "x-robots-tag": "noindex",
-        },
-      );
+      const page = markdownView(model, renderMarkdownFragment(decoded.text));
+      return c.html(page.html, 200, {
+        ...page.headers,
+        "x-robots-tag": "noindex",
+      });
     }
     if (viewerFor(row.kind) === "scene") {
       const scene = readScene(new TextDecoder().decode(read.value.bytes));
@@ -528,33 +512,24 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
               token,
             };
       const model = await prepareViewer({ db, artifact, request, embed: false, source: null });
-      return c.html(
-        wrapperPage(
-          escapeAttribute(
-            renderSceneDocument(scene.value, c.req.query("frame"), images, commentThreads(model.comments), row.kind),
-          ),
-          model.backHref,
-          model.meta,
-          model.embed,
-          model.refresh,
-        ),
-        200,
-        {
-          ...sceneHeaders(origin),
-          "x-robots-tag": "noindex",
-        },
-      );
+      const page = sceneView(model, {
+        scene: scene.value,
+        frameId: c.req.query("frame"),
+        images,
+        threads: commentThreads(model.comments),
+        kind: row.kind,
+      });
+      return c.html(page.html, 200, {
+        ...page.headers,
+        "x-robots-tag": "noindex",
+      });
     }
     const model = await prepareViewer({ db, artifact, request, embed: false, source: null });
-    const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    return c.html(
-      wrapperPage(escaped, model.backHref, model.meta, model.embed, model.refresh, bridgeComments(model.comments)),
-      200,
-      {
-        ...VIEWER_HEADERS,
-        "x-robots-tag": "noindex",
-      },
-    );
+    const page = htmlView(model, new TextDecoder().decode(read.value.bytes));
+    return c.html(page.html, 200, {
+      ...page.headers,
+      "x-robots-tag": "noindex",
+    });
   });
   return app;
 }

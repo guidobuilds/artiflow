@@ -20,7 +20,14 @@ import { createShareViewerApp } from "../apps/api/src/routes/sharing.ts";
 import { viewerCommentsAssets } from "../apps/api/src/viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
 import { htmlBridgeScript } from "../apps/api/src/viewer/html-bridge-script.ts";
-import { escapeAttribute, NOT_FOUND_PAGE, SANDBOX, VIEWER_CSP, wrapperPage } from "../apps/api/src/viewer/html.ts";
+import {
+  escapeAttribute,
+  NOT_FOUND_PAGE,
+  SANDBOX,
+  sceneHeaders,
+  VIEWER_CSP,
+  wrapperPage,
+} from "../apps/api/src/viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
 import { renderSceneDocument } from "../apps/api/src/viewer/scene.ts";
 
@@ -560,6 +567,21 @@ test("the canvas page allows images from exactly this instance's origin", async 
     "the rendered document carries the same single image source",
   );
   assert.equal(reply.queries, 3, "the reference table is read once, beside the artifact and the comment access row");
+});
+
+test("a trailing-slash image origin produces one policy, not two", () => {
+  const origin = "http://localhost/";
+  const document = renderSceneDocument(scene, undefined, { origin, artifactId: ARTIFACT_ID, digests: new Set() });
+  assert.equal(
+    metaPolicyOf(document),
+    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src http://localhost; base-uri 'none'; form-action 'none'",
+    "the frame names the origin, never the spelling it arrived in",
+  );
+  assert.equal(
+    sceneHeaders(origin)["content-security-policy"],
+    SCENE_PAGE_POLICY,
+    "the response header names the same origin the frame does",
+  );
 });
 
 test("PRESERVE: html and markdown keep their exact policy strings", async () => {

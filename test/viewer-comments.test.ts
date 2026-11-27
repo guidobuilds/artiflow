@@ -6,11 +6,13 @@ import { test } from "node:test";
 import { compileFunction } from "node:vm";
 
 import {
+  assetsScripts,
   resetViewerCommentsAssetCache,
   viewerCommentsAsset,
   viewerCommentsAssets,
 } from "../apps/api/src/viewer/assets.ts";
 import { viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
+import { wrapperPage } from "../apps/api/src/viewer/html.ts";
 import {
   createSequenceGuard,
   parseThreadsResponse,
@@ -107,6 +109,101 @@ test("a missing manifest outside production falls back to the dev entry", () => 
       viewerCommentsAsset({ ARTIFLOW_DASHBOARD_DIST: dir, NODE_ENV: "development" }),
       "/src/viewer-comments.tsx",
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    resetViewerCommentsAssetCache();
+  }
+});
+
+const writeManifest = (dir: string, file: string): void => {
+  mkdirSync(join(dir, ".vite"), { recursive: true });
+  writeFileSync(
+    join(dir, ".vite", "manifest.json"),
+    JSON.stringify({ "src/viewer-comments.tsx": { file }, "src/other-entry.tsx": { file: "assets/other.js" } }),
+  );
+};
+
+test("two instances never share a memo slot", () => {
+  resetViewerCommentsAssetCache();
+  const first = mkdtempSync(join(tmpdir(), "viewer-asset-a-"));
+  const second = mkdtempSync(join(tmpdir(), "viewer-asset-b-"));
+  try {
+    writeManifest(first, "assets/a.js");
+    writeManifest(second, "assets/b.js");
+    assert.equal(viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: first }).script, "/assets/a.js");
+    assert.equal(
+      viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: second }).script,
+      "/assets/b.js",
+      "a second build is looked up in its own manifest, not in the first one's memo",
+    );
+    assert.equal(viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: first }).script, "/assets/a.js", "and back again");
+  } finally {
+    rmSync(first, { recursive: true, force: true });
+    rmSync(second, { recursive: true, force: true });
+    resetViewerCommentsAssetCache();
+  }
+});
+
+test("a memoised manifest is not re-read until the cache is reset", () => {
+  resetViewerCommentsAssetCache();
+  const dir = mkdtempSync(join(tmpdir(), "viewer-asset-memo-"));
+  try {
+    writeManifest(dir, "assets/first.js");
+    assert.equal(viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir }).script, "/assets/first.js");
+    writeManifest(dir, "assets/second.js");
+    assert.equal(
+      viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir }).script,
+      "/assets/first.js",
+      "the entry is memoised, not re-read on every page",
+    );
+    resetViewerCommentsAssetCache();
+    assert.equal(
+      viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir }).script,
+      "/assets/second.js",
+      "and the reset makes the lookup read the manifest again",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    resetViewerCommentsAssetCache();
+  }
+});
+
+test("the dev preamble reaches a page once, and a production page carries none", () => {
+  resetViewerCommentsAssetCache();
+  const dir = mkdtempSync(join(tmpdir(), "viewer-asset-preamble-"));
+  const refresh = { plan: { kind: "reload" as const, metaUrl: "/api/artifacts/a1" }, revisionNumber: 1, sha256: "aaa" };
+  try {
+    const dev = viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir, NODE_ENV: "development" });
+    assert.deepEqual(dev, { script: "/src/viewer-comments.tsx", styles: [], dev: true }, "no bundle, dev entry");
+    assert.equal(
+      (assetsScripts(dev).match(/@react-refresh/g) ?? []).length,
+      1,
+      "the preamble belongs to the asset set",
+    );
+    const page = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, false, refresh, {
+      nonce: "n1",
+      bridge: "",
+      config: {},
+      assets: dev,
+    });
+    assert.equal((page.match(/@react-refresh/g) ?? []).length, 1, "a dev page ships the preamble exactly once");
+    assert.equal((page.match(/@vite\/client/g) ?? []).length, 1, "and one vite client");
+    assert.equal(
+      (page.match(/<script type="module" src="\/src\/viewer-comments\.tsx"><\/script>/g) ?? []).length,
+      1,
+      "with the entry mounted once",
+    );
+    resetViewerCommentsAssetCache();
+    const prod = viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir, NODE_ENV: "production" }, () => undefined);
+    assert.equal(prod.dev, false);
+    const production = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, false, refresh, {
+      nonce: "n1",
+      bridge: "",
+      config: {},
+      assets: prod,
+    });
+    assert.equal(/react-refresh/.test(production), false, "production never ships the dev preamble");
+    assert.equal(production.includes("/@vite/client"), false, "nor the vite client");
   } finally {
     rmSync(dir, { recursive: true, force: true });
     resetViewerCommentsAssetCache();
