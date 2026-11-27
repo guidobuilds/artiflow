@@ -10,6 +10,7 @@ import {
   fitScale,
   getScene,
   layerRows,
+  moveFrame,
   moveNode,
   moveNodes,
   nudgeSelection,
@@ -119,6 +120,30 @@ const markdown = {
 };
 
 const nodeOf = (value: Scene, id: string) => value.frames[0]?.nodes.find((node) => node.id === id);
+const legacyScene = (): Scene => ({
+  formatVersion: 1,
+  frames: [
+    {
+      id: "frame-1",
+      name: "Home",
+      x: 0,
+      y: 0,
+      w: 800,
+      h: 600,
+      nodes: [{ id: "rect-1", type: "rect", x: 40, y: 40, w: 200, h: 120, fill: "#e5e7eb" }],
+    },
+    {
+      id: "frame-2",
+      name: "Detail",
+      x: 0,
+      y: 0,
+      w: 400,
+      h: 400,
+      nodes: [{ id: "text-2", type: "text", x: 10, y: 10, w: 120, h: 40, text: "Detail", style: { fontSize: 16 } }],
+    },
+    { id: "frame-3", name: "Extra", x: 0, y: 0, w: 200, h: 200, nodes: [] },
+  ],
+});
 
 test("the library sends a canvas to the canvas editor and every other kind keeps its current path", async () => {
   useFetch(() => json(draft()));
@@ -279,6 +304,64 @@ test("dragging and resizing keep a node inside its frame and every other gesture
   assert.equal(rectNode("rect-3", 10, 10).fill.length > 0, true, "a new rectangle arrives with a visible fill");
 });
 
+test("dragging a frame materialises the derived layout and offsets only the frame that moved", () => {
+  const base = legacyScene();
+  const placements = surfaceLayout(base.frames).placements;
+  const before = structuredClone(base);
+  const at = (value: Scene, id: string) => {
+    const frame = value.frames.find((entry) => entry.id === id);
+    return [frame?.x, frame?.y];
+  };
+
+  assert.deepEqual(
+    placements.map((placement) => [placement.frameId, placement.x, placement.y]),
+    [
+      ["frame-1", 0, 0],
+      ["frame-2", 0, 640],
+      ["frame-3", 0, 1080],
+    ],
+    "the fixture is a legacy scene whose frames all sit on the origin",
+  );
+
+  const moved = moveFrame(base, placements, "frame-2", 30, -20);
+  assert.deepEqual(at(moved, "frame-1"), [0, 0], "a frame that did not move keeps the place the layout gave it");
+  assert.deepEqual(at(moved, "frame-2"), [30, 620], "the dragged frame carries its layout place plus the drag delta");
+  assert.deepEqual(at(moved, "frame-3"), [0, 1080], "every frame is materialised, not only the one that moved");
+  assert.deepEqual(base, before, "the scene before the drag is untouched");
+  assert.deepEqual(
+    moved.frames.map((frame) => frame.nodes),
+    before.frames.map((frame) => frame.nodes),
+    "dragging a frame leaves every node id and every node geometry byte-identical",
+  );
+  assert.equal(moved.formatVersion, base.formatVersion, "the frame drag rewrites no scene property it was not given");
+
+  const settled = moveFrame(base, placements, "frame-2", 0, 0);
+  assert.equal(
+    moveFrame(settled, placements, "frame-2", 0, 0),
+    settled,
+    "a gesture that would change nothing returns the scene it was handed",
+  );
+  assert.equal(moveFrame(base, placements, "missing", 10, 10), base, "an unknown frame returns the same scene");
+  assert.deepEqual(base, before, "an unknown frame never rewrites the frames around it either");
+
+  const rounding = moveFrame(base, placements, "frame-1", 12.7, -3.4);
+  assert.deepEqual(at(rounding, "frame-1"), [13, -3], "a fractional drag rounds to the whole pixels a scene needs");
+  assert.deepEqual(at(rounding, "frame-2"), [0, 640], "rounding the dragged frame never rounds the materialised ones");
+
+  const outside = moveFrame(base, placements, "frame-1", -500, -300);
+  assert.deepEqual(
+    at(outside, "frame-1"),
+    [-500, -300],
+    "a frame may be dragged past the origin instead of being clamped to it",
+  );
+  assert.deepEqual(at(outside, "frame-3"), [0, 1080], "the frames left behind still hold their materialised place");
+
+  const partial = moveFrame(base, placements.slice(0, 1), "frame-1", 10, 10);
+  assert.deepEqual(at(partial, "frame-1"), [10, 10], "the dragged frame takes its placement and its delta");
+  assert.deepEqual(at(partial, "frame-3"), [0, 0], "a frame with no placement keeps the x/y the scene already stores");
+  assert.deepEqual(base, before, "a scene read once more is still the scene that went in");
+});
+
 test("the surface layout is the one domain helper the editor and the viewer share", () => {
   assert.equal(
     surfaceLayout,
@@ -382,11 +465,21 @@ test("the surface layout gives every frame a place of its own and falls back to 
   const overlapping = [frame("frame-1", 0, 0), frame("frame-2", 100, 100, 400, 400)];
   const resolved = surfaceLayout(overlapping);
   assert.deepEqual(
-    resolved.placements.map((placement) => placement.y),
-    [0, 640],
-    "frames that only partly overlap are separated too",
+    resolved.placements,
+    [
+      { frameId: "frame-1", x: 0, y: 0 },
+      { frameId: "frame-2", x: 100, y: 100 },
+    ],
+    "frames that overlap keep the x/y the scene stores, because an overlap is a placement somebody chose",
   );
-  assert.equal(apart(overlapping, resolved), true, "the separated frames no longer touch");
+
+  const dragged = [frame("frame-1", 0, 0), frame("frame-2", 0, 640, 400, 400)];
+  const draggedLayout = surfaceLayout(dragged);
+  assert.deepEqual(
+    draggedLayout.placements.map((placement) => placement.y),
+    [0, 640],
+    "a frame dragged onto another keeps its position instead of making the whole surface re-column",
+  );
 
   const crowded = [frame("frame-1", 0, 0), frame("frame-2", 0, 0, 300, 200), frame("frame-3", 0, 0, 500, 700)];
   const crowdedLayout = surfaceLayout(crowded);
@@ -844,6 +937,9 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /nudgeSelection\(/);
   assert.match(page, /layerRows\(/);
   assert.match(page, /surfaceLayout\(/);
+  assert.match(page, /moveFrame\(/);
+  assert.match(page, /type FrameDrag = \{/);
+  assert.match(page, /frameDragged/);
   assert.match(page, /onWheel/);
   assert.match(page, /event\.ctrlKey \|\| event\.metaKey/);
   assert.match(page, /wheelPan\(/);
@@ -867,6 +963,65 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
     true,
     "the canvas screen shows the same conflict message instead of inventing its own",
   );
+});
+
+test("a press on a frame drags the frame through one materialising write and one history entry", () => {
+  const page = source("../apps/dashboard/src/CanvasEditorPage.tsx");
+  const startFrameDrag = /const startFrameDrag =[\s\S]*?const onFrameDragMove/.exec(page)?.[0];
+  assert.ok(startFrameDrag, "the frame gesture still starts in one press handler");
+  assert.match(
+    startFrameDrag,
+    /if \(readOnly \|\| event\.button !== 0 \|\| spaceHeld\.current\) return;/,
+    "a read-only canvas, a non-left button and a held space still end the gesture before anything else",
+  );
+  assert.match(startFrameDrag, /event\.stopPropagation\(\);/, "a frame press never reaches the stage marquee");
+  assert.match(startFrameDrag, /frameDragged\.current = false;/, "each press starts with no movement recorded");
+  assert.match(startFrameDrag, /showFrame\(entry\.id\)/, "a press on a frame makes that frame the active one");
+  assert.match(
+    startFrameDrag,
+    /snapshot: session\.current\?\.state\.scene \?\? scene/,
+    "a frame drag snapshots the scene it starts from",
+  );
+  assert.match(
+    startFrameDrag,
+    /event\.currentTarget\.setPointerCapture\(event\.pointerId\);/,
+    "a frame drag captures the pointer it started with",
+  );
+
+  const showFrame = between(page, "const showFrame =", "\n  const stepFrame =");
+  assert.match(
+    showFrame,
+    /^\s*endTextEdit\(\);/m,
+    "starting a frame drag closes an open text edit before the drag can claim its entry",
+  );
+
+  const frameMove = /const onFrameDragMove =[\s\S]*?const endFrameDrag/.exec(page)?.[0];
+  assert.ok(frameMove, "a dragged frame has its own move handler");
+  assert.match(
+    frameMove,
+    /moveFrame\(pending\.snapshot, layout\.placements, pending\.frameId, dx, dy\)/,
+    "every move materialises the layout the surface is showing right now",
+  );
+  assert.match(frameMove, /update\(/, "every move writes through the one update funnel");
+  assert.doesNotMatch(frameMove, /commitEdit\(/, "a frame drag only commits when the pointer is released");
+
+  const endFrameDrag = /const endFrameDrag =[\s\S]*?const cancelFrameDrag/.exec(page)?.[0];
+  assert.ok(endFrameDrag, "a frame drag ends in one release handler");
+  assert.match(
+    endFrameDrag,
+    /if \(!frameDragged\.current\) return;/,
+    "a press on a frame that never moved is no entry",
+  );
+  assert.match(
+    endFrameDrag,
+    /canonicalScene\(pending\.snapshot\) === canonicalScene\(session\.current\?\.state\.scene \?\? scene\)/,
+    "a frame drag that left the scene as it found it is no entry either",
+  );
+  assert.match(endFrameDrag, /releasePointerCapture/, "the release gives the pointer back");
+  assert.match(endFrameDrag, /commitEdit\(pending\.snapshot\);/, "one frame drag is one history entry");
+
+  const frameNode = /onPointerDown=\{\(event\) => startFrameDrag\(event, entry\)\}/.exec(page)?.[0];
+  assert.ok(frameNode, "the frame div is the element that owns the frame gesture");
 });
 
 test("the canvas wheel pans the view by default and zooms only with ctrl or cmd", () => {

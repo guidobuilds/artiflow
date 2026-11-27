@@ -128,6 +128,29 @@ export function selectNodesInRect(frame: SceneFrame, rect: SceneRect): string[] 
     .map((node) => node.id);
 }
 
+export function moveFrame(
+  scene: Scene,
+  placements: readonly { frameId: string; x: number; y: number }[],
+  frameId: string,
+  dx: number,
+  dy: number,
+): Scene {
+  if (!scene.frames.some((frame) => frame.id === frameId)) return scene;
+  const placed = new Map(placements.map((placement) => [placement.frameId, placement]));
+  const offsetX = rounded(dx);
+  const offsetY = rounded(dy);
+  let changed = false;
+  const frames = scene.frames.map((frame) => {
+    const at = placed.get(frame.id);
+    const x = (at === undefined ? frame.x : at.x) + (frame.id === frameId ? offsetX : 0);
+    const y = (at === undefined ? frame.y : at.y) + (frame.id === frameId ? offsetY : 0);
+    if (x === frame.x && y === frame.y) return frame;
+    changed = true;
+    return { ...frame, x, y };
+  });
+  return changed ? { ...scene, frames } : scene;
+}
+
 export function moveNode(scene: Scene, nodeId: string, dx: number, dy: number): Scene {
   const located = locate(scene, nodeId);
   if (located === null) return scene;
