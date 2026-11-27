@@ -482,7 +482,11 @@ test("the owner bar still handles focus and the F shortcut", () => {
 test("the F shortcut stays native inside a form control", () => {
   const environment = makeEnvironment({ selectors: [".vbar-focus", ".vbar-exit", "iframe"], respond: () => refused });
   environment.run(refreshScriptOf(ownerPage()));
-  const input = { tagName: "INPUT", isContentEditable: false, closest: (s: string) => (s.includes("input") ? {} : null) };
+  const input = {
+    tagName: "INPUT",
+    isContentEditable: false,
+    closest: (s: string) => (s.includes("input") ? {} : null),
+  };
   environment.fireDocument("keydown", { key: "f", target: input });
   assert.equal(environment.element(".vbar-exit").focused, false, "F in a form control never enters focus mode");
   environment.fireDocument("keydown", { key: "f" });
