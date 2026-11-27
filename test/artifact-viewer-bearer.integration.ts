@@ -50,9 +50,12 @@ let owner: Identity, reader: Identity, stranger: Identity;
 let markdownId = "";
 const usedKeys: string[] = [];
 let baselineKeys = new Set<string>();
-const managementCells =
-  /<span data-island="actions">.*?<\/span>|<script type="application\/json" id="viewer-management-data">[^<]*<\/script>|<script type="module" src="[^"]*viewer-actions[^"]*"><\/script>/g;
-const withoutManagement = (html: string): string => html.replace(managementCells, "");
+const menuTrigger =
+  /<span data-island="actions"><button type="button" data-control="menu"[^>]*>Actions<\/button><\/span>/;
+const menuConfigLine = /\n<script type="application\/json" id="viewer-management-data">[^<]*<\/script>/;
+const menuBundleLine = /\n<script type="module" src="[^"]*viewer-actions[^"]*"><\/script>/;
+const withoutManagement = (html: string): string =>
+  html.replace(menuTrigger, "").replace(menuConfigLine, "").replace(menuBundleLine, "");
 const revisionKeyOf = async (revisionId: string): Promise<string> => {
   const row = await database.pool.query<{ storageKey: string }>(
     `select "storageKey" from "artifactRevisions" where "id" = $1`,

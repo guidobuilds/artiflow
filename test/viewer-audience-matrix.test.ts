@@ -31,7 +31,7 @@ import {
   type ViewerModel,
 } from "../apps/api/src/viewer/model.ts";
 import { prepareViewer, type ViewerRequest } from "../apps/api/src/viewer/prepare.ts";
-import { viewerActionsAssets } from "../apps/api/src/viewer/assets.ts";
+import { DEV_PREAMBLE, viewerActionsAssets } from "../apps/api/src/viewer/assets.ts";
 
 const ARTIFACT_ID = "artifact-one";
 const OWNER_ID = "user-owner";
@@ -334,6 +334,35 @@ const islandOf = (page: string): Record<string, unknown> | null => {
 };
 
 const barOf = (page: string): string | null => /<header class="vbar">([\s\S]*?)<\/header>/.exec(page)?.[1] ?? null;
+
+const menuTrigger =
+  /<span data-island="actions"><button type="button" data-control="menu"[^>]*>Actions<\/button><\/span>/;
+const emptyActionsCell = /\n<div class="vbar-cell vbar-actions" data-control="actions"><\/div>/;
+const menuConfigLine = /\n<script type="application\/json" id="viewer-management-data">[^<]*<\/script>/;
+const menuBundleLine = /\n<script type="module" src="[^"]*viewer-actions[^"]*"><\/script>/;
+const commentsData = /<script type="application\/json" id="viewer-comments-data">[^<]*<\/script>/;
+const emptyTail = /\n\n(?=<script>\n)/;
+const withoutBundlePreamble = (page: string): string => page.split(`${DEV_PREAMBLE}\n`).join("");
+const managementStyles = viewerActionsAssets().styles;
+const styleLinkRun = /<link rel="stylesheet" href="[^"]*">(?:\n<link rel="stylesheet" href="[^"]*">)*/;
+const styleLinksOf = (page: string): string[] =>
+  [...page.matchAll(/<link rel="stylesheet" href="([^"]*)">/g)].map((match) => match[1] ?? "");
+const withoutManagementStyles = (page: string): string =>
+  page.replace(styleLinkRun, (run) =>
+    [...run.matchAll(/href="([^"]*)"/g)]
+      .map((match) => match[1] ?? "")
+      .filter((href) => !managementStyles.includes(href))
+      .map((href) => `<link rel="stylesheet" href="${href}">`)
+      .join("\n"),
+  );
+const withoutPerViewCells = (page: string): string =>
+  withoutBundlePreamble(withoutManagementStyles(page))
+    .replace(commentsData, "DATA")
+    .replace(menuTrigger, "")
+    .replace(emptyActionsCell, "")
+    .replace(menuConfigLine, "")
+    .replace(menuBundleLine, "")
+    .replace(emptyTail, "\n");
 
 const policyOf = (kind: ArtifactKind): string =>
   kind === "markdown" ? DOCUMENT_CSP : rendersScene(kind) ? sceneCsp(ORIGIN) : VIEWER_CSP;
@@ -695,6 +724,26 @@ test("only the owner's own page carries a management menu, and every other seat 
         );
       if (!shipsManagement(seat)) assert.equal(/manage/i.test(page), false, `${label} no management affordance`);
     }
+  }
+});
+
+test("the owner's page and a granted reader's page differ only in the per-view comment data and the owner cells", async () => {
+  for (const kind of ARTIFACT_KINDS) {
+    const owner = (await cellOf("owner", kind)).page;
+    const reader = (await cellOf("reader", kind)).page;
+    assert.notEqual(owner, reader, `${kind} the owner page carries cells the reader page does not`);
+    assert.deepEqual(
+      withoutPerViewCells(owner).split("\n"),
+      withoutPerViewCells(reader).split("\n"),
+      `${kind} the two pages are byte-identical once those cells and the comment data are stripped`,
+    );
+    assert.deepEqual(
+      styleLinksOf(owner)
+        .filter((href) => !styleLinksOf(reader).includes(href))
+        .filter((href) => !managementStyles.includes(href)),
+      [],
+      `${kind} the only stylesheet the owner loads and the reader does not is a management bundle sheet`,
+    );
   }
 });
 
