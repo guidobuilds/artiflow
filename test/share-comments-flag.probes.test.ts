@@ -336,6 +336,34 @@ test("the owner meta route is unchanged and carries no comments flag", async () 
   ]);
 });
 
+test("a scene page ships no comments surface on the public route or the owner one", async () => {
+  for (const kind of ["canvas", "deck"]) {
+    for (const showComments of [false, true]) {
+      const label = `${kind} option=${String(showComments)}`;
+      const page = await sharePage(kind, showComments);
+      assert.equal(page.status, 200, label);
+      const what = ships(page.body);
+      assert.equal(what.host, false, `${label} public host`);
+      assert.equal(what.config, false, `${label} public config`);
+      assert.equal(what.bundle, false, `${label} public bundle`);
+      assert.equal(what.available, false, `${label} public shell class`);
+      assert.equal(what.bridge, false, `${label} public bridge`);
+      assert.equal(page.body.includes("Show comments"), false, `${label} public toggle`);
+      assert.equal(page.body.includes("Hide comments"), false, `${label} public toggle`);
+    }
+    const owner = await ownerPageFor(kind);
+    assert.equal(owner.status, 200, `${kind} owner page`);
+    const what = ships(owner.page);
+    assert.equal(what.host, false, `${kind} owner host`);
+    assert.equal(what.config, false, `${kind} owner config`);
+    assert.equal(what.bundle, false, `${kind} owner bundle`);
+    assert.equal(what.available, false, `${kind} owner shell class`);
+    assert.equal(what.bridge, false, `${kind} owner bridge`);
+    assert.equal(owner.page.includes("Show comments"), false, `${kind} owner toggle`);
+    assert.equal(owner.page.includes("Hide comments"), false, `${kind} owner toggle`);
+  }
+});
+
 test("a public scene page ships no pin, and a public markdown island names no revision", async () => {
   for (const kind of ["canvas", "deck"]) {
     const page = await sharePage(kind, true);

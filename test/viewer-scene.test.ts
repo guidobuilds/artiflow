@@ -243,6 +243,45 @@ const shareView = async (input: {
   };
 };
 
+type CommentsReply = {
+  status: number;
+  body: string;
+  headers: string[];
+};
+
+const shareCommentsReply = async (input: {
+  bytes: Uint8Array;
+  kind: string;
+  showComments?: boolean;
+  method?: "GET" | "POST";
+  commentRows?: readonly unknown[];
+  link?: boolean;
+}): Promise<CommentsReply> => {
+  const revision = revisionOf(input.bytes);
+  const linkRows =
+    input.link === false
+      ? []
+      : [
+          {
+            artifactId: ARTIFACT_ID,
+            showComments: input.showComments ?? false,
+            kind: input.kind,
+            ...revision,
+          },
+        ];
+  const rows = queryBuilder([linkRows, [...(input.commentRows ?? [])]], () => undefined);
+  const app = new Hono();
+  app.route(
+    "/",
+    createShareViewerApp({ database: { db: rows } as unknown as Database, storage: storageWith(input.bytes) }),
+  );
+  const response = await app.request(`/share/${SHARE_TOKEN}/comments`, { method: input.method ?? "GET" });
+  return {
+    status: response.status,
+    body: await response.text(),
+    headers: [...response.headers.entries()].map(([name, value]) => `${name}: ${value}`).sort(),
+  };
+};
 const unescapeAttribute = (value: string): string =>
   value
     .replaceAll("&lt;", "<")
@@ -263,6 +302,84 @@ const frameTag = (html: string, id: string): string =>
 const sectionTags = (html: string): string[] => html.match(/<section class="scene-frame"[^>]*>/g) ?? [];
 
 const surfaceTag = (html: string): string => html.match(/<div class="scene-surface"[^>]*>/)?.[0] ?? "";
+
+const htmlThread = {
+  id: "comment-html",
+  artifactId: ARTIFACT_ID,
+  authorId: VIEWER_ID,
+  authorName: "Ann",
+  authorImage: null,
+  anchor: { kind: "element", selector: "h1", point: { x: 0.5, y: 0.5 }, textHint: "Pinned", viewportWidth: 800 },
+  body: "Tighten the heading",
+  parentId: null,
+  resolvedAt: null,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+};
+const htmlReply = { ...htmlThread, id: "comment-html-reply", body: "Agreed, done", parentId: "comment-html" };
+
+test("a public scene link answers the comments path like a token that names nothing", async () => {
+  const unknown = await shareCommentsReply({ bytes: SCENE_BYTES, kind: "canvas", link: false });
+  assert.equal(unknown.status, 404, "an unknown token is the public not-found");
+  assert.deepEqual(JSON.parse(unknown.body), { error: "not_found" }, "the unknown token names its reason");
+  for (const kind of ["canvas", "deck"]) {
+    for (const showComments of [false, true]) {
+      const label = `${kind} option=${String(showComments)}`;
+      const read = await shareCommentsReply({ bytes: SCENE_BYTES, kind, showComments, commentRows: [boardThread] });
+      assert.equal(read.status, 404, `${label} is a refusal, not an empty list`);
+      assert.equal(read.body, unknown.body, `${label} answers the body an unknown token gets`);
+      assert.deepEqual(read.headers, unknown.headers, `${label} answers the headers an unknown token gets`);
+      assert.deepEqual(JSON.parse(read.body), { error: "not_found" }, `${label} names its reason`);
+      assert.equal(read.body.includes(boardThread.body), false, `${label} leaks no thread`);
+    }
+  }
+});
+
+test("the public comments path answers GET only: a write is the router's own not-found", async () => {
+  const write = await shareCommentsReply({ bytes: SCENE_BYTES, kind: "canvas", showComments: true, method: "POST" });
+  assert.equal(write.status, 404, "no public write route exists");
+  assert.equal(write.body, "404 Not Found", "the write gets the router's plain fallback, not the guard's refusal");
+  assert.deepEqual(
+    write.headers,
+    ["content-type: text/plain; charset=UTF-8"],
+    "and none of the public headers the guard sets",
+  );
+});
+
+test("PRESERVE: an html link with the option on still lists its threads and replies", async () => {
+  const shown = await shareCommentsReply({
+    bytes: new TextEncoder().encode(HTML_SOURCE),
+    kind: "html",
+    showComments: true,
+    commentRows: [htmlThread, htmlReply],
+  });
+  assert.equal(shown.status, 200, "the html link answers its threads");
+  const body = JSON.parse(shown.body) as {
+    comments: { body: string; canDelete: boolean; author: { name: string }; replies: { body: string }[] }[];
+  };
+  assert.equal(body.comments.length, 1, "one root thread");
+  assert.equal(body.comments[0]?.body, htmlThread.body, "the root body ships");
+  assert.equal(body.comments[0]?.canDelete, false, "a public reader may delete nothing");
+  assert.equal(body.comments[0]?.author.name, "Ann", "the author is an entity, not an address");
+  assert.equal(shown.body.includes(`@`), false, "no email address reaches a public link");
+  assert.deepEqual(
+    body.comments[0]?.replies.map((reply) => reply.body),
+    [htmlReply.body],
+    "the reply ships under its root",
+  );
+  assert.equal(shown.headers.includes("cache-control: no-store"), true, "and the answer is not cached");
+});
+
+test("PRESERVE: the public comments endpoint still hides the threads of a link with the option off", async () => {
+  for (const kind of ["markdown", "html"]) {
+    const bytes = new TextEncoder().encode(kind === "markdown" ? MARKDOWN_SOURCE : HTML_SOURCE);
+    const hidden = await shareCommentsReply({ bytes, kind, showComments: false, commentRows: [htmlThread] });
+    const unknown = await shareCommentsReply({ bytes, kind, link: false });
+    assert.equal(hidden.status, 404, `${kind} hides its threads while the link option is off`);
+    assert.deepEqual(JSON.parse(hidden.body), { error: "not_found" }, `${kind} names the public not-found`);
+    assert.equal(hidden.body, unknown.body, `${kind} answers the body an unknown token gets`);
+    assert.deepEqual(hidden.headers, unknown.headers, `${kind} answers the headers an unknown token gets`);
+  }
+});
 
 test("the owner viewer of a canvas serves the rendered scene inside the one sandboxed frame", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });

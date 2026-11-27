@@ -430,7 +430,8 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     const token = c.req.param("token");
     if (!LINK_TOKEN_RE.test(token)) return c.json({ error: "not_found" }, 404, publicHeaders);
     const row = await publicArtifact(db, hashLinkToken(token));
-    if (!row || !row.showComments) return c.json({ error: "not_found" }, 404, publicHeaders);
+    if (!row || !row.showComments || viewerFor(row.kind) === "scene")
+      return c.json({ error: "not_found" }, 404, publicHeaders);
     const rows = await listComments(db, row.artifactId, true);
     const serialize = (comment: (typeof rows)[number]) => ({
       id: comment.id,

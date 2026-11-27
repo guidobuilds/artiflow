@@ -30,6 +30,7 @@ import {
 } from "@artiflow/domain/kinds";
 
 import { renderSceneDocument } from "../apps/api/src/viewer/scene.ts";
+import { deckControllerScript } from "../apps/api/src/viewer/views/deck-controller.ts";
 import { sceneThreadPlacement } from "../apps/api/src/viewer/comments-data.ts";
 import { attributeSelectorsOf, matchesSelector } from "./helpers/frame-selector.ts";
 
@@ -196,6 +197,15 @@ const runDeck = (html: string, ids: readonly string[], hash = "", visible = ids[
 
 const visibleSlides = (run: { frames: Map<string, FakeElement> }): string[] =>
   [...run.frames.entries()].filter(([, element]) => !element.hidden).map(([id]) => id);
+
+test("the deck document runs the deck controller module and none of the canvas one", () => {
+  const html = renderSceneDocument(slideScene, undefined, undefined, [], "deck");
+  assert.equal(inlineScript(html), `\n${deckControllerScript()}\n`, "the deck hands control to its own module");
+  const canvas = inlineScript(renderSceneDocument(slideScene));
+  assert.notEqual(canvas, deckControllerScript(), "a deck never runs the canvas controller");
+  for (const deckWord of ["frame-counter", 'getElementById("strip")'])
+    assert.equal(canvas.includes(deckWord), false, `the canvas controller knows no ${deckWord}`);
+});
 
 test("the slide script queries the attributes the markup emits", () => {
   const html = renderSceneDocument(slideScene, undefined, undefined, [], "deck");

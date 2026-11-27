@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 import {
@@ -13,6 +16,8 @@ import {
   type TextNode,
 } from "@artiflow/domain/scene";
 
+import { canvasControllerScript } from "../apps/api/src/viewer/views/canvas-controller.ts";
+import { deckControllerScript } from "../apps/api/src/viewer/views/deck-controller.ts";
 import { renderSceneDocument } from "../apps/api/src/viewer/scene.ts";
 import { attributeSelectorsOf, matchesSelector } from "./helpers/frame-selector.ts";
 
@@ -266,6 +271,100 @@ test("the scene script queries the attributes the markup emits", () => {
   assert.ok(queried.length > 0, "the script queries at least one attribute selector");
   for (const name of queried)
     assert.ok(markup.includes(`${name}="`), `the markup emits ${name}, which the script queries`);
+});
+
+test("each scene kind runs exactly its own controller module and no other script", () => {
+  assert.equal(
+    inlineScript(renderSceneDocument(twoFrames)),
+    `\n${canvasControllerScript()}\n`,
+    "the canvas document runs the canvas controller and nothing beside it",
+  );
+  assert.equal(
+    inlineScript(renderSceneDocument(twoFrames, undefined, undefined, [], "deck")),
+    `\n${deckControllerScript()}\n`,
+    "the deck document runs the deck controller and nothing beside it",
+  );
+  assert.notEqual(canvasControllerScript(), deckControllerScript(), "the two controllers are different scripts");
+  assert.equal(
+    (renderSceneDocument(twoFrames).match(/<script/gi) ?? []).length,
+    1,
+    "the canvas ships one script, not both",
+  );
+  assert.equal(
+    (renderSceneDocument(twoFrames, undefined, undefined, [], "deck").match(/<script/gi) ?? []).length,
+    1,
+    "the deck ships one script, not both",
+  );
+});
+
+test("the canvas controller owns the viewport and the deck controller never sees it", () => {
+  const canvas = canvasControllerScript();
+  for (const own of [
+    'getElementById("surface")',
+    'getElementById("fit")',
+    "wheel",
+    "pointerdown",
+    "data-frame-x",
+    "data-surface-w",
+    "history.replaceState",
+  ])
+    assert.ok(canvas.includes(own), `the canvas controller owns ${own}`);
+  for (const deckWord of [
+    "frame-counter",
+    'getElementById("prev")',
+    'getElementById("next")',
+    'getElementById("strip")',
+    "aria-pressed",
+  ])
+    assert.equal(canvas.includes(deckWord), false, `the canvas controller knows no ${deckWord}`);
+  const deck = deckControllerScript();
+  for (const own of [
+    'getElementById("prev")',
+    'getElementById("next")',
+    'getElementById("strip")',
+    'getElementById("frame-counter")',
+    "aria-pressed",
+    "hidden =",
+  ])
+    assert.ok(deck.includes(own), `the deck controller owns ${own}`);
+  for (const canvasWord of [
+    "wheel",
+    "pointerdown",
+    "pointermove",
+    "data-surface-w",
+    "data-frame-x",
+    'getElementById("surface")',
+    'getElementById("fit")',
+  ])
+    assert.equal(deck.includes(canvasWord), false, `the deck controller knows no ${canvasWord}`);
+});
+
+const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+test("PRESERVE: each controller script is the script the split started from", () => {
+  assert.equal(
+    digest(canvasControllerScript()),
+    "c43c1edc919d6770657f98bc800e0abb1987f8d43e92daa2614c889c9b34dbe1",
+    "the canvas controller is byte for byte the script the renderer used to inline",
+  );
+  assert.equal(
+    digest(deckControllerScript()),
+    "3396420c51365406f188e0c3545f2f0f8ee690b499195db36cf6977c5da783f3",
+    "the deck controller is byte for byte the script the renderer used to inline",
+  );
+});
+
+test("the renderer inlines neither controller: it imports them", () => {
+  const renderer = readFileSync(
+    fileURLToPath(new URL("../apps/api/src/viewer/views/scene.ts", import.meta.url)),
+    "utf8",
+  );
+  assert.ok(renderer.includes('from "./canvas-controller.ts"'), "the renderer imports the canvas controller");
+  assert.ok(renderer.includes('from "./deck-controller.ts"'), "the renderer imports the deck controller");
+  for (const inlined of ['getElementById("stage")', 'getElementById("surface")', "pointerdown", "history.replaceState"])
+    assert.equal(renderer.includes(inlined), false, `${inlined} lives in a controller module`);
+  assert.ok(renderer.includes("sceneThreadPlacement"), "the renderer keeps the shared pin placement");
+  assert.ok(renderer.includes("surfaceLayout"), "the renderer keeps the shared frame placement");
 });
 
 test("every canvas frame renders at its own placement on one surface, and all of them stay visible", () => {
@@ -720,6 +819,27 @@ const boardThread = (overrides: Record<string, unknown> = {}) => ({
 });
 
 const pinMarkup = (html: string): string[] => html.match(/<span class="scene-pin"[^>]*>[^<]*<\/span>/g) ?? [];
+
+test("a scene pin stays decorative: no handler, no panel and no thread affordance", () => {
+  for (const kind of ["canvas", "deck"]) {
+    const html = renderSceneDocument(
+      scene(frame({ nodes: [rect({ id: "node-1" })] })),
+      undefined,
+      undefined,
+      [boardThread({ boardId: "home", nodeId: "node-1" })],
+      kind,
+    );
+    const pin = pinMarkup(html)[0] ?? "";
+    assert.ok(pin.length > 0, `${kind} draws the pin`);
+    assert.equal(/\son[a-z]+\s*=/i.test(pin), false, `${kind} pin carries no event handler`);
+    for (const affordance of ["role=", "href=", "data-action", "aria-haspopup", "aria-expanded", "contenteditable"])
+      assert.equal(pin.includes(affordance), false, `${kind} pin offers no ${affordance}`);
+    const script = inlineScript(html);
+    for (const wired of ["scene-pin", "data-thread-id", "data-node-id"])
+      assert.equal(script.includes(wired), false, `${kind} controller wires no ${wired}`);
+    assert.equal(html.includes("scene-thread"), false, `${kind} ships no thread panel`);
+  }
+});
 
 test("a scene-anchored thread draws one pin at the node-relative point", () => {
   const html = renderSceneDocument(

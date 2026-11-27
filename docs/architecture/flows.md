@@ -264,11 +264,14 @@ root_requires_anchor`; a reply carrying an anchor → `400 reply_has_no_anchor`;
 
 Comments never create revisions. A reader sees the threads and is refused every write with
 `403 forbidden`. HTML documents accept `element` and `page-point` anchors, which the server validates
-for shape only and the client positions; Markdown keeps `text-range`. A public link serves its threads
-read-only through `GET /share/:token/comments` only while the link's `showComments` option is on, with
-authors reduced to `{ id, name, image }`. For the kinds that mount a margin — pages and docs; a canvas
-or a deck shows its threads as pins inside the frame on the owner page, and a public scene link ships
-none — the option also decides whether the public page mounts it: `?meta=1` publishes the effective
+for shape only and the client positions; Markdown keeps `text-range`. For the kinds that mount a
+margin — pages and docs — a public link serves its threads read-only through
+`GET /share/:token/comments` only while the link's `showComments` option is on, with authors reduced
+to `{ id, name, image }`. A canvas or a deck mounts no margin: it shows its threads as pins inside the
+frame on the owner page, a public scene link ships no pin and no comment surface at all, and the
+endpoint refuses a scene link with the same `404 not_found` it answers for a token that names nothing,
+so the answer never tells a reader what kind the token serves. For those kinds the
+option also decides whether the public page mounts it: `?meta=1` publishes the effective
 flag as `comments`, it is false for canvas and deck whatever the link says, and a page served with it
 off ships no comment host, config or bundle. The public poller reads
 that flag on every tick, so turning the option off reloads an open page once — the margin, its data
