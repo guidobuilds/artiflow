@@ -149,10 +149,18 @@ const sharePage = async (kind: string, showComments: boolean, query = ""): Promi
   };
 };
 
+const moduleScripts = (page: string): string[] =>
+  [...page.matchAll(/<script type="module" src="([^"]*)"><\/script>/g)].map((match) => match[1] ?? "");
+
+const islandScripts = (page: string): string[] =>
+  moduleScripts(page).filter((src) => src !== "" && src !== "/@vite/client");
+
+const commentsChunk = (page: string): boolean => islandScripts(page).some((src) => /viewer-comments/.test(src));
+
 const ships = (page: string) => ({
   host: page.includes('id="viewer-comments"'),
   config: page.includes("viewer-comments-data"),
-  bundle: /<script type="module" src="[^"]*viewer-comments/.test(page),
+  bundle: commentsChunk(page),
   bridge: page.includes("data-artiflow-bridge"),
   available: page.includes("comments-available"),
 });
@@ -174,7 +182,12 @@ test("every kind crossed with the link option: the meta flag is exactly what the
       assert.equal(flag, showComments && mountsMargin(kind), `${label} flag`);
       assert.equal(what.host, flag, `${label} host agrees with the flag`);
       assert.equal(what.config, flag, `${label} config agrees with the flag`);
-      assert.equal(what.bundle, flag, `${label} bundle agrees with the flag`);
+      assert.equal(flag, what.bundle, `${label} the comments chunk mounts exactly where comments do`);
+      assert.deepEqual(
+        islandScripts(page.body).filter((src) => !/viewer-comments/.test(src)),
+        [],
+        `${label} the page ships no other module script`,
+      );
       if (kind === "html") assert.equal(what.available, flag, `${label} shell class agrees with the flag`);
       assert.equal(what.bridge, kind === "html" && flag, `${label} bridge only with the flag`);
       assert.ok(page.body.includes(`,comments:${String(flag)}}`), `${label} poller reads the same flag`);
@@ -291,6 +304,11 @@ test("the owner page keeps its island and its revision id, and its poller has no
       assert.equal(config?.canComment, true, `${kind} owner island knows it may write`);
       assert.equal(what.host, true, `${kind} owner page mounts its margin`);
     }
+    assert.deepEqual(
+      islandScripts(page).filter((src) => !/viewer-comments|viewer-actions/.test(src)),
+      [],
+      `${kind} owner page mounts no other module script`,
+    );
     assert.equal(/,comments:(true|false)/.test(page), false, `${kind} owner poller carries no comments flag`);
     assert.equal(robots, null, `${kind} owner page is not forced noindex`);
   }
@@ -356,7 +374,12 @@ test("a scene page ships no comments surface on the public route or the owner on
     const what = ships(owner.page);
     assert.equal(what.host, false, `${kind} owner host`);
     assert.equal(what.config, false, `${kind} owner config`);
-    assert.equal(what.bundle, false, `${kind} owner bundle`);
+    assert.equal(what.bundle, false, `${kind} owner page mounts no comments chunk`);
+    assert.equal(
+      islandScripts(owner.page).every((src) => /viewer-actions/.test(src)),
+      true,
+      `${kind} owner page mounts the management island and no other module script`,
+    );
     assert.equal(what.available, false, `${kind} owner shell class`);
     assert.equal(what.bridge, false, `${kind} owner bridge`);
     assert.equal(owner.page.includes("Show comments"), false, `${kind} owner toggle`);

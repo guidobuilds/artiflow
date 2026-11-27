@@ -587,7 +587,7 @@ test("PRESERVE: an html artifact keeps its exact page bytes", async () => {
         assets: viewerActionsAssets(),
       },
     ),
-    "the html path is byte-identical to the page it served before the scene branch existed",
+    "the html path is byte-identical to the composition of its own comment and management slots",
   );
 });
 
@@ -630,7 +630,7 @@ test("PRESERVE: a markdown artifact keeps its exact page bytes", async () => {
         assets: viewerActionsAssets(),
       },
     ).html,
-    "the markdown path is byte-identical to the page it served before the scene branch existed",
+    "the markdown path is byte-identical to the composition of its own comment and management slots",
   );
 });
 
