@@ -623,9 +623,17 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       startPan(event);
       return;
     }
+    if (!readOnly && frame !== null && startGroupDrag(event, frame)) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
     startMarquee(event);
   };
   const onStagePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current !== null) {
+      onPointerMove(event);
+      return;
+    }
     if (panDrag.current !== null) {
       onPanMove(event);
       return;
@@ -633,6 +641,10 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     onMarqueeMove(event);
   };
   const onStagePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current !== null) {
+      endDrag(event);
+      return;
+    }
     if (panDrag.current !== null) {
       endPan(event);
       return;
@@ -640,6 +652,13 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     endMarquee(event);
   };
   const onStagePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current !== null) {
+      drag.current = null;
+      nodeDragged.current = false;
+      if (event.currentTarget.hasPointerCapture(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
     if (panDrag.current !== null) {
       endPan(event);
       return;
