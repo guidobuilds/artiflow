@@ -112,6 +112,8 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
 
 export type ViewerMeta = { title: string | null; version: number | null };
 
+export type RefreshPlan = { kind: "reload"; metaUrl: string } | { kind: "none" };
+
 export type ViewerRefresh = {
   plan: RefreshPlan;
   revisionNumber: number;
