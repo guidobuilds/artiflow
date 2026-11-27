@@ -117,6 +117,7 @@ test("no command sent to the frame carries comment text", () => {
     viewerId: "u1",
     canComment: true,
     canDeleteOwn: true,
+    deleteAny: false,
     endpoints: { comments: "/c", resolve: "/c", deleteComment: "/c" },
   });
   const payload = JSON.stringify(commands.map((command) => encodeCommand(command, nonce)));

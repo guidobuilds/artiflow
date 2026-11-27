@@ -14,6 +14,7 @@ import {
 } from "@artiflow/domain/scene";
 
 import { renderSceneDocument } from "../apps/api/src/viewer/scene.ts";
+import { attributeSelectorsOf, matchesSelector } from "./helpers/frame-selector.ts";
 
 const rect = (overrides: Partial<RectNode> = {}): RectNode => ({
   id: "rect-1",
@@ -161,8 +162,8 @@ class FakeElement {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
-  querySelectorAll(): FakeElement[] {
-    return this.children;
+  querySelectorAll(selector: string): FakeElement[] {
+    return this.children.filter((child) => matchesSelector(child, selector));
   }
 
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
@@ -221,7 +222,7 @@ const runScript = (html: string, hash = "") => {
   const context = {
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
-      querySelectorAll: () => [...frames.values()],
+      querySelectorAll: (selector: string) => [...frames.values()].filter((frame) => matchesSelector(frame, selector)),
       addEventListener: (type: string, listener: Listener) => host.addEventListener(type, listener),
     },
     location,
@@ -234,8 +235,38 @@ const runScript = (html: string, hash = "") => {
   };
   vm.createContext(context);
   new vm.Script(inlineScript(html), { filename: "scene-viewer.js" }).runInContext(context);
-  return { host, stage, surface, index, fit, frames, tabs, window, location };
+  return { host, stage, surface, index, fit, frames, tabs, window, location, document: context.document };
 };
+
+test("the scene doubles answer only the selector they are given", () => {
+  const run = runScript(renderSceneDocument(twoFrames));
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="home"]').length,
+    1,
+    "a selector naming one frame answers it",
+  );
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="nope"]').length,
+    0,
+    "a selector naming a frame the scene does not hold answers nothing",
+  );
+  assert.deepEqual(run.document.querySelectorAll("[data-not-a-frame]"), [], "an unsupported selector fails closed");
+  assert.equal(
+    run.index.querySelectorAll('button[data-target="checkout"]').length,
+    1,
+    "the index answers the tab it names",
+  );
+  assert.deepEqual(run.index.querySelectorAll("a[href]"), [], "the index fails closed on an unsupported selector");
+});
+
+test("the scene script queries the attributes the markup emits", () => {
+  const html = renderSceneDocument(twoFrames);
+  const markup = html.replace(/<script>[^]*?<\/script>/i, "");
+  const queried = attributeSelectorsOf(inlineScript(html));
+  assert.ok(queried.length > 0, "the script queries at least one attribute selector");
+  for (const name of queried)
+    assert.ok(markup.includes(`${name}="`), `the markup emits ${name}, which the script queries`);
+});
 
 test("every canvas frame renders at its own placement on one surface, and all of them stay visible", () => {
   const html = renderSceneDocument(twoFrames);

@@ -2,7 +2,10 @@ import { createRoot } from "react-dom/client";
 
 import "@/styles/globals.css";
 
-import CommentThreadMargin, { type CommentThread } from "@/components/comments/comment-thread-margin.tsx";
+import CommentThreadMargin, {
+  commentsVisibilityChrome,
+  type CommentThread,
+} from "@/components/comments/comment-thread-margin.tsx";
 import {
   createMessageBudget,
   encodeCommand,
@@ -115,6 +118,18 @@ const markThread = (root: HTMLElement, thread: ViewerThread, active: boolean): H
 
 const reducedMotion = (): boolean => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
+const viewerToggleHost = (shell: HTMLElement): HTMLElement => {
+  const existing = shell.querySelector<HTMLElement>("[data-comments-toggle]");
+  if (existing !== null) return existing;
+  const node = document.createElement("div");
+  node.dataset.commentsToggle = "";
+  node.style.cssText =
+    "position:fixed;left:16px;bottom:16px;z-index:20;display:none;padding:2px;border-radius:10px;" +
+    "border:1px solid var(--line-strong,#d4d4d8);background:var(--bg,#fff)";
+  shell.append(node);
+  return node;
+};
+
 const fetchThreads = async (url: string): Promise<{ canComment: boolean; threads: ViewerThread[] }> => {
   const response = await fetch(url, {
     credentials: "same-origin",
@@ -139,7 +154,11 @@ const postJson = async (url: string, body: unknown): Promise<void> => {
 };
 
 const deleteRequest = async (url: string): Promise<void> => {
-  const response = await fetch(url, { method: "DELETE", credentials: "same-origin" });
+  const response = await fetch(url, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    credentials: "same-origin",
+  });
   if (!response.ok) throw new Error(`Could not delete the comment (${response.status}).`);
 };
 
@@ -150,6 +169,7 @@ export function mountViewerComments(): void {
   const shell = document.getElementById("docshell");
   if (config === null || host === null || documentRoot === null || shell === null) return;
   const root = createRoot(host);
+  const toggleHost = viewerToggleHost(shell);
   const state = {
     activeId: null as string | null,
     visible: true,
@@ -251,7 +271,9 @@ export function mountViewerComments(): void {
   };
   const render = (): void => {
     scheduleOriginCheck();
-    host.style.display = state.visible ? "block" : "none";
+    const chrome = commentsVisibilityChrome(state.visible, toggleHost !== null);
+    host.style.display = chrome.hostDisplay;
+    toggleHost.style.display = chrome.togglePlacement === "floating" ? "block" : "none";
     shell.classList.toggle("comments-visible", state.visible);
     root.render(
       <CommentThreadMargin
@@ -295,6 +317,7 @@ export function mountViewerComments(): void {
           repaintMarks();
           render();
         }}
+        toggleHost={toggleHost}
         showResolved={state.showResolved}
         onShowResolvedChange={(next) => {
           state.showResolved = next;
@@ -356,6 +379,7 @@ export function mountViewerCommentsInFrame(): void {
   const nonce = config?.bridgeNonce ?? "";
   if (config === null || host === null || frame === null || shell === null || nonce === "") return;
   const root = createRoot(host);
+  const toggleHost = viewerToggleHost(shell);
   const budget = createMessageBudget();
   const state = {
     activeId: null as string | null,
@@ -434,7 +458,9 @@ export function mountViewerCommentsInFrame(): void {
     window.requestAnimationFrame(() => {
       if (renderedOffset !== null && Math.abs(frameOffset() - renderedOffset) > 1) render();
     });
-    host.style.display = state.visible ? "block" : "none";
+    const chrome = commentsVisibilityChrome(state.visible, toggleHost !== null);
+    host.style.display = chrome.hostDisplay;
+    toggleHost.style.display = chrome.togglePlacement === "floating" ? "block" : "none";
     shell.classList.toggle("comments-visible", state.visible);
     if (!state.visible) send({ type: "mode", on: false });
     root.render(
@@ -486,6 +512,7 @@ export function mountViewerCommentsInFrame(): void {
           if (!next) state.activeId = null;
           render();
         }}
+        toggleHost={toggleHost}
         showResolved={state.showResolved}
         onShowResolvedChange={(next) => {
           state.showResolved = next;

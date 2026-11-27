@@ -31,6 +31,7 @@ import {
 
 import { renderSceneDocument } from "../apps/api/src/viewer/scene.ts";
 import { sceneThreadPlacement } from "../apps/api/src/viewer/comments-data.ts";
+import { attributeSelectorsOf, matchesSelector } from "./helpers/frame-selector.ts";
 
 const rect = (overrides: Partial<RectNode> = {}): RectNode => ({
   id: "card",
@@ -124,8 +125,8 @@ class FakeElement {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
-  querySelectorAll(): FakeElement[] {
-    return this.children;
+  querySelectorAll(selector: string): FakeElement[] {
+    return this.children.filter((child) => matchesSelector(child, selector));
   }
 
   getBoundingClientRect(): { left: number; top: number; width: number; height: number } {
@@ -181,7 +182,7 @@ const runDeck = (html: string, ids: readonly string[], hash = "", visible = ids[
   const context = {
     document: {
       getElementById: (id: string) => elements.get(id) ?? null,
-      querySelectorAll: (selector: string) => (selector === "[data-frame-id]" ? [...frames.values()] : []),
+      querySelectorAll: (selector: string) => [...frames.values()].filter((frame) => matchesSelector(frame, selector)),
       addEventListener: (type: string, listener: Listener) => host.addEventListener(type, listener),
     },
     location,
@@ -190,11 +191,57 @@ const runDeck = (html: string, ids: readonly string[], hash = "", visible = ids[
   };
   vm.createContext(context);
   new vm.Script(inlineScript(html), { filename: "slide-viewer.js" }).runInContext(context);
-  return { host, stage, index, prev, next, strip, counter, frames, tabs, window, location };
+  return { host, stage, index, prev, next, strip, counter, frames, tabs, window, location, document: context.document };
 };
 
 const visibleSlides = (run: { frames: Map<string, FakeElement> }): string[] =>
   [...run.frames.entries()].filter(([, element]) => !element.hidden).map(([id]) => id);
+
+test("the slide script queries the attributes the markup emits", () => {
+  const html = renderSceneDocument(slideScene, undefined, undefined, [], "deck");
+  const markup = html.replace(/<script>[^]*?<\/script>/i, "");
+  const queried = attributeSelectorsOf(inlineScript(html));
+  assert.ok(queried.length > 0, "the script queries at least one attribute selector");
+  for (const name of queried)
+    assert.ok(markup.includes(`${name}="`), `the markup emits ${name}, which the script queries`);
+});
+
+test("the deck doubles answer only the selector they are given", () => {
+  const html = renderSceneDocument(threeSlides, undefined, undefined, [], "deck");
+  const run = runDeck(html, ["a", "b", "c"]);
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="a"]').length,
+    1,
+    "a selector naming one frame answers it",
+  );
+  assert.equal(
+    run.document.querySelectorAll('[data-frame-id="nope"]').length,
+    0,
+    "a selector naming a frame the deck does not hold answers nothing",
+  );
+  assert.deepEqual(run.document.querySelectorAll("[data-not-a-frame]"), [], "an unsupported selector fails closed");
+  assert.equal(run.index.querySelectorAll('button[data-target="b"]').length, 1, "the index answers the tab it names");
+  assert.deepEqual(run.index.querySelectorAll("a[href]"), [], "the index fails closed on an unsupported selector");
+});
+
+test("space on a focused control activates it instead of stepping the deck", () => {
+  const html = renderSceneDocument(threeSlides, undefined, undefined, [], "deck");
+  const run = runDeck(html, ["a", "b", "c"]);
+  const button = {
+    tagName: "BUTTON",
+    closest: (selector: string) => (selector.includes("button") ? button : null),
+  };
+  let prevented = false;
+  run.host.emit("keydown", {
+    key: " ",
+    target: button,
+    preventDefault: () => {
+      prevented = true;
+    },
+  });
+  assert.equal(prevented, false, "space keeps its native meaning on the focused control");
+  assert.deepEqual(visibleSlides(run), ["a"], "the deck does not step while a control has focus");
+});
 
 test("a deck is the fourth kind with its own icon, plural and slide anchor", () => {
   assert.deepEqual([...ARTIFACT_KINDS], ["html", "markdown", "canvas", "deck"]);
