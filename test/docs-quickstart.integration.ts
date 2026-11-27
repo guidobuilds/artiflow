@@ -404,7 +404,11 @@ integration("a public link opens without a session and revoking it denies access
   assert.equal(anonymous.headers.get("x-robots-tag"), "noindex");
   const publicFrame = srcdocOf(anonymous.text);
   assert.equal(publicFrame.startsWith(sample.text), true, "the stored page leads the public frame");
-  assert.equal(publicFrame.slice(sample.text.length).includes("data-artiflow-bridge"), true);
+  assert.equal(
+    publicFrame.slice(sample.text.length).includes("data-artiflow-bridge"),
+    false,
+    "a link that hides comments ships no bridge",
+  );
   assert.equal(anonymous.text.includes('href="/"'), false, "the public page carries no back link");
   assert.equal(anonymous.text.includes("<b>"), false, "the public page does not name the artifact");
 
