@@ -1046,6 +1046,7 @@
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
   color: var(--fg-muted);
   font-size: 12px;
+  pointer-events: none;
   transform: translateX(-50%);
 }
 .canvas-zoom {
@@ -1059,6 +1060,11 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--bg);
+  pointer-events: none;
+}
+.canvas-selection-bar > button,
+.canvas-zoom > button {
+  pointer-events: auto;
 }
 .canvas-zoom output {
   min-width: 44px;

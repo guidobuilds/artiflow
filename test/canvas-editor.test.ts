@@ -1008,6 +1008,21 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(css, /\.canvas-workspace\.canvas-layers-open/);
   assert.match(css, /grid-template-columns: minmax\(0, 1fr\) 280px 240px/);
   assert.match(css, /\.canvas-marquee\b/);
+  assert.match(
+    css,
+    /\.canvas-selection-bar \{[^}]*pointer-events: none;/,
+    "the floating selection bar never swallows a press meant for the canvas under it",
+  );
+  assert.match(
+    css,
+    /\.canvas-zoom \{[^}]*pointer-events: none;/,
+    "the floating zoom control never swallows a press meant for the canvas under it",
+  );
+  assert.match(
+    css,
+    /\.canvas-selection-bar > button,\s*\n\.canvas-zoom > button \{\s*\n  pointer-events: auto;/,
+    "the controls inside the floating strips stay clickable",
+  );
   assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
   assert.doesNotMatch(page, /replace_scene|add_frame|move_node|update_node/);
   const conflict = /Someone saved a newer version\.[^<]*/.exec(markdown)?.[0];
