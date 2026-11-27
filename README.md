@@ -61,9 +61,10 @@ unrelated IPv6 listener and shows a different application. Create a local accoun
 agent.
 
 Production — domain, TLS, the proxy and upgrades — is
-[docs/deployment-guide.md](docs/deployment-guide.md). `bun run deploy:up` builds the images, migrates
-the database you named and starts the stack. `bun run deploy:logs` follows it and `bun run deploy:down`
-stops it.
+[docs/deployment-guide.md](docs/deployment-guide.md). `bun run deploy:up` pulls the release images
+pinned by `ARTIFLOW_VERSION` from GHCR, migrates the database you named and starts the stack.
+`deploy:build` builds the same stack from a checkout instead, and `bun run deploy:logs` follows it while
+`bun run deploy:down` stops it.
 
 ## Documentation
 

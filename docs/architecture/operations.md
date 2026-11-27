@@ -53,12 +53,17 @@ Caddy serves the static output. No Node runtime ships in either image.
 Steps:
 
 1. DNS `A`/`AAAA` for the domain; open 80/443.
-2. Install Docker; clone the repo.
-3. `cp env.prod.example .env.prod`; fill every value; `chmod 600`.
+2. Install Docker with Compose v2; the host needs no checkout and no toolchain.
+3. Download `docker-compose.prod.yml` and `env.prod.example` from the release tag as
+   `.env.prod`; fill every value; `chmod 600`.
 4. Make sure the external database and bucket already exist.
-5. `bun run deploy:up` (builds images, runs migrations with
-   `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1`, starts the stack; Caddy obtains TLS).
-6. Upgrades: `git pull && bun run deploy:up`.
+5. `ARTIFLOW_VERSION` (the tag without the leading `v`, e.g. `0.4.1`) pins the
+   `ghcr.io/guidobuilds/artiflow-api` and `ghcr.io/guidobuilds/artiflow-web`
+   images; `docker compose --env-file .env.prod -f docker-compose.prod.yml pull`
+   then `… up -d` pulls them, runs migrations with
+   `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1` and starts the stack; Caddy obtains TLS.
+6. Upgrades: bump `ARTIFLOW_VERSION`, `pull`, `up -d`; a rollback is the previous
+   version. CI builds the images from semver tags — nothing is built on the host.
 
 ## 2. Health and readiness
 
@@ -73,6 +78,17 @@ Responses are `no-store` and contain no connection details. The production API
 container uses it as its healthcheck. There is no separate liveness/readiness
 pair, no metrics endpoint and no synthetic check.
 
+`GET /api/version`
+
+| Result                                       | Meaning                                     |
+| -------------------------------------------- | ------------------------------------------- |
+| `200 {"version":"0.4.1","revision":"<sha>"}` | Release tag and git revision baked at build |
+
+Also `no-store`, and built from `ARTIFLOW_BUILD_VERSION` / `ARTIFLOW_BUILD_REVISION`,
+which the release build passes as arguments (`dev` / `unknown` outside a release
+image). It is how an operator confirms that the running containers match the pinned
+`ARTIFLOW_VERSION`.
+
 ## 3. Migrations
 
 - Engine: Drizzle migrator, forward-only SQL in `drizzle/`, tracked in
@@ -86,6 +102,10 @@ pair, no metrics endpoint and no synthetic check.
 - No down migrations, no shadow database, no automatic backup before migrating.
 - Migrations are additive in practice (new tables, indexes and CHECKs); a rolling
   deploy where the old API still serves during a migration has not been tested.
+- Because an image rollback is the supported recovery, migrations must stay
+  expand/contract: release N-1 has to keep running on the schema release N
+  migrated, so a column or table the previous version reads is removed only in a
+  later release.
 
 ## 4. Garbage collection
 

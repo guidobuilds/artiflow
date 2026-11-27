@@ -153,7 +153,7 @@ test("verify workflow runs the integration suite as a required job", () => {
   assert.match(source, /scripts\/wait-integration-services\.mjs/);
   assert.match(source, /adapters\/postgres\/db\/migrate\.ts/);
   assert.match(source, /docker-compose\.ci\.yml/);
-  assert.equal(source.match(/!github\.event\.pull_request\.draft/g)?.length, 3);
+  assert.equal(source.match(/!github\.event\.pull_request\.draft/g)?.length, 4);
   assert.doesNotMatch(source, /continue-on-error/);
 });
 

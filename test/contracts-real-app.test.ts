@@ -29,7 +29,7 @@ function fixtureConfig(): AppConfig {
   };
 }
 
-function stubDeps() {
+function stubDeps(build?: ApiAppDeps["build"]) {
   const database = { db: {}, check: async () => {} } as unknown as ApiAppDeps["database"];
   const storage = {
     client: {},
@@ -37,7 +37,7 @@ function stubDeps() {
     checkBucket: async () => {},
     destroy: () => {},
   } as unknown as ApiAppDeps["storage"];
-  return { config: fixtureConfig(), database, storage };
+  return { config: fixtureConfig(), database, storage, build };
 }
 
 test("the real app composition serves health through app.fetch with no listener or database", async () => {
@@ -47,6 +47,14 @@ test("the real app composition serves health through app.fetch with no listener 
   const body = (await response.json()) as { status: string; checks: { database: string; storage: string } };
   assert.equal(body.status, "ok");
   assert.equal(body.checks.database, "ok");
+});
+
+test("the real app composition serves the build identity it was given", async () => {
+  const app = createApiApp(stubDeps({ version: "0.4.1", revision: "abc123" }));
+  const response = await app.fetch(new Request("http://127.0.0.1:5173/api/version"));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await response.json(), { version: "0.4.1", revision: "abc123" });
 });
 
 test("unauthorized library reads keep the legacy error shape the dashboard parses", async () => {

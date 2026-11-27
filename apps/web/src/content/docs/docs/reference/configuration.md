@@ -119,6 +119,7 @@ configuration:
 | `ARTIFLOW_DEV_RUNTIME`           | `scripts/dev.mjs`                     | `bun`                   | Runtime for the API in development; `node` is the declared fallback                      |
 | `ARTIFLOW_API_PROXY_TARGET`      | `apps/dashboard/vite.config.ts`       | `http://127.0.0.1:8787` | API upstream for the Vite dev server proxy                                               |
 | `ARTIFLOW_ALLOW_REMOTE_MIGRATE`  | migration script                      | off                     | `1` is required to migrate a non-loopback database; a loopback target needs nothing      |
+| `ARTIFLOW_VERSION`               | `docker-compose.prod.yml` services    | none (**required**)     | Release tag without the leading `v`; pins both GHCR images                               |
 | `ARTIFLOW_PROD_ENV_FILE`         | `docker-compose.prod.yml`             | `.env.prod`             | Which env file the production stack loads                                                |
 | `ARTIFLOW_SITE_ADDRESS`          | `docker-compose.prod.yml` web service | none (**required**)     | Public DNS name Caddy serves with TLS; `:80` for a smoke test without DNS                |
 | `ARTIFLOW_DASHBOARD_DIST`        | `apps/api/src/viewer/assets.ts`       | `apps/dashboard/dist`   | Directory the API reads `.vite/manifest.json` from, to find the viewer's browser bundles |

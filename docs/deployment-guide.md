@@ -44,6 +44,13 @@ Production runs three containers (`docker-compose.prod.yml`):
 | `api`           | nothing (internal network)         | Bun 1.3.10 (`bun apps/api/src/server.ts`); reaches Postgres/S3 over the network |
 | `migrate`       | nothing                            | One-shot, applies Drizzle migrations at deploy (Bun)                            |
 
+The containers run images that CI built from a semver tag: `ghcr.io/guidobuilds/artiflow-api` and
+`ghcr.io/guidobuilds/artiflow-web`, both pinned by `ARTIFLOW_VERSION` in the env file (the tag without
+the leading `v`, e.g. `0.4.1`). The Compose file is part of the same release artifact: download it from
+the tag you are deploying and refresh it on upgrade, because an older file may still declare `build:`.
+Nothing is built on the host; `bun run deploy:build` exists only to build the same stack from a
+checkout.
+
 External, provisioned by you **before** the first deploy:
 
 - **PostgreSQL 16** — managed service or self-run. `DATABASE_URL` with
@@ -62,11 +69,11 @@ contract; invalid values fail startup naming the variable only.
 
 The repository runs in three profiles. Only the last one is a public deployment.
 
-| Profile           | Entry point                | Transport                                               | Sign-in                                                     |
-| ----------------- | -------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
-| Local development | `bun run dev`              | `http://127.0.0.1:5173`                                 | Demo email/password, including in-browser account creation  |
-| Integration tests | `bun run test:integration` | Disposable loopback Compose stack (PostgreSQL + Garage) | Not used                                                    |
-| Production        | `bun run deploy:up`        | `https://artifacts.<org>.com` through Caddy             | Email/password for invited accounts; GitHub/Google optional |
+| Profile           | Entry point                                  | Transport                                               | Sign-in                                                     |
+| ----------------- | -------------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
+| Local development | `bun run dev`                                | `http://127.0.0.1:5173`                                 | Demo email/password, including in-browser account creation  |
+| Integration tests | `bun run test:integration`                   | Disposable loopback Compose stack (PostgreSQL + Garage) | Not used                                                    |
+| Production        | `docker compose` (pinned `ARTIFLOW_VERSION`) | `https://artifacts.<org>.com` through Caddy             | Email/password for invited accounts; GitHub/Google optional |
 
 What changes between the local and the production profile:
 
@@ -75,6 +82,7 @@ What changes between the local and the production profile:
 | `NODE_ENV`               | `development`              | `production`                                                  |
 | `ARTIFLOW_PUBLIC_ORIGIN` | `http://127.0.0.1:5173`    | `https://artifacts.<org>.com`                                 |
 | `ARTIFLOW_SITE_ADDRESS`  | not set                    | The public hostname; Caddy obtains and renews the certificate |
+| `ARTIFLOW_VERSION`       | not set                    | Release tag without the leading `v`; pins the GHCR images     |
 | `ARTIFLOW_DEMO_AUTH`     | `1`                        | unset; startup rejects it outside development                 |
 | Cookies                  | not `Secure`               | `Secure`, `HttpOnly`, `SameSite=Lax`                          |
 | Database TLS             | usually off                | `?sslmode=require` (or `verify-full`)                         |
@@ -199,6 +207,8 @@ never published — that is the MCPB/stdio path.
       configured for non-AWS providers.
 - [ ] `ARTIFLOW_AUTH_SECRET` ≥ 32 chars, stored in the env file (0600).
 - [ ] Proxy passes the original `Host` (no rewrite) and no extra hop mutates it.
-- [ ] `GET /api/health` returns 200 (database + storage probes) after `deploy:up`.
+- [ ] `ARTIFLOW_VERSION` pinned to the release tag (no `latest`).
+- [ ] `GET /api/health` returns 200 (database + storage probes) after `pull` and `up -d`.
+- [ ] `GET /api/version` reports that version and the git revision.
 - [ ] MCP smoke: connect one harness to `https://artifacts.<org>.com/mcp`,
       complete OAuth, create one artifact.

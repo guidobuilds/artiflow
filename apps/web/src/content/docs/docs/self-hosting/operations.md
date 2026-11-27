@@ -121,18 +121,57 @@ way. Without a valid link there is no way to start the change from the web.
 
 ## Upgrades
 
+A release is a pair of immutable images built by CI from a semver tag and published to GHCR, plus the
+Compose file that belongs to that tag. `ARTIFLOW_VERSION` in `.env.prod` selects the release: the tag
+without the leading `v`. The stack never builds on the host, so an upgrade refreshes the stack file,
+changes one value and pulls. `latest` is published for convenience and must not be used in production;
+pin the exact release.
+
 Migrations are additive and idempotent, and there are no down migrations. The `migrate` container
-applies whatever is pending and exits; the API starts only after it succeeds.
+applies whatever is pending and exits; the API starts only after it succeeds. Because that step is
+forward only, **back up the database and the bucket first** (see [Backups](#backups-you-own-them)).
 
 ```sh
-git pull
-bun run deploy:up
-curl -sS https://artifacts.example.com/api/health
+# 0. refresh the stack file from the release tag; keep the previous copy for a rollback
+cp docker-compose.prod.yml docker-compose.prod.yml.previous
+curl -fsSL "https://raw.githubusercontent.com/guidobuilds/artiflow/v0.5.0/docker-compose.prod.yml" \
+  -o docker-compose.prod.yml
+# 1. set ARTIFLOW_VERSION=0.5.0 in .env.prod
+# 2. pull the release and restart
+docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+# 3. confirm what is running
+curl -sS https://artifacts.example.com/api/version
 ```
 
-Re-running `deploy:up` on an unchanged release is a no-op for the database. For a local instance the
-same step is `bun run db:migrate`. Run the upgrade against a staging instance, or at least against a
-disposable copy of the database and bucket, before applying it to the instance people depend on.
+Step 0 matters on the first upgrade of an older install and whenever a release changes the stack
+definition: a Compose file that still declares `build:` cannot pull the pinned images. Refreshing it on
+every release is safe, because the file is the same one the release was verified with.
+
+`/api/version` answers `{"version":"0.5.0","revision":"<git sha>"}`, so the pin, the image and the
+running process can be compared without opening a container. Re-running a release against an unchanged
+database is a no-op. From a repository checkout, `bun run deploy:up` performs the same pull and start.
+
+A rollback is the same steps with the previous version, and the shell overrides `--env-file`, so it is
+one pair of commands:
+
+```sh
+cp docker-compose.prod.yml.previous docker-compose.prod.yml
+ARTIFLOW_VERSION=0.4.1 docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+ARTIFLOW_VERSION=0.4.1 docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+```
+
+Restore the previous stack file only if the release that is being rolled back changed it; keeping the
+copy costs nothing and makes the rollback independent of what changed.
+
+An image rollback does not revert the schema. Migrations have to stay expand/contract so release N-1
+keeps running on the schema release N migrated: a column or a table the previous version reads is
+dropped only once no supported version reads it. When a release is not backward compatible, the only
+way back is restoring the backup taken before the upgrade.
+
+For a local instance the same step is `bun run db:migrate`. Run an upgrade against a staging instance,
+or at least against a disposable copy of the database and bucket, before applying it to the instance
+people depend on.
 
 ## Backups: you own them
 
@@ -160,7 +199,7 @@ switching traffic:
 
 1. Provision the replacement database and bucket, and restore both snapshots into them.
 2. Keep the bucket private and give the API credentials that only reach it.
-3. Point `.env.prod` at the restored pair and run `bun run deploy:up`, so pending migrations apply.
+3. Point `.env.prod` at the restored pair and run `pull` and `up -d`, so pending migrations apply.
 4. Check `/api/health`, open one HTML artifact, one Markdown document and one public share link.
 5. Switch DNS or the proxy only when those checks pass.
 

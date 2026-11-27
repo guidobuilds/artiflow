@@ -1,0 +1,15 @@
+services:
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+
+  web:
+    build:
+      context: .
+      dockerfile: docker/web.Dockerfile
