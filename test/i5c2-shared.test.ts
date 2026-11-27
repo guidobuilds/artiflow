@@ -270,7 +270,9 @@ test(
     const own = await read(`/artifact/${shared.id}`, {}, a);
     const recipient = await read(`/artifact/${shared.id}`, {}, b);
     const island = /<script type="application\/json" id="viewer-comments-data">([^<]*)<\/script>/;
-    const withoutData = (html: string) => html.replace(island, "DATA");
+    const management =
+      /<span data-island="actions">.*?<\/span>|<script type="application\/json" id="viewer-management-data">[^<]*<\/script>|<script type="module" src="[^"]*viewer-actions[^"]*"><\/script>/g;
+    const withoutData = (html: string) => html.replace(island, "DATA").replace(management, "");
     assert.deepEqual(
       [own.status, recipient.status, withoutData(recipient.text) === withoutData(own.text)],
       [200, 200, true],

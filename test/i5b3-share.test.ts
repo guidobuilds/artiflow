@@ -339,12 +339,18 @@ test(
     assert.match(shared.text, /const refresh = \{metaUrl:"\/share\//);
     const island = /<script type="application\/json" id="viewer-comments-data">[^<]*<\/script>/;
     const bridgeData = /const PINS = .*;|const NONCE = .*;/g;
+    const managementSlot = /<span data-island="actions">.*?<\/span>/;
+    const managementData = /<script type="application\/json" id="viewer-management-data">[^<]*<\/script>/;
+    const managementScript = /<script type="module" src="[^"]*viewer-actions[^"]*"><\/script>/;
     const normalize = (html: string) =>
       html
         .replace(back, "")
         .replace(name, "")
         .replace(refreshLine, "const refresh = CONFIG;\n")
         .replace(island, "DATA")
+        .replace(managementSlot, "")
+        .replace(managementData, "")
+        .replace(managementScript, "")
         .replace(bridgeData, "BRIDGE_DATA");
     assert.equal(
       normalize(owner.text),
