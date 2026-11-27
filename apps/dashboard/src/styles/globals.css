@@ -954,6 +954,9 @@
 .canvas-frame:not(.canvas-frame-active) .canvas-node {
   pointer-events: none;
 }
+.canvas-surface > .canvas-node {
+  z-index: 1;
+}
 .canvas-node:focus-visible {
   outline: 1px solid var(--accent);
 }

@@ -11,6 +11,7 @@ import {
   getScene,
   insideBounds,
   layerRows,
+  locateNode,
   moveFrame,
   moveNode,
   moveNodes,
@@ -122,6 +123,25 @@ const markdown = {
 };
 
 const nodeOf = (value: Scene, id: string) => value.frames[0]?.nodes.find((node) => node.id === id);
+const looseScene = (): Scene => ({
+  ...scene(),
+  nodes: [
+    { id: "loose-1", type: "rect", x: 900, y: 40, w: 200, h: 120, fill: "#e5e7eb" },
+    {
+      id: "loose-2",
+      type: "text",
+      x: 40,
+      y: 700,
+      w: 240,
+      h: 64,
+      text: "Loose",
+      style: { fontSize: 24, fontWeight: 600, color: "#111111" },
+    },
+  ],
+});
+const looseNodeOf = (value: Scene, id: string) => value.nodes?.find((node) => node.id === id);
+const looseIds = (value: Scene) => value.nodes?.map((node) => node.id) ?? [];
+
 const legacyScene = (): Scene => ({
   formatVersion: 1,
   frames: [
@@ -1534,4 +1554,206 @@ test("selection, pan and zoom never enter the history", () => {
   }
   assert.match(zoomAt, /setPan\(/, "zooming stays in the view");
   assert.doesNotMatch(zoomAt, /commitEdit\(|update\(/, "zooming stays out of the history");
+});
+
+test("a canvas-level node locates, moves, resizes and removes without any frame bound", () => {
+  const base = looseScene();
+  const before = structuredClone(base);
+
+  const inFrame = locateNode(base, "rect-1");
+  assert.equal(inFrame?.frame?.id, "frame-1", "a frame node reports the frame that holds it");
+  assert.equal(inFrame?.node.id, "rect-1");
+  const loose = locateNode(base, "loose-1");
+  assert.equal(loose?.frame, null, "a canvas-level node reports that it lives on the canvas itself");
+  assert.equal(loose?.node.x, 900);
+  assert.equal(locateNode(base, "missing"), null, "an id the scene does not hold has no place");
+
+  const moved = moveNode(base, "loose-1", 30, -10);
+  assert.deepEqual(
+    [looseNodeOf(moved, "loose-1")?.x, looseNodeOf(moved, "loose-1")?.y],
+    [930, 30],
+    "a canvas-level drag moves by its scene distance",
+  );
+  assert.deepEqual(
+    [looseNodeOf(moved, "loose-1")?.w, looseNodeOf(moved, "loose-1")?.h],
+    [200, 120],
+    "a canvas-level move never resizes the node",
+  );
+  assert.deepEqual(moved.frames, base.frames, "moving a canvas-level node rewrites no frame");
+  assert.deepEqual(base, before, "the scene before the drag is untouched");
+
+  const free = moveNode(base, "loose-1", -5000, 5000);
+  assert.deepEqual(
+    [looseNodeOf(free, "loose-1")?.x, looseNodeOf(free, "loose-1")?.y],
+    [-4100, 5040],
+    "a canvas-level node knows no frame edge to be clamped to",
+  );
+  assert.deepEqual([looseNodeOf(free, "loose-1")?.w, looseNodeOf(free, "loose-1")?.h], [200, 120]);
+
+  const rounded = moveNode(base, "loose-1", 12.7, -3.4);
+  assert.deepEqual(
+    [looseNodeOf(rounded, "loose-1")?.x, looseNodeOf(rounded, "loose-1")?.y],
+    [913, 37],
+    "a fractional canvas-level drag rounds to whole pixels",
+  );
+
+  const resized = resizeNode(base, "loose-1", 320, 0);
+  assert.deepEqual(
+    [looseNodeOf(resized, "loose-1")?.w, looseNodeOf(resized, "loose-1")?.h],
+    [320, 4],
+    "a canvas-level resize keeps the minimum size instead of collapsing",
+  );
+  assert.deepEqual(
+    [looseNodeOf(resized, "loose-1")?.x, looseNodeOf(resized, "loose-1")?.y],
+    [900, 40],
+    "a canvas-level resize moves no node",
+  );
+
+  const group = moveNodes(base, ["loose-1", "loose-2"], 10, 20);
+  assert.deepEqual(
+    [
+      looseNodeOf(group, "loose-1")?.x,
+      looseNodeOf(group, "loose-1")?.y,
+      looseNodeOf(group, "loose-2")?.x,
+      looseNodeOf(group, "loose-2")?.y,
+    ],
+    [910, 60, 50, 720],
+    "a canvas-level group moves by one delta",
+  );
+  assert.deepEqual(group.frames, base.frames, "a canvas-level group rewrites no frame");
+  assert.deepEqual(
+    moveNodes(base, ["loose-1"], Number.NaN, Number.POSITIVE_INFINITY),
+    base,
+    "a delta that is not a number leaves a canvas-level node where it is",
+  );
+
+  const mixed = moveNodes(base, ["rect-1", "loose-1"], 10, 10);
+  assert.equal(nodeOf(mixed, "rect-1")?.x, 50, "the frame node of a mixed selection still moves");
+  assert.equal(
+    looseNodeOf(mixed, "loose-1")?.x,
+    900,
+    "a mixed selection never crosses the container the group started in",
+  );
+
+  const removed = removeNode(base, "loose-1");
+  assert.deepEqual(looseIds(removed), ["loose-2"], "removing a canvas-level node leaves the other loose nodes");
+  assert.deepEqual(removed.frames, base.frames, "removing a canvas-level node rewrites no frame");
+  assert.deepEqual(removeNode(base, "rect-1").nodes, base.nodes, "removing a frame node leaves the canvas level alone");
+  assert.equal(removeNode(base, "missing"), base, "an unknown id leaves the scene as it is");
+});
+
+test("a canvas-level node reorders, nudges and edits text without touching a frame", () => {
+  const base = looseScene();
+
+  const reordered = reorderNodeTo(base, "loose-1", 1);
+  assert.deepEqual(looseIds(reordered), ["loose-2", "loose-1"], "a canvas-level node lands at the index it was given");
+  assert.deepEqual(reordered.frames, base.frames, "reordering the canvas level rewrites no frame");
+  assert.equal(reorderNodeTo(base, "loose-1", 0), base, "an index the node already holds leaves the scene as it is");
+
+  assert.deepEqual(
+    looseIds(nudgeSelection(base, ["loose-1"], 1)),
+    ["loose-2", "loose-1"],
+    "a canvas-level nudge moves the selection one step toward the front",
+  );
+  assert.deepEqual(
+    looseIds(nudgeSelection(base, ["loose-2"], -1)),
+    ["loose-2", "loose-1"],
+    "and one step toward the back",
+  );
+  assert.equal(nudgeSelection(base, ["loose-2"], 1), base, "a node already at the front of the canvas stops there");
+
+  assert.deepEqual(
+    looseIds(bringToFront(base, ["loose-1"])),
+    ["loose-2", "loose-1"],
+    "front works at the canvas level",
+  );
+  assert.deepEqual(looseIds(sendToBack(base, ["loose-2"])), ["loose-2", "loose-1"], "back works at the canvas level");
+  assert.deepEqual(sendToBack(base, ["loose-2"]).frames, base.frames, "reordering the canvas level rewrites no frame");
+  assert.equal(bringToFront(base, ["loose-1", "loose-1"]).nodes?.length, 2, "a repeated id never duplicates a node");
+
+  const edited = updateTextNode(base, "loose-2", { text: "Changed", style: { fontSize: 9000 } });
+  const editedNode = looseNodeOf(edited, "loose-2");
+  assert.equal(editedNode?.type === "text" ? editedNode.text : null, "Changed", "a canvas-level text node is editable");
+  assert.equal(
+    editedNode?.type === "text" ? editedNode.style?.fontSize : null,
+    400,
+    "the same font clamp the server would refuse runs at the canvas level",
+  );
+  assert.deepEqual(edited.frames, base.frames, "editing a canvas-level node rewrites no frame");
+  assert.deepEqual(base.nodes, looseScene().nodes, "the scene before the edit is untouched");
+});
+
+test("a selection rectangle over the surface takes the canvas-level nodes it touches", () => {
+  const loose = looseScene().nodes ?? [];
+  assert.deepEqual(
+    selectNodesInRect(loose, { x: 800, y: 0, w: 200, h: 200 }),
+    ["loose-1"],
+    "a rectangle over the canvas-level rectangle takes it",
+  );
+  assert.deepEqual(
+    selectNodesInRect(loose, { x: 0, y: 0, w: 2000, h: 2000 }),
+    ["loose-1", "loose-2"],
+    "the answer follows the canvas paint order",
+  );
+  assert.deepEqual(selectNodesInRect(loose, { x: 0, y: 0, w: 0, h: 0 }), [], "an empty rectangle takes nothing");
+  assert.deepEqual(
+    selectNodesInRect(loose, { x: Number.NaN, y: 0, w: 10, h: 10 }),
+    [],
+    "a rectangle that is not a number takes nothing",
+  );
+  assert.deepEqual(selectionBounds(loose, ["loose-1", "loose-2"]), { x: 40, y: 40, w: 1060, h: 724 });
+  assert.deepEqual(selectionBounds(loose, ["loose-1"]), { x: 900, y: 40, w: 200, h: 120 });
+  assert.equal(selectionBounds(loose, ["missing"]), null, "an unknown id has no rectangle");
+});
+
+test("the canvas screen draws the canvas-level nodes above every frame on the one node gesture path", () => {
+  const page = canvasPage();
+  const css = source("../apps/dashboard/src/styles/globals.css");
+  assert.match(page, /const looseNodes = scene\.nodes \?\? \[\];/, "the canvas level is read once");
+  assert.equal(
+    (page.match(/nodeMarkup\(node, /g) ?? []).length,
+    2,
+    "the frame nodes and the canvas-level nodes share one markup builder",
+  );
+  assert.equal(
+    page.indexOf("{entry.nodes.map(") < page.indexOf("{looseNodes.map("),
+    true,
+    "the canvas-level nodes render after every frame, so they float above the artboards",
+  );
+  assert.match(page, /nodeMarkup\(node, true\)/, "a canvas-level node is reachable without an active frame");
+  const markup = between(page, "const nodeMarkup =", "\n  return (");
+  assert.match(
+    markup,
+    /className=\{`canvas-node canvas-node-\$\{node\.type\}/,
+    "the shared markup keeps the node classes the styles target",
+  );
+  assert.match(
+    markup,
+    /onPointerDown=\{\(event\) => startDrag\(event, node, "move"\)\}/,
+    "a loose press drags the node",
+  );
+  assert.match(markup, /event\.shiftKey/, "shift click adds a canvas-level node to the selection");
+  assert.equal(
+    (page.match(/onPointerUp=\{endDrag\}/g) ?? []).length,
+    1,
+    "one release path commits the drag of a frame node and of a canvas-level node",
+  );
+  assert.equal((page.match(/onPointerCancel=\{endDrag\}/g) ?? []).length, 1);
+  assert.match(
+    page,
+    /locateNode\(scene, selected\[0\]/,
+    "the inspector finds a selected node wherever the scene holds it",
+  );
+  assert.match(page, /selectNodesInRect\(looseNodes, rect\)/, "the marquee takes the canvas-level nodes it touches");
+  assert.match(page, /selectNodesInRect\(frame, /, "and the nodes of the active frame, in its own coordinates");
+  assert.match(
+    between(page, "const endMarquee =", "\n  const cancelMarquee ="),
+    /setSelected\(\s*marqueeSelection\(/,
+    "one marquee writes one selection",
+  );
+  assert.match(
+    css,
+    /\.canvas-surface > \.canvas-node \{[^}]*z-index: 1;/,
+    "a canvas-level node paints over every frame",
+  );
 });

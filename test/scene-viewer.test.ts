@@ -916,3 +916,64 @@ test("omitting the threads argument renders the same document as passing none", 
   const pinnedScene = scene(frame({ nodes: [rect()] }));
   assert.equal(renderSceneDocument(pinnedScene, undefined, undefined, []), renderSceneDocument(pinnedScene));
 });
+
+test("the canvas draws the scene-level nodes above every frame at their own coordinates", () => {
+  const loose: Scene = {
+    ...scene(frame({ nodes: [rect()] })),
+    nodes: [rect({ id: "loose-1", x: 500, y: 30 }), text({ id: "loose-2", x: 20, y: 900 })],
+  };
+  const html = renderSceneDocument(loose);
+  assert.ok(
+    html.includes(
+      'class="node node-rect" data-node-id="loose-1" style="left:500px;top:30px;width:100px;height:50px;background:#ff0000;border-radius:8px"',
+    ),
+    html,
+  );
+  assert.ok(
+    html.includes('class="node node-text" data-node-id="loose-2"'),
+    "the canvas-level text keeps the node markup",
+  );
+  assert.ok(html.includes('text-align:center">Hello</div>'), "and the text content every text node carries");
+  assert.ok(surfaceTag(html).length > 0, "the canvas keeps its surface");
+  assert.ok(
+    html.indexOf(surfaceTag(html)) < html.indexOf('data-node-id="loose-1"'),
+    "a loose node rides on the surface",
+  );
+  assert.ok(
+    html.indexOf('id="frame-home"') < html.indexOf('data-node-id="loose-1"'),
+    "a loose node paints after the frame that precedes it",
+  );
+  assert.ok(
+    html.lastIndexOf("</section>") < html.indexOf('data-node-id="loose-1"'),
+    "and after every frame body, so it floats above the artboards instead of inside one",
+  );
+  assert.ok(
+    html.indexOf('data-node-id="loose-1"') < html.indexOf('data-node-id="loose-2"'),
+    "the canvas keeps the order the scene stores",
+  );
+  assert.ok(
+    html.indexOf('data-node-id="rect-1"') < html.indexOf("</section>"),
+    "a frame node still renders in its frame",
+  );
+  assert.doesNotThrow(() => new vm.Script(inlineScript(html), { filename: "scene-viewer.js" }));
+});
+
+test("a scene without canvas-level nodes renders exactly the document it rendered before", () => {
+  assert.equal(
+    renderSceneDocument(scene(frame({ nodes: [rect()] }))),
+    renderSceneDocument({ ...scene(frame({ nodes: [rect()] })), nodes: [] }),
+    "an empty canvas level adds no markup and no stylesheet byte",
+  );
+});
+
+test("a deck has no surface, so its scene-level nodes stay out of the page", () => {
+  const withLoose: Scene = { ...scene(frame()), nodes: [rect({ id: "loose-1" })] };
+  const deck = renderSceneDocument(withLoose, undefined, undefined, [], "deck");
+  assert.equal(deck.includes("loose-1"), false, "a deck never draws a canvas-level node");
+  assert.equal(
+    deck,
+    renderSceneDocument(scene(frame()), undefined, undefined, [], "deck"),
+    "a deck document stays what it is",
+  );
+  assert.ok(renderSceneDocument(withLoose).includes("loose-1"), "the canvas does draw it");
+});

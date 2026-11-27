@@ -221,6 +221,10 @@ export function renderSceneDocument(
     return found === undefined ? { x: 0, y: 0 } : { x: found.x, y: found.y };
   };
   const requested = frameId !== undefined && scene.frames.some((frame) => frame.id === frameId) ? frameId : null;
+  const looseOf = (): string => {
+    if (slides || scene.nodes === undefined || scene.nodes.length === 0) return "";
+    return `\n${scene.nodes.map((node) => renderNode(node, source)).join("")}`;
+  };
   const slidesOf = scene.frames.map((frame) =>
     slides
       ? renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id))
@@ -247,7 +251,7 @@ ${slidesOf.join("\n")}
       : `<div class="scene-stage" id="stage">
 <div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button></div>
 <div class="scene-surface" id="surface"${activeAttribute} ${surfaceSize}>
-${slidesOf.join("\n")}
+${slidesOf.join("\n")}${looseOf()}
 </div>
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene, selectedId)}</nav>`;
