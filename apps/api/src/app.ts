@@ -145,6 +145,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
       storage: storageView,
       maxArtifactBytes: MAX_ARTIFACT_BYTES,
       deletion: { publicOrigin: config.publicOrigin },
+      publicOrigin: config.publicOrigin,
       bearerVerifier: createMultiAudienceBearerVerifier(auth, [mcpAuthOptions, apiAuthOptions]),
     }),
   );
@@ -201,6 +202,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
       storage: storageView,
       maxArtifactBytes: MAX_ARTIFACT_BYTES,
       deletion: { publicOrigin: config.publicOrigin },
+      publicOrigin: config.publicOrigin,
       principal: true,
     }),
   );

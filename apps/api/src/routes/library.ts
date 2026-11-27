@@ -13,12 +13,14 @@ import {
 } from "../adapters/postgres/db/artifact-schema.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { deleteArtifact, type DeletionWiring } from "../domain/deletion.ts";
+import { renameArtifact } from "../domain/commits.ts";
 import { readableArtifactPredicate, sceneAssetDigests } from "../routes/sharing.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import type { McpBearerVerifier } from "../mcp/mount.ts";
 import type {
   ArtifactDetail,
   ArtifactListResponse,
+  ArtifactMetadataUpdateResponse,
   ArtifactSummary,
   SharedArtifactListResponse,
 } from "@artiflow/contracts/artifacts";
@@ -33,11 +35,12 @@ import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
 import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
 import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
-import { isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
+import { cookieMutationGuard, isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
 const LIST_LIMIT = 100;
 const SHARED_LIMIT = 200;
+const METADATA_BODY_LIMIT = 64 * 1024;
 
 type LibraryAuth = ReturnType<typeof createAuth>;
 export type LibraryOptions = {
@@ -47,6 +50,7 @@ export type LibraryOptions = {
   bearerVerifier?: McpBearerVerifier;
   maxArtifactBytes?: number;
   deletion?: DeletionWiring;
+  publicOrigin?: string;
   principal?: true;
 };
 const columns = {
@@ -309,6 +313,37 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     c.header("cache-control", "no-store");
     return c.json({ canComment: config.canComment, threads: config.threads });
   });
+
+  const mutationOrigin = options.publicOrigin ?? "";
+  if (mutationOrigin !== "") {
+    app.patch("/api/artifacts/:id/metadata", async (c) => {
+      const rejected = cookieMutationGuard(c, mutationOrigin);
+      if (rejected === "origin_not_allowed") return jsonError(c, rejected, 403);
+      if (rejected === "json_content_type_required") return jsonError(c, rejected, 415);
+      const ownerId = await sessionUserId(auth, c.req.raw.headers);
+      if (!ownerId) return jsonError(c, "unauthorized", 401);
+      const artifactId = c.req.param("id");
+      if (!isUuid(artifactId)) return jsonError(c, "not_found", 404);
+      const declared = c.req.header("content-length");
+      if (declared !== undefined && Number.isFinite(Number(declared)) && Number(declared) > METADATA_BODY_LIMIT)
+        return jsonError(c, "too_large", 413);
+      const raw = await c.req.text();
+      if (Buffer.byteLength(raw, "utf8") > METADATA_BODY_LIMIT) return jsonError(c, "too_large", 413);
+      const body = ((): { title?: unknown } | null => {
+        try {
+          return JSON.parse(raw) as { title?: unknown } | null;
+        } catch {
+          return null;
+        }
+      })();
+      const title = typeof body?.title === "string" ? body.title.trim() : "";
+      const renamed = await renameArtifact(db, { artifactId, ownerId, title });
+      if (renamed.ok) return c.json(renamed.value satisfies ArtifactMetadataUpdateResponse, 200);
+      if (renamed.kind === "validation") return jsonError(c, renamed.reason, 400);
+      if (renamed.kind === "not_found" || renamed.kind === "gone") return jsonError(c, "not_found", 404);
+      return jsonError(c, "rename_failed", 500);
+    });
+  }
 
   if (options.deletion) {
     const { publicOrigin, deleteRevisionBytes } = options.deletion;

@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+export const ARTIFACT_TITLE_LIMIT = 200;
+
+export type TitleProblem = "empty" | "too_long";
+
+export function titleProblem(title: string): TitleProblem | null {
+  const value = title.trim();
+  if (value.length === 0) return "empty";
+  return value.length > ARTIFACT_TITLE_LIMIT ? "too_long" : null;
+}
+
 export const artifactKindSchema = z.enum(["html", "markdown", "canvas", "deck", "unknown"]);
 export type ArtifactKind = z.infer<typeof artifactKindSchema>;
 
@@ -71,7 +81,7 @@ export type V1ArtifactBytesResponse = z.infer<typeof v1ArtifactBytesResponseSche
 export const createArtifactRequestSchema = z.object({
   text: z.string().min(1),
   kind: z.enum(["html", "markdown"]).optional(),
-  title: z.string().min(1).max(200).optional(),
+  title: z.string().min(1).max(ARTIFACT_TITLE_LIMIT).optional(),
 });
 export type CreateArtifactRequest = z.infer<typeof createArtifactRequestSchema>;
 
@@ -89,7 +99,7 @@ export const v1ArtifactUpdateRequestSchema = z.object({
   text: z.string().min(1),
   kind: z.literal("html"),
   expectedRevisionId: z.string().min(1),
-  title: z.string().min(1).max(200).optional(),
+  title: z.string().min(1).max(ARTIFACT_TITLE_LIMIT).optional(),
 });
 export type V1ArtifactUpdateRequest = z.infer<typeof v1ArtifactUpdateRequestSchema>;
 

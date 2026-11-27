@@ -1,10 +1,12 @@
-import { assetsHead, assetsScripts } from "./assets.ts";
+import { assetsHead, assetsScripts, type Assets } from "./assets.ts";
 import { artifactBar } from "./chrome/bar.ts";
 import { commentsHost, PANEL_CSS, shellCommentsClass } from "./chrome/panel.ts";
 import { escapeAttribute, escapeJsonText, THEME_BOOTSTRAP, VIEWER_CHROME_CSS } from "./chrome/theme.ts";
 import {
   bridgeComments,
+  managementMenu,
   type ViewerChrome,
+  type ViewerManagementMenu,
   type ViewerMeta,
   type ViewerModel,
   type ViewerRefresh,
@@ -257,6 +259,7 @@ type ArtifactSlots = {
   readonly meta?: ViewerMeta | undefined;
   readonly refresh: ViewerRefresh;
   readonly comments?: WrapperComments | undefined;
+  readonly management?: ViewerManagementMenu | undefined;
 };
 
 const frameHeaders = (images: string | null | undefined): Record<string, string> =>
@@ -264,19 +267,27 @@ const frameHeaders = (images: string | null | undefined): Record<string, string>
 
 function artifactPage(slots: ArtifactSlots): ArtifactPage {
   const comments = slots.comments;
+  const management = slots.management;
+  const assets = [comments?.assets, management?.assets].filter((set): set is Assets => set !== undefined);
   const bridge = comments === undefined ? "" : escapeAttribute(comments.bridge);
   const bar = artifactBar({
     chrome: slots.chrome,
     backHref: slots.backHref,
     meta: slots.meta,
     control: FOCUS_CONTROL,
+    management: management !== undefined,
   });
   const chrome = bar === "" ? "" : `${bar}\n${FOCUS_EXIT}`;
-  const tail =
+  const commentsData =
     comments === undefined
       ? ""
-      : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>
-${assetsScripts(comments.assets)}`;
+      : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>`;
+  const managementData =
+    management === undefined
+      ? ""
+      : `<script type="application/json" id="viewer-management-data">${escapeJsonText(JSON.stringify(management.config))}</script>`;
+  const payloads = [commentsData, managementData].filter((value) => value !== "");
+  const tail = payloads.length === 0 ? "" : `${payloads.join("\n")}\n${assetsScripts(...assets)}`;
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Artifact</title>
 ${THEME_BOOTSTRAP}
@@ -284,7 +295,7 @@ ${THEME_BOOTSTRAP}
 ${VIEWER_CHROME_CSS}
 ${DOCUMENT_CSS}
 </style>
-${comments === undefined ? "" : assetsHead(comments.assets)}</head>
+${assets.length === 0 ? "" : assetsHead(...assets)}</head>
 <body>${chrome}
 <div class="docshell${shellCommentsClass(comments !== undefined)}" id="docshell">
 <iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${slots.srcdoc}${bridge}"></iframe>
@@ -307,6 +318,7 @@ export const artifactView = (model: ViewerModel, frame: ArtifactFrame): Artifact
     chrome: model.chrome,
     refresh: model.refresh,
     comments: bridgeComments(model.comments),
+    management: managementMenu(model.management),
   });
 
 export const wrapperPage = (
@@ -316,4 +328,5 @@ export const wrapperPage = (
   chrome: ViewerChrome,
   refresh: ViewerRefresh,
   comments?: WrapperComments,
-): string => artifactPage({ srcdoc: escaped, backHref, meta, chrome, refresh, comments }).html;
+  management?: ViewerManagementMenu,
+): string => artifactPage({ srcdoc: escaped, backHref, meta, chrome, refresh, comments, management }).html;

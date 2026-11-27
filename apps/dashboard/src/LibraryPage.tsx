@@ -534,7 +534,7 @@ export default function LibraryPage({
       ) : null}
       {active?.panel === "delete" ? (
         <DeleteModal
-          artifact={active.artifact}
+          artifact={{ id: active.artifact.id, title: active.artifact.title, kind: active.artifact.kind }}
           onDeleted={() => didDelete(active.artifact.id)}
           onClose={() => setActive(null)}
         />

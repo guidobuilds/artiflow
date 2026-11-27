@@ -17,7 +17,7 @@ import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
 import { newRevisionStorageKey } from "../apps/api/src/adapters/storage/s3.ts";
 import { createLibraryApp, type LibraryOptions } from "../apps/api/src/routes/library.ts";
 import { createShareViewerApp } from "../apps/api/src/routes/sharing.ts";
-import { viewerCommentsAssets } from "../apps/api/src/viewer/assets.ts";
+import { viewerActionsAssets, viewerCommentsAssets } from "../apps/api/src/viewer/assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
 import { htmlBridgeScript } from "../apps/api/src/viewer/html-bridge-script.ts";
 import {
@@ -582,8 +582,12 @@ test("PRESERVE: an html artifact keeps its exact page bytes", async () => {
         config,
         assets: viewerCommentsAssets(),
       },
+      {
+        config: { id: ARTIFACT_ID, title: TITLE, kind: "html" },
+        assets: viewerActionsAssets(),
+      },
     ),
-    "the html path is byte-identical to the page it served before the scene branch existed",
+    "the html path is byte-identical to the composition of its own comment and management slots",
   );
 });
 
@@ -621,8 +625,12 @@ test("PRESERVE: a markdown artifact keeps its exact page bytes", async () => {
         sha256: revision.sha256,
       },
       { config, assets: viewerCommentsAssets() },
+      {
+        config: { id: ARTIFACT_ID, title: TITLE, kind: "markdown" },
+        assets: viewerActionsAssets(),
+      },
     ).html,
-    "the markdown path is byte-identical to the page it served before the scene branch existed",
+    "the markdown path is byte-identical to the composition of its own comment and management slots",
   );
 });
 

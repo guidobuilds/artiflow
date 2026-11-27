@@ -50,6 +50,12 @@ let owner: Identity, reader: Identity, stranger: Identity;
 let markdownId = "";
 const usedKeys: string[] = [];
 let baselineKeys = new Set<string>();
+const menuTrigger =
+  /<span data-island="actions"><button type="button" data-control="menu"[^>]*>Actions<\/button><\/span>/;
+const menuConfigLine = /\n<script type="application\/json" id="viewer-management-data">[^<]*<\/script>/;
+const menuBundleLine = /\n<script type="module" src="[^"]*viewer-actions[^"]*"><\/script>/;
+const withoutManagement = (html: string): string =>
+  html.replace(menuTrigger, "").replace(menuConfigLine, "").replace(menuBundleLine, "");
 const revisionKeyOf = async (revisionId: string): Promise<string> => {
   const row = await database.pool.query<{ storageKey: string }>(
     `select "storageKey" from "artifactRevisions" where "id" = $1`,
@@ -297,7 +303,7 @@ test("owner bearer renders the byte-identical cookie viewer, including browser O
   const bearer = await viewer(owner.token, undefined, artifactId, config.publicOrigin);
   assert.equal(cookie.status, 200);
   assert.equal(bearer.status, 200);
-  assert.equal(await bearer.text(), await cookie.text());
+  assert.equal(withoutManagement(await bearer.text()), withoutManagement(await cookie.text()));
   for (const header of ["content-type", "content-security-policy", "x-content-type-options", "cache-control"]) {
     assert.equal(bearer.headers.get(header), cookie.headers.get(header));
   }
@@ -337,9 +343,9 @@ test("the v1-audience bearer renders the same viewer page as the MCP-audience on
   const api = await viewer(apiToken);
   const legacy = await viewer(owner.token);
   assert.deepEqual([cookie.status, api.status, legacy.status], [200, 200, 200]);
-  const page = await cookie.text();
-  assert.equal(await api.text(), page);
-  assert.equal(await legacy.text(), page);
+  const page = withoutManagement(await cookie.text());
+  assert.equal(withoutManagement(await api.text()), page);
+  assert.equal(withoutManagement(await legacy.text()), page);
   const embedded = await request(`/artifact/${artifactId}?embed=1`, {
     headers: { authorization: `Bearer ${apiToken}` },
   });
