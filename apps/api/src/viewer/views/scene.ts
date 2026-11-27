@@ -190,7 +190,8 @@ body{display:flex;flex-direction:column;overflow:hidden;background:#141414;color
 const SLIDES_CSS = `.scene-slides{background-image:none}
 .scene-counter{margin:0;display:grid;place-content:center;height:28px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#c3c8cd;font:500 12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}`;
 
-const SURFACE_CSS = `.scene-surface{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}`;
+const SURFACE_CSS = `.scene-surface{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+.scene-frame-body{overflow:visible}`;
 
 const BASE_DOCUMENT_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";

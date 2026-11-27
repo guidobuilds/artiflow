@@ -626,15 +626,25 @@ test("an invalid scene keeps the operation_rejected vocabulary and writes nothin
   const world = routeWorld();
   const outside = {
     formatVersion: SCENE_FORMAT_VERSION,
-    frames: [{ id: "f1", name: "Home", x: 0, y: 0, w: 100, h: 100, nodes: [rect("n1", 200, 0)] }],
+    frames: [
+      {
+        id: "f1",
+        name: "Home",
+        x: 0,
+        y: 0,
+        w: 100,
+        h: 100,
+        nodes: [rect("n1", 10, 10), rect("n1", 20, 20)],
+      },
+    ],
   };
   const response = await save(world, { scene: outside, expectedSeq: 0 });
   assert.equal(response.status, 409);
   assert.deepEqual(await bodyOf(response), {
     error: "operation_rejected",
     kind: "validation",
-    reason: "outside_frame_bounds",
-    path: "frames[0].nodes[0]",
+    reason: "duplicate_id",
+    path: "frames[0].nodes[1].id",
   });
   assert.equal(world.operations.length, 0, "an invalid scene appends no row");
   assert.equal(world.revisions.length, 1, "an invalid scene writes no snapshot");

@@ -136,16 +136,25 @@ test("a format version newer than the reader is refused rather than half read", 
   assert.equal(refusal.detail?.version, SCENE_FORMAT_VERSION + 1);
 });
 
-test("a node outside its frame bounds is refused", () => {
-  for (const input of [
-    scene({ frames: [frame({ nodes: [node({ w: 200 })] })] }),
-    scene({ frames: [frame({ nodes: [node({ x: -1 })] })] }),
-    scene({ frames: [frame({ nodes: [node({ y: 40, h: 70 })] })] }),
-  ]) {
-    const refusal = refusalOf(input);
-    assert.equal(refusal.reason, "outside_frame_bounds");
-    assert.match(refusal.path, /^frames\[0\]\.nodes\[0\]$/);
+test("a node may sit outside its frame at any coordinate", () => {
+  for (const [label, placed] of [
+    ["wider than its frame", node({ w: 200 })],
+    ["past its frame's left edge", node({ x: -1 })],
+    ["past its frame's bottom edge", node({ y: 40, h: 70 })],
+    ["entirely away from its frame", node({ x: -500, y: -400, w: 900, h: 800 })],
+  ] as const) {
+    const value = accepted(scene({ frames: [frame({ nodes: [placed] })] }));
+    assert.deepEqual(value.frames[0]?.nodes[0], placed, label);
   }
+});
+
+test("a negative position is kept as written instead of refused", () => {
+  const value = accepted(scene({ frames: [frame({ nodes: [node({ x: -30, y: -20, w: 50, h: 40 })] })] }));
+  assert.deepEqual(
+    [value.frames[0]?.nodes[0]?.x, value.frames[0]?.nodes[0]?.y],
+    [-30, -20],
+    "the reader keeps the coordinates the writer chose",
+  );
 });
 
 test("a coordinate that is not a finite number is refused", () => {

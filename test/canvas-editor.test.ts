@@ -189,10 +189,10 @@ test("the scene client refuses an answer it cannot verify instead of opening hal
     ["an answer with no artifact", { ...draft(), artifactId: "" }],
     ["a scene with no frames", { ...draft(), scene: { formatVersion: 1 } }],
     [
-      "a node outside its frame",
+      "a node with a geometry that is not a number",
       {
         ...draft(),
-        scene: { ...scene(), frames: [{ ...scene().frames[0], nodes: [{ ...scene().frames[0]!.nodes[0], x: 700 }] }] },
+        scene: { ...scene(), frames: [{ ...scene().frames[0], nodes: [{ ...scene().frames[0]!.nodes[0], x: "10" }] }] },
       },
     ],
     [
@@ -245,7 +245,7 @@ test("a scene save sends the whole scene against the sequence it read and verifi
   assert.deepEqual(conflict.ok === false && conflict.code, "concurrent_edit");
 });
 
-test("dragging and resizing keep a node inside its frame and every other gesture composes a whole scene", () => {
+test("a drag and a resize keep a positive size while the position stays free and every other gesture composes a whole scene", () => {
   const moved = moveNode(scene(), "rect-1", 30, 25);
   assert.deepEqual(
     [nodeOf(moved, "rect-1")?.x, nodeOf(moved, "rect-1")?.y],
@@ -254,11 +254,11 @@ test("dragging and resizing keep a node inside its frame and every other gesture
   );
   assert.equal(nodeOf(scene(), "rect-1")?.x, 40, "the scene before the drag is untouched");
 
-  const clamped = moveNode(scene(), "rect-1", -500, 5000);
+  const past = moveNode(scene(), "rect-1", -500, 5000);
   assert.deepEqual(
-    [nodeOf(clamped, "rect-1")?.x, nodeOf(clamped, "rect-1")?.y],
-    [0, 480],
-    "a drag past the frame edge stops at the edge instead of producing a scene the server refuses",
+    [nodeOf(past, "rect-1")?.x, nodeOf(past, "rect-1")?.y],
+    [-460, 5040],
+    "a drag past the frame edge keeps going instead of stopping at the edge",
   );
   assert.deepEqual(nodeOf(moveNode(scene(), "missing", 10, 10), "rect-1"), nodeOf(scene(), "rect-1"));
 
@@ -267,8 +267,14 @@ test("dragging and resizing keep a node inside its frame and every other gesture
   const bounded = resizeNode(scene(), "rect-1", 5000, 0);
   assert.deepEqual(
     [nodeOf(bounded, "rect-1")?.w, nodeOf(bounded, "rect-1")?.h],
-    [760, 4],
-    "a resize stops at the frame edge and at a size the server still accepts",
+    [5000, 4],
+    "a resize keeps a positive size without stopping at the frame edge",
+  );
+  const floored = resizeNode(scene(), "rect-1", 0, -10);
+  assert.deepEqual(
+    [nodeOf(floored, "rect-1")?.w, nodeOf(floored, "rect-1")?.h],
+    [4, 4],
+    "a resize below the minimum keeps the minimum instead of collapsing the node",
   );
 
   const withText = addNode(scene(), "frame-1", textNode("text-2", 120, 360));
@@ -585,7 +591,7 @@ test("a point on the edge of the bounds counts as inside and one step past it do
   assert.deepEqual(bounds, { x: 10, y: 20, w: 100, h: 50 }, "testing a point leaves the bounds it read untouched");
 });
 
-test("moving a selection keeps one delta for the whole group and stops it at the frame edge", () => {
+test("moving a selection keeps one delta for the whole group past the frame edge", () => {
   const moved = moveNodes(scene(), ["rect-1", "text-1"], 30, 20);
   assert.deepEqual(
     [nodeOf(moved, "rect-1")?.x, nodeOf(moved, "rect-1")?.y, nodeOf(moved, "text-1")?.x, nodeOf(moved, "text-1")?.y],
@@ -607,8 +613,8 @@ test("moving a selection keeps one delta for the whole group and stops it at the
       nodeOf(forward, "text-1")?.x,
       nodeOf(forward, "text-1")?.y,
     ],
-    [500, 380, 500, 540],
-    "the group stops when its own bounding box reaches the frame edge",
+    [5040, 5040, 5040, 5200],
+    "the group keeps its delta when its bounding box leaves the frame",
   );
 
   const backward = moveNodes(scene(), ["rect-1", "text-1"], -5000, -5000);
@@ -619,8 +625,13 @@ test("moving a selection keeps one delta for the whole group and stops it at the
       nodeOf(backward, "text-1")?.x,
       nodeOf(backward, "text-1")?.y,
     ],
-    [0, 0, 0, 160],
-    "a backward drag stops at the same edge without stacking the nodes",
+    [-4960, -4960, -4960, -4800],
+    "a backward drag crosses the frame edge without stacking the nodes",
+  );
+  assert.deepEqual(
+    moveNodes(scene(), ["rect-1", "text-1"], Number.NaN, Number.POSITIVE_INFINITY),
+    scene(),
+    "a delta that is not a number leaves the group where it is",
   );
 
   assert.deepEqual(moveNodes(scene(), [], 10, 10), scene(), "an empty selection leaves the scene as it is");
@@ -655,6 +666,45 @@ test("moving a selection keeps one delta for the whole group and stops it at the
     [60, 10],
     "only nodes of the frame the group started in move",
   );
+});
+
+test("a group that carries a node as large as its frame still moves", () => {
+  const fullFrame: Scene = {
+    ...scene(),
+    frames: [
+      {
+        id: "frame-1",
+        name: "Home",
+        x: 0,
+        y: 0,
+        w: 800,
+        h: 600,
+        nodes: [
+          { id: "rect-1", type: "rect", x: 0, y: 0, w: 800, h: 600, fill: "#e5e7eb" },
+          { id: "text-1", type: "text", x: 100, y: 100, w: 50, h: 50, text: "Hi", style: { fontSize: 16 } },
+        ],
+      },
+    ],
+  };
+  const moved = moveNodes(fullFrame, ["rect-1", "text-1"], 60, 40);
+  assert.deepEqual(
+    [nodeOf(moved, "rect-1")?.x, nodeOf(moved, "rect-1")?.y, nodeOf(moved, "text-1")?.x, nodeOf(moved, "text-1")?.y],
+    [60, 40, 160, 140],
+    "a node the size of its frame no longer freezes the whole group",
+  );
+  assert.deepEqual(
+    [nodeOf(moved, "rect-1")?.w, nodeOf(moved, "rect-1")?.h],
+    [800, 600],
+    "carrying the group never resizes the node that fills the frame",
+  );
+});
+
+test("a scene served with a node outside its frame is readable instead of refused", async () => {
+  const outside = { ...scene().frames[0]!.nodes[0], x: 900, y: -40 };
+  useFetch(() => json({ ...draft(), scene: { ...scene(), frames: [{ ...scene().frames[0], nodes: [outside] }] } }));
+  const read = await getScene("a");
+  assert.equal(read.ok, true, "a node outside its frame is a position, not an invalid scene");
+  assert.deepEqual(read.ok && read.value.scene.frames[0]?.nodes[0], outside);
 });
 
 test("reordering a selection preserves the relative order inside and outside the group", () => {

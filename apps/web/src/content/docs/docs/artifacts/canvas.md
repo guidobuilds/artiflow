@@ -46,7 +46,9 @@ Validation answers with a named reason rather than a screenshot that looks wrong
 
 - a missing or newer `formatVersion`;
 - an unknown node type, or a duplicate id anywhere in the scene;
-- a node that sits outside its frame, or a coordinate that is not a finite number;
+- a coordinate that is not a finite number, or a node of zero or negative size;
+- a coordinate that places a node outside its frame is allowed: a node may sit anywhere, including at a
+  negative coordinate, and the frame no longer clips it;
 - a property the renderer cannot honour — `layout`, `constraints`, a component reference — because
   accepting it and ignoring it would be a lie;
 - more frames or nodes than the [limits](/docs/reference/limits/) allow, or nesting deeper than one

@@ -242,27 +242,48 @@ test("adding a node of a type the renderer cannot draw refuses by name", () => {
   assert.equal(refusal.detail.type, "video");
 });
 
-test("adding a node outside its frame refuses and names the node", () => {
-  const refusal = refusalOf(accepted(base()), [
+test("adding a node outside its frame keeps the position the caller asked for", () => {
+  const outcome = outcomeOf(accepted(base()), [
     {
       op: "add_node",
       frameId: "f1",
-      node: asNode({ id: "n4", type: "rect", x: 180, y: 0, w: 30, h: 10, fill: "#fff" }),
+      node: asNode({ id: "n4", type: "rect", x: 180, y: -20, w: 30, h: 10, fill: "#fff" }),
     },
   ]);
-  assert.equal(refusal.reason, "outside_frame_bounds");
-  assert.equal(refusal.opIndex, 0);
-  assert.equal(refusal.detail.id, "n4");
-  assert.equal(refusal.detail.frameId, "f1");
+  assert.deepEqual(
+    outcome.scene.frames[0]?.nodes.find((node) => node.id === "n4"),
+    { id: "n4", type: "rect", x: 180, y: -20, w: 30, h: 10, fill: "#fff" },
+    "the node is added where the caller put it",
+  );
 });
 
-test("moving a node out of its frame refuses", () => {
-  const refusal = refusalOf(accepted(base()), [{ op: "move_node", id: "n1", x: 190, y: 0 }]);
-  assert.equal(refusal.reason, "outside_frame_bounds");
-  assert.equal(refusal.opIndex, 0);
-  assert.equal(refusal.detail.id, "n1");
-  const negative = refusalOf(accepted(base()), [{ op: "move_node", id: "n1", x: -1, y: 0 }]);
-  assert.equal(negative.reason, "outside_frame_bounds");
+test("moving a node outside its frame places it there instead of refusing", () => {
+  const beyond = outcomeOf(accepted(base()), [{ op: "move_node", id: "n1", x: 190, y: 0 }]);
+  assert.deepEqual(
+    beyond.scene.frames[0]?.nodes.find((node) => node.id === "n1"),
+    {
+      id: "n1",
+      type: "rect",
+      x: 190,
+      y: 0,
+      w: 30,
+      h: 40,
+      fill: "#ffffff",
+    },
+  );
+  const negative = outcomeOf(accepted(base()), [{ op: "move_node", id: "n1", x: -1, y: -50 }]);
+  assert.deepEqual(
+    negative.scene.frames[0]?.nodes.find((node) => node.id === "n1"),
+    {
+      id: "n1",
+      type: "rect",
+      x: -1,
+      y: -50,
+      w: 30,
+      h: 40,
+      fill: "#ffffff",
+    },
+  );
 });
 
 test("resizing to zero refuses, whichever operation asks for it", () => {
@@ -349,11 +370,11 @@ test("a batch whose second operation fails leaves the input byte-identical", () 
   const snapshot = JSON.stringify(input);
   const result = applySceneOperations(input, [
     { op: "add_node", frameId: "f1", node: asNode({ id: "n4", type: "rect", x: 0, y: 0, w: 5, h: 5, fill: "#fff" }) },
-    { op: "move_node", id: "n4", x: 500, y: 0 },
+    { op: "update_node", id: "n4", props: { w: 0 } },
   ]);
   assert.equal(result.ok, false);
   if (result.ok) return;
-  assert.equal(result.reason, "outside_frame_bounds");
+  assert.equal(result.reason, "non_positive_size");
   assert.equal(result.opIndex, 1, "the refusal names the operation that failed");
   assert.equal(canonicalScene(input), before, "the input keeps its bytes");
   assert.equal(JSON.stringify(input), snapshot, "no operation touched the input object");
@@ -483,18 +504,18 @@ test("every ordering of a frame's nodes diffs to reorders that replay exactly", 
 test("a scene that does not validate refuses the batch before any operation runs", () => {
   const broken = { formatVersion: SCENE_FORMAT_VERSION, frames: base().frames } as unknown as Scene;
   (broken.frames[0] as unknown as { nodes: unknown[] }).nodes.push({
-    id: "n9",
+    id: "n1",
     type: "rect",
     x: 0,
     y: 0,
-    w: 500,
+    w: 5,
     h: 10,
     fill: "#fff",
   });
   const result = applySceneOperations(broken, [{ op: "remove_node", id: "n1" }]);
   assert.equal(result.ok, false);
   if (result.ok) return;
-  assert.equal(result.reason, "outside_frame_bounds");
+  assert.equal(result.reason, "duplicate_id");
   assert.equal(result.opIndex, -1, "no operation is blamed for a scene that was already unsound");
 });
 

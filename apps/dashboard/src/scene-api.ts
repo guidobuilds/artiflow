@@ -105,12 +105,21 @@ function replaceNode(scene: Scene, frameId: string, node: SceneNode): Scene {
   };
 }
 
+const sizedNode = (node: SceneNode): SceneNode => ({
+  ...node,
+  x: rounded(node.x),
+  y: rounded(node.y),
+  w: Math.max(MIN_NODE_SIZE, rounded(node.w)),
+  h: Math.max(MIN_NODE_SIZE, rounded(node.h)),
+});
+
 function insideFrame(frame: SceneFrame, node: SceneNode): SceneNode {
-  const w = Math.max(MIN_NODE_SIZE, Math.min(rounded(node.w), Math.max(MIN_NODE_SIZE, frame.w)));
-  const h = Math.max(MIN_NODE_SIZE, Math.min(rounded(node.h), Math.max(MIN_NODE_SIZE, frame.h)));
-  const x = clamp(rounded(node.x), 0, Math.max(0, frame.w - w));
-  const y = clamp(rounded(node.y), 0, Math.max(0, frame.h - h));
-  return { ...node, x, y, w, h };
+  const sized = sizedNode(node);
+  const w = Math.min(sized.w, Math.max(MIN_NODE_SIZE, frame.w));
+  const h = Math.min(sized.h, Math.max(MIN_NODE_SIZE, frame.h));
+  const x = clamp(sized.x, 0, Math.max(0, frame.w - w));
+  const y = clamp(sized.y, 0, Math.max(0, frame.h - h));
+  return { ...sized, x, y, w, h };
 }
 
 export type SceneRect = { x: number; y: number; w: number; h: number };
@@ -169,7 +178,7 @@ export function moveNode(scene: Scene, nodeId: string, dx: number, dy: number): 
   const located = locate(scene, nodeId);
   if (located === null) return scene;
   const { frame, node } = located;
-  const moved = insideFrame(frame, { ...node, x: node.x + rounded(dx), y: node.y + rounded(dy) });
+  const moved = sizedNode({ ...node, x: node.x + rounded(dx), y: node.y + rounded(dy) });
   return replaceNode(scene, frame.id, moved);
 }
 
@@ -184,17 +193,9 @@ export function moveNodes(scene: Scene, ids: string[], dx: number, dy: number): 
     return true;
   });
   if (group.length === 0) return scene;
-  const left = Math.min(...group.map((node) => node.x));
-  const top = Math.min(...group.map((node) => node.y));
-  const right = Math.max(...group.map((node) => node.x + node.w));
-  const bottom = Math.max(...group.map((node) => node.y + node.h));
-  const leastX = -left;
-  const mostX = frame.w - right;
-  const leastY = -top;
-  const mostY = frame.h - bottom;
-  const moveX = leastX <= mostX && finite(dx) ? clamp(rounded(dx), leastX, mostX) : 0;
-  const moveY = leastY <= mostY && finite(dy) ? clamp(rounded(dy), leastY, mostY) : 0;
-  const moved = group.map((node) => insideFrame(frame, { ...node, x: node.x + moveX, y: node.y + moveY }));
+  const moveX = rounded(dx);
+  const moveY = rounded(dy);
+  const moved = group.map((node) => sizedNode({ ...node, x: node.x + moveX, y: node.y + moveY }));
   return moved.reduce((next, node) => replaceNode(next, frame.id, node), scene);
 }
 
@@ -202,8 +203,8 @@ export function resizeNode(scene: Scene, nodeId: string, w: number, h: number): 
   const located = locate(scene, nodeId);
   if (located === null) return scene;
   const { frame, node } = located;
-  const width = clamp(rounded(w), MIN_NODE_SIZE, Math.max(MIN_NODE_SIZE, frame.w - node.x));
-  const height = clamp(rounded(h), MIN_NODE_SIZE, Math.max(MIN_NODE_SIZE, frame.h - node.y));
+  const width = Math.max(MIN_NODE_SIZE, rounded(w));
+  const height = Math.max(MIN_NODE_SIZE, rounded(h));
   return replaceNode(scene, frame.id, { ...node, w: width, h: height });
 }
 

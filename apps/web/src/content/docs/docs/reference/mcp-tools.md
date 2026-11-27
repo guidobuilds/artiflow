@@ -592,7 +592,7 @@ The scene arrives as artifact bytes — `artifact_write` or `artifact_commit` wi
 that artifact. `scene_apply` is the only writer. Any other artifact kind refuses with `wrong_kind` /
 `artifact_is_not_a_canvas` and its `kind`, and stored bytes that are not a valid scene refuse every scene
 read with `invalid_scene`, the failing `path` and the engine's reason (`malformed_scene`,
-`unknown_node_type`, `duplicate_id`, `outside_frame_bounds`, `unsupported_property`, `too_deep`,
+`unknown_node_type`, `duplicate_id`, `unsupported_property`, `too_deep`,
 `node_limit`, `frame_limit`, `missing_format_version` or `unsupported_format_version`).
 
 ### `scene_outline` — the frame index
@@ -672,8 +672,8 @@ Each operation is one of:
 
 Node types and their extra fields are `rect` (`fill`, optional `radius`), `text` (`text`, optional
 `style`), `image` (`assetId`) and `path` (`d`, optional `fill`, `stroke`, `strokeWidth`). Geometry is
-relative to the frame, a node outside its frame is refused, and a batch applies in order — grow a frame
-before moving a node into the new space, in the same call.
+relative to the frame origin, a node may sit outside its frame at any coordinate, and a batch applies
+in order.
 
 ```json
 {
