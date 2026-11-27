@@ -6,8 +6,10 @@ import { artifactBar } from "../chrome/bar.ts";
 import { commentsHost, DOCUMENT_PANEL_CSS } from "../chrome/panel.ts";
 import { escapeJsonText, VIEWER_CHROME_CSS } from "../chrome/theme.ts";
 import {
+  managementMenu,
   marginalComments,
   type ViewerChrome,
+  type ViewerManagementMenu,
   type ViewerMarginalComments,
   type ViewerMeta,
   type ViewerModel,
@@ -51,17 +53,25 @@ export function markdownViewerPage(
   chrome: ViewerChrome,
   refresh: ViewerRefresh,
   comments?: ViewerMarginalComments,
+  management?: ViewerManagementMenu,
 ): ArtifactPage {
   const commentsData =
-    comments === undefined
+    comments === undefined || comments.assets.script === ""
       ? ""
-      : comments.assets.script === ""
-        ? ""
-        : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>
-${assetsScripts(comments.assets)}`;
+      : `<script type="application/json" id="viewer-comments-data">${escapeJsonText(JSON.stringify(comments.config))}</script>`;
+  const managementData =
+    management === undefined
+      ? ""
+      : `<script type="application/json" id="viewer-management-data">${escapeJsonText(JSON.stringify(management.config))}</script>`;
+  const assets = [
+    ...(comments === undefined || comments.assets.script === "" ? [] : [comments.assets]),
+    ...(management === undefined ? [] : [management.assets]),
+  ];
+  const payloads = [commentsData, managementData].filter((value) => value !== "");
+  const tail = payloads.length === 0 ? "" : `${payloads.join("\n")}\n${assetsScripts(...assets)}`;
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Document</title>
-${comments === undefined ? "" : assetsHead(comments.assets)}
+${assets.length === 0 ? "" : assetsHead(...assets)}
 <style>
 ${VIEWER_CHROME_CSS}
 </style><style id="doc-styles">
@@ -69,14 +79,14 @@ ${DOCUMENT_CSS}
 ${DOCUMENT_SHELL_CSS}
 ${DOCUMENT_PANEL_CSS}
 </style></head>
-<body>${artifactBar({ chrome, backHref, meta })}
+<body>${artifactBar({ chrome, backHref, meta, management: management !== undefined })}
 <div class="docshell" id="docshell"><main class="mdpage" id="document">${fragment}</main>${
     comments === undefined ? "" : commentsHost(true)
   }</div>
 <script>
 ${viewerRefreshScript(refresh)}
 </script>
-${commentsData}
+${tail}
 </body></html>`;
   return { html, headers: { ...DOCUMENT_HEADERS } };
 }
@@ -89,4 +99,5 @@ export const markdownView = (model: ViewerModel, fragment: string): ArtifactPage
     model.chrome,
     model.refresh,
     marginalComments(model.comments),
+    managementMenu(model.management),
   );

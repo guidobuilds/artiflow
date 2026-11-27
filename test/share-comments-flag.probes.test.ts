@@ -152,7 +152,7 @@ const sharePage = async (kind: string, showComments: boolean, query = ""): Promi
 const ships = (page: string) => ({
   host: page.includes('id="viewer-comments"'),
   config: page.includes("viewer-comments-data"),
-  bundle: /<script type="module"/.test(page),
+  bundle: /<script type="module" src="[^"]*viewer-comments/.test(page),
   bridge: page.includes("data-artiflow-bridge"),
   available: page.includes("comments-available"),
 });

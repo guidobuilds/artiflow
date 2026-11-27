@@ -36,6 +36,25 @@ export type ViewerActions = {
   readonly deleteAny: boolean;
 };
 
+export type ViewerManagement = { readonly share: boolean; readonly delete: boolean };
+
+export type ViewerManagementConfig = {
+  readonly id: string;
+  readonly title: string | null;
+  readonly kind: string;
+};
+
+export type ViewerManagementPlan =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "menu";
+      readonly actions: ViewerManagement;
+      readonly config: ViewerManagementConfig;
+      readonly assets: Assets;
+    };
+
+export type ViewerManagementMenu = { readonly config: ViewerManagementConfig; readonly assets: Assets };
+
 export type ViewerRevision = { readonly id: string | null; readonly number: number; readonly sha256: string };
 
 export type ViewerCommentBridge = { readonly nonce: string; readonly script: string };
@@ -63,6 +82,7 @@ export type ViewerModel = {
   readonly meta: ViewerMeta | undefined;
   readonly embed: boolean;
   readonly actions: ViewerActions;
+  readonly management: ViewerManagementPlan;
   readonly comments: ViewerCommentsPlan;
   readonly refresh: ViewerRefresh;
 };
@@ -80,3 +100,6 @@ export const bridgeComments = (plan: ViewerCommentsPlan): WrapperComments | unde
   plan.kind === "page" && plan.bridge !== null
     ? { nonce: plan.bridge.nonce, bridge: plan.bridge.script, config: plan.config, assets: plan.assets }
     : undefined;
+
+export const managementMenu = (plan: ViewerManagementPlan): ViewerManagementMenu | undefined =>
+  plan.kind === "menu" && plan.assets.script !== "" ? { config: plan.config, assets: plan.assets } : undefined;

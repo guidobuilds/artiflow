@@ -36,6 +36,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         "viewer-comments": fileURLToPath(new URL("./src/viewer-comments.tsx", import.meta.url)),
+        "viewer-actions": fileURLToPath(new URL("./src/viewer-actions.tsx", import.meta.url)),
       },
     },
   },

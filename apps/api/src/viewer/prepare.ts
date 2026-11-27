@@ -4,7 +4,7 @@ import type { Scene } from "@artiflow/domain/scene";
 
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import type { AppDb } from "../adapters/postgres/db/client.ts";
-import { viewerCommentsAssets } from "./assets.ts";
+import { viewerActionsAssets, viewerCommentsAssets } from "./assets.ts";
 import { bridgeNonce, bridgePins, viewerCommentsConfig, type ViewerCommentsConfig } from "./comments-data.ts";
 import { loadViewerComments, type ViewerCommentLoad } from "./comments-degrade.ts";
 import { htmlBridgeScript } from "./html-bridge-script.ts";
@@ -14,6 +14,7 @@ import {
   type ViewerAudience,
   type ViewerChrome,
   type ViewerCommentsPlan,
+  type ViewerManagementPlan,
   type ViewerModel,
   type ViewerRefresh,
 } from "./model.ts";
@@ -70,6 +71,16 @@ const pagePlan = (config: ViewerCommentsConfig, source: string | null, nonce: st
   assets: viewerCommentsAssets(),
   bridge: source === null ? { nonce, script: htmlBridgeScript({ nonce, pins: bridgePins(config.threads) }) } : null,
 });
+
+const managementOf = (input: ViewerPreparation, request: ViewerRequest, access: string | null): ViewerManagementPlan =>
+  request.kind !== "session" || input.embed || access !== "owner"
+    ? { kind: "none" }
+    : {
+        kind: "menu",
+        actions: { share: true, delete: true },
+        config: { id: input.artifact.id, title: input.artifact.title, kind: input.artifact.kind },
+        assets: viewerActionsAssets(),
+      };
 
 type ViewerCommentRow = Awaited<ReturnType<typeof listComments>>[number];
 
@@ -161,6 +172,7 @@ const modelOf = (
   input: ViewerPreparation,
   access: string | null,
   actions: ViewerActions,
+  management: ViewerManagementPlan,
   comments: ViewerCommentsPlan,
 ): ViewerModel => {
   const { artifact, request, embed } = input;
@@ -181,6 +193,7 @@ const modelOf = (
     meta: chrome === "full" ? { title: artifact.title, version: artifact.revisionNumber } : undefined,
     embed: chrome === "none",
     actions,
+    management,
     comments,
     refresh: refreshOf(input, commentsShown),
   };
@@ -189,13 +202,14 @@ const modelOf = (
 async function prepareSession(input: ViewerPreparation, request: SessionRequest): Promise<ViewerModel> {
   const session = await sessionLoad(input.db, request.viewerId, input.artifact, !input.embed);
   const access = input.artifact.ownerId === request.viewerId ? "owner" : session.access;
+  const management = managementOf(input, request, access);
   const comments = input.embed ? { kind: "none" as const } : await sessionCommentsPlan(input, request, session.loaded);
-  return modelOf(input, access, actionsOf(session.loaded), comments);
+  return modelOf(input, access, actionsOf(session.loaded), management, comments);
 }
 
 async function preparePublic(input: ViewerPreparation, request: PublicRequest): Promise<ViewerModel> {
   const comments = await publicCommentsPlan(input, request);
-  return modelOf(input, null, DENIED, comments);
+  return modelOf(input, null, DENIED, { kind: "none" }, comments);
 }
 
 export async function prepareViewer(input: ViewerPreparation): Promise<ViewerModel> {

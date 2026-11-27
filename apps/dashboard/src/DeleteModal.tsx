@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-import { DELETE_LABEL, deleteArtifact, pressDelete, type ArtifactSummary, type DeleteConfirm } from "./auth-client.ts";
+import { DELETE_LABEL, deleteArtifact, pressDelete, type DeleteConfirm } from "./auth-client.ts";
+import { labelFor } from "@artiflow/domain/kinds";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogFoot, DialogHead, DialogSection, DialogTitle } from "@/components/ui/dialog.tsx";
 
@@ -9,7 +10,7 @@ export default function DeleteModal({
   onDeleted,
   onClose,
 }: {
-  artifact: ArtifactSummary;
+  artifact: { id: string; title: string; kind: string };
   onDeleted: () => void;
   onClose: () => void;
 }) {
@@ -39,9 +40,9 @@ export default function DeleteModal({
         <DialogTitle>Delete “{artifact.title}”?</DialogTitle>
         <DialogSection className="border-t-0">
           <p className="m-0 text-[14px] text-fg-muted">
-            Deleting <span className="text-fg">{artifact.title}</span> ({artifact.sizeLabel}, {artifact.versionsLabel})
-            blocks the viewer and every share and public link at once. Anyone with the old link loses access. Copies
-            already opened elsewhere are not recalled.
+            Deleting <span className="text-fg">{artifact.title}</span> ({labelFor(artifact.kind)}) blocks the viewer and
+            every share and public link at once. Anyone with the old link loses access. Copies already opened elsewhere
+            are not recalled.
           </p>
           {confirm === "armed" ? (
             <p role="alert" className="text-[13px] text-danger-text">

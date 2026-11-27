@@ -6,6 +6,7 @@ export type BarProps = {
   readonly backHref?: string | undefined;
   readonly meta?: ViewerMeta | undefined;
   readonly control?: string | undefined;
+  readonly management?: boolean | undefined;
 };
 
 const backCell = (backHref: string | undefined): string =>
@@ -18,12 +19,19 @@ const titleCell = (meta: ViewerMeta | undefined): string =>
     ? ""
     : `<div class="vbar-cell vbar-title"><b>${escapeAttribute(meta.title?.trim() || "Untitled artifact")}</b>${meta.version === null ? "" : `<span class="vbar-version">v${meta.version}</span>`}</div>\n`;
 
-const controlCell = (control: string | undefined): string =>
-  control === undefined ? "" : `<div class="vbar-cell vbar-actions" data-control="actions">${control}</div>\n`;
+const managementCell = (management: boolean | undefined): string =>
+  management === true
+    ? `<span data-island="actions"><button type="button" data-control="menu" aria-haspopup="menu" aria-expanded="false">Actions</button></span>`
+    : "";
+
+const controlCell = (management: boolean | undefined, control: string | undefined): string =>
+  control === undefined && management !== true
+    ? ""
+    : `<div class="vbar-cell vbar-actions" data-control="actions">${managementCell(management)}${control ?? ""}</div>\n`;
 
 export const artifactBar = (props: BarProps): string =>
   props.chrome === "none"
     ? ""
     : `<header class="vbar">
 ${backCell(props.backHref)}<div class="vbar-cell vbar-brand">${LOGO_MARK}<span>artiflow</span></div>
-${titleCell(props.meta)}${controlCell(props.control)}</header>`;
+${titleCell(props.meta)}${controlCell(props.management, props.control)}</header>`;

@@ -23,8 +23,15 @@ import { createShareViewerApp } from "../apps/api/src/routes/sharing.ts";
 import { sceneCsp, VIEWER_CSP } from "../apps/api/src/viewer/html.ts";
 import { DOCUMENT_CSP } from "../apps/api/src/viewer/artifact.ts";
 import { renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
-import type { ViewerActions, ViewerAudience, ViewerChrome, ViewerModel } from "../apps/api/src/viewer/model.ts";
+import {
+  managementMenu,
+  type ViewerActions,
+  type ViewerAudience,
+  type ViewerChrome,
+  type ViewerModel,
+} from "../apps/api/src/viewer/model.ts";
 import { prepareViewer, type ViewerRequest } from "../apps/api/src/viewer/prepare.ts";
+import { viewerActionsAssets } from "../apps/api/src/viewer/assets.ts";
 
 const ARTIFACT_ID = "artifact-one";
 const OWNER_ID = "user-owner";
@@ -95,6 +102,8 @@ const accessOf = (seat: Seat): string | null => {
 const ownsArtifact = (seat: Seat): boolean => seat === "owner" || seat === "embed";
 const isPublic = (seat: Seat): boolean => seat === "public-on" || seat === "public-off";
 const showsComments = (seat: Seat): boolean => seat === "public-on";
+const ownsPage = (seat: Seat): boolean => seat === "owner";
+const shipsManagement = (seat: Seat): boolean => ownsPage(seat);
 
 type Rights = { canComment: boolean; canResolve: boolean; threadCanDelete: boolean; threadCanResolve: boolean };
 const RIGHTS: Record<Seat, Rights> = {
@@ -331,12 +340,21 @@ const policyOf = (kind: ArtifactKind): string =>
 
 const shipsControls = (kind: ArtifactKind): boolean => kind !== "markdown";
 
+const shipsSlot = (seat: Seat, kind: ArtifactKind): boolean => shipsControls(kind) || shipsManagement(seat);
+
+const controlsOf = (seat: Seat, kind: ArtifactKind): string[] => [
+  ...(shipsSlot(seat, kind) ? ["actions"] : []),
+  ...(shipsManagement(seat) ? ["menu"] : []),
+  ...(shipsControls(kind) ? ["focus"] : []),
+];
+
 const barRegionsOf = (bar: string): Record<string, unknown> => ({
   identity: bar.includes('<div class="vbar-cell vbar-brand"><svg') && bar.includes("<span>artiflow</span>"),
   back: bar.includes('<a class="vbar-cell vbar-back"'),
   title: bar.includes(`<div class="vbar-cell vbar-title"><b>${TITLE}</b>`),
   version: bar.includes(`<span class="vbar-version">v${REVISION_NUMBER}</span>`),
   controls: [...bar.matchAll(/data-control="([a-z]+)"/g)].map((match) => match[1]),
+  management: bar.includes('data-island="actions"'),
 });
 
 const refreshFieldsOf = (page: string): Record<string, string> => {
@@ -436,6 +454,36 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
         `${label} records exactly the actions the grant allows and no management entitlement`,
       );
       assert.deepEqual(keysOf(model.actions), ["comment", "deleteAny", "deleteOwn", "resolve"]);
+      assert.equal(
+        model.management.kind,
+        ownsPage(seat) ? "menu" : "none",
+        `${label} records the management entitlement the seat holds, and no other seat holds one`,
+      );
+      const menu = managementMenu(model.management);
+      if (model.management.kind === "menu") {
+        assert.deepEqual(
+          model.management.actions,
+          { share: true, delete: true },
+          `${label} an owner shares and deletes`,
+        );
+        assert.deepEqual(
+          model.management.config,
+          { id: ARTIFACT_ID, title: TITLE, kind },
+          `${label} the island config names the artifact it manages`,
+        );
+        assert.equal(
+          model.management.assets.script,
+          viewerActionsAssets().script,
+          `${label} the management bundle is looked up per entry`,
+        );
+        assert.equal(
+          menu !== undefined,
+          model.management.assets.script !== "",
+          `${label} the model hands the page a menu exactly when its bundle exists`,
+        );
+      } else {
+        assert.equal(menu, undefined, `${label} a seat that owns nothing is handed no menu`);
+      }
       assert.equal(model.title, model.chrome === "full" ? TITLE : null, `${label} carries a title only where it shows`);
       assert.equal(
         model.backHref,
@@ -511,14 +559,15 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
             back: model.chrome === "full",
             title: model.chrome === "full",
             version: model.chrome === "full",
-            controls: shipsControls(kind) ? ["actions", "focus"] : [],
+            controls: controlsOf(seat, kind),
+            management: shipsManagement(seat),
           },
           `${label} the bar is its regions, and nothing else`,
         );
         assert.equal(
           ((bar ?? "").match(/<button/g) ?? []).length,
-          shipsControls(kind) ? 1 : 0,
-          `${label} the bar holds only the control its builder ships`,
+          (shipsManagement(seat) ? 1 : 0) + (shipsControls(kind) ? 1 : 0),
+          `${label} the bar holds only the controls its builder ships`,
         );
         assert.equal(/vbar-focus/.test(page), false, `${label} no control is addressed by a class`);
       }
@@ -531,9 +580,28 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
 
       const plan = model.comments;
       assert.equal(plan.kind, planKindOf(seat, kind), `${label} comment plan`);
+      assert.equal(
+        page.includes('data-island="actions"'),
+        shipsManagement(seat),
+        `${label} the slot mounts the actions island only for the owner`,
+      );
+      assert.equal(
+        page.includes('id="viewer-management-data"'),
+        shipsManagement(seat) && menu !== undefined,
+        `${label} the menu config ships with the island and with nothing else`,
+      );
+      assert.equal(
+        page.includes('data-island="actions"'),
+        page.includes('id="viewer-management-data"'),
+        `${label} the trigger and the config always ship together`,
+      );
       assert.equal(islandOf(page) !== null, plan.kind === "page", `${label} island only where the plan mounts it`);
       assert.equal(page.includes('id="viewer-comments"'), plan.kind === "page", `${label} margin host`);
-      assert.equal(/<script type="module"/.test(page), plan.kind === "page", `${label} bundle`);
+      assert.equal(
+        /<script type="module"/.test(page),
+        plan.kind === "page" || (shipsManagement(seat) && menu !== undefined),
+        `${label} bundle`,
+      );
       if (kind === "html")
         assert.equal(page.includes("comments-available"), plan.kind === "page", `${label} shell class`);
 
@@ -589,12 +657,12 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
   }
 });
 
-test("no seat ever receives a management entitlement or a management surface", async () => {
+test("only the owner's own page carries a management menu, and every other seat carries none", async () => {
   for (const seat of SEATS) {
     for (const kind of ARTIFACT_KINDS) {
       const label = `${seat} x ${kind}`;
       const { model, page } = await cellOf(seat, kind);
-      assert.equal("manage" in model.actions, false, `${label} carries no management decision`);
+      assert.equal("manage" in model.actions, false, `${label} the comment permissions carry no management decision`);
       assert.deepEqual(
         keysOf(model.actions),
         ["comment", "deleteAny", "deleteOwn", "resolve"],
@@ -607,7 +675,25 @@ test("no seat ever receives a management entitlement or a management surface", a
         "data-manage",
       ])
         assert.equal(page.includes(term), false, `${label} never ships ${term}`);
-      assert.equal(/manage/i.test(page), false, `${label} never ships a management affordance`);
+      for (const term of ['data-control="menu"', 'data-island="actions"', "viewer-management-data"])
+        assert.equal(
+          page.includes(term),
+          shipsManagement(seat),
+          `${label} ${shipsManagement(seat) ? "ships" : "never ships"} ${term}`,
+        );
+      if (shipsManagement(seat))
+        assert.match(
+          page,
+          /<span data-island="actions"><button type="button" data-control="menu"[^>]*>Actions<\/button><\/span>/,
+          `${label} the slot holds a real trigger`,
+        );
+      if (model.chrome !== "none" && shipsControls(kind) && !shipsManagement(seat))
+        assert.match(
+          page,
+          /<div class="vbar-cell vbar-actions" data-control="actions"><button type="button" title="Focus mode \(F\)" data-control="focus">Focus<\/button><\/div>/,
+          `${label} the slot holds the focus control and signals no menu at all`,
+        );
+      if (!shipsManagement(seat)) assert.equal(/manage/i.test(page), false, `${label} no management affordance`);
     }
   }
 });
@@ -631,7 +717,7 @@ const islandSource = sourceOf("../apps/dashboard/src/viewer-comments.tsx");
 test("one bar for the four formats: the chrome decides whether it is drawn, and the kind decides nothing", () => {
   assert.equal(/kind|embed/.test(barSource), false, "the bar reads no kind and no embed flag");
   assert.match(barSource, /props\.chrome === "none"/, "the model's chrome is the only reason to draw nothing");
-  for (const field of ["chrome", "backHref", "meta", "control"])
+  for (const field of ["chrome", "backHref", "meta", "control", "management"])
     assert.match(barSource, new RegExp(`readonly ${field}`), `the bar reads ${field}`);
   for (const caller of [artifactSource, sourceOf("../apps/api/src/viewer/views/markdown.ts")])
     assert.match(caller, /artifactBar\(\{/, "every format takes its header from the one bar");
@@ -687,6 +773,7 @@ test("one authorized preparation: both routes call prepareViewer and decide none
       /htmlBridgeScript\(/,
       /refreshPlan\(/,
       /viewerCommentsAssets\(/,
+      /viewerActionsAssets\(/,
       /bridgeComments\(/,
       /marginalComments\(/,
     ])
@@ -703,8 +790,20 @@ test("one authorized preparation: both routes call prepareViewer and decide none
     /bridgeNonce\(/,
     /refreshPlan\(/,
     /viewerCommentsAssets\(/,
+    /viewerActionsAssets\(/,
   ])
     assert.match(prepareSource, owned, `prepare owns ${String(owned)}`);
+  assert.match(
+    prepareSource,
+    /const management = managementOf\(input, request, access\);/,
+    "the management entitlement comes from the same access read the comments plan used",
+  );
+  assert.match(prepareSource, /const managementOf = \(/, "one place decides the management entitlement");
+  assert.equal(
+    [...prepareSource.matchAll(/managementOf\(/g)].length,
+    1,
+    "and it is called once, from the same access the comments plan read",
+  );
   assert.equal(
     [...prepareSource.matchAll(/refreshPlan\(/g)].length,
     2,
