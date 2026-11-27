@@ -204,12 +204,32 @@ test("the page injects the bridge inside the frame and keeps the margin outside 
   assert.match(html, /docshell\$\{comments === undefined \? "" : " comments-available"\}/);
 });
 
-test("both HTML viewers pass the bridge and the asset, the public one only with showComments", () => {
+test("both HTML viewers pass the bridge the preparation built, the public one only with showComments", () => {
+  const prepare = readFileSync(new URL("../apps/api/src/viewer/prepare.ts", import.meta.url), "utf8");
   const library = readFileSync(new URL("../apps/api/src/routes/library.ts", import.meta.url), "utf8");
   const sharing = readFileSync(new URL("../apps/api/src/routes/sharing.ts", import.meta.url), "utf8");
-  assert.match(library, /bridge: htmlBridgeScript\(\{ nonce, pins: bridgePins\(htmlConfig\.threads\) \}\)/);
-  assert.match(sharing, /row\.showComments \? await listComments\(db, row\.artifactId, true\) : \[\]/);
-  assert.match(sharing, /bridge: htmlBridgeScript\(\{ nonce, pins: bridgePins\(htmlConfig\.threads\) \}\)/);
+  assert.match(
+    prepare,
+    /htmlBridgeScript\(\{ nonce, pins: bridgePins\(config\.threads\) \}\)/,
+    "the bridge is built from that nonce and those pins, in one place",
+  );
+  assert.match(
+    prepare,
+    /bridgeNonce\(artifactId, sha256\)/,
+    "and the nonce is derived from the artifact and its digest",
+  );
+  assert.match(
+    prepare,
+    /if \(!request\.showComments \|\| viewerFor\(artifact\.kind\) === "scene"\) return \{ kind: "none" \}/,
+    "the public page ships the bridge only while the link shows comments",
+  );
+  for (const [name, source] of [
+    ["library", library],
+    ["sharing", sharing],
+  ] as const) {
+    assert.match(source, /bridgeComments\(model\.comments\)/, `${name} passes the prepared bridge to its builder`);
+    assert.equal(/htmlBridgeScript\(/.test(source), false, `${name} builds no bridge of its own`);
+  }
 });
 
 test("a selector escapes everything CSS.escape escapes, including backslashes", () => {
