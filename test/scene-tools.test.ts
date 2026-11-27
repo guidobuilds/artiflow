@@ -850,12 +850,12 @@ test("a batch whose second operation fails names the index and leaves the scene 
       idempotencyKey: "canvas-rejected",
       ops: [
         { op: "move_node", id: "n1", x: 40, y: 30 },
-        { op: "move_node", id: "n1", x: 500, y: 0 },
+        { op: "update_node", id: "n1", props: { w: 0 } },
       ],
     }),
     "invalid_operation",
   );
-  assert.equal(rejected.message, "outside_frame_bounds", "the engine reason reaches the caller");
+  assert.equal(rejected.message, "non_positive_size", "the engine reason reaches the caller");
   assert.equal(rejected.opIndex, 1, "the failing index is named");
   assert.equal(rejected.currentSeq, 0, "the sequence the caller should retry from is named");
   assert.equal(canonicalScene(workspace.sceneOfDraft()), sceneBefore, "the first operation was rolled back");

@@ -52,7 +52,6 @@ export type SceneRefusalReason =
   | "unsupported_format_version"
   | "unknown_node_type"
   | "duplicate_id"
-  | "outside_frame_bounds"
   | "non_finite_number"
   | "unsupported_property"
   | "too_deep"
@@ -200,12 +199,6 @@ export function validateScene(input: unknown): SceneResult<Scene> {
       const shared = sharedNodeRefusal(frame.nodes[position], where, ids);
       if (shared !== null) return shared;
       const node = frame.nodes[position] as Record<string, unknown>;
-      const x = node.x as number;
-      const y = node.y as number;
-      const w = node.w as number;
-      const h = node.h as number;
-      if (x < 0 || y < 0 || x + w > (frame.w as number) || y + h > (frame.h as number))
-        return refusal("outside_frame_bounds", where, { id: node.id as string, frameId: frame.id });
       const shape = nodeShapeRefusal(node, where);
       if (shape !== null) return shape;
     }

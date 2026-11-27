@@ -1088,14 +1088,14 @@ test("a rejected canvas batch names the failing index and leaves the scene byte-
     idempotencyKey: "canvas-rejected",
     ops: [
       { op: "move_node", id: "n1", x: 40, y: 30 },
-      { op: "move_node", id: "n1", x: 500, y: 0 },
+      { op: "update_node", id: "n1", props: { w: 0 } },
     ],
     now: NOW,
   });
   assert.equal(rejected.ok, false);
   if (rejected.ok) return;
   assert.equal(rejected.kind, "operation_rejected");
-  assert.equal(rejected.reason, "outside_frame_bounds");
+  assert.equal(rejected.reason, "non_positive_size");
   assert.equal(rejected.opIndex, 1);
   assert.equal(rejected.currentSeq, 3);
   assert.equal(seeded.operations.length, 1, "the refused batch is logged");
