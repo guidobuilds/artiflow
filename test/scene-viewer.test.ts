@@ -108,6 +108,17 @@ const placedAt = (html: string, id: string): { x: number; y: number } => ({
   y: Number(attrOf(frameTag(html, id), "data-frame-y")),
 });
 
+const nodeTag = (html: string, id: string): string =>
+  html.match(new RegExp(`<(?:div|img|svg)[^>]*data-node-id="${id}"[^>]*>`))?.[0] ?? "";
+
+const nodeAt = (html: string, id: string): { x: number; y: number } => {
+  const style = attrOf(nodeTag(html, id), "style") ?? "";
+  return {
+    x: Number(/left:(-?[0-9.]+)px/.exec(style)?.[1]),
+    y: Number(/top:(-?[0-9.]+)px/.exec(style)?.[1]),
+  };
+};
+
 const STAGE = { w: 1280, h: 800 };
 const FIT_RATIO = 0.86;
 
@@ -964,6 +975,47 @@ test("a scene without canvas-level nodes renders exactly the document it rendere
     renderSceneDocument({ ...scene(frame({ nodes: [rect()] })), nodes: [] }),
     "an empty canvas level adds no markup and no stylesheet byte",
   );
+});
+
+test("a frame and a canvas-level node at the same scene coordinates paint at the same offset", () => {
+  const shared: Scene = {
+    ...scene(frame({ x: 100, y: 60 }), frame({ id: "checkout", name: "Checkout", x: 900, y: 60 })),
+    nodes: [rect({ id: "loose-1", x: 100, y: 60 })],
+  };
+  const layout = surfaceLayout(shared.frames, shared.nodes ?? []);
+  assert.deepEqual(layout.origin, { x: 100, y: 60 }, "the surface subtracts the corner it starts at");
+  const html = renderSceneDocument(shared);
+  const placed = placedAt(html, "home");
+  assert.deepEqual(placed, { x: 0, y: 0 }, "a frame keeps its place relative to the origin");
+  assert.deepEqual(nodeAt(html, "loose-1"), placed, "the node lands where the frame lands, not 100px further out");
+
+  const far: Scene = { ...scene(frame({ w: 400, h: 400 })), nodes: [rect({ id: "loose-1", x: -200, y: 500 })] };
+  const farLayout = surfaceLayout(far.frames, far.nodes ?? []);
+  assert.deepEqual(farLayout.origin, { x: -200, y: 0 }, "a node left of every frame owns the origin");
+  assert.deepEqual([farLayout.width, farLayout.height], [600, 550], "the surface bounds cover that node too");
+  const farHtml = renderSceneDocument(far);
+  assert.deepEqual(nodeAt(farHtml, "loose-1"), { x: 0, y: 500 }, "the far node sits at its place on the surface");
+  assert.deepEqual(placedAt(farHtml, "home"), { x: 200, y: 0 }, "the frame moves with that same origin");
+  assert.equal(attrOf(surfaceTag(farHtml), "data-surface-w"), "600", "the surface is wide enough for both");
+  assert.equal(attrOf(surfaceTag(farHtml), "data-surface-h"), "550", "and tall enough for both");
+});
+
+test("a canvas whose only content is canvas-level draws it instead of the empty message", () => {
+  const looseOnly: Scene = {
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [],
+    nodes: [rect({ id: "loose-1", x: 100, y: 40 })],
+  };
+  const html = renderSceneDocument(looseOnly);
+  assert.equal(html.includes("This canvas has no frames yet."), false, "the message is only for an empty canvas");
+  assert.equal(html.includes('class="scene-empty"'), false, "no empty state stands in front of the nodes");
+  assert.ok(surfaceTag(html).length > 0, "the nodes ride on the surface the frames would use");
+  assert.deepEqual(nodeAt(html, "loose-1"), { x: 0, y: 0 }, "the only node starts the surface it is drawn on");
+  assert.equal(attrOf(surfaceTag(html), "data-surface-w"), "100", "the surface is the node itself");
+  assert.equal(attrOf(surfaceTag(html), "data-surface-h"), "50");
+  assert.equal((html.match(/data-target="/g) ?? []).length, 0, "a frameless canvas has no frame tabs");
+  assert.ok(html.includes('aria-label="Frames"'), "the index still names what it holds");
+  assert.doesNotThrow(() => runScript(html), "the controller survives a canvas with no frames");
 });
 
 test("a deck has no surface, so its scene-level nodes stay out of the page", () => {

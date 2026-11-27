@@ -40,20 +40,24 @@ const safeColor = (value: string | undefined): string | null => {
 const num = (value: number): string => String(Math.round((Number.isFinite(value) ? value : 0) * 1000) / 1000);
 const px = (value: number): string => `${num(value)}px`;
 
-const geometry = (node: SceneNode): string =>
-  `left:${px(node.x)};top:${px(node.y)};width:${px(node.w)};height:${px(node.h)}`;
+type NodeOffset = { x: number; y: number };
 
-const renderRect = (node: RectNode): string => {
+const NO_OFFSET: NodeOffset = { x: 0, y: 0 };
+
+const geometry = (node: SceneNode, offset: NodeOffset = NO_OFFSET): string =>
+  `left:${px(node.x - offset.x)};top:${px(node.y - offset.y)};width:${px(node.w)};height:${px(node.h)}`;
+
+const renderRect = (node: RectNode, offset: NodeOffset = NO_OFFSET): string => {
   const fill = safeColor(node.fill);
   const background = fill === null ? "" : `;background:${escapeAttribute(fill)}`;
   const radius =
     typeof node.radius === "number" && Number.isFinite(node.radius) && node.radius >= 0
       ? `;border-radius:${px(node.radius)}`
       : "";
-  return `<div class="node node-rect" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)}${background}${radius}"></div>`;
+  return `<div class="node node-rect" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}${background}${radius}"></div>`;
 };
 
-const renderText = (node: TextNode): string => {
+const renderText = (node: TextNode, offset: NodeOffset = NO_OFFSET): string => {
   const style = node.style ?? {};
   const size =
     typeof style.fontSize === "number" && Number.isFinite(style.fontSize) && style.fontSize > 0 ? style.fontSize : 16;
@@ -67,7 +71,7 @@ const renderText = (node: TextNode): string => {
   const color = safeColor(style.color) ?? "#111111";
   const align =
     typeof style.align === "string" && (TEXT_ALIGNS as readonly string[]).includes(style.align) ? style.align : "left";
-  return `<div class="node node-text" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)};font-size:${px(size)};font-weight:${weight};color:${escapeAttribute(color)};text-align:${align}">${escapeAttribute(node.text)}</div>`;
+  return `<div class="node node-text" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)};font-size:${px(size)};font-weight:${weight};color:${escapeAttribute(color)};text-align:${align}">${escapeAttribute(node.text)}</div>`;
 };
 
 const imageUrl = (node: ImageNode, images: SceneImages): string | null => {
@@ -76,14 +80,14 @@ const imageUrl = (node: ImageNode, images: SceneImages): string | null => {
   return `${images.origin}/artifact/${encodeURIComponent(images.artifactId)}/asset/${node.assetId}${token}`;
 };
 
-const renderImage = (node: ImageNode, images?: SceneImages): string => {
+const renderImage = (node: ImageNode, images?: SceneImages, offset: NodeOffset = NO_OFFSET): string => {
   const url = images === undefined ? null : imageUrl(node, images);
   if (url === null)
-    return `<div class="node node-image" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)}"><span class="node-image-label">Image</span><code class="node-image-id">${escapeAttribute(node.assetId)}</code></div>`;
-  return `<img class="node node-image node-image-asset" data-node-id="${escapeAttribute(node.id)}" alt="${escapeAttribute(node.id)}" src="${escapeAttribute(url)}" style="${geometry(node)};object-fit:contain">`;
+    return `<div class="node node-image" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}"><span class="node-image-label">Image</span><code class="node-image-id">${escapeAttribute(node.assetId)}</code></div>`;
+  return `<img class="node node-image node-image-asset" data-node-id="${escapeAttribute(node.id)}" alt="${escapeAttribute(node.id)}" src="${escapeAttribute(url)}" style="${geometry(node, offset)};object-fit:contain">`;
 };
 
-const renderPath = (node: PathNode): string => {
+const renderPath = (node: PathNode, offset: NodeOffset = NO_OFFSET): string => {
   if (!(node.w > 0) || !(node.h > 0)) return "";
   const fill = safeColor(node.fill) ?? "none";
   const stroke = safeColor(node.stroke);
@@ -93,14 +97,14 @@ const renderPath = (node: PathNode): string => {
       : 1;
   const strokeAttributes =
     stroke === null ? "" : ` stroke="${escapeAttribute(stroke)}" stroke-width="${num(strokeWidth)}"`;
-  return `<svg class="node node-path" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node)}" viewBox="0 0 ${num(node.w)} ${num(node.h)}" fill="none" aria-hidden="true"><path d="${escapeAttribute(node.d)}" fill="${escapeAttribute(fill)}"${strokeAttributes}/></svg>`;
+  return `<svg class="node node-path" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}" viewBox="0 0 ${num(node.w)} ${num(node.h)}" fill="none" aria-hidden="true"><path d="${escapeAttribute(node.d)}" fill="${escapeAttribute(fill)}"${strokeAttributes}/></svg>`;
 };
 
-const renderNode = (node: SceneNode, images?: SceneImages): string => {
-  if (node.type === "rect") return renderRect(node);
-  if (node.type === "text") return renderText(node);
-  if (node.type === "image") return renderImage(node, images);
-  if (node.type === "path") return renderPath(node);
+const renderNode = (node: SceneNode, images?: SceneImages, offset: NodeOffset = NO_OFFSET): string => {
+  if (node.type === "rect") return renderRect(node, offset);
+  if (node.type === "text") return renderText(node, offset);
+  if (node.type === "image") return renderImage(node, images, offset);
+  if (node.type === "path") return renderPath(node, offset);
   return "";
 };
 
@@ -207,7 +211,8 @@ export function renderSceneDocument(
   const origin = images === undefined ? null : originOf(images.origin);
   const source = images !== undefined && origin !== null ? { ...images, origin } : undefined;
   const policy = source === undefined ? BASE_DOCUMENT_CSP : sceneDocumentCsp(source.origin);
-  const empty = scene.frames.length === 0;
+  const looseNodes = scene.nodes ?? [];
+  const empty = scene.frames.length === 0 && (slides || looseNodes.length === 0);
   const title = scene.frames[0]?.name ?? (slides ? "Deck" : "Canvas");
   const selected = scene.frames.find((frame) => frame.id === frameId) ?? scene.frames[0];
   const selectedId = selected === undefined ? null : selected.id;
@@ -215,15 +220,16 @@ export function renderSceneDocument(
   const placement = sceneThreadPlacement(scene, threads);
   const orphans = renderOrphans(placement.orphans);
   const pinsOf = (id: string): SceneThreadPin[] => placement.pins.filter((pin) => pin.frameId === id);
-  const surface = slides ? null : surfaceLayout(scene.frames);
+  const surface = slides ? null : surfaceLayout(scene.frames, looseNodes);
+  const surfaceOrigin = surface === null ? NO_OFFSET : surface.origin;
   const placementOf = (id: string): FramePlacement => {
     const found = surface === null ? undefined : surface.placements.find((entry) => entry.frameId === id);
     return found === undefined ? { x: 0, y: 0 } : { x: found.x, y: found.y };
   };
   const requested = frameId !== undefined && scene.frames.some((frame) => frame.id === frameId) ? frameId : null;
   const looseOf = (): string => {
-    if (slides || scene.nodes === undefined || scene.nodes.length === 0) return "";
-    return `\n${scene.nodes.map((node) => renderNode(node, source)).join("")}`;
+    if (slides || looseNodes.length === 0) return "";
+    return `\n${looseNodes.map((node) => renderNode(node, source, surfaceOrigin)).join("")}`;
   };
   const slidesOf = scene.frames.map((frame) =>
     slides
@@ -231,6 +237,7 @@ export function renderSceneDocument(
       : renderFrame(frame, true, source, pinsOf(frame.id), placementOf(frame.id)),
   );
   const surfaceSize = `data-surface-w="${num(surface === null ? 0 : surface.width)}" data-surface-h="${num(surface === null ? 0 : surface.height)}"`;
+  const indexHidden = scene.frames.length === 0 ? " hidden" : "";
   const activeAttribute = requested === null ? "" : ` data-active-frame="${escapeAttribute(requested)}"`;
   const chrome = empty
     ? slides
@@ -254,7 +261,7 @@ ${slidesOf.join("\n")}
 ${slidesOf.join("\n")}${looseOf()}
 </div>
 </div>
-<nav class="scene-index" id="frame-index" aria-label="Frames">${renderIndex(scene, selectedId)}</nav>`;
+<nav class="scene-index" id="frame-index" aria-label="Frames"${indexHidden}>${renderIndex(scene, selectedId)}</nav>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
 <style>

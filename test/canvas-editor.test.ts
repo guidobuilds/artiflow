@@ -436,7 +436,7 @@ test("the surface layout gives every frame a place of its own and falls back to 
 
   assert.deepEqual(
     surfaceLayout([]),
-    { placements: [], width: 0, height: 0 },
+    { placements: [], width: 0, height: 0, origin: { x: 0, y: 0 } },
     "a canvas with no frames has an empty surface",
   );
 
@@ -521,6 +521,138 @@ test("the surface layout gives every frame a place of its own and falls back to 
     crowdedLayout.width,
     Math.max(...crowded.map((entry) => entry.w)),
     "the column is as wide as the widest frame and no wider",
+  );
+});
+
+test("the surface covers the canvas-level nodes and reports the one origin it subtracted", () => {
+  const frame = (id: string, x: number, y: number, w = 800, h = 600): SceneFrame => ({
+    id,
+    name: id,
+    x,
+    y,
+    w,
+    h,
+    nodes: [],
+  });
+
+  const shared = surfaceLayout([frame("frame-1", 100, 60), frame("frame-2", 900, 60)], [rectNode("loose-1", 100, 60)]);
+  assert.deepEqual(
+    shared.placements,
+    [
+      { frameId: "frame-1", x: 0, y: 0 },
+      { frameId: "frame-2", x: 800, y: 0 },
+    ],
+    "the frames keep their places on the surface",
+  );
+  assert.deepEqual(shared.origin, { x: 100, y: 60 }, "the reply names the corner the placements subtract");
+  assert.deepEqual([shared.width, shared.height], [1600, 600], "a node on top of a frame adds no size");
+
+  const stored = surfaceLayout([frame("frame-1", 100, 60)], [rectNode("loose-1", 100, 60)]);
+  assert.deepEqual(
+    stored.origin,
+    { x: 0, y: 0 },
+    "one frame never carries its stored place, so its surface still starts at the origin",
+  );
+
+  const far = surfaceLayout([frame("frame-1", 0, 0, 400, 400)], [rectNode("loose-1", -200, 500)]);
+  assert.deepEqual(far.origin, { x: -200, y: 0 }, "a node left of every frame owns the origin");
+  assert.deepEqual(
+    far.placements,
+    [{ frameId: "frame-1", x: 200, y: 0 }],
+    "the frames move with that origin instead of sitting outside the surface",
+  );
+  assert.deepEqual([far.width, far.height], [600, 620], "the bounds cover the node far from the frames as well");
+
+  const frameless = surfaceLayout([], [rectNode("loose-1", 100, 40)]);
+  assert.deepEqual(frameless.placements, [], "a frameless canvas has no frame to place");
+  assert.deepEqual(frameless.origin, { x: 100, y: 40 }, "its origin is the corner its nodes start at");
+  assert.deepEqual([frameless.width, frameless.height], [200, 120], "its surface is exactly the nodes it holds");
+
+  const nodeLess = surfaceLayout([frame("frame-1", -400, -200), frame("frame-2", 600, 0, 400, 400)]);
+  assert.deepEqual(
+    nodeLess,
+    surfaceLayout([frame("frame-1", -400, -200), frame("frame-2", 600, 0, 400, 400)], []),
+    "an empty canvas level and no canvas level at all are the same surface",
+  );
+  assert.deepEqual(
+    nodeLess.origin,
+    { x: -400, y: -200 },
+    "without canvas-level nodes the origin is the min corner the layout always subtracted",
+  );
+  assert.deepEqual([nodeLess.width, nodeLess.height], [1400, 600]);
+
+  const nodes = [rectNode("loose-1", -200, 500), rectNode("loose-2", 900, 20)];
+  const frozen = structuredClone(nodes);
+  for (const node of nodes) Object.freeze(node);
+  Object.freeze(nodes);
+  const once = surfaceLayout([frame("frame-1", 0, 0, 400, 400)], nodes);
+  assert.deepEqual(
+    surfaceLayout([frame("frame-1", 0, 0, 400, 400)], nodes),
+    once,
+    "asking twice gives the same surface",
+  );
+  assert.deepEqual([once.width, once.height], [1300, 620], "the bounds cover both canvas-level corners");
+  assert.deepEqual(nodes, frozen, "the layout never rewrites the nodes it reads");
+});
+
+test("the canvas screen paints the canvas-level nodes at the one origin the surface subtracts", () => {
+  const page = canvasPage();
+  assert.match(
+    page,
+    /const layout = surfaceLayout\(frames, looseNodes\);/,
+    "the surface is measured over the canvas level as well",
+  );
+  assert.match(
+    page,
+    /const hasSurface = frames\.length > 0 \|\| looseNodes\.length > 0;/,
+    "one answer for both levels",
+  );
+
+  const style = between(page, "const nodeStyle =", "\nconst sceneSaver");
+  assert.match(
+    style,
+    /left: node\.x - offset\.x, top: node\.y - offset\.y/,
+    "one style builder subtracts the surface origin from the node it paints",
+  );
+  const markup = between(page, "const nodeMarkup =", "\n  return (");
+  assert.match(markup, /style=\{nodeStyle\(node, offset\)\}/, "the shared markup passes the offset through");
+  assert.match(
+    page,
+    /nodeMarkup\(node, true, layout\.origin\)/,
+    "a canvas-level node subtracts the origin the frames subtract",
+  );
+  assert.equal(
+    (page.match(/nodeMarkup\(node, /g) ?? []).length,
+    2,
+    "the frame nodes and the canvas-level nodes still share one markup builder",
+  );
+
+  const marquee = between(page, "const marqueeSelection =", "\n  const zoomAt");
+  assert.match(
+    marquee,
+    /x: rect\.x \+ offset\.x,\s*y: rect\.y \+ offset\.y,/,
+    "the marquee takes the surface rectangle back to scene coordinates",
+  );
+
+  assert.match(
+    page,
+    /const scale = hasSurface \? \(fitted \? fitZoom : zoom\) : 1;/,
+    "a canvas with only canvas-level nodes still fits and zooms its surface",
+  );
+  assert.match(
+    between(page, "const onWheel = (event: WheelEvent) => {", "if (event.ctrlKey"),
+    /if \(!hasSurface\) return;/,
+    "the wheel works on a canvas the frames do not fill",
+  );
+  assert.match(
+    page,
+    /\{hasSurface \? \(\s*<div\s+className="canvas-surface"/,
+    "the surface is drawn whenever either level holds anything",
+  );
+  assert.match(
+    page,
+    /<p className="canvas-empty" role="status">\s*This canvas has no frames yet\./,
+    "the empty state stays for a canvas with neither level filled",
   );
 });
 
@@ -1720,7 +1852,11 @@ test("the canvas screen draws the canvas-level nodes above every frame on the on
     true,
     "the canvas-level nodes render after every frame, so they float above the artboards",
   );
-  assert.match(page, /nodeMarkup\(node, true\)/, "a canvas-level node is reachable without an active frame");
+  assert.match(
+    page,
+    /nodeMarkup\(node, true, layout\.origin\)/,
+    "a canvas-level node is reachable without an active frame at the surface origin",
+  );
   const markup = between(page, "const nodeMarkup =", "\n  return (");
   assert.match(
     markup,
@@ -1744,7 +1880,11 @@ test("the canvas screen draws the canvas-level nodes above every frame on the on
     /locateNode\(scene, selected\[0\]/,
     "the inspector finds a selected node wherever the scene holds it",
   );
-  assert.match(page, /selectNodesInRect\(looseNodes, rect\)/, "the marquee takes the canvas-level nodes it touches");
+  assert.match(
+    page,
+    /selectNodesInRect\(looseNodes, \{\s*x: rect\.x \+ offset\.x,/,
+    "the marquee takes the canvas-level nodes it touches in their own coordinates",
+  );
   assert.match(page, /selectNodesInRect\(frame, /, "and the nodes of the active frame, in its own coordinates");
   assert.match(
     between(page, "const endMarquee =", "\n  const cancelMarquee ="),

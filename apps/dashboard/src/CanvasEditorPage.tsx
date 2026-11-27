@@ -129,8 +129,10 @@ const withoutNodes = (scene: Scene, ids: string[]): Scene => ids.reduce((next, i
 const wheelPan = (deltaX: number, deltaY: number, shiftKey: boolean): Point =>
   shiftKey ? { x: -deltaY, y: 0 } : { x: -deltaX, y: -deltaY };
 
-const nodeStyle = (node: SceneNode): CSSProperties => {
-  const box: CSSProperties = { left: node.x, top: node.y, width: node.w, height: node.h };
+const NO_OFFSET: Point = { x: 0, y: 0 };
+
+const nodeStyle = (node: SceneNode, offset: Point = NO_OFFSET): CSSProperties => {
+  const box: CSSProperties = { left: node.x - offset.x, top: node.y - offset.y, width: node.w, height: node.h };
   if (node.type === "rect") return { ...box, background: node.fill, borderRadius: node.radius ?? 0 };
   if (node.type === "text") {
     const style = node.style ?? {};
@@ -258,9 +260,10 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const frames = scene.frames;
   const looseNodes = scene.nodes ?? [];
   const frame: SceneFrame | null = frames.find((entry) => entry.id === activeFrame) ?? frames[0] ?? null;
-  const layout = surfaceLayout(frames);
+  const layout = surfaceLayout(frames, looseNodes);
+  const hasSurface = frames.length > 0 || looseNodes.length > 0;
   const fitZoom = fitScale({ w: layout.width, h: layout.height }, viewport);
-  const scale = frame === null ? 1 : fitted ? fitZoom : zoom;
+  const scale = hasSurface ? (fitted ? fitZoom : zoom) : 1;
   const fitPan = {
     x: Math.round((viewport.w - layout.width * fitZoom) / 2),
     y: Math.round((viewport.h - layout.height * fitZoom) / 2),
@@ -287,7 +290,13 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     };
   };
   const marqueeSelection = (rect: SceneRect): string[] => {
-    const loose = selectNodesInRect(looseNodes, rect);
+    const offset = layout.origin;
+    const loose = selectNodesInRect(looseNodes, {
+      x: rect.x + offset.x,
+      y: rect.y + offset.y,
+      w: rect.w,
+      h: rect.h,
+    });
     if (frame === null) return loose;
     const at = placementOf(frame.id);
     const inside = selectNodesInRect(frame, { x: rect.x - at.x, y: rect.y - at.y, w: rect.w, h: rect.h });
@@ -312,7 +321,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     const element = stage.current;
     if (element === null) return;
     const onWheel = (event: WheelEvent) => {
-      if (frames.length === 0) return;
+      if (!hasSurface) return;
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault();
         const bounds = element.getBoundingClientRect();
@@ -326,7 +335,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [frames.length, zoomAt, view.x, view.y]);
+  }, [hasSurface, zoomAt, view.x, view.y]);
 
   useEffect(() => {
     const typing = (target: EventTarget | null) =>
@@ -707,7 +716,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     setMarquee(null);
     if (start === null) return;
-    if (!dragged || frame === null) {
+    if (!dragged) {
       setSelected([]);
       return;
     }
@@ -868,7 +877,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       </>
     ) : null;
 
-  const nodeMarkup = (node: SceneNode, active: boolean) => (
+  const nodeMarkup = (node: SceneNode, active: boolean, offset: Point = NO_OFFSET) => (
     <div
       key={node.id}
       role="button"
@@ -876,7 +885,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       aria-label={nodeLabel(node)}
       aria-pressed={isSelected(node.id)}
       className={`canvas-node canvas-node-${node.type} ${isSelected(node.id) ? "canvas-node-selected" : ""}`}
-      style={nodeStyle(node)}
+      style={nodeStyle(node, offset)}
       onPointerDown={(event) => startDrag(event, node, "move")}
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
@@ -1011,18 +1020,14 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
             onPointerUp={onStagePointerUp}
             onPointerCancel={onStagePointerCancel}
           >
-            {frame === null ? (
-              <p className="canvas-empty" role="status">
-                This canvas has no frames yet.
-              </p>
-            ) : (
+            {hasSurface ? (
               <div
                 className="canvas-surface"
                 style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${scale})` }}
               >
                 {frames.map((entry) => {
                   const at = placementOf(entry.id);
-                  const active = entry.id === frame.id;
+                  const active = entry.id === frame?.id;
                   return (
                     <div
                       key={entry.id}
@@ -1038,8 +1043,12 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                     </div>
                   );
                 })}
-                {looseNodes.map((node) => nodeMarkup(node, true))}
+                {looseNodes.map((node) => nodeMarkup(node, true, layout.origin))}
               </div>
+            ) : (
+              <p className="canvas-empty" role="status">
+                This canvas has no frames yet.
+              </p>
             )}
           </div>
           {marquee === null ? null : (

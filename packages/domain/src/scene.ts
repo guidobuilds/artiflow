@@ -291,9 +291,16 @@ export const sceneSubtree = (scene: Scene, frameId: string): SceneFrame | null =
   scene.frames.find((frame) => frame.id === frameId) ?? null;
 
 export type SurfacePlacement = { frameId: string; x: number; y: number };
-export type SurfaceLayout = { placements: SurfacePlacement[]; width: number; height: number };
+export type SurfaceOrigin = { x: number; y: number };
+export type SurfaceLayout = {
+  placements: SurfacePlacement[];
+  width: number;
+  height: number;
+  origin: SurfaceOrigin;
+};
 
 type SurfaceBox = { frameId: string; x: number; y: number; w: number; h: number };
+type SurfaceArea = { x: number; y: number; w: number; h: number };
 
 const SURFACE_GAP = 40;
 
@@ -305,6 +312,13 @@ const surfaceBox = (frame: SceneFrame): SurfaceBox => ({
   h: finite(frame.h) && frame.h > 0 ? frame.h : 1,
 });
 
+const surfaceNodeArea = (node: SceneNode): SurfaceArea => ({
+  x: finite(node.x) ? node.x : 0,
+  y: finite(node.y) ? node.y : 0,
+  w: finite(node.w) && node.w > 0 ? node.w : 0,
+  h: finite(node.h) && node.h > 0 ? node.h : 0,
+});
+
 const surfaceColumn = (boxes: SurfaceBox[]): SurfaceBox[] => {
   let top = 0;
   return boxes.map((box) => {
@@ -314,18 +328,20 @@ const surfaceColumn = (boxes: SurfaceBox[]): SurfaceBox[] => {
   });
 };
 
-export function surfaceLayout(frames: SceneFrame[]): SurfaceLayout {
-  if (frames.length === 0) return { placements: [], width: 0, height: 0 };
+export function surfaceLayout(frames: SceneFrame[], nodes: readonly SceneNode[] = []): SurfaceLayout {
   const boxes = frames.map(surfaceBox);
-  const unstored = boxes.every((box) => box.x === boxes[0]?.x && box.y === boxes[0]?.y);
+  const unstored = boxes.length > 0 && boxes.every((box) => box.x === boxes[0]?.x && box.y === boxes[0]?.y);
   const placed = unstored ? surfaceColumn(boxes) : boxes;
-  const left = Math.min(...placed.map((box) => box.x));
-  const top = Math.min(...placed.map((box) => box.y));
-  const right = Math.max(...placed.map((box) => box.x + box.w));
-  const bottom = Math.max(...placed.map((box) => box.y + box.h));
+  const areas: SurfaceArea[] = [...placed, ...nodes.map(surfaceNodeArea)];
+  if (areas.length === 0) return { placements: [], width: 0, height: 0, origin: { x: 0, y: 0 } };
+  const left = Math.min(...areas.map((area) => area.x));
+  const top = Math.min(...areas.map((area) => area.y));
+  const right = Math.max(...areas.map((area) => area.x + area.w));
+  const bottom = Math.max(...areas.map((area) => area.y + area.h));
   return {
     placements: placed.map((box) => ({ frameId: box.frameId, x: box.x - left, y: box.y - top })),
     width: right - left,
     height: bottom - top,
+    origin: { x: left, y: top },
   };
 }
