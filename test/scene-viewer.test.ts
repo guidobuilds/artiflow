@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -336,6 +337,21 @@ test("the canvas controller owns the viewport and the deck controller never sees
     'getElementById("fit")',
   ])
     assert.equal(deck.includes(canvasWord), false, `the deck controller knows no ${canvasWord}`);
+});
+
+const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
+
+test("PRESERVE: each controller script is the script the split started from", () => {
+  assert.equal(
+    digest(canvasControllerScript()),
+    "c43c1edc919d6770657f98bc800e0abb1987f8d43e92daa2614c889c9b34dbe1",
+    "the canvas controller is byte for byte the script the renderer used to inline",
+  );
+  assert.equal(
+    digest(deckControllerScript()),
+    "3396420c51365406f188e0c3545f2f0f8ee690b499195db36cf6977c5da783f3",
+    "the deck controller is byte for byte the script the renderer used to inline",
+  );
 });
 
 test("the renderer inlines neither controller: it imports them", () => {

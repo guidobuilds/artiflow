@@ -370,9 +370,13 @@ comment's author (`403 forbidden` for anyone else) and drops a root's replies wi
 
 A public link carries a `showComments` option, off by default. The owner toggles it with
 `PATCH /artifacts/{artifactId}/links/{linkId}` and `{"showComments":true}`; every other caller is
-`404`. When the option is on, `GET /share/{token}/comments` serves the threads read-only, with
-`canDelete: false`, no private data and no email addresses. When it is off that path is `404`, and no
-other public path exposes comments.
+`404`. When the option is on, `GET /share/{token}/comments` serves the threads of an `html` or `markdown`
+link read-only, with `canDelete: false`, no private data and no email addresses. When it is off that
+path is `404`. A `canvas` or `deck` link answers `404 {"error":"not_found"}` whatever the option
+says: a scene mounts no comment surface — no host, no config, no bundle, and no pin on a public link —
+and the refusal is byte for byte the answer an unknown token gets, so the path never tells a caller
+which link it is. The path is `GET` only; there is no public write route, and no other public path
+exposes comments.
 
 ## Invitations and public links
 
