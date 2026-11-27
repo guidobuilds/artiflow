@@ -53,6 +53,8 @@ const FROM_THEME = [
 ] as const;
 const FROM_ARTIFACT = [
   "artifactView",
+  "DOCUMENT_CSP",
+  "DOCUMENT_HEADERS",
   "originOf",
   "SANDBOX",
   "sceneCsp",
@@ -133,18 +135,29 @@ test("the artifact composition reads no audience, action, identity or kind", asy
 
 test("the bar builds the header and mounts no dialog", () => {
   const header = bar.artifactBar({
+    chrome: "full",
     backHref: "/",
     meta: { title: "A canvas", version: 3 },
-    embed: false,
-    control: `<button class="vbar-focus" type="button" title="Focus mode (F)">Focus</button>`,
+    control: `<button type="button" title="Focus mode (F)" data-control="focus">Focus</button>`,
   });
   assert.equal(header.startsWith('<header class="vbar">'), true, "the bar is the header region");
   assert.equal(/dialog/i.test(header), false, "no dialog is mounted in the bar");
   assert.equal(header.includes('role="'), false, "the bar declares no interactive role of its own");
+  assert.equal(
+    bar.artifactBar({ chrome: "none", backHref: "/", meta: { title: "A canvas", version: 3 }, control: "x" }),
+    "",
+    "a chrome of none draws no bar at all",
+  );
+  assert.equal(
+    bar.artifactBar({ chrome: "anonymous" }).includes("vbar-back"),
+    false,
+    "a bar with no identity to name ships no cell for it",
+  );
   const source = sourceOf("../apps/api/src/viewer/chrome/bar.ts");
   assert.equal(/dialog/i.test(source), false, "the bar mounts no dialog");
   assert.equal(source.includes("kinds.ts"), false, "the bar does not import the kind vocabulary");
   assert.equal(/canComment|deleteAny|deleteOwn|resolve/.test(source), false, "the bar decides no permission");
+  assert.equal(/kind|embed/.test(source), false, "and nothing in it branches on the artifact kind or an embed flag");
 });
 
 test("the theme and the panel import nothing, so nothing can change them from outside", () => {

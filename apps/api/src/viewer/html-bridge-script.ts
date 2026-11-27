@@ -15,6 +15,8 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
   const VERSION = ${literal(BRIDGE_VERSION)};
   const NONCE = ${literal(nonce)};
   let PINS = ${literal(pins)};
+  const positioned = (pins) => pins.map((pin) => ({ ...pin, stalePixels: pin.stale === true }));
+  PINS = positioned(PINS);
   const HINT_LIMIT = 120;
   const HINTS = ["h1","h2","h3","h4","p","li","td","th","figcaption","blockquote","button","a","span","div"];
   const SKIP = new Set(["html","head","body","script","style","meta","link","title"]);
@@ -207,7 +209,7 @@ export function htmlBridgeScript({ nonce, pins }: HtmlBridgeOptions): string {
       return;
     }
     if (data.type === "pins" && Array.isArray(data.pins)) {
-      PINS = data.pins.map((pin) => ({ ...pin, stalePixels: pin.stale === true }));
+      PINS = positioned(data.pins);
       mount();
       return;
     }

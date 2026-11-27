@@ -8,7 +8,7 @@ const META = "/api/artifacts/abc";
 const REFRESH: ViewerRefresh = { plan: { kind: "reload", metaUrl: META }, revisionNumber: 3, sha256: "aaa" };
 const TAIL = "if (!document.hidden) startPolling();";
 const scriptOf = (refresh: ViewerRefresh = REFRESH): string => {
-  const page = wrapperPage(escapeAttribute("<p>x</p>"), "/", { title: "T", version: 3 }, false, refresh);
+  const page = wrapperPage(escapeAttribute("<p>x</p>"), "/", { title: "T", version: 3 }, "full", refresh);
   const start = page.indexOf("const refresh =");
   const end = page.indexOf(TAIL);
   assert.ok(start > 0 && end > start, "poller present");

@@ -21,6 +21,8 @@ import type { Storage } from "../apps/api/src/adapters/storage/client.ts";
 import { createLibraryApp, type LibraryOptions } from "../apps/api/src/routes/library.ts";
 import { createShareViewerApp } from "../apps/api/src/routes/sharing.ts";
 import { sceneCsp, VIEWER_CSP } from "../apps/api/src/viewer/html.ts";
+import { DOCUMENT_CSP } from "../apps/api/src/viewer/artifact.ts";
+import { renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
 import type { ViewerActions, ViewerAudience, ViewerChrome, ViewerModel } from "../apps/api/src/viewer/model.ts";
 import { prepareViewer, type ViewerRequest } from "../apps/api/src/viewer/prepare.ts";
 
@@ -134,13 +136,15 @@ const audienceOf = (seat: Seat): ViewerAudience =>
       : { kind: "session", viewerId: VIEWER_ID, access: accessOf(seat) ?? "owner" };
 
 const planKindOf = (seat: Seat, kind: ArtifactKind): "page" | "document" | "none" =>
-  rendersScene(kind)
-    ? isPublic(seat)
-      ? "none"
-      : "document"
-    : isPublic(seat) && !showsComments(seat)
-      ? "none"
-      : "page";
+  seat === "embed"
+    ? "none"
+    : rendersScene(kind)
+      ? isPublic(seat)
+        ? "none"
+        : "document"
+      : isPublic(seat) && !showsComments(seat)
+        ? "none"
+        : "page";
 
 const metaUrlOf = (seat: Seat): string => (isPublic(seat) ? `/share/${TOKEN}?meta=1` : `/api/artifacts/${ARTIFACT_ID}`);
 
@@ -322,6 +326,19 @@ const islandOf = (page: string): Record<string, unknown> | null => {
 
 const barOf = (page: string): string | null => /<header class="vbar">([\s\S]*?)<\/header>/.exec(page)?.[1] ?? null;
 
+const policyOf = (kind: ArtifactKind): string =>
+  kind === "markdown" ? DOCUMENT_CSP : rendersScene(kind) ? sceneCsp(ORIGIN) : VIEWER_CSP;
+
+const shipsControls = (kind: ArtifactKind): boolean => kind !== "markdown";
+
+const barRegionsOf = (bar: string): Record<string, unknown> => ({
+  identity: bar.includes('<div class="vbar-cell vbar-brand"><svg') && bar.includes("<span>artiflow</span>"),
+  back: bar.includes('<a class="vbar-cell vbar-back"'),
+  title: bar.includes(`<div class="vbar-cell vbar-title"><b>${TITLE}</b>`),
+  version: bar.includes(`<span class="vbar-version">v${REVISION_NUMBER}</span>`),
+  controls: [...bar.matchAll(/data-control="([a-z]+)"/g)].map((match) => match[1]),
+});
+
 const refreshFieldsOf = (page: string): Record<string, string> => {
   const raw = /const refresh = \{([^}]*)\};/.exec(page)?.[1] ?? "";
   const fields: Record<string, string> = {};
@@ -369,7 +386,7 @@ test("no response carries the owner id outside the thread it authored", async ()
 test("the page path reads the artifact, the access and the threads once; a public page reads no access", async () => {
   for (const seat of SEATS) {
     for (const kind of ARTIFACT_KINDS) {
-      const expected = isPublic(seat) ? (showsComments(seat) && !rendersScene(kind) ? 2 : 1) : 3;
+      const expected = isPublic(seat) ? (showsComments(seat) && !rendersScene(kind) ? 2 : 1) : seat === "embed" ? 2 : 3;
       assert.equal((await cellOf(seat, kind)).queries, expected, `${seat} x ${kind} query count`);
     }
   }
@@ -452,8 +469,13 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
 
       assert.equal(
         headers.get("content-security-policy"),
-        rendersScene(kind) ? sceneCsp(ORIGIN) : VIEWER_CSP,
-        `${label} keeps the served policy byte for byte`,
+        policyOf(kind),
+        `${label} serves the one policy its page builder emitted`,
+      );
+      assert.equal(
+        /<meta[^>]+http-equiv/i.test(page),
+        false,
+        `${label} ships no meta policy that could contradict the header`,
       );
       assert.equal(headers.get("x-content-type-options"), "nosniff", `${label} nosniff`);
       assert.equal(headers.get("cache-control"), "no-store", `${label} no-store`);
@@ -462,21 +484,43 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
       const bar = barOf(page);
       if (model.chrome === "none") {
         assert.equal(bar, null, `${label} embed renders no bar`);
-        assert.equal(page.includes('class="vbar-focus"'), false, `${label} embed renders no bar control`);
+        assert.equal(/<[a-z][^>]*\sdata-control=/.test(page), false, `${label} embed renders no control`);
+        for (const [name, needle] of [
+          ["comments host", 'id="viewer-comments"'],
+          ["comments config", 'id="viewer-comments-data"'],
+          ["comments bundle", '<script type="module"'],
+          ["bridge", "data-artiflow-bridge"],
+          ["pins", "let PINS"],
+          ["comments shell class", "comments-available"],
+        ] as const)
+          assert.equal(page.includes(needle), false, `${label} embed ships no ${name}`);
+        if (kind === "html")
+          assert.equal(srcdocOf(page), HTML_SOURCE, `${label} embed hands the frame the stored bytes`);
+        if (kind === "markdown")
+          assert.equal(
+            /<main class="mdpage" id="document">([\s\S]*?)<\/main>/.exec(page)?.[1],
+            renderMarkdownFragment(MARKDOWN_SOURCE),
+            `${label} embed renders the document and nothing else`,
+          );
       } else {
         assert.notEqual(bar, null, `${label} renders the bar`);
+        assert.deepEqual(
+          barRegionsOf(bar ?? ""),
+          {
+            identity: true,
+            back: model.chrome === "full",
+            title: model.chrome === "full",
+            version: model.chrome === "full",
+            controls: shipsControls(kind) ? ["actions", "focus"] : [],
+          },
+          `${label} the bar is its regions, and nothing else`,
+        );
         assert.equal(
-          (bar?.match(/<button/g) ?? []).length,
-          kind === "markdown" ? 0 : 1,
+          ((bar ?? "").match(/<button/g) ?? []).length,
+          shipsControls(kind) ? 1 : 0,
           `${label} the bar holds only the control its builder ships`,
         );
-        assert.equal(bar?.includes("vbar-focus") ?? false, kind !== "markdown", `${label} focus control`);
-        assert.equal(
-          bar?.includes('class="vbar-cell vbar-back"') ?? false,
-          model.chrome === "full",
-          `${label} back cell`,
-        );
-        assert.equal(bar?.includes(`<b>${TITLE}</b>`) ?? false, model.chrome === "full", `${label} title cell`);
+        assert.equal(/vbar-focus/.test(page), false, `${label} no control is addressed by a class`);
       }
       assert.equal(page.match(/<a /g)?.length ?? 0, model.chrome === "full" ? 1 : 0, `${label} links in the page`);
       assert.equal(
@@ -580,6 +624,53 @@ const sharingSource = sourceOf("../apps/api/src/routes/sharing.ts");
 const prepareSource = sourceOf("../apps/api/src/viewer/prepare.ts");
 const modelSource = sourceOf("../apps/api/src/viewer/model.ts");
 const htmlSource = sourceOf("../apps/api/src/viewer/html.ts");
+const barSource = sourceOf("../apps/api/src/viewer/chrome/bar.ts");
+const artifactSource = sourceOf("../apps/api/src/viewer/artifact.ts");
+const islandSource = sourceOf("../apps/dashboard/src/viewer-comments.tsx");
+
+test("one bar for the four formats: the chrome decides whether it is drawn, and the kind decides nothing", () => {
+  assert.equal(/kind|embed/.test(barSource), false, "the bar reads no kind and no embed flag");
+  assert.match(barSource, /props\.chrome === "none"/, "the model's chrome is the only reason to draw nothing");
+  for (const field of ["chrome", "backHref", "meta", "control"])
+    assert.match(barSource, new RegExp(`readonly ${field}`), `the bar reads ${field}`);
+  for (const caller of [artifactSource, sourceOf("../apps/api/src/viewer/views/markdown.ts")])
+    assert.match(caller, /artifactBar\(\{/, "every format takes its header from the one bar");
+  assert.equal(
+    [...artifactSource.matchAll(/artifactBar\(\{/g)].length +
+      [...sourceOf("../apps/api/src/viewer/views/markdown.ts").matchAll(/artifactBar\(\{/g)].length,
+    2,
+    "there is no second header builder",
+  );
+  assert.equal(/<header/.test(artifactSource + barSource), true, "the header markup lives in the bar");
+  assert.equal(/<header/.test(sourceOf("../apps/api/src/viewer/views/markdown.ts")), false, "not in a view");
+});
+
+test("controls are addressed by data-control, so no lookup depends on a class", () => {
+  for (const [name, source] of [
+    ["the artifact page", artifactSource],
+    ["the comments island", islandSource],
+  ] as const) {
+    assert.equal(/vbar-focus/.test(source), false, `${name} never names the focus class`);
+    assert.equal(/vbar-actions/.test(source), false, `${name} never names the actions class`);
+  }
+  assert.match(
+    artifactSource,
+    /document\.querySelector\('\[data-control="focus"\]'\)/,
+    "the focus script finds its control by attribute",
+  );
+  assert.match(
+    islandSource,
+    /querySelector<HTMLElement>\('\[data-control="actions"\]'\)/,
+    "the island mounts into the slot by attribute",
+  );
+  assert.match(islandSource, /dataset\.control = "comment"/, "the comment control announces itself by attribute");
+  assert.equal(/className = "vbar-/.test(islandSource), false, "the comment control borrows no control class");
+  assert.match(
+    artifactSource,
+    /<button type="button" title="Focus mode \(F\)" data-control="focus">/,
+    "the focus control carries its own value",
+  );
+});
 
 test("one authorized preparation: both routes call prepareViewer and decide none of it themselves", () => {
   for (const [name, source] of [

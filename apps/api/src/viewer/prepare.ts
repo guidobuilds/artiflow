@@ -77,6 +77,7 @@ async function sessionLoad(
   db: AppDb,
   viewerId: string,
   artifact: ViewerArtifactRow,
+  threads: boolean,
 ): Promise<{ loaded: ViewerCommentLoad<ViewerCommentRow>; access: string | null }> {
   const { id: artifactId } = artifact;
   const seen: { access: string | null } = { access: null };
@@ -86,7 +87,7 @@ async function sessionLoad(
       seen.access = shared === undefined ? null : (shared.access ?? null);
       return shared;
     },
-    list: () => listComments(db, artifactId, true),
+    list: threads ? () => listComments(db, artifactId, true) : async () => [],
     onError: (error) => console.error(`[viewer] comments degraded for ${artifactId}`, error),
   });
   return { loaded, access: seen.access };
@@ -186,9 +187,9 @@ const modelOf = (
 };
 
 async function prepareSession(input: ViewerPreparation, request: SessionRequest): Promise<ViewerModel> {
-  const session = await sessionLoad(input.db, request.viewerId, input.artifact);
+  const session = await sessionLoad(input.db, request.viewerId, input.artifact, !input.embed);
   const access = input.artifact.ownerId === request.viewerId ? "owner" : session.access;
-  const comments = await sessionCommentsPlan(input, request, session.loaded);
+  const comments = input.embed ? { kind: "none" as const } : await sessionCommentsPlan(input, request, session.loaded);
   return modelOf(input, access, actionsOf(session.loaded), comments);
 }
 

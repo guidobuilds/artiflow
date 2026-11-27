@@ -7,7 +7,7 @@ import { markdownViewerPage, renderMarkdownFragment } from "../apps/api/src/view
 const REFRESH = { plan: { kind: "reload" as const, metaUrl: "/api/artifacts/1111" }, revisionNumber: 4, sha256: "bbb" };
 const OWNER_PAGE = { title: "T", version: 1 };
 const page = (fragment = "<p>x</p>", backHref?: string, meta?: { title: string | null; version: number | null }) =>
-  markdownViewerPage(fragment, backHref, meta, false, REFRESH);
+  markdownViewerPage(fragment, backHref, meta, "full", REFRESH).html;
 
 test("renderMarkdownFragment renders headings, emphasis and GFM tables", () => {
   const fragment = renderMarkdownFragment("# Título\n\n| a | b |\n|---|---|\n| 1 | 2 |\n");
@@ -37,12 +37,80 @@ test("markdownViewerPage renders the fragment in the page itself, without a scri
     html.includes('<main class="mdpage" id="document"><h1>Hola</h1></main>'),
     "the sanitized fragment is inline",
   );
-  assert.ok(html.includes("content-security-policy"), "the page keeps a CSP");
-  assert.ok(
-    html.includes("script-src 'self' 'unsafe-inline'"),
-    "the bundle is same-origin and the poller stays inline",
-  );
+  assert.equal(/http-equiv="content-security-policy"/i.test(html), false, "the page declares no policy of its own");
   assert.equal(/srcdoc="/.test(html), false, "no srcdoc attribute survives");
+});
+
+const parsedPolicy = (policy: string): Record<string, string[]> => {
+  const directives: Record<string, string[]> = {};
+  for (const entry of policy.split(";")) {
+    const [name, ...sources] = entry.trim().split(/\s+/).filter(Boolean);
+    if (name !== undefined) directives[name] = [...sources].sort();
+  }
+  return directives;
+};
+
+const sourcesFor = (policy: Record<string, string[]>, name: string): string[] =>
+  policy[name] ?? policy["default-src"] ?? [];
+
+const allowed = (sources: readonly string[]): string[] =>
+  sources.length === 0 || (sources.length === 1 && sources[0] === "'none'") ? [] : [...sources].sort();
+
+const ALL_DIRECTIVES = [
+  "base-uri",
+  "connect-src",
+  "default-src",
+  "form-action",
+  "frame-src",
+  "img-src",
+  "script-src",
+  "style-src",
+];
+
+const effectiveOf = (...policies: readonly string[]): Record<string, string[]> => {
+  const parsed = policies.map(parsedPolicy);
+  const names = [...new Set([...ALL_DIRECTIVES, ...parsed.flatMap((policy) => Object.keys(policy))])].sort();
+  return Object.fromEntries(
+    names.map((name) => [
+      name,
+      allowed(
+        parsed
+          .map((policy) => sourcesFor(policy, name))
+          .reduce((left, right) => left.filter((source) => right.includes(source))),
+      ),
+    ]),
+  );
+};
+
+const TODAY_HEADER =
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'";
+const TODAY_META =
+  "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'";
+
+test("the markdown page ships one policy: today's meta and header intersect to the stricter list", () => {
+  const rendered = markdownViewerPage("<p>x</p>", "/", OWNER_PAGE, "full", REFRESH);
+  assert.equal(
+    /http-equiv="content-security-policy"/i.test(rendered.html),
+    false,
+    "no meta policy survives to contradict the header",
+  );
+  const single = rendered.headers["content-security-policy"] ?? "";
+  assert.ok(single.length > 0, "the response carries the one policy");
+  assert.deepEqual(
+    effectiveOf(single),
+    effectiveOf(TODAY_HEADER, TODAY_META),
+    "the single policy is the intersection of the two it shipped before, as parsed directives",
+  );
+  assert.equal(
+    (parsedPolicy(single)["img-src"] ?? []).includes("https:"),
+    false,
+    "the wider image list the meta allowed never reaches the response",
+  );
+  assert.deepEqual(
+    effectiveOf(single)["frame-src"],
+    [],
+    "frames stay impossible, as the two policies together made them",
+  );
 });
 
 test("raw HTML in the markdown stays escaped in the rendered page", () => {
@@ -65,7 +133,7 @@ test("the document styles travel with the page instead of inside a frame", () =>
 });
 
 test("a comments mount adds the data island, the container and the module bundle", () => {
-  const withComments = markdownViewerPage("<p>x</p>", undefined, undefined, false, REFRESH, {
+  const withComments = markdownViewerPage("<p>x</p>", undefined, undefined, "anonymous", REFRESH, {
     config: {
       artifactId: "a1",
       mode: "text",
@@ -93,7 +161,7 @@ test("a comments mount adds the data island, the container and the module bundle
       },
     },
     assets: { script: "/assets/viewer-comments-abc.js", styles: [], dev: false },
-  });
+  }).html;
   assert.ok(withComments.includes('<div id="viewer-comments"'), withComments);
   assert.ok(withComments.includes('type="application/json" id="viewer-comments-data"'));
   assert.ok(withComments.includes('type="module" src="/assets/viewer-comments-abc.js"'));
@@ -102,7 +170,7 @@ test("a comments mount adds the data island, the container and the module bundle
 });
 
 test("the comments island escapes markup so the data cannot break out", () => {
-  const html = markdownViewerPage("<p>x</p>", undefined, undefined, false, REFRESH, {
+  const html = markdownViewerPage("<p>x</p>", undefined, undefined, "anonymous", REFRESH, {
     config: {
       artifactId: "a1",
       mode: "text",
@@ -112,7 +180,7 @@ test("the comments island escapes markup so the data cannot break out", () => {
       endpoints: { comments: "/share/t/comments", resolve: "", deleteComment: "" },
     },
     assets: { script: "/assets/viewer-comments-abc.js", styles: [], dev: false },
-  });
+  }).html;
   const island = html.match(/<script type="application\/json" id="viewer-comments-data">([^<]*)<\/script>/)?.[1] ?? "";
   assert.ok(island.length > 0, "the island exists");
   assert.equal(island.includes("<"), false, "no raw angle bracket can close the tag early");
@@ -169,30 +237,56 @@ test("document text contrast meets WCAG on both theme sides", () => {
   }
 });
 
+const barOf = (text: string): string => text.match(/<header class="vbar">([\s\S]*?)<\/header>/)?.[1] ?? "";
+const CONTROL_CELL = /<div class="vbar-cell vbar-actions" data-control="actions">[\s\S]*?<\/div>\n/;
+
 test("the two owner bars share one composition: back, brand, title and version", () => {
   const md = page("<p>x</p>", "/", OWNER_PAGE);
-  const html = wrapperPage("x", "/", OWNER_PAGE, false, REFRESH);
-  const bar = (text: string) => text.match(/<header class="vbar">([\s\S]*?)<\/header>/)?.[1] ?? "";
-  const leading = bar(html).split('<div class="vbar-cell vbar-actions">')[0] ?? "";
+  const html = wrapperPage("x", "/", OWNER_PAGE, "full", REFRESH);
+  const leading = barOf(html).replace(CONTROL_CELL, "");
   assert.ok(leading.includes('aria-label="Back to library"'), "back cell first");
   assert.ok(leading.includes("vbar-brand"), "then the brand cell");
   assert.ok(leading.includes('vbar-version">v1<'), "then the title with its version badge");
-  assert.equal(bar(md), leading, "the markdown bar is byte-identical up to the actions cell");
+  assert.equal(barOf(md), leading, "the markdown bar is byte-identical up to the actions cell");
+  assert.equal(CONTROL_CELL.test(barOf(html)), true, "the framed bar holds the control slot by attribute");
+  assert.equal(/data-control/.test(barOf(md)), false, "the markdown bar supplies no control, so it ships no slot");
+});
+
+test("one bar serves the four formats, and the chrome alone decides whether it is drawn", () => {
+  for (const chrome of ["full", "anonymous", "none"] as const) {
+    const ownerMeta = chrome === "full" ? OWNER_PAGE : undefined;
+    const markdown = markdownViewerPage(
+      "<p>x</p>",
+      chrome === "full" ? "/" : undefined,
+      ownerMeta,
+      chrome,
+      REFRESH,
+    ).html;
+    const framed = wrapperPage("x", chrome === "full" ? "/" : undefined, ownerMeta, chrome, REFRESH);
+    if (chrome === "none") {
+      assert.equal(/<header/.test(markdown), false, `chrome ${chrome} draws no bar on the markdown page`);
+      assert.equal(/<header/.test(framed), false, `chrome ${chrome} draws no bar on the framed page`);
+      continue;
+    }
+    assert.equal(barOf(markdown), barOf(framed).replace(CONTROL_CELL, ""), `chrome ${chrome} shares the one bar`);
+  }
 });
 
 test("a hostile title stays inert in both viewer bars and only the owner page names it", () => {
   const meta = { title: `<script>alert(1)</script>"'`, version: 3 };
-  for (const viewer of [wrapperPage("x", "/", meta, false, REFRESH), page("<p>x</p>", "/", meta)]) {
+  for (const viewer of [wrapperPage("x", "/", meta, "full", REFRESH), page("<p>x</p>", "/", meta)]) {
     assert.equal(viewer.includes("<script>alert"), false);
     assert.ok(viewer.includes("&lt;script&gt;alert(1)&lt;/script&gt;&quot;&#39;"));
     assert.ok(viewer.includes('class="vbar-version">v3<'));
   }
-  assert.equal(wrapperPage("x", undefined, undefined, false, REFRESH).includes('vbar-title"'), false);
-  assert.ok(wrapperPage("x", "/", { title: "  ", version: null }, false, REFRESH).includes("<b>Untitled artifact</b>"));
+  assert.equal(wrapperPage("x", undefined, undefined, "anonymous", REFRESH).includes('vbar-title"'), false);
+  assert.ok(
+    wrapperPage("x", "/", { title: "  ", version: null }, "full", REFRESH).includes("<b>Untitled artifact</b>"),
+  );
 });
 
 test("the owner bars carry no sandbox or document note", () => {
-  const html = wrapperPage("x", "/", OWNER_PAGE, false, REFRESH);
+  const html = wrapperPage("x", "/", OWNER_PAGE, "full", REFRESH);
   const md = page("<p>x</p>", "/", OWNER_PAGE);
   for (const viewer of [html, md]) {
     assert.equal(viewer.includes("vbar-note"), false);
@@ -203,7 +297,7 @@ test("the owner bars carry no sandbox or document note", () => {
 });
 
 test("the HTML viewer keeps the sandbox and its policy, and adds a Focus control", () => {
-  const html = wrapperPage("x", undefined, undefined, false, REFRESH);
+  const html = wrapperPage("x", undefined, undefined, "anonymous", REFRESH);
   assert.ok(html.includes(`sandbox="${SANDBOX}"`));
   assert.equal(SANDBOX, "allow-scripts");
   assert.equal(

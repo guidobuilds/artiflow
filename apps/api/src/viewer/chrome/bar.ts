@@ -1,10 +1,10 @@
-import type { ViewerMeta } from "../model.ts";
+import type { ViewerChrome, ViewerMeta } from "../model.ts";
 import { escapeAttribute, LOGO_MARK } from "./theme.ts";
 
 export type BarProps = {
+  readonly chrome: ViewerChrome;
   readonly backHref?: string | undefined;
   readonly meta?: ViewerMeta | undefined;
-  readonly embed: boolean;
   readonly control?: string | undefined;
 };
 
@@ -18,9 +18,12 @@ const titleCell = (meta: ViewerMeta | undefined): string =>
     ? ""
     : `<div class="vbar-cell vbar-title"><b>${escapeAttribute(meta.title?.trim() || "Untitled artifact")}</b>${meta.version === null ? "" : `<span class="vbar-version">v${meta.version}</span>`}</div>\n`;
 
+const controlCell = (control: string | undefined): string =>
+  control === undefined ? "" : `<div class="vbar-cell vbar-actions" data-control="actions">${control}</div>\n`;
+
 export const artifactBar = (props: BarProps): string =>
-  props.embed
+  props.chrome === "none"
     ? ""
     : `<header class="vbar">
 ${backCell(props.backHref)}<div class="vbar-cell vbar-brand">${LOGO_MARK}<span>artiflow</span></div>
-${titleCell(props.meta)}${props.control === undefined ? "" : `<div class="vbar-cell vbar-actions">${props.control}</div>\n`}</header>`;
+${titleCell(props.meta)}${controlCell(props.control)}</header>`;

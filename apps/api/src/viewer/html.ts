@@ -11,6 +11,8 @@ export {
 } from "./chrome/theme.ts";
 export {
   artifactView,
+  DOCUMENT_CSP,
+  DOCUMENT_HEADERS,
   originOf,
   SANDBOX,
   sceneCsp,

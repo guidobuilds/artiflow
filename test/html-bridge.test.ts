@@ -6,6 +6,7 @@ import vm from "node:vm";
 import {
   BRIDGE_CHANNEL,
   BRIDGE_VERSION,
+  bridgePins,
   createMessageBudget,
   cssEscape,
   cssString,
@@ -14,14 +15,18 @@ import {
   parseBridgeMessage,
   resolveElement,
   type ElementLike,
+  type ParentCommand,
   type Structure,
 } from "../packages/domain/src/html-bridge.ts";
 import { htmlBridgeScript } from "../apps/api/src/viewer/html-bridge-script.ts";
-import { bridgePins, viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
+import * as commentsData from "../apps/api/src/viewer/comments-data.ts";
+import { viewerCommentsConfig } from "../apps/api/src/viewer/comments-data.ts";
 
 const nonce = "nonce-1";
 const frame = { id: "frame" };
 const envelope = { channel: BRIDGE_CHANNEL, version: BRIDGE_VERSION, nonce };
+const protocolSource = readFileSync(new URL("../packages/domain/src/html-bridge.ts", import.meta.url), "utf8");
+type DeclaredPin = Extract<ParentCommand, { type: "pins" }>["pins"][number];
 
 const validate = (raw: unknown, overrides: Partial<{ source: unknown; nonce: string }> = {}) =>
   parseBridgeMessage(raw, { nonce: overrides.nonce ?? nonce, source: overrides.source ?? frame, frame });
@@ -88,7 +93,6 @@ const pin = {
   x: 0.5,
   y: 0.5,
   stale: false,
-  stalePixels: false,
 };
 
 test("no command sent to the frame carries comment text", () => {
@@ -131,6 +135,148 @@ test("no command sent to the frame carries comment text", () => {
 });
 
 const element = (overrides: Partial<ElementLike> & { tagName: string }): ElementLike => overrides;
+
+const rowWith = (id: string, anchor: unknown) => ({
+  id,
+  authorId: "u1",
+  authorName: "Ann",
+  authorImage: null,
+  anchor,
+  body: "a body",
+  parentId: null,
+  resolvedAt: null,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+});
+
+const elementAnchor = (selector: string) => ({
+  kind: "element",
+  selector,
+  textHint: "Hero",
+  point: { x: 0.4, y: 0.6 },
+  viewportWidth: 900,
+});
+
+const configWith = (rows: ReturnType<typeof rowWith>[]) =>
+  viewerCommentsConfig({
+    artifactId: "a1",
+    mode: "element",
+    source: "",
+    rows,
+    viewerId: "u1",
+    canComment: true,
+    canDeleteOwn: true,
+    deleteAny: false,
+    endpoints: { comments: "/c", resolve: "/c", deleteComment: "/c" },
+  });
+
+const servedPinsOf = (script: string): unknown => {
+  const raw = /let PINS = (.*);\n/.exec(script)?.[1];
+  assert.notEqual(raw, undefined, "the served frame carries its pins");
+  return JSON.parse((raw ?? "").replaceAll("\\u003c", "<"));
+};
+
+test("a thread created in-session reaches the frame with the pin a served page would carry", () => {
+  const pagePoint = { kind: "page-point", x: 0.25, y: 120, viewportWidth: 900 };
+  const served = configWith([rowWith("first", elementAnchor("#hero"))]);
+  const created = configWith([rowWith("first", elementAnchor("#hero")), rowWith("second", pagePoint)]);
+  const refetched = bridgePins(created.threads);
+
+  assert.deepEqual(
+    refetched.map((pin) => pin.id),
+    ["first", "second"],
+    "the refetch projection carries the thread created after the page was served",
+  );
+  assert.deepEqual(
+    refetched.map((pin) => pin.number),
+    [1, 2],
+    "numbered by thread order, as the served page numbers them",
+  );
+  assert.deepEqual(
+    refetched[1],
+    { id: "second", number: 2, selector: "", textHint: "", x: 0.25, y: 120, stale: true },
+    "and the new pin is the page's, with the fields the frame reads",
+  );
+  assert.deepEqual(
+    refetched,
+    servedPinsOf(htmlBridgeScript({ nonce, pins: bridgePins(created.threads) })),
+    "the message the island sends after a refetch is the pin list a page served with that thread embeds",
+  );
+  assert.equal(bridgePins(served.threads).length, 1, "the pin the page was served still stands");
+  assert.equal(
+    validate({ ...envelope, type: "pins", pins: refetched }).ok,
+    true,
+    "the projection's own pins are a valid command, field for field",
+  );
+});
+
+test("the pin command declares exactly the fields the projection emits", () => {
+  const projected = bridgePins([
+    { id: "a", anchor: { kind: "element", selector: "#hero", textHint: "Hero", point: { x: 0.1, y: 0.2 } } },
+    { id: "b", anchor: { kind: "page-point", x: 0.3, y: 40 } },
+  ]);
+  const declared: DeclaredPin[] = projected;
+  assert.deepEqual(
+    declared.map((entry) => entry.id),
+    ["a", "b"],
+    "every projection pin is a declared pin, as the assignment above compiles",
+  );
+  for (const entry of projected)
+    assert.deepEqual(
+      Object.keys(entry),
+      ["id", "number", "selector", "textHint", "x", "y", "stale"],
+      "field for field, in the order the protocol table lists them",
+    );
+  assert.equal(JSON.stringify(projected).includes("stalePixels"), false, "the wire carries no field the frame derives");
+  assert.match(
+    protocolSource,
+    /type: "pins";\s*pins: BridgePin\[\]/,
+    "the command names the projection's own type, so the two cannot disagree",
+  );
+  assert.equal(/stalePixels/.test(commentsData.bridgePins.toString()), false, "the projection derives nothing");
+  const island = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  assert.equal(/stalePixels/.test(island), false, "and the island adds nothing on the way out");
+  const body = htmlBridgeScript({ nonce, pins: projected });
+  assert.equal(
+    [...body.matchAll(/stalePixels: pin\.stale === true/g)].length,
+    1,
+    "the frame derives it from stale in exactly one place",
+  );
+  assert.match(body, /PINS = positioned\(PINS\);/, "for the pins it was served");
+  assert.match(body, /PINS = positioned\(data\.pins\);/, "and for every pins command it receives");
+});
+
+test("one pin projection serves both sides of the bridge, and neither keeps a copy", () => {
+  assert.equal(commentsData.bridgePins, bridgePins, "the api-side export is the protocol function itself, not a copy");
+  const protocol = readFileSync(new URL("../packages/domain/src/html-bridge.ts", import.meta.url), "utf8");
+  assert.equal(
+    [...protocol.matchAll(/export const bridgePins\b/g)].length,
+    1,
+    "the protocol module owns the one projection",
+  );
+  assert.equal(/^\s*import\b/m.test(protocol), false, "and it imports nothing: the domain stays dependency-free");
+  const comments = readFileSync(new URL("../apps/api/src/viewer/comments-data.ts", import.meta.url), "utf8");
+  assert.match(
+    comments,
+    /export\s*\{\s*bridgePins,\s*type BridgePin,?\s*\}\s*from\s*"@artiflow\/domain\/html-bridge";/,
+    "the api layer re-exports it instead of owning it",
+  );
+  assert.equal(/bridgePins = \(/.test(comments), false, "the api layer defines no projection of its own");
+  const prepare = readFileSync(new URL("../apps/api/src/viewer/prepare.ts", import.meta.url), "utf8");
+  assert.match(prepare, /pins: bridgePins\(config\.threads\)/, "the served page takes its pins from that one function");
+  const island = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  assert.match(
+    island,
+    /import \{[^}]*\bbridgePins\b[^}]*\} from "@artiflow\/domain\/html-bridge";/,
+    "the dashboard imports the same binding from the protocol",
+  );
+  assert.match(
+    island,
+    /const pins = \(\) => bridgePins\(config\.threads\);/,
+    "and its refetch path sends that binding's output",
+  );
+  assert.equal(/pinsOf/.test(island), false, "no local projection survives");
+  assert.equal(/flatMap/.test(island), false, "and nothing rebuilds the pin list by hand");
+});
 
 const structure = (parts: {
   id?: Record<string, ElementLike>;

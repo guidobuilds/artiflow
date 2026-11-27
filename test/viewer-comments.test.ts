@@ -180,7 +180,7 @@ test("the dev preamble reaches a page once, and a production page carries none",
       1,
       "the preamble belongs to the asset set",
     );
-    const page = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, false, refresh, {
+    const page = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, "full", refresh, {
       nonce: "n1",
       bridge: "",
       config: {},
@@ -196,7 +196,7 @@ test("the dev preamble reaches a page once, and a production page carries none",
     resetViewerCommentsAssetCache();
     const prod = viewerCommentsAssets({ ARTIFLOW_DASHBOARD_DIST: dir, NODE_ENV: "production" }, () => undefined);
     assert.equal(prod.dev, false);
-    const production = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, false, refresh, {
+    const production = wrapperPage("<p>x</p>", "/", { title: "T", version: 1 }, "full", refresh, {
       nonce: "n1",
       bridge: "",
       config: {},
@@ -282,7 +282,12 @@ test("the shared viewer loads comments for a reader but refuses writes", () => {
     /const shared = await commentDocument\(db, viewerId, artifactId, "shared"\)/,
     "the access level is read for the viewer, never for an owner",
   );
-  assert.match(prepare, /list: \(\) => listComments\(db, artifactId, true\)/);
+  assert.match(
+    prepare,
+    /list: threads \? \(\) => listComments\(db, artifactId, true\) : async \(\) => \[\]/,
+    "the threads are read for a served page and never for an embed, whose permissions do not need them",
+  );
+  assert.match(prepare, /sessionLoad\(input\.db, request\.viewerId, input\.artifact, !input\.embed\)/);
   assert.match(prepare, /canComment: loaded\.canComment/);
   assert.match(
     prepare,

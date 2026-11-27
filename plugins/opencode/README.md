@@ -154,8 +154,9 @@ server plugin identity. It is not a standalone browser or CLI extension.
   native tab. Names use non-empty write `title`, otherwise HTML `<title>` or the
   first markdown ATX heading; whitespace is collapsed and names are capped at
   80 characters. Unnamed artifacts fall back to a short ID.
-- Viewer URLs include `?embed=1`: a compatible Artiflow instance omits its back
-  link and repeated title, while retaining version and viewer controls. Normal
+- Viewer URLs include `?embed=1`: a compatible Artiflow instance omits its bar
+  entirely, so there is no back link, no repeated title, no version badge and no
+  viewer controls, and it ships no comment surface either. Normal
   browser URLs remain unchanged. Loading, errors, missing artifacts and sign-in
   guidance appear as one-line banners inside artifact tabs only.
 - Navigation is not automatically recovered. When the artifact is not being

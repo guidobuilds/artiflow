@@ -12,6 +12,7 @@ import { newRevisionStorageKey } from "../apps/api/src/adapters/storage/s3.ts";
 import { createShareViewerApp } from "../apps/api/src/routes/sharing.ts";
 
 import {
+  DOCUMENT_CSP,
   escapeAttribute,
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
@@ -125,7 +126,7 @@ test("the 404 refusal keeps the narrow policy and never references the widened c
 });
 
 test("the HTML wrapper keeps one opaque-origin frame and hands it the stored bytes unchanged", () => {
-  const page = wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 3 }, false, OWNER_REFRESH);
+  const page = wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 3 }, "full", OWNER_REFRESH);
   assert.equal((page.match(/<iframe /g) ?? []).length, 1, "exactly one frame");
   assert.ok(page.includes(`sandbox="${SANDBOX}"`));
   assert.equal(SANDBOX, "allow-scripts");
@@ -138,40 +139,45 @@ test("the HTML wrapper keeps one opaque-origin frame and hands it the stored byt
   assert.equal(/<(link|img)\b/.test(page), false, "no external asset is loaded");
 });
 
-test("the markdown wrapper keeps its scriptless sandbox and its own policy list", () => {
-  const page = markdownViewerPage(renderMarkdownFragment("# Notas"), "/", { title: "T", version: 1 }, false, {
+test("the markdown wrapper keeps its scriptless sandbox and one policy of its own", () => {
+  const rendered = markdownViewerPage(renderMarkdownFragment("# Notas"), "/", { title: "T", version: 1 }, "full", {
     plan: { kind: "reload", metaUrl: OWNER_META },
     revisionNumber: 1,
     sha256: "bbb",
   });
+  const page = rendered.html;
   assert.equal(/<iframe/.test(page), false, "the document renders in the page, so there is no second frame");
   assert.equal(/allow-scripts/.test(page), false, "and no script sandbox is granted anywhere");
   assert.equal(page.includes(THEME_BOOTSTRAP), false, "the markdown viewer ships no theme bootstrap");
   assert.equal(scriptBodies(page).length, 1, "exactly the one refresh script");
+  assert.equal(/http-equiv="content-security-policy"/i.test(page), false, "and no meta policy at all");
   assert.equal(
-    /content-security-policy" content="([^"]*)"/.exec(page)?.[1],
-    `default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; base-uri 'none'; form-action 'none'; connect-src 'self'`,
+    rendered.headers["content-security-policy"],
+    DOCUMENT_CSP,
+    "the one policy travels in the response, from the one source",
   );
 });
 
 test("the additional gate: the artifact inherits the wrapper list and stays opaque-origin", () => {
-  const html = wrapperPage(escapeAttribute("<p>x</p>"), "/", { title: "T", version: 1 }, false, OWNER_REFRESH);
-  const markdown = markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, false, {
+  const html = wrapperPage(escapeAttribute("<p>x</p>"), "/", { title: "T", version: 1 }, "full", OWNER_REFRESH);
+  const rendered = markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, "full", {
     plan: { kind: "reload", metaUrl: OWNER_META },
     revisionNumber: 1,
     sha256: "bbb",
   });
+  const markdown = rendered.html;
   assert.equal(VIEWER_CSP, VIEWER_POLICY, "the inherited list equals the viewer's list");
   assert.notEqual(VIEWER_CSP, WRAPPER_CSP, "the inherited list is the widened one: this gate exists because of that");
 
   const hostDirectives = new Set(VIEWER_POLICY.split("; ").map((directive) => directive.split(" ")[0] ?? ""));
-  const markdownMeta = /content-security-policy" content="([^"]*)"/.exec(markdown)?.[1] ?? "";
-  for (const directive of markdownMeta.split("; ")) {
+  const markdownPolicy = rendered.headers["content-security-policy"] ?? "";
+  for (const directive of markdownPolicy.split("; ")) {
     const name = directive.split(" ")[0] ?? "";
-    assert.ok(name === "img-src" || hostDirectives.has(name), `no extra directive: ${directive}`);
+    assert.ok(hostDirectives.has(name), `the document policy adds no directive of its own: ${directive}`);
   }
-  assert.equal(markdownMeta.includes("connect-src 'self'"), true);
-  assert.equal(markdownMeta.includes("unsafe-eval"), false);
+  assert.equal(markdownPolicy.includes("connect-src 'self'"), true);
+  assert.equal(markdownPolicy.includes("unsafe-eval"), false);
+  assert.equal(/http-equiv="content-security-policy"/i.test(markdown), false, "and it ships no meta policy beside it");
 
   assert.match(html, /<iframe sandbox="allow-scripts" referrerpolicy="no-referrer"/);
   assert.equal(/<iframe/.test(markdown), false, "the markdown page no longer ships a second frame");
@@ -187,16 +193,16 @@ test("the additional gate: the artifact inherits the wrapper list and stays opaq
     renderMarkdownFragment("# x\n\n<script>alert(1)</script>\n"),
     "/",
     { title: "T", version: 1 },
-    false,
+    "full",
     { plan: { kind: "reload", metaUrl: OWNER_META }, revisionNumber: 1, sha256: "bbb" },
-  );
+  ).html;
   const hostileDocument = /<main class="mdpage" id="document">([\s\S]*?)<\/main>/.exec(hostile)?.[1] ?? "";
   assert.equal(/<script/i.test(hostileDocument), false, "raw html in the source is escaped, never executed");
   assert.match(hostileDocument, /&lt;script&gt;/, "the reader sees the tag as text");
 });
 
 test("the served poller reloads instead of rebuilding the document", () => {
-  const script = refreshScriptOf(wrapperPage(escapeAttribute(BYTES), "/", undefined, false, OWNER_REFRESH));
+  const script = refreshScriptOf(wrapperPage(escapeAttribute(BYTES), "/", undefined, "full", OWNER_REFRESH));
   for (const forbidden of [
     "srcdoc",
     "DOMParser",
@@ -222,8 +228,8 @@ test("the served poller reloads instead of rebuilding the document", () => {
 
 test("a plan of none ships no poller at all", () => {
   for (const page of [
-    wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 1 }, false, NO_REFRESH),
-    markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, false, NO_REFRESH),
+    wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 1 }, "full", NO_REFRESH),
+    markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, "full", NO_REFRESH).html,
   ]) {
     assert.equal(page.includes("fetch("), false, "no plan, no request");
     assert.equal(page.includes("setInterval"), false, "no plan, no timer");
@@ -418,12 +424,12 @@ const refused: StubResponse = { ok: false, status: 500 };
 const gone: StubResponse = { ok: false, status: 404 };
 
 const ownerPage = (): string =>
-  wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 3 }, false, OWNER_REFRESH);
-const sharePage = (): string => wrapperPage(escapeAttribute(BYTES), undefined, undefined, false, SHARE_REFRESH);
+  wrapperPage(escapeAttribute(BYTES), "/", { title: "T", version: 3 }, "full", OWNER_REFRESH);
+const sharePage = (): string => wrapperPage(escapeAttribute(BYTES), undefined, undefined, "anonymous", SHARE_REFRESH);
 
 test("a newer revision reloads the page once and never touches the frame document", async () => {
   const environment = makeEnvironment({
-    selectors: [".vbar-focus", ".vbar-exit", ".vbar-version", "iframe"],
+    selectors: ['[data-control="focus"]', ".vbar-exit", ".vbar-version", "iframe"],
     respond: (url) => (url === OWNER_META ? json({ revision: { revisionNumber: 4, sha256: "def" } }) : json({})),
   });
   const frame = environment.element("iframe");
@@ -443,7 +449,7 @@ test("a newer revision reloads the page once and never touches the frame documen
 
 test("an unchanged revision touches neither the document nor the page", async () => {
   const environment = makeEnvironment({
-    selectors: [".vbar-focus", ".vbar-exit", ".vbar-version", "iframe"],
+    selectors: ['[data-control="focus"]', ".vbar-exit", ".vbar-version", "iframe"],
     respond: (url) => (url === OWNER_META ? json({ revision: { revisionNumber: 3, sha256: "aaa" } }) : refused),
   });
   const frame = environment.element("iframe");
@@ -458,7 +464,7 @@ test("an unchanged revision touches neither the document nor the page", async ()
 });
 
 test("the poller observes the shell's draft flag attribute", () => {
-  const script = refreshScriptOf(wrapperPage(escapeAttribute(BYTES), "/", undefined, false, OWNER_REFRESH));
+  const script = refreshScriptOf(wrapperPage(escapeAttribute(BYTES), "/", undefined, "full", OWNER_REFRESH));
   const flat = script.replace(/\s+/g, " ");
   assert.ok(flat.includes("observe(host, {"), "the observer watches the shell");
   assert.ok(
@@ -468,7 +474,7 @@ test("the poller observes the shell's draft flag attribute", () => {
 });
 
 test("the deferred reload is the one for the revision that was deferred", () => {
-  const script = refreshScriptOf(wrapperPage(escapeAttribute(BYTES), "/", undefined, false, OWNER_REFRESH));
+  const script = refreshScriptOf(wrapperPage(escapeAttribute(BYTES), "/", undefined, "full", OWNER_REFRESH));
   const flat = script.replace(/\s+/g, " ");
   assert.ok(
     flat.includes('const keyOf = (revision) => "revision:" + revision.revisionNumber + ":" + revision.sha256;'),
@@ -616,7 +622,7 @@ test("the public share page reloads on a change in the four-field projection", a
 });
 
 test("an embed=1 page runs the same poller without a bar to attach to", async () => {
-  const page = wrapperPage(escapeAttribute(BYTES), undefined, undefined, true, OWNER_REFRESH);
+  const page = wrapperPage(escapeAttribute(BYTES), undefined, undefined, "none", OWNER_REFRESH);
   assert.equal(page.includes("<header"), false, "embed mode renders no bar");
   const environment = makeEnvironment({
     selectors: ["iframe", "#docshell"],
@@ -631,17 +637,30 @@ test("an embed=1 page runs the same poller without a bar to attach to", async ()
   assert.doesNotThrow(() => environment.fireDocument("keydown", { key: "Escape" }));
 });
 
+test("the focus control is found by its attribute, never by a class", () => {
+  const page = ownerPage();
+  assert.match(page, /document\.querySelector\('\[data-control="focus"\]'\)/, "the script asks for the attribute");
+  assert.equal(page.includes(".vbar-focus"), false, "no script or stylesheet names a control class");
+  assert.equal(/<button[^>]*data-control="focus"/.test(page), true, "the control it finds carries that attribute");
+});
+
 test("the owner bar still handles focus and the F shortcut", () => {
-  const environment = makeEnvironment({ selectors: [".vbar-focus", ".vbar-exit", "iframe"], respond: () => refused });
+  const environment = makeEnvironment({
+    selectors: ['[data-control="focus"]', ".vbar-exit", "iframe"],
+    respond: () => refused,
+  });
   environment.run(refreshScriptOf(ownerPage()));
-  environment.element(".vbar-focus").dispatch("click");
+  environment.element('[data-control="focus"]').dispatch("click");
   assert.equal(environment.element(".vbar-exit").focused, true, "focus mode moves keyboard focus to the exit control");
   environment.element(".vbar-exit").dispatch("click");
   assert.equal(environment.element(".vbar-exit").focused, true);
 });
 
 test("the F shortcut stays native inside a form control", () => {
-  const environment = makeEnvironment({ selectors: [".vbar-focus", ".vbar-exit", "iframe"], respond: () => refused });
+  const environment = makeEnvironment({
+    selectors: ['[data-control="focus"]', ".vbar-exit", "iframe"],
+    respond: () => refused,
+  });
   environment.run(refreshScriptOf(ownerPage()));
   const input = {
     tagName: "INPUT",
@@ -654,27 +673,24 @@ test("the F shortcut stays native inside a form control", () => {
   assert.equal(environment.element(".vbar-exit").focused, true, "F outside a control still enters focus mode");
 });
 
-test("the markdown page keeps its own policy and the fragment can only add text", () => {
+test("the markdown page declares no policy of its own and the response grants same-origin images only", () => {
   assert.equal(/img-src 'self'(;|$)/.test(VIEWER_CSP), true, "the response policy grants same-origin images only");
   assert.equal(VIEWER_CSP.includes("data:"), false);
   assert.equal(VIEWER_CSP.includes("https:"), false);
 
-  const markdown = markdownViewerPage(
+  const rendered = markdownViewerPage(
     renderMarkdownFragment("![alt](https://example.com/a.png)"),
     "/",
     { title: "T", version: 1 },
-    false,
+    "full",
     { plan: { kind: "reload", metaUrl: OWNER_META }, revisionNumber: 1, sha256: "bbb" },
   );
-  const meta = /content-security-policy" content="([^"]*)"/.exec(markdown)?.[1] ?? "";
-  assert.equal(meta.includes("img-src 'self' data: https:"), true, "the page's own allowance stays on the page");
-  assert.equal(
-    meta.includes("frame-src"),
-    false,
-    "the page needs no frame source, so frames stay at default-src 'none'",
-  );
-  assert.match(markdown, /<img src="https:\/\/example\.com\/a\.png"/, "markdown images still render");
-  assert.equal(/onerror=/i.test(markdown), false, "the escaped fragment cannot attach handlers");
+  const policy = rendered.headers["content-security-policy"] ?? "";
+  assert.equal(/img-src 'self'(;|$)/.test(policy), true, "the one policy grants same-origin images only");
+  assert.equal(policy.includes("data:"), false, "and the wider meta list is gone with the meta tag");
+  assert.equal(policy.includes("https:"), false);
+  assert.match(rendered.html, /<img src="https:\/\/example\.com\/a\.png"/, "markdown images still render");
+  assert.equal(/onerror=/i.test(rendered.html), false, "the escaped fragment cannot attach handlers");
   assert.equal(renderMarkdownFragment("<img src=x onerror=alert(1)>").includes("<img"), false);
 });
 
@@ -714,7 +730,7 @@ const MARKDOWN_REFRESH: ViewerRefresh = {
   sha256: "bbb",
 };
 const markdownPage = (): string =>
-  markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, false, MARKDOWN_REFRESH);
+  markdownViewerPage(renderMarkdownFragment("# x"), "/", { title: "T", version: 1 }, "full", MARKDOWN_REFRESH).html;
 
 test("the Markdown viewer defers the reload while a comment draft holds text", async () => {
   const environment = makeEnvironment({
@@ -859,7 +875,7 @@ test("the public page records the served comments flag for its poller", async ()
 });
 
 const sharePageWith = (comments: boolean): string =>
-  wrapperPage(escapeAttribute(BYTES), undefined, undefined, false, {
+  wrapperPage(escapeAttribute(BYTES), undefined, undefined, "anonymous", {
     plan: { kind: "reload", metaUrl: SHARE_META },
     revisionNumber: 2,
     sha256: "bbb",

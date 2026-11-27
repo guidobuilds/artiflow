@@ -80,7 +80,7 @@ test("bootstrap reads the stored side, matching index.html precedence", () => {
 });
 
 test("wrapperPage ships the theme bootstrap before its stylesheet", () => {
-  const page = wrapperPage("<p>hi</p>", "/", { title: "x", version: 1 }, false, REFRESH);
+  const page = wrapperPage("<p>hi</p>", "/", { title: "x", version: 1 }, "full", REFRESH);
   const bootstrap = page.indexOf(THEME_BOOTSTRAP);
   const style = page.indexOf("<style>");
   assert.ok(bootstrap >= 0, "bootstrap script missing");
@@ -90,7 +90,7 @@ test("wrapperPage ships the theme bootstrap before its stylesheet", () => {
 test("the 404 and the markdown viewer keep the OS-following theme policy", () => {
   assert.ok(!NOT_FOUND_PAGE.includes("<script"), "the 404 ships no script by policy");
   assert.ok(NOT_FOUND_PAGE.includes(VIEWER_TOKENS));
-  const markdown = markdownViewerPage("<h1>x</h1>", undefined, undefined, false, REFRESH);
+  const markdown = markdownViewerPage("<h1>x</h1>", undefined, undefined, "anonymous", REFRESH).html;
   assert.ok(markdown.includes(VIEWER_TOKENS));
   assert.equal(
     markdown.includes("color-scheme:dark light;--doc-bg:#1c1c1c"),
