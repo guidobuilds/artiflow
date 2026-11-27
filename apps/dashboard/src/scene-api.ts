@@ -117,6 +117,20 @@ export type SceneRect = { x: number; y: number; w: number; h: number };
 
 const finite = (value: number): boolean => Number.isFinite(value);
 
+export function selectionBounds(frame: SceneFrame, ids: readonly string[]): SceneRect | null {
+  const chosen = frame.nodes.filter((node) => ids.includes(node.id));
+  if (chosen.length === 0) return null;
+  const left = Math.min(...chosen.map((node) => node.x));
+  const top = Math.min(...chosen.map((node) => node.y));
+  const right = Math.max(...chosen.map((node) => node.x + node.w));
+  const bottom = Math.max(...chosen.map((node) => node.y + node.h));
+  return { x: left, y: top, w: right - left, h: bottom - top };
+}
+
+export function insideBounds(bounds: SceneRect, point: { x: number; y: number }): boolean {
+  return point.x >= bounds.x && point.x <= bounds.x + bounds.w && point.y >= bounds.y && point.y <= bounds.y + bounds.h;
+}
+
 export function selectNodesInRect(frame: SceneFrame, rect: SceneRect): string[] {
   if (!finite(rect.x) || !finite(rect.y) || !finite(rect.w) || !finite(rect.h)) return [];
   const left = Math.min(rect.x, rect.x + rect.w);

@@ -9,6 +9,7 @@ import {
   bringToFront,
   fitScale,
   getScene,
+  insideBounds,
   layerRows,
   moveFrame,
   moveNode,
@@ -21,6 +22,7 @@ import {
   resizeNode,
   saveScene,
   selectNodesInRect,
+  selectionBounds,
   sendToBack,
   surfaceLayout,
   textNode,
@@ -534,6 +536,55 @@ test("a selection rectangle takes every node of the active frame that it touches
   assert.equal(active.nodes.length, 2, "the frame it reads is left untouched");
 });
 
+test("the selection bounds cover every listed node of one frame and nothing else", () => {
+  const frame = scene().frames[0]!;
+  const before = structuredClone(frame);
+
+  assert.deepEqual(
+    selectionBounds(frame, ["rect-1", "text-1"]),
+    { x: 40, y: 40, w: 300, h: 220 },
+    "two nodes give the rectangle that encloses both of them",
+  );
+  const three = addNode(scene(), "frame-1", rectNode("rect-3", 400, 420));
+  assert.deepEqual(
+    selectionBounds(three.frames[0]!, ["rect-1", "text-1", "rect-3"]),
+    { x: 40, y: 40, w: 560, h: 500 },
+    "a third node widens the rectangle to reach it",
+  );
+  assert.deepEqual(
+    selectionBounds(frame, ["rect-1"]),
+    { x: 40, y: 40, w: 200, h: 120 },
+    "one node bounds the node itself",
+  );
+  assert.deepEqual(
+    selectionBounds(frame, ["rect-1", "text-2"]),
+    { x: 40, y: 40, w: 200, h: 120 },
+    "an id that lives in another frame contributes nothing",
+  );
+  assert.deepEqual(
+    selectionBounds(frame, ["rect-1", "text-1"]),
+    selectionBounds(frame, ["text-1", "rect-1"]),
+    "the order the ids are listed in does not matter",
+  );
+  assert.equal(selectionBounds(frame, ["missing"]), null, "unknown ids have no rectangle");
+  assert.equal(selectionBounds(frame, []), null, "an empty selection has no rectangle");
+  assert.deepEqual(frame, before, "measuring the selection leaves the frame it read untouched");
+});
+
+test("a point on the edge of the bounds counts as inside and one step past it does not", () => {
+  const bounds = { x: 10, y: 20, w: 100, h: 50 };
+  assert.equal(insideBounds(bounds, { x: 50, y: 40 }), true, "a point in the middle is inside");
+  assert.equal(insideBounds(bounds, { x: 10, y: 20 }), true, "the top left corner is inside");
+  assert.equal(insideBounds(bounds, { x: 110, y: 70 }), true, "the bottom right corner is inside");
+  assert.equal(insideBounds(bounds, { x: 10, y: 70 }), true, "the bottom left corner is inside");
+  assert.equal(insideBounds(bounds, { x: 110, y: 20 }), true, "the top right corner is inside");
+  assert.equal(insideBounds(bounds, { x: 9, y: 40 }), false, "one step to the left is outside");
+  assert.equal(insideBounds(bounds, { x: 111, y: 40 }), false, "one step to the right is outside");
+  assert.equal(insideBounds(bounds, { x: 50, y: 19 }), false, "one step above is outside");
+  assert.equal(insideBounds(bounds, { x: 50, y: 71 }), false, "one step below is outside");
+  assert.deepEqual(bounds, { x: 10, y: 20, w: 100, h: 50 }, "testing a point leaves the bounds it read untouched");
+});
+
 test("moving a selection keeps one delta for the whole group and stops it at the frame edge", () => {
   const moved = moveNodes(scene(), ["rect-1", "text-1"], 30, 20);
   assert.deepEqual(
@@ -926,6 +977,9 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /selectNodesInRect\(frame/);
   assert.match(page, /MARQUEE_THRESHOLD/);
   assert.match(page, /moveNodes\(/);
+  assert.match(page, /selectionBounds\(/);
+  assert.match(page, /insideBounds\(/);
+  assert.match(page, /const startGroupDrag =/);
   assert.match(page, /bringToFront\(/);
   assert.match(page, /sendToBack\(/);
   assert.match(page, /aria-label="Bring selection to front"/);
@@ -1022,6 +1076,92 @@ test("a press on a frame drags the frame through one materialising write and one
 
   const frameNode = /onPointerDown=\{\(event\) => startFrameDrag\(event, entry\)\}/.exec(page)?.[0];
   assert.ok(frameNode, "the frame div is the element that owns the frame gesture");
+});
+
+test("a press inside a multi-selection drags the whole group instead of the frame around it", () => {
+  const page = source("../apps/dashboard/src/CanvasEditorPage.tsx");
+
+  const startGroupDrag = between(page, "const startGroupDrag =", "\n  const startFrameDrag =");
+  assert.match(
+    startGroupDrag,
+    /if \(entry\.id !== frame\?\.id \|\| selected\.length < 2\) return false;/,
+    "only a multi-selection of the active frame can start a group drag",
+  );
+  assert.match(
+    startGroupDrag,
+    /selectionBounds\(entry, selected\)/,
+    "the rectangle is the bounds of the selected nodes of that frame",
+  );
+  assert.match(startGroupDrag, /insideBounds\(bounds, point\)/, "the press has to land inside that rectangle");
+  assert.match(startGroupDrag, /mode: "group"/, "the press reuses the node group drag");
+  assert.match(startGroupDrag, /ids: selected/, "every selected node is carried by the group drag");
+  assert.match(
+    startGroupDrag,
+    /snapshot: session\.current\?\.state\.scene \?\? scene/,
+    "a group drag snapshots the scene it starts from",
+  );
+  assert.doesNotMatch(
+    startGroupDrag,
+    /showFrame\(|setSelected\(\[\]\)/,
+    "a press inside the bounds keeps the selection instead of clearing it",
+  );
+
+  const startFrameDrag = /const startFrameDrag =[\s\S]*?const onFrameDragMove/.exec(page)?.[0];
+  assert.ok(startFrameDrag, "the frame gesture still starts in one press handler");
+  assert.match(
+    startFrameDrag,
+    /if \(startGroupDrag\(event, entry\)\) \{[\s\S]*?setPointerCapture\(event\.pointerId\);[\s\S]*?return;[\s\S]*?\}/,
+    "a frame press that lands inside the bounds captures the pointer for the group and ends there",
+  );
+  assert.equal(
+    startFrameDrag.indexOf("startGroupDrag(event, entry)") < startFrameDrag.indexOf("showFrame(entry.id)"),
+    true,
+    "the group gesture is decided before a frame press clears the selection",
+  );
+
+  const frameMove = /const onFramePointerMove =[\s\S]*?const onFramePointerUp/.exec(page)?.[0];
+  assert.ok(frameMove, "the frame move handler routes between the group and the frame gesture");
+  assert.match(
+    frameMove,
+    /if \(drag\.current !== null\) \{[\s\S]*?onPointerMove\(event\);\s*return;/,
+    "a live group drag keeps the node drag path",
+  );
+  assert.match(frameMove, /onFrameDragMove\(event\);/, "without a group drag the frame path still runs");
+  const frameUp = /const onFramePointerUp =[\s\S]*?const onFramePointerCancel/.exec(page)?.[0];
+  assert.ok(frameUp, "the frame release handler routes between the group and the frame gesture");
+  assert.match(
+    frameUp,
+    /if \(drag\.current !== null\) \{[\s\S]*?endDrag\(event\);\s*return;/,
+    "a group drag ends on the node path",
+  );
+  assert.match(frameUp, /endFrameDrag\(event\);/, "without a group drag the frame release still runs");
+  assert.match(page, /onPointerMove=\{onFramePointerMove\}/, "the frame div moves through the router");
+  assert.match(page, /onPointerUp=\{onFramePointerUp\}/, "the frame div releases through the router");
+
+  const onPointerMove = between(page, "const onPointerMove =", "\n  const endDrag =");
+  const groupBranch = /if \(current\.mode === "group"\) \{[\s\S]*?\n    \}/.exec(onPointerMove)?.[0];
+  assert.ok(groupBranch, "a group drag keeps its own branch in the move handler");
+  assert.match(groupBranch, /if \(!nodeDragged\.current\) return;/, "a press under the threshold writes nothing");
+  assert.match(groupBranch, /update\(moveNodes\(/, "every group move writes through the one update funnel");
+  assert.equal(
+    groupBranch.indexOf("if (!nodeDragged.current) return;") < groupBranch.indexOf("update(moveNodes("),
+    true,
+    "the threshold is decided before the first write",
+  );
+
+  const startDrag = /const startDrag =[\s\S]*?const onPointerMove/.exec(page)?.[0];
+  assert.ok(startDrag, "the node gesture is still one press handler");
+  assert.match(
+    startDrag,
+    /const group = mode === "move" && isSelected\(node\.id\) && selected\.length > 1;/,
+    "a press on an already selected node still drags the group",
+  );
+  assert.match(startDrag, /event\.stopPropagation\(\);/, "a node press never reaches the frame handler");
+  assert.match(
+    page,
+    /onPointerDown=\{\(event\) => startDrag\(event, node, "move"\)\}/,
+    "the node div still owns the node gesture",
+  );
 });
 
 test("the canvas wheel pans the view by default and zooms only with ctrl or cmd", () => {

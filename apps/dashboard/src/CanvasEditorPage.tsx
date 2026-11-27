@@ -21,6 +21,7 @@ import {
   bringToFront,
   fitScale,
   getScene,
+  insideBounds,
   layerRows,
   moveFrame,
   moveNode,
@@ -31,6 +32,7 @@ import {
   resizeNode,
   saveScene,
   selectNodesInRect,
+  selectionBounds,
   sendToBack,
   surfaceLayout,
   updateTextNode,
@@ -272,6 +274,15 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     selected.length === 1 ? (frame?.nodes.find((node) => node.id === selected[0]) ?? null) : null;
   const busy = state.status === "saving" || state.status === "restoring";
   const isSelected = (id: string) => selected.includes(id);
+  const framePoint = (clientX: number, clientY: number, frameId: string): Point => {
+    const bounds = stage.current?.getBoundingClientRect();
+    const unit = scale === 0 ? 1 : scale;
+    const at = placementOf(frameId);
+    return {
+      x: (clientX - (bounds?.left ?? 0) - view.x) / unit - at.x,
+      y: (clientY - (bounds?.top ?? 0) - view.y) / unit - at.y,
+    };
+  };
 
   const zoomAt = useCallback(
     (screenX: number, screenY: number, factor: number) => {
@@ -514,6 +525,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     const dy = (event.clientY - current.startY) / unit;
     nodeDragged.current = nodeDragged.current || Math.abs(dx) >= DRAG_THRESHOLD || Math.abs(dy) >= DRAG_THRESHOLD;
     if (current.mode === "group") {
+      if (!nodeDragged.current) return;
       update(moveNodes(current.snapshot, current.ids, dx, dy));
       return;
     }
@@ -691,10 +703,32 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
   };
+  const startGroupDrag = (event: ReactPointerEvent<HTMLDivElement>, entry: SceneFrame): boolean => {
+    if (entry.id !== frame?.id || selected.length < 2) return false;
+    const bounds = selectionBounds(entry, selected);
+    const point = framePoint(event.clientX, event.clientY, entry.id);
+    if (bounds === null || !insideBounds(bounds, point)) return false;
+    endTextEdit();
+    nodeDragged.current = false;
+    drag.current = {
+      nodeId: selected[0] ?? "",
+      ids: selected,
+      mode: "group",
+      startX: event.clientX,
+      startY: event.clientY,
+      snapshot: session.current?.state.scene ?? scene,
+      origin: bounds,
+    };
+    return true;
+  };
   const startFrameDrag = (event: ReactPointerEvent<HTMLDivElement>, entry: SceneFrame) => {
     if (readOnly || event.button !== 0 || spaceHeld.current) return;
     event.stopPropagation();
     frameDragged.current = false;
+    if (startGroupDrag(event, entry)) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
     showFrame(entry.id);
     frameDrag.current = {
       frameId: entry.id,
@@ -735,6 +769,30 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     frameDragged.current = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const onFramePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current !== null) {
+      onPointerMove(event);
+      return;
+    }
+    onFrameDragMove(event);
+  };
+  const onFramePointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current !== null) {
+      endDrag(event);
+      return;
+    }
+    endFrameDrag(event);
+  };
+  const onFramePointerCancel = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (drag.current !== null) {
+      drag.current = null;
+      nodeDragged.current = false;
+      if (event.currentTarget.hasPointerCapture(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
+    cancelFrameDrag(event);
   };
 
   const reload = async () => {
@@ -898,9 +956,9 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                       data-frame-id={entry.id}
                       style={{ left: at.x, top: at.y, width: entry.w, height: entry.h }}
                       onPointerDown={(event) => startFrameDrag(event, entry)}
-                      onPointerMove={onFrameDragMove}
-                      onPointerUp={endFrameDrag}
-                      onPointerCancel={cancelFrameDrag}
+                      onPointerMove={onFramePointerMove}
+                      onPointerUp={onFramePointerUp}
+                      onPointerCancel={onFramePointerCancel}
                     >
                       {entry.nodes.map((node) => (
                         <div
