@@ -46,7 +46,9 @@ let baseUrl = "",
   databaseName = "",
   doc = "",
   html = "",
-  other = "";
+  other = "",
+  docRevision = "",
+  htmlRevision = "";
 let owner: User, reader: User, editor: User, commenter: User, stranger: User;
 const usedKeys = new Set<string>();
 const request = async (path: string, user?: User, method = "GET", body?: unknown, headers = MUTATION) => {
@@ -77,6 +79,15 @@ const revisionKeyOf = async (revisionId: string): Promise<string> => {
   const storageKey = row.rows[0]?.storageKey;
   assert.ok(typeof storageKey === "string", "the revision row names its own storage key");
   return storageKey;
+};
+const currentRevisionOf = async (artifactId: string): Promise<string> => {
+  const row = await pool.query<{ currentRevisionId: string | null }>(
+    `select "currentRevisionId" from "artifacts" where "id" = $1`,
+    [artifactId],
+  );
+  const revisionId = row.rows[0]?.currentRevisionId;
+  assert.ok(typeof revisionId === "string" && revisionId !== "", "the seeded artifact holds a current revision");
+  return revisionId;
 };
 const seedUser = async (label: string): Promise<User> => {
   const user = await trustedSession(
@@ -120,7 +131,7 @@ const seed = async (text: string, kind?: "markdown") => {
 };
 const path = () => `/api/artifacts/${doc}/comments`;
 const anchor = { kind: "text-range", startLine: 1, startCol: 3, endLine: 1, endCol: 8, quotedText: "Hello" };
-const payload = { anchor, body: "A comment" };
+const payload = { anchor, body: "A comment", expectedRevisionId: "" };
 const list = async () => (await request(path(), owner)).json;
 const create = async (user: User, body: unknown = payload) => {
   const result = await request(path(), user, "POST", body);
@@ -172,6 +183,9 @@ before(async () => {
   doc = await seed("# Hello\n\n| a | b |\n| c | d |\n", "markdown");
   other = await seed("# Other\n", "markdown");
   html = await seed("<p>Comments html test</p>");
+  docRevision = await currentRevisionOf(doc);
+  htmlRevision = await currentRevisionOf(html);
+  payload.expectedRevisionId = docRevision;
   for (const [user, role] of [
     [reader, "reader"],
     [editor, "editor"],
@@ -221,14 +235,18 @@ test(
     assert.ok((await list()).comments!.length > 0, "a reader still sees the threads");
     assert.equal((await request(path(), stranger)).status, 404);
     assert.equal((await request(path())).status, 401);
-    assert.deepEqual(await request(`/api/artifacts/${html}/comments`, owner, "POST", payload), {
-      status: 400,
-      json: { error: "unsupported_anchor_kind" },
-    });
+    assert.deepEqual(
+      await request(`/api/artifacts/${html}/comments`, owner, "POST", { ...payload, expectedRevisionId: htmlRevision }),
+      {
+        status: 400,
+        json: { error: "unsupported_anchor_kind" },
+      },
+    );
     const htmlAnchor = { kind: "page-point", x: 0.5, y: 240, viewportWidth: 900 };
     const htmlComment = await request(`/api/artifacts/${html}/comments`, owner, "POST", {
       anchor: htmlAnchor,
       body: "HTML note",
+      expectedRevisionId: htmlRevision,
     });
     assert.equal(htmlComment.status, 201, JSON.stringify(htmlComment));
     const htmlThreads = await request(`/api/artifacts/${html}/comments`, owner);
@@ -242,8 +260,13 @@ test(
       viewportWidth: 900,
     };
     assert.equal(
-      (await request(`/api/artifacts/${html}/comments`, owner, "POST", { anchor: elementAnchor, body: "Element note" }))
-        .status,
+      (
+        await request(`/api/artifacts/${html}/comments`, owner, "POST", {
+          anchor: elementAnchor,
+          body: "Element note",
+          expectedRevisionId: htmlRevision,
+        })
+      ).status,
       201,
     );
   },
@@ -351,7 +374,28 @@ test(
     await create(owner, {
       anchor: { kind: "text-range", startLine: 3, startCol: 1, endLine: 4, endCol: 1, quotedText: "| a | b |\n" },
       body: "x".repeat(4000),
+      expectedRevisionId: docRevision,
     });
+  },
+);
+
+test(
+  "a root names the revision it was written against: a stale one conflicts and writes nothing",
+  { skip: SKIP },
+  async () => {
+    const before = await list();
+    const document = await request(`/api/artifacts/${doc}/document`, owner);
+    assert.deepEqual(
+      await request(path(), owner, "POST", { ...payload, expectedRevisionId: randomUUID() }),
+      { status: 409, json: { error: "revision_conflict" } },
+      "a well-formed revision that is not the current one is a conflict, not a write",
+    );
+    assert.deepEqual(await list(), before, "a conflicted root adds no thread");
+    assert.deepEqual(
+      await request(`/api/artifacts/${doc}/document`, owner),
+      document,
+      "and the document revision is untouched",
+    );
   },
 );
 

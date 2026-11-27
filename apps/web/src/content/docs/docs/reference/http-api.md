@@ -332,11 +332,16 @@ author is an entity: `{ id, name, image }`, never an email of another participan
 ```
 
 `POST /artifacts/{artifactId}/comments` accepts
-`{"anchor":{"kind":"text-range","startLine":3,"startCol":1,"endLine":3,"endCol":9,"quotedText":"Step one."},"body":"…"}`
-for a root, and `{"body":"…","parentId":"…"}` for a reply, answering `201 {"id":"…"}`. `parentId` may
-only name a root comment: replying to a reply is `400 nested_reply`. `text-range` quotes are verified
-against the current revision; `element` and `page-point` anchors are validated for shape only and
-evaluated in the client, so they never report staleness from the server.
+`{"anchor":{"kind":"text-range","startLine":3,"startCol":1,"endLine":3,"endCol":9,"quotedText":"Step one."},"body":"…","expectedRevisionId":"8c2d4a10-9e3f-4b6a-8f1d-2c3b4a596877"}`
+for a root, and `{"body":"…","parentId":"…"}` for a reply, answering `201 {"id":"…"}`.
+
+A root must name the revision it was written against: the `revisionId` the viewer page it was written
+from was served with, or the one the editor was last saved against. The value has to be the current
+revision at insert time, so a comment written against a page that has since been republished is
+refused instead of being anchored to text the writer never saw. Replies carry no revision of their own.
+`parentId` may only name a root comment: replying to a reply is `400 nested_reply`. `text-range` quotes
+are verified against the current revision; `element` and `page-point` anchors are validated for shape
+only and evaluated in the client, so they never report staleness from the server.
 
 | Status | Code                                          | Cause                                                                  |
 | ------ | --------------------------------------------- | ---------------------------------------------------------------------- |
@@ -344,14 +349,17 @@ evaluated in the client, so they never report staleness from the server.
 | `400`  | `invalid_anchor`, `anchor_mismatch`           | The anchor is malformed, selects no text, or its quote is not the text |
 | `400`  | `unsupported_anchor_kind`                     | The anchor kind does not belong to the artifact's kind                 |
 | `400`  | `root_requires_anchor`, `reply_has_no_anchor` | A root omitted its anchor, or a reply sent one                         |
+| `400`  | `expected_revision_required`                  | A root omitted `expectedRevisionId` or sent a blank one                |
 | `400`  | `nested_reply`                                | `parentId` names a reply                                               |
 | `403`  | `forbidden`                                   | The caller cannot comment on this artifact                             |
 | `404`  | `comment_not_found`                           | `parentId` is not a comment on this artifact                           |
 | `409`  | `no_current_revision`                         | Nothing to anchor against                                              |
+| `409`  | `revision_conflict`                           | `expectedRevisionId` is not the current revision; nothing is inserted  |
 | `413`  | `too_large`                                   | `body` over 4000 characters or `quotedText` over 2000                  |
 
 Readers keep read access: they list threads but get `403 forbidden` on every write. A comment root
-stores the revision that was current when the thread was created, and resolving records who did it.
+stores the revision it named, which had to be the current one at insert time, and resolving records who
+did it.
 
 `POST /artifacts/{artifactId}/comments/{commentId}/resolve` and `…/unresolve` answer `200 {"id":"…"}`;
 only a root comment can be resolved (`400 root_required` otherwise). `DELETE

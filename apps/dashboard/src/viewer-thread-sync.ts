@@ -17,6 +17,32 @@ export const reconcileActive = (activeId: string | null, threads: { id: string }
 export const viewportAnchor = (docY: number, scrollY: number, frameTop: number, marginTop: number): number =>
   Math.round(docY - scrollY + (frameTop - marginTop));
 
+export const DRAFT_FLAG_SELECTOR = "[data-comment-draft='typed'], [data-comment-input='typed']";
+
+export const CONFLICT_MESSAGE =
+  "This artifact changed since this page loaded. Reload to comment on the revision you can see.";
+
+export type DraftFlagSource = { querySelector: (selector: string) => unknown };
+
+export type DraftFlagTarget = { dataset: Record<string, string | undefined> };
+
+export const draftFlagOf = (source: DraftFlagSource): "typed" | null =>
+  source.querySelector(DRAFT_FLAG_SELECTOR) === null ? null : "typed";
+
+export function publishDraftFlag(source: DraftFlagSource, target: DraftFlagTarget): "typed" | null {
+  const flag = draftFlagOf(source);
+  if (flag === null) delete target.dataset.commentDraft;
+  else target.dataset.commentDraft = flag;
+  return flag;
+}
+
+export const REVISION_STALE_ATTRIBUTE = "revisionStale";
+
+export const republishedSince = (target: DraftFlagTarget): boolean => {
+  const value = target.dataset[REVISION_STALE_ATTRIBUTE];
+  return value !== undefined && value !== "";
+};
+
 export const createSequenceGuard = (): { next: () => number; isCurrent: (token: number) => boolean } => {
   let latest = 0;
   return {

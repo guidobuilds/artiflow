@@ -13,7 +13,7 @@ import { markdownViewerPage } from "../apps/api/src/viewer/markdown.ts";
 
 const tokensCss = readFileSync(new URL("../apps/dashboard/src/styles/tokens.css", import.meta.url), "utf8");
 
-const REFRESH = { metaUrl: "/api/artifacts/1111", revisionNumber: 1, sha256: "bbb" };
+const REFRESH = { plan: { kind: "reload" as const, metaUrl: "/api/artifacts/1111" }, revisionNumber: 1, sha256: "bbb" };
 
 const USED = [
   "bg",

@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { NOT_FOUND_PAGE, SANDBOX, WRAPPER_CSP, wrapperPage } from "../apps/api/src/viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
 
-const REFRESH = { metaUrl: "/api/artifacts/1111", revisionNumber: 4, sha256: "bbb" };
+const REFRESH = { plan: { kind: "reload" as const, metaUrl: "/api/artifacts/1111" }, revisionNumber: 4, sha256: "bbb" };
 const OWNER_PAGE = { title: "T", version: 1 };
 const page = (fragment = "<p>x</p>", backHref?: string, meta?: { title: string | null; version: number | null }) =>
   markdownViewerPage(fragment, backHref, meta, false, REFRESH);

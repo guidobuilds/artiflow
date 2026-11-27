@@ -109,12 +109,17 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
 
 export type ViewerMeta = { title: string | null; version: number | null };
 
+export type RefreshPlan = { kind: "reload"; metaUrl: string } | { kind: "none" };
+
 export type ViewerRefresh = {
-  metaUrl: string;
-  srcdocUrl?: string;
+  plan: RefreshPlan;
   revisionNumber: number;
   sha256: string;
+  comments?: boolean;
 };
+
+export const refreshPlan = (metaUrl: string): RefreshPlan =>
+  metaUrl === "" ? { kind: "none" } : { kind: "reload", metaUrl };
 
 const escapeJsonText = (json: string): string =>
   json.replace(/[<>&\u2028\u2029]/g, (char) => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
@@ -134,19 +139,31 @@ export function viewerBarStart(backHref?: string, meta?: ViewerMeta, embed = fal
 }
 
 export function viewerRefreshScript(refresh: ViewerRefresh): string {
-  const config = `{metaUrl:${scriptValue(refresh.metaUrl)},srcdocUrl:${
-    refresh.srcdocUrl === undefined ? "null" : scriptValue(refresh.srcdocUrl)
-  },revisionNumber:${scriptValue(refresh.revisionNumber)},sha256:${scriptValue(refresh.sha256)}}`;
+  if (refresh.plan.kind === "none") return "";
+  const config = `{metaUrl:${scriptValue(refresh.plan.metaUrl)},revisionNumber:${scriptValue(
+    refresh.revisionNumber,
+  )},sha256:${scriptValue(refresh.sha256)}${refresh.comments === undefined ? "" : `,comments:${refresh.comments}`}}`;
   return `const refresh = ${config};
 const INTERVAL_MS = 8000;
 let seen = { revisionNumber: refresh.revisionNumber, sha256: refresh.sha256 };
 let inFlight = false;
 let timer = null;
+let reloadedFor = null;
+let deferred = false;
 
-const isChanged = (revision) =>
-  revision !== null &&
-  typeof revision === "object" &&
-  (revision.revisionNumber !== seen.revisionNumber || revision.sha256 !== seen.sha256);
+const shell = () => document.getElementById("docshell");
+
+const draftTyped = () => {
+  const host = shell();
+  if (host === null || host.dataset === undefined || host.dataset === null) return false;
+  return host.dataset.commentDraft === "typed";
+};
+
+const markStale = (revision) => {
+  const host = shell();
+  if (host === null || host.dataset === undefined || host.dataset === null) return;
+  host.dataset.revisionStale = String(revision.revisionNumber);
+};
 
 const bumpBadge = (revision) => {
   const badge = document.querySelector(".vbar-version");
@@ -154,62 +171,53 @@ const bumpBadge = (revision) => {
   badge.textContent = "v" + revision.revisionNumber;
 };
 
-const bestEffortFrameScrollY = (frame) => {
-  try {
-    return frame.contentWindow ? Number(frame.contentWindow.scrollY) || 0 : 0;
-  } catch (error) {
-    return 0;
+const stopPolling = () => {
+  if (timer !== null) {
+    clearInterval(timer);
+    timer = null;
   }
 };
 
-const bestEffortRestoreScroll = (frame, offset) => {
-  if (offset === 0) return;
-  try {
-    frame.contentWindow.scrollTo(0, offset);
-  } catch (error) {}
-};
+const keyOf = (revision) => "revision:" + revision.revisionNumber + ":" + revision.sha256;
 
-const srcdocFromGatedPage = (html) => {
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  const fresh = parsed.querySelector("iframe");
-  const bytes = fresh === null ? null : fresh.getAttribute("srcdoc");
-  if (typeof bytes !== "string" || bytes.length === 0) return null;
-  return bytes;
-};
-
-const swapDocument = async (frame) => {
-  const response = await fetch(refresh.srcdocUrl, {
-    credentials: "same-origin",
-    cache: "no-store",
-    headers: { accept: "text/html" },
-  });
-  if (!response.ok) return false;
-  const bytes = srcdocFromGatedPage(await response.text());
-  if (bytes === null) return false;
-  const offset = bestEffortFrameScrollY(frame);
-  frame.addEventListener("load", () => bestEffortRestoreScroll(frame, offset), { once: true });
-  frame.setAttribute("srcdoc", bytes);
-  return true;
-};
-
-const reloadKeepingPlace = () => {
-  if (document.querySelector("[data-comment-draft='typed'], [data-comment-input='typed']") !== null) return;
+const reloadOnce = (key) => {
+  if (reloadedFor === key) return;
+  reloadedFor = key;
+  stopPolling();
   try {
     history.scrollRestoration = "auto";
   } catch (error) {}
   location.reload();
 };
 
-const applyRevision = async (revision) => {
-  if (refresh.srcdocUrl === null) {
-    reloadKeepingPlace();
-    return;
-  }
-  const frame = document.querySelector("iframe");
-  if (frame === null) return;
-  if (!(await swapDocument(frame))) return;
+const revisionOf = (body) =>
+  body !== null && typeof body === "object" && body.revision ? body.revision : body;
+
+const isRevision = (revision) =>
+  revision !== null &&
+  typeof revision === "object" &&
+  typeof revision.revisionNumber === "number" &&
+  Number.isFinite(revision.revisionNumber) &&
+  typeof revision.sha256 === "string";
+
+const isChanged = (revision) =>
+  revision.revisionNumber !== seen.revisionNumber || revision.sha256 !== seen.sha256;
+
+const commentsHidden = (body) => body !== null && typeof body === "object" && body.comments === false;
+
+const observe = (revision) => {
   seen = { revisionNumber: revision.revisionNumber, sha256: revision.sha256 };
   bumpBadge(revision);
+  if (draftTyped()) {
+    deferred = true;
+    markStale(revision);
+    return;
+  }
+  reloadOnce(keyOf(revision));
+};
+
+const releaseDeferred = () => {
+  if (deferred && !draftTyped()) reloadOnce(keyOf(seen));
 };
 
 const poll = async () => {
@@ -221,33 +229,47 @@ const poll = async () => {
       cache: "no-store",
       headers: { accept: "application/json" },
     });
+    if (response.status === 404) {
+      reloadOnce("gone");
+      return;
+    }
     if (!response.ok) return;
     const body = await response.json();
-    const revision = body !== null && typeof body === "object" && body.revision ? body.revision : body;
-    if (isChanged(revision)) await applyRevision(revision);
+    if (refresh.comments === true && commentsHidden(body)) {
+      reloadOnce("comments:off");
+      return;
+    }
+    const revision = revisionOf(body);
+    if (isRevision(revision) && isChanged(revision)) observe(revision);
   } catch (error) {
   } finally {
     inFlight = false;
   }
 };
 
+const host = shell();
+if (host !== null && typeof MutationObserver === "function") {
+  new MutationObserver(releaseDeferred).observe(host, {
+    attributes: true,
+    attributeFilter: ["data-comment-draft"],
+  });
+}
+
 const startPolling = () => {
   if (timer === null) timer = setInterval(poll, INTERVAL_MS);
 };
-const stopPolling = () => {
-  if (timer !== null) {
-    clearInterval(timer);
-    timer = null;
-  }
+const resume = () => {
+  startPolling();
+  poll();
 };
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopPolling();
     return;
   }
-  startPolling();
-  poll();
+  resume();
 });
+window.addEventListener("pageshow", resume);
 if (!document.hidden) startPolling();`;
 }
 

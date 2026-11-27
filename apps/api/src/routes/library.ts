@@ -27,6 +27,7 @@ import {
   NOT_FOUND_HEADERS,
   NOT_FOUND_PAGE,
   originOf,
+  refreshPlan,
   sceneHeaders,
   VIEWER_HEADERS,
   wrapperPage,
@@ -199,6 +200,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     sha256: string,
     ownerId: string,
     source: string | null,
+    revisionId: string,
     publishedScene?: () => Promise<Scene | null>,
   ) => {
     const degraded = await loadViewerComments({
@@ -213,6 +215,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     return viewerCommentsConfig({
       artifactId,
       ...(source === null ? { mode: "element" as const, bridgeNonce: bridgeNonce(artifactId, sha256) } : {}),
+      ...(revisionId === "" ? {} : { revisionId }),
       source: source ?? "",
       rows: degraded.rows,
       viewerId: ownerId,
@@ -248,12 +251,16 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       maxBytes,
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    const refresh = { metaUrl: `/api/artifacts/${row.id}`, revisionNumber: row.revisionNumber, sha256: row.sha256 };
+    const refresh = {
+      plan: refreshPlan(`/api/artifacts/${row.id}`),
+      revisionNumber: row.revisionNumber,
+      sha256: row.sha256,
+    };
     if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const comments = {
-        config: await ownerCommentsConfig(row.id, row.sha256, ownerId, decoded.text),
+        config: await ownerCommentsConfig(row.id, row.sha256, ownerId, decoded.text, row.revisionId ?? ""),
         assets: viewerCommentsAssets(),
       };
       return c.html(
@@ -278,38 +285,36 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         origin === null
           ? undefined
           : { origin, artifactId: row.id, digests: await sceneAssetDigests(db, row.id, scene.value) };
-      const config = await ownerCommentsConfig(row.id, row.sha256, ownerId, null, async () => scene.value);
-      const srcdocUrl =
-        frame === undefined ? `/artifact/${row.id}` : `/artifact/${row.id}?frame=${encodeURIComponent(frame)}`;
+      const config = await ownerCommentsConfig(
+        row.id,
+        row.sha256,
+        ownerId,
+        null,
+        row.revisionId ?? "",
+        async () => scene.value,
+      );
       return c.html(
         wrapperPage(
           escapeAttribute(renderSceneDocument(scene.value, frame, images, config.threads, row.kind)),
           embed ? undefined : "/",
           { title: row.title, version: row.revisionNumber },
           embed,
-          { ...refresh, srcdocUrl },
+          refresh,
         ),
         200,
         sceneHeaders(origin),
       );
     }
     const escaped = escapeAttribute(new TextDecoder().decode(read.value.bytes));
-    const htmlConfig = await ownerCommentsConfig(row.id, row.sha256, ownerId, null);
+    const htmlConfig = await ownerCommentsConfig(row.id, row.sha256, ownerId, null, row.revisionId ?? "");
     const nonce = bridgeNonce(row.id, row.sha256);
     return c.html(
-      wrapperPage(
-        escaped,
-        embed ? undefined : "/",
-        { title: row.title, version: row.revisionNumber },
-        embed,
-        { ...refresh, srcdocUrl: `/artifact/${row.id}` },
-        {
-          nonce,
-          bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
-          config: htmlConfig,
-          assets: viewerCommentsAssets(),
-        },
-      ),
+      wrapperPage(escaped, embed ? undefined : "/", { title: row.title, version: row.revisionNumber }, embed, refresh, {
+        nonce,
+        bridge: htmlBridgeScript({ nonce, pins: bridgePins(htmlConfig.threads) }),
+        config: htmlConfig,
+        assets: viewerCommentsAssets(),
+      }),
       200,
       VIEWER_HEADERS,
     );
@@ -362,6 +367,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       gate.sha256,
       gate.ownerId,
       source,
+      gate.artifact.revisionId ?? "",
       acceptsSceneAnchors(gate.artifact.kind) ? publishedSceneOf(gate.storageKey, gate.sha256) : undefined,
     );
     c.header("cache-control", "no-store");

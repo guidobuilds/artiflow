@@ -306,7 +306,11 @@ const anchorOf = (overrides: Record<string, unknown> = {}) => ({ ...ANCHOR, ...o
 test("a board-point anchor names its node and reads back unchanged", async () => {
   const world = canvasWorld();
   const app = commentsApp(world, commentWorld("canvas", CANVAS_ID, world.store.revision));
-  const created = await call(app, CANVAS_ID, "POST", { anchor: ANCHOR, body: "A pin on the live node" });
+  const created = await call(app, CANVAS_ID, "POST", {
+    anchor: ANCHOR,
+    body: "A pin on the live node",
+    expectedRevisionId: world.store.revision.id,
+  });
   assert.equal(created.status, 201, await created.text());
   const body = await listed(app, CANVAS_ID);
   assert.equal(body.canComment, true);
@@ -370,7 +374,11 @@ test("the anchor resolves against the draft, not the published snapshot", async 
     ],
   });
   assert.equal(added.ok, true, "the node is added through the scene service");
-  const created = await call(app, CANVAS_ID, "POST", { anchor: anchorOf({ nodeId: ADDED }), body: "Draft node" });
+  const created = await call(app, CANVAS_ID, "POST", {
+    anchor: anchorOf({ nodeId: ADDED }),
+    body: "Draft node",
+    expectedRevisionId: world.store.revision.id,
+  });
   assert.equal(created.status, 201, "a node the draft holds is a valid target");
   const body = await listed(app, CANVAS_ID);
   assert.equal(body.comments[0]?.orphaned, false);
@@ -380,7 +388,11 @@ test("a node an operation removed leaves its thread orphaned, not hidden", async
   const world = canvasWorld();
   const state = commentWorld("canvas", CANVAS_ID, world.store.revision);
   const app = commentsApp(world, state);
-  const created = await call(app, CANVAS_ID, "POST", { anchor: ANCHOR, body: "A pin" });
+  const created = await call(app, CANVAS_ID, "POST", {
+    anchor: ANCHOR,
+    body: "A pin",
+    expectedRevisionId: world.store.revision.id,
+  });
   assert.equal(created.status, 201, await created.text());
   assert.equal((await listed(app, CANVAS_ID)).comments[0]?.orphaned, false, "the live node is not orphaned");
   const removed = await applyOperations({
@@ -485,7 +497,11 @@ test("html element anchors and markdown text ranges keep their existing payloads
     endCol: 22,
     quotedText: "anchored sentence",
   };
-  const created = await call(markdownApp, MARKDOWN_ID, "POST", { anchor: range, body: "Quoted" });
+  const created = await call(markdownApp, MARKDOWN_ID, "POST", {
+    anchor: range,
+    body: "Quoted",
+    expectedRevisionId: markdown.revision.id,
+  });
   assert.equal(created.status, 201, await created.text());
   const mismatched = await call(markdownApp, MARKDOWN_ID, "POST", {
     anchor: { ...range, quotedText: "something else" },

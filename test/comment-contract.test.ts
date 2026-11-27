@@ -73,6 +73,7 @@ const scene: Scene = {
 const anchorIssues = (value: unknown): string[] => (commentAnchorSchema.safeParse(value).success ? [] : ["rejected"]);
 const createIssues = (value: unknown): string[] =>
   createCommentRequestSchema.safeParse(value).error?.issues.map((issue) => String(issue.message)) ?? [];
+const revisionId = "55555555-5555-4555-8555-555555555555";
 
 test("every anchor kind parses a well-formed instance", () => {
   for (const anchor of [textRange, element, pagePoint, boardPoint, slidePoint])
@@ -125,12 +126,27 @@ test("malformed positional anchors are rejected", () => {
   assert.deepEqual(anchorIssues({ kind: "unknown" }), ["rejected"]);
 });
 
-test("create requests require an anchor on roots and refuse anchors on replies", () => {
-  assert.deepEqual(createIssues({ anchor: textRange, body: "b" }), []);
-  assert.deepEqual(createIssues({ anchor: element, body: "b" }), []);
-  assert.deepEqual(createIssues({ body: "b" }), ["root_requires_anchor"]);
-  assert.deepEqual(createIssues({ anchor: textRange, body: "b", parentId: "p" }), ["reply_has_no_anchor"]);
-  assert.deepEqual(createIssues({ body: "b", parentId: "p" }), []);
+test("create requests require an anchor and the revision on roots and refuse anchors on replies", () => {
+  assert.deepEqual(createIssues({ anchor: textRange, body: "b", expectedRevisionId: revisionId }), []);
+  assert.deepEqual(createIssues({ anchor: element, body: "b", expectedRevisionId: revisionId }), []);
+  assert.deepEqual(createIssues({ body: "b", expectedRevisionId: revisionId }), ["root_requires_anchor"]);
+  assert.deepEqual(createIssues({ anchor: textRange, body: "b" }), ["expected_revision_required"]);
+  for (const blank of ["", "   ", "\t\n"]) {
+    assert.equal(
+      createCommentRequestSchema.safeParse({ anchor: textRange, body: "b", expectedRevisionId: blank }).success,
+      false,
+      `${JSON.stringify(blank)} names no revision`,
+    );
+  }
+  assert.deepEqual(createIssues({ anchor: textRange, body: "b", expectedRevisionId: revisionId, parentId: "p" }), [
+    "reply_has_no_anchor",
+  ]);
+  assert.deepEqual(createIssues({ body: "b", parentId: "p" }), [], "a reply names no revision and still validates");
+  assert.deepEqual(
+    createIssues({ body: "b", parentId: "p", expectedRevisionId: revisionId }),
+    [],
+    "a reply that carries one is not refused: replies are unaffected",
+  );
 });
 
 test("the registry maps document kinds to accepted anchor kinds", () => {

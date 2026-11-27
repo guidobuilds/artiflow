@@ -127,6 +127,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         anchor?: unknown;
         body?: unknown;
         parentId?: string | null;
+        expectedRevisionId?: unknown;
       } | null;
       if (typeof body?.body !== "string" || !body.body.trim()) return c.json({ error: "body_required" }, 400);
       if (Array.from(body.body).length > MAX_COMMENT_BODY) return c.json({ error: "too_large" }, 413);
@@ -174,6 +175,11 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         const scene = await currentScene(doc.id);
         if (scene === null) return c.json({ error: "artifact_unavailable" }, 500);
         if (sceneAnchorRefusal(scene, anchor) !== null) return c.json({ error: "unknown_node" }, 400);
+      }
+      if (parentId === null) {
+        const expectedRevisionId = typeof body.expectedRevisionId === "string" ? body.expectedRevisionId.trim() : "";
+        if (expectedRevisionId === "") return c.json({ error: "expected_revision_required" }, 400);
+        if (expectedRevisionId !== revision.id) return c.json({ error: "revision_conflict" }, 409);
       }
       const inserted = await insertComment(client, {
         artifactId: doc.id,

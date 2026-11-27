@@ -12,6 +12,12 @@ import {
 import type { TextRangeAnchor } from "@artiflow/domain/comment-anchors";
 import { Autosave } from "../apps/dashboard/src/editor-autosave.ts";
 import { toolbarGroups, blockTypes } from "../apps/dashboard/src/editor-markdown.ts";
+import {
+  CONFLICT_MESSAGE,
+  DRAFT_FLAG_SELECTOR,
+  publishDraftFlag,
+  republishedSince,
+} from "../apps/dashboard/src/viewer-thread-sync.ts";
 
 test("every editor chrome, selection and comment action uses the shared noninteractive tooltip", () => {
   const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -184,6 +190,71 @@ test("anchor positions recompute on resize, scroll, content and font load", () =
   assert.match(page, /\[measureAnchors, comments, state\.text, commentsVisible, showResolved\]/);
 });
 
+test("the viewer island advertises a typed draft on the shell the poller reads", () => {
+  assert.equal(
+    DRAFT_FLAG_SELECTOR,
+    "[data-comment-draft='typed'], [data-comment-input='typed']",
+    "both draft surfaces the margin already renders are watched",
+  );
+  const target = { dataset: {} as Record<string, string | undefined> };
+  publishDraftFlag({ querySelector: () => null }, target);
+  assert.equal(target.dataset.commentDraft, undefined, "no draft, no flag");
+  publishDraftFlag({ querySelector: () => ({}) }, target);
+  assert.equal(target.dataset.commentDraft, "typed", "a typed draft is advertised where the poller looks");
+  publishDraftFlag({ querySelector: () => null }, target);
+  assert.equal(
+    "commentDraft" in target.dataset,
+    false,
+    "ending the draft removes the flag instead of leaving a stale one",
+  );
+
+  const viewer = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  assert.equal([...viewer.matchAll(/watchDrafts\(host, shell, /g)].length, 2, "both mounts advertise the state");
+  assert.match(viewer, /publishDraftFlag\(host, shell\)/, "the flag is published on the shell, not on a draft node");
+  const block = viewer.slice(viewer.indexOf("const watchDrafts"), viewer.indexOf("const fetchThreads"));
+  assert.match(block, /new MutationObserver\(publish\)/, "a draft opened inside the React tree is observed");
+  assert.match(block, /childList: true/, "opening a draft is a childList mutation");
+  assert.match(block, /subtree: true/, "the draft panel is nested under the host");
+  assert.match(block, /observe\(host, \{/, "the observed node is the comments host");
+  assert.match(block, /attributeFilter: \["data-comment-draft", "data-comment-input"\]/);
+  assert.ok(block.includes("publish();"), "the state is published on mount, not only on mutation");
+  assert.ok(
+    block.indexOf("publish();") < block.indexOf("new MutationObserver"),
+    "and that first publish happens before anything is observed",
+  );
+  assert.match(
+    block,
+    /new MutationObserver\(onShell\)\.observe\(shell, \{/,
+    "the shell is observed too, or the island never learns the poller marked the draft",
+  );
+  assert.match(block, /attributeFilter: \["data-revision-stale"\]/);
+});
+
+test("the draft panel says the artifact was republished while the draft was open", () => {
+  const margin = readFileSync(
+    new URL("../apps/dashboard/src/components/comments/comment-thread-margin.tsx", import.meta.url),
+    "utf8",
+  );
+  const viewer = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  assert.equal(republishedSince({ dataset: {} }), false, "a page that was never republished says nothing");
+  assert.equal(republishedSince({ dataset: { revisionStale: "4" } }), true, "the poller's mark is what is read");
+  assert.match(margin, /republished\?: boolean/, "the margin takes it as an optional prop");
+  assert.match(margin, /republished while your draft was open/, "and says what happened");
+  assert.match(margin, /role="status"/, "the line is announced, not just painted");
+  assert.equal([...margin.matchAll(/republished=\{republished\}/g)].length, 2, "both draft panels receive it");
+  assert.match(viewer, /republishedSince\(shell\)/, "the island reads the mark the poller writes");
+  assert.equal(
+    [...viewer.matchAll(/draftFlagOf\(host\) === null \? false : republishedSince\(shell\)/g)].length,
+    2,
+    "both mounts refuse the line unless a typed draft is open",
+  );
+  assert.equal(
+    [...viewer.matchAll(/republished=\{state\.republished\}/g)].length,
+    2,
+    "and both mounts hand it to the margin, not just one",
+  );
+});
+
 const anchor: TextRangeAnchor = {
   kind: "text-range",
   startLine: 1,
@@ -244,7 +315,10 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
   };
   try {
     assert.equal((await listComments("doc")).ok, true);
-    assert.equal((await createComment("doc", { anchor, body: "Thought" })).ok, true);
+    assert.equal(
+      (await createComment("doc", { anchor, body: "Thought", expectedRevisionId: "revision-one" })).ok,
+      true,
+    );
     assert.equal((await resolveComment("doc", "comment", true)).ok, true);
     assert.equal((await resolveComment("doc", "comment", false)).ok, true);
     assert.equal((await deleteComment("doc", "comment")).ok, true);
@@ -263,8 +337,13 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
       assert.equal(init.credentials, "same-origin");
       assert.ok(init.body);
     }
+    assert.deepEqual(
+      JSON.parse(String(calls[1]?.init.body)),
+      { anchor, body: "Thought", expectedRevisionId: "revision-one" },
+      "a root comment names the revision the editor was saved against, on the same body as its anchor",
+    );
     forbidden = true;
-    const result = await createComment("doc", { anchor, body: "Thought" });
+    const result = await createComment("doc", { anchor, body: "Thought", expectedRevisionId: "revision-one" });
     assert.ok(!result.ok);
     assert.equal(result.code, "forbidden");
     assert.deepEqual(
@@ -276,4 +355,44 @@ test("comment requests use only comments endpoints and JSON; forbidden remains a
     controller.dispose();
     globalThis.fetch = original;
   }
+});
+
+test("the island names the revision its page was served and words a conflict the reader can act on", () => {
+  const viewer = readFileSync(new URL("../apps/dashboard/src/viewer-comments.tsx", import.meta.url), "utf8");
+  const submit = viewer.slice(viewer.indexOf("onSubmitDraft"), viewer.indexOf("onCancelDraft"));
+  assert.match(submit, /expectedRevisionId: config\.revisionId/, "a root comment names the served revision");
+  assert.doesNotMatch(submit, /parentId/, "a reply carries the anchor's thread and no revision");
+  assert.match(viewer, /revisionId\?: string/, "the island reads it from the page config");
+
+  const save = viewer.slice(viewer.indexOf("const postJson"), viewer.indexOf("const deleteRequest"));
+  assert.match(
+    save,
+    /if \(response\.status === 409\) throw new Error\(CONFLICT_MESSAGE\);/,
+    "the server's conflict answer is not reported as a number",
+  );
+  assert.ok(
+    save.indexOf("CONFLICT_MESSAGE") < save.indexOf("Could not save the comment"),
+    "the conflict is explained before the generic status message",
+  );
+  assert.doesNotMatch(CONFLICT_MESSAGE, /\d{3}/, "no raw status reaches the reader");
+  assert.match(CONFLICT_MESSAGE, /reload/i, "the reader is told what to do");
+});
+
+test("the editor submits the revision it was saved against and explains a conflict instead of retrying blind", () => {
+  const editor = readFileSync(
+    new URL("../apps/dashboard/src/components/comments/markdown-comments.tsx", import.meta.url),
+    "utf8",
+  );
+  const submit = editor.slice(editor.indexOf("const submitDraft"), editor.indexOf("return ("));
+  assert.match(submit, /expectedRevisionId: revisionId/, "the root comment names the revision the editor holds");
+  assert.doesNotMatch(
+    editor.slice(editor.indexOf("onReply:"), editor.indexOf("onDelete:")),
+    /expectedRevisionId/,
+    "a reply still names no revision",
+  );
+  assert.match(
+    editor,
+    /code === "revision_conflict" \|\| code === "expected_revision_required"\s*\?\s*CONFLICT_MESSAGE/,
+    "a conflict is explained rather than answered with the generic retry line",
+  );
 });

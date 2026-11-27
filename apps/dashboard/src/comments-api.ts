@@ -14,7 +14,8 @@ export type CommentEntry = {
 };
 export type CommentThread = CommentEntry & { anchor: CommentAnchor; replies: CommentEntry[] };
 export type CommentList = { canComment: boolean; comments: CommentThread[] };
-export type NewComment = { anchor: TextRangeAnchor; body: string } | { body: string; parentId: string };
+export type NewComment =
+  { anchor: TextRangeAnchor; body: string; expectedRevisionId: string } | { body: string; parentId: string };
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const positive = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 1;

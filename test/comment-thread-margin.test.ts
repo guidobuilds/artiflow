@@ -116,7 +116,7 @@ test("narrow screens hide the pills and open the dock content in a bottom sheet"
   assert.match(styles, /\.comment-thread-dock-sheet button \{[\s\S]*min-height: 44px;/);
   assert.match(component.replace(/\s+/g, " "), /role="dialog" aria-modal="true"/);
   assert.match(component, /<ThreadPanel\s+sheet/);
-  assert.match(component, /<DraftPanel sheet/);
+  assert.match(component, /<DraftPanel\s+sheet/);
   assert.match(component, /Open threads/);
   assert.match(component, /Previous thread/);
   assert.match(component, /Next thread/);
