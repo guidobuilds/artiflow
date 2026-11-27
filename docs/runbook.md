@@ -17,8 +17,8 @@ documents.
 - **Humans manage access** at `/library`: list, share, publish links, edit
   markdown, comment and delete. The dashboard never accepts content.
 - **Private by default.** Metadata lives in PostgreSQL, bytes in a private
-  S3-compatible bucket. Viewers escape bytes into the `srcdoc` of an iframe with
-  `sandbox="allow-scripts"` and `default-src 'none'` (the served page adds
+  S3-compatible bucket. Viewers escape HTML bytes into the `srcdoc` of an iframe
+  with `sandbox="allow-scripts"` and `default-src 'none'` (the served page adds
   `connect-src 'self'` for its own metadata poll; the artifact frame inherits it
   but stays an opaque origin, so it sends no cookies); HTML never executes on the
   application origin.
@@ -169,8 +169,9 @@ required `expectedRevisionId` (`concurrent_edit` when stale,
 
 ### MCP comments
 
-All five tools require canonical lowercase UUIDs and refuse HTML with
-`wrong_kind`:
+The five tools require canonical lowercase UUIDs. A new root carries the anchor, and the anchor kind is
+gated per artifact kind — Markdown takes `text-range`, HTML `element` and `page-point`, a canvas
+`board-point` — so an anchor the document kind does not accept refuses with `unsupported_anchor_kind`:
 
 - `artifact_list_comments` (read) returns roots with nested `replies`, anchors,
   quotes, bodies and resolved timestamps.
@@ -188,8 +189,8 @@ comments refuse with `comment_not_found`.
 
 Cookie routes under `/api/artifacts/:id` for browser editing. The owner and shared
 editors (`role = 'editor'`) can write; any grant can read. Mutations need the
-exact `Origin` and a JSON body, and every write appends a revision through the
-same CAS.
+exact `Origin` and a JSON body, and every content write appends a revision through
+the same CAS.
 
 | Route                            | Purpose                                                                                                                                                                                                 |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -197,6 +198,15 @@ same CAS.
 | `PUT .../document`               | Autosave `{ text, expectedSeq }` (legacy `expectedRevisionId` still accepted); stale → `409 concurrent_edit`, a pending draft without a sequence → `409 sequence_required`, oversize → `413 too_large`. |
 | `GET .../revisions`              | History, newest first (max 200).                                                                                                                                                                        |
 | `POST .../revisions/:id/restore` | Applies the pinned revision's bytes as a `replace_document` operation and publishes it (`restoredFrom`).                                                                                                |
+| `PATCH .../metadata`             | Rename with `{ title }`: `400 title_required`, `400 title_too_long` above 200 characters, `413 too_large` above 64 KiB, `404 not_found` for a foreign, deleted or unknown id.                           |
+
+`PATCH .../metadata` is the one write here that appends no revision: it changes the
+title and its timestamp only, so the current pointer, links and comment threads
+keep working. It takes a session cookie and nothing else — the route has no bearer
+path — and it is mounted only when the API knows its public origin, because it
+runs the same `Origin` + JSON guard as every cookie mutation. `404 not_found` is
+deliberate for a foreign or deleted artifact: the answer cannot tell a caller
+that an id exists elsewhere.
 
 ### Staging garbage collection
 

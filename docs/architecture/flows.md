@@ -150,7 +150,7 @@ sequenceDiagram
     A->>S3: GetObject → stream, cap, re-hash
     alt markdown
       A->>A: decode UTF-8, markdown-it (html:false)
-      A-->>B: document page (sandbox="")
+      A-->>B: document page (server-rendered, no frame)
     else html
       A->>A: escape & < > " ' into srcdoc
       A-->>B: wrapper page (sandbox="allow-scripts", CSP default-src none)
@@ -162,8 +162,8 @@ The same wrapper and CSP are used by the public link path
 (`GET /share/:token`), which resolves `sha256(token)` against a live link and a
 live artifact. A miss is always the same 404 page.
 
-Modules: `library.ts`, `sharing.ts`, `viewer-html.ts`, `viewer-markdown.ts`,
-`artifacts/s3.ts`.
+Modules: `library.ts`, `sharing.ts`, `viewer/prepare.ts`,
+`viewer/views/{html,markdown,scene}.ts`, `artifacts/s3.ts`.
 
 ## 6. Share by email and public links
 
@@ -186,7 +186,7 @@ Modules: `library.ts`, `sharing.ts`, `viewer-html.ts`, `viewer-markdown.ts`,
    predecessor in one transaction, preserving the chain.
 4. The public viewer is session-free and adds `x-robots-tag: noindex`.
 
-Modules: `sharing.ts`, `viewer-html.ts`.
+Modules: `sharing.ts`, `viewer/prepare.ts`, `viewer/views/{html,markdown,scene}.ts`.
 
 ## 7. Markdown editing (browser)
 
@@ -271,9 +271,10 @@ to `{ id, name, image }`. A canvas or a deck mounts no margin: it shows its thre
 frame on the owner page, a public scene link ships no pin and no comment surface at all, and the
 endpoint refuses a scene link with the same `404 not_found` it answers for a token that names nothing,
 so the answer never tells a reader what kind the token serves. For those kinds the
-option also decides whether the public page mounts it: `?meta=1` publishes the effective
-flag as `comments`, it is false for canvas and deck whatever the link says, and a page served with it
-off ships no comment host, config or bundle. The public poller reads
+option also decides whether the public page mounts it: the same URL with `?meta=1` answers
+JSON instead of the page, carrying `kind`, `revisionNumber`, `sha256`, `sizeBytes` and
+`comments`, the effective flag. That flag is false for canvas and deck whatever the link says,
+and a page served with it off ships no comment host, config or bundle. The public poller reads
 that flag on every tick, so turning the option off reloads an open page once — the margin, its data
 island and its bundle are server-emitted, and the viewer contract rebuilds the document by reload
 only.

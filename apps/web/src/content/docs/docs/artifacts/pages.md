@@ -19,14 +19,15 @@ The viewer is rendered by Artiflow and puts your bytes into an iframe:
 - The response carries this policy:
 
 ```text
-default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'
+default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self'
 ```
 
-The last directive belongs to the viewer page, not to your document: the page polls the artifact's own
-metadata so it can notice a new revision and swap the document in place. Your document inherits the same
-list, but it cannot read an authenticated answer: in an opaque origin a same-origin call matches nothing
-under CSP3 `'self'`, and an authenticated response is unreadable from there in any case. It reaches no
-parent page, no storage and no other origin.
+The policy above is the viewer page's own, and your document inherits it through `srcdoc`.
+`connect-src 'self'` belongs to the page, not to your document: it is there so the page can poll the
+artifact's own metadata and notice a new revision. Your document cannot read an authenticated answer
+even with it — in an opaque origin a same-origin call matches nothing under CSP3 `'self'`, and an
+authenticated response is unreadable from there in any case. It reaches no parent page, no storage and
+no other origin.
 
 ## Allowed and blocked
 
@@ -55,7 +56,8 @@ The bar above the page shows the title and the version, and offers **Focus**, wh
 whole window; the `F` key toggles it and `Esc` leaves it. The version badge increments with every new
 revision, so a reader can tell that the page changed.
 
-The public link renders the same page in the same sandbox without the bar and without a back link.
+The public link renders the same page in the same sandbox, behind a bar that carries only the brand and
+**Focus** — no title, no version and no back link.
 
 ## Updating a page
 
@@ -75,3 +77,11 @@ naming the artifact and the revision you are replacing:
 or write. `expectedRevisionId` is optional there, but sending it is what turns a blind overwrite into a
 conflict you can see. [Edit and revise](/docs/guides/editing/) covers the same rule from the editor
 side.
+
+An open page notices a new revision within about eight seconds, and then reloads: the markup, the
+comment config and the bundles are emitted by the server, so there is no document to swap in place. A
+`404` from the same poll means the link was revoked or the artifact deleted, and the reload lands on
+the not-found page. A network failure changes nothing and the next poll tries again. While a comment
+draft is typed and unsent the reload waits: the version badge already shows the new number, the draft
+panel says the artifact was republished, and the page reloads as soon as the draft is posted or
+discarded.

@@ -240,7 +240,8 @@ The invariant list is below.
 Artifact bytes never execute on the application origin. HTML is escaped with
 `& < > " '`, placed in `srcdoc` on a trusted page, and framed with
 `sandbox="allow-scripts"` and `default-src 'none'`. Markdown is rendered with
-`html:false` and framed with `sandbox=""`. The served page adds one directive,
+`html:false` and served directly in the page instead of a frame, which is what lets
+comment anchors be measured precisely. The served page adds one directive,
 `connect-src 'self'`, for its own freshness poll: the artifact frame inherits that list but keeps its
 opaque origin, so its requests carry no cookies and it cannot reach the parent page.
 
@@ -255,7 +256,7 @@ opaque origin, so its requests carry no cookies and it cannot reach the parent p
 | Database              | PostgreSQL 16 + Drizzle ORM 0.45 / drizzle-kit 0.31 + `pg`                                            |
 | Storage               | `@aws-sdk/client-s3` 3.1169 (any private S3-compatible bucket)                                        |
 | Web                   | React 19.3, Vite 8, Tailwind 4.3, Radix UI, TipTap 3.34, markdown-it 15                               |
-| Server-rendered pages | Hand-built HTML/CSS in TypeScript (`viewer-html.ts`, `viewer-markdown.ts`)                            |
+| Server-rendered pages | Hand-built HTML/CSS in TypeScript (`apps/api/src/viewer/`)                                            |
 | Deployment            | Docker Compose; Bun 1.3.10 image for the API; Caddy 2 image                                           |
 | Tests                 | Node built-in test runner (`node --test`), real HTTP/PostgreSQL/S3 integration suites                 |
 

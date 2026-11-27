@@ -284,6 +284,37 @@ JSON
 undoable for the same reason, and an old revision id that is not this artifact's answers
 `404 revision_not_found`.
 
+### Rename (dashboard route)
+
+Renaming is not one of the `/api/v1` paths above. The dashboard calls
+`PATCH /api/artifacts/{artifactId}/metadata` with `{"title":"…"}`, authenticated by the session cookie
+and nothing else: the route has no bearer path. Like every cookie mutation it needs the exact `Origin`
+and a JSON content type, checked before the session; it is mounted only when the process knows its
+public origin, which is what the guard compares against.
+
+```json
+{
+  "artifactId": "3f0f0b1e-2b6b-4a5e-9b7b-6a1c2d3e4f50",
+  "title": "Runbook 2026",
+  "currentRevisionId": "8c2d4a10-9e3f-4b6a-8f1d-2c3b4a596877",
+  "revisionCount": 4
+}
+```
+
+| Status | Code                         | Cause                                                |
+| ------ | ---------------------------- | ---------------------------------------------------- |
+| `400`  | `title_required`             | `title` is missing, not a string, or only whitespace |
+| `400`  | `title_too_long`             | More than 200 characters                             |
+| `403`  | `origin_not_allowed`         | `Origin` is not the instance origin                  |
+| `404`  | `not_found`                  | Unknown, foreign or already deleted artifact         |
+| `413`  | `too_large`                  | The body exceeds 64 KB                               |
+| `415`  | `json_content_type_required` | The content type is not JSON                         |
+
+Only the title and its timestamp change, so no revision is created and the answer reports the pointer
+and count it did not touch: public links and comment threads keep working through a rename. `404`
+covers "not yours" and "deleted" as well as "unknown" on purpose, so the answer never confirms that an
+id exists on another account.
+
 ## Comments
 
 A comment is a generic entity whose anchor is discriminated by `kind`. Markdown accepts
@@ -448,6 +479,25 @@ unverifiable token gets the `401` challenge envelope above, and a verified token
 `artifacts:read` answers `401 {"error":"insufficient_scope"}` with a `WWW-Authenticate: Bearer
 error="insufficient_scope", scope="artifacts:read"` header. A request with no header falls back to the
 dashboard session, and with no session answers `401 {"error":"unauthorized"}`.
+
+`/share/{token}?meta=1` answers that link's metadata as JSON instead of the page:
+
+```json
+{
+  "revisionNumber": 4,
+  "sha256": "5d2c…a710",
+  "sizeBytes": 3481,
+  "kind": "html",
+  "comments": true
+}
+```
+
+The five keys are `kind`, `revisionNumber`, `sha256`, `sizeBytes` and `comments`. `comments` is the
+effective flag — the link's own option combined with the kind — so a `canvas` or `deck` link reports
+`false` whatever the option says. An unknown or revoked token, an artifact without a current revision
+and any `meta` value other than `1` are the same `404` page the page itself answers. The response is
+`no-store` and `noindex`, and the public viewer polls it to notice a new revision or a link that
+stopped resolving.
 
 ## Error model
 

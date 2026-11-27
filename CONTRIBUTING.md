@@ -104,7 +104,7 @@ commands below. The `integration` job starts the Compose stack, migrates, and ru
 ```sh
 bun run test        # test suite; no services required
 bun run typecheck   # API TypeScript project + the dashboard workspace project
-bun run build       # Vite production build + API type check
+bun run build       # check:docs, check:boundaries, check:comments, check:effects, Vite build, API type check
 bun run web:verify  # docs site: astro check, build, link and reference parity
 ```
 
@@ -117,10 +117,11 @@ declared fallback when Bun is missing. The script logs the chosen runtime and
 
 The test suite still runs on `node --test` (`bun run test`). `bun test` is not
 adopted: on Bun 1.3.10 the `node:test` shim ignores the `{ skip }` test option, so
-the 80 environment-gated tests execute and fail, `t.mock.timers` raises
+the environment-gated tests execute and fail, `t.mock.timers` raises
 `NotImplementedError`, and `node:module` does not export
-`stripTypeScriptTypes`. The suite is green on Node (334 pass / 0 fail / 80 skip),
-so the runner stays there; migrate it only when Bun closes those three gaps.
+`stripTypeScriptTypes`. The suite is green on Node (1520 pass / 0 fail / 87 skip
+with no database or bucket configured), so the runner stays there; migrate it only
+when Bun closes those three gaps.
 
 The workflow installs the workspace (including the plugin) once via
 `bun install --frozen-lockfile` before typechecking: the API project includes the
@@ -133,6 +134,8 @@ repository-wide reformat.
 
 ```sh
 bun run check:changed  # prettier --check + oxlint on files changed vs origin/main
+bun run check:docs     # scripts/check-docs.mjs: artifact-kind and MCP-tool claims, relative links
+bun run check:boundaries # declared import edges between apps and packages
 bun run check:hygiene  # no tracked file matches .gitignore
 bun run check:comments # scripts/check-comments.mjs
 bun run check:effects  # scripts/check-effect-fetches.mjs

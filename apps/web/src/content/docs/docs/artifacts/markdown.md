@@ -11,20 +11,24 @@ possible.
 
 ## Rendering rules
 
-- Artiflow renders the document on the server and shows it formatted, inside the same sandboxed frame
-  the HTML viewer uses.
-- The frame has `sandbox=""`: a document ships no scripts, and the viewer would refuse them anyway.
+- Artiflow renders the document on the server and serves the formatted result directly in the viewer
+  page, not inside an iframe: the page has to measure selections to place comment anchors.
+- There is therefore no `sandbox` attribute around it, and none is needed: `html: false` is what keeps a
+  document inert, so the source cannot ship a script, an event handler or an image tag written as raw
+  HTML.
 - Raw HTML in the source is escaped and appears as text. Markdown cannot be used to inject markup.
 - Bare URLs are linkified; `javascript:`, `vbscript:` and `file:` targets are refused.
 - Standard blocks render: headings, paragraphs, lists, tables, fenced code, blockquotes, rules and
   links.
-- The response policy is `default-src 'none'` plus inline styles and one `connect-src 'self'` for the
-  viewer page's own metadata poll. It grants no image source, and the document frame inherits it — a
-  second policy, such as the page's own `img-src data: https:`, can only narrow that list, never widen it.
-  A markdown document therefore loads no image at all, neither remote nor `data:`; remote fonts are blocked
-  the same way. Text, tables and code travel well; images do not.
+- The response policy is `default-src 'none'` with `img-src 'self'`, inline and same-origin scripts
+  and styles, and one `connect-src 'self'` for the viewer page's own metadata poll. Because the document
+  is part of that page rather than a frame of its own, a same-origin image loads; a remote or `data:`
+  image does not, and remote fonts are blocked the same way. Text, tables and code travel well; remote
+  images do not.
 
-The public link renders the same document read-only: no editor, no comments, no bar.
+The public link renders the same document read-only: no editor, a bar with the brand and **Focus** only
+(no title, no version, no back link), and the document's comment threads only while the owner's **Show
+comments** option is on.
 
 ## Source stays the source of truth
 
@@ -45,7 +49,8 @@ guessing. One call produces one revision.
 
 Markdown documents accept anchored comments. A selection is quoted and bound to its line and column
 range, replies stay one level deep under their root, threads can be resolved and unresolved, and
-comments never create a revision. Comment bodies are capped at 4000 characters and quoted selections at 2000. HTML pages do not accept comments.
+comments never create a revision. Comment bodies are capped at 4000 characters and quoted selections at 2000. HTML pages accept comments too: an anchor there names an element or a point in the page, and the
+bridge injected into the page's frame keeps the pin on it.
 
 ## Revisions
 
