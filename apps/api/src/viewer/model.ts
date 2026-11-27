@@ -36,7 +36,7 @@ export type ViewerActions = {
   readonly deleteAny: boolean;
 };
 
-export type ViewerManagement = { readonly share: boolean; readonly delete: boolean };
+export type ViewerManagement = { readonly share: boolean; readonly delete: boolean; readonly rename: boolean };
 
 export type ViewerManagementConfig = {
   readonly id: string;

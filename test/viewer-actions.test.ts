@@ -9,6 +9,7 @@ import { assetsScripts, resetViewerCommentsAssetCache, viewerActionsAssets } fro
 import { artifactView } from "../apps/api/src/viewer/artifact.ts";
 import { markdownView, renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
 import { managementMenu, type ViewerModel } from "../apps/api/src/viewer/model.ts";
+import { renameMessage } from "../apps/dashboard/src/artifact-api.ts";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
 
@@ -35,9 +36,10 @@ const exportedPolicy = (source: string, name: string, args: readonly string[]): 
 };
 
 const config = { id: "artifact-one", title: "Pricing artifact", kind: "html" };
+const TITLE = config.title;
 const bundle = { script: "/assets/viewer-actions.js", styles: [], dev: false };
 const noBundle = { script: "", styles: [], dev: false };
-const actions = { share: true, delete: true };
+const actions = { share: true, delete: true, rename: true };
 
 const modelOf = (management: ViewerModel["management"]): ViewerModel => ({
   id: "artifact-one",
@@ -224,12 +226,32 @@ test("the menu is the shared menu and the dialogs are the existing ones", () => 
   assert.match(islandSource, /import DeleteModal from "@\/DeleteModal\.tsx";/);
   assert.match(islandSource, /<Menu\s+trigger=\{/, "the island reuses the menu component");
   assert.equal(/role="(menu|menuitem|dialog)"/.test(islandSource), false, "and declares no role of its own");
-  assert.equal(/<Dialog/.test(islandSource), false, "no second dialog is written");
+  assert.match(
+    islandSource,
+    /import \{ Dialog, DialogContent, DialogFoot, DialogHead, DialogSection, DialogTitle \} from "@\/components\/ui\/dialog\.tsx";/,
+    "the rename dialog is the dashboard's own dialog",
+  );
+  assert.match(
+    islandSource,
+    /import \{ Field, Input \} from "@\/components\/ui\/input\.tsx";/,
+    "and its field is the dashboard's own field, which already announces its error",
+  );
+  assert.match(islandSource, /import \{ Button, ButtonGroup \} from "@\/components\/ui\/button\.tsx";/);
   assert.equal(/createPortal/.test(islandSource), false, "the menu owns its own surface");
   assert.match(islandSource, /<MenuItem\s+icon="link"\s+onClick=\{open\("share"\)\}>\s*Share\s*<\/MenuItem>/);
   assert.match(
     islandSource,
+    /<MenuItem\s+icon="pencil"\s+onClick=\{open\("rename"\)\}>\s*Rename\s*<\/MenuItem>/,
+    "the menu offers rename between share and delete",
+  );
+  assert.match(
+    islandSource,
     /<MenuItem\s+icon="trash"\s+danger\s+onClick=\{open\("delete"\)\}>\s*Delete\s*<\/MenuItem>/,
+  );
+  assert.ok(
+    islandSource.indexOf('open("share")') < islandSource.indexOf('open("rename")') &&
+      islandSource.indexOf('open("rename")') < islandSource.indexOf('open("delete")'),
+    "and reads share, rename, delete in that order",
   );
 
   assert.match(menuSource, /"aria-haspopup": "menu"/, "the trigger announces a menu");
@@ -276,7 +298,91 @@ test("focus goes back to the trigger after a dialog closes, never to a detached 
   );
   for (const task of missing) task();
   assert.deepEqual([...focused], ["trigger"], "and neither is a missing one");
-  assert.equal((islandSource.match(/onClose=\{close\}/g) ?? []).length, 2, "both dialogs hand their close back");
+  assert.equal((islandSource.match(/onClose=\{close\}/g) ?? []).length, 3, "all three dialogs hand their close back");
+});
+
+const renameStateOf = (): ((current: string | null, next: string) => unknown) =>
+  exportedPolicy(islandSource, "renameState", ["current", "next"]) as (current: string | null, next: string) => unknown;
+
+const renameNoticeOf = (): ((state: unknown) => unknown) =>
+  exportedPolicy(islandSource, "renameNotice", ["state"]) as (state: unknown) => unknown;
+
+test("the rename dialog fills itself with the title it has and refuses to save nothing or the same thing", () => {
+  const state = renameStateOf();
+  assert.equal(state(TITLE, TITLE), "unchanged", "the prefilled title is not a change");
+  assert.equal(state(TITLE, `  ${TITLE}  `), "unchanged", "nor is the same title with whitespace around it");
+  assert.equal(state(TITLE, "Pricing artifact v2"), "ready", "a different title can be saved");
+  assert.equal(state(null, "First title"), "ready", "an untitled artifact can be given a title");
+  for (const blank of ["", "   ", "\n\t "]) assert.equal(state(TITLE, blank), "empty", `" ${blank}" is no title`);
+  assert.equal(state(null, ""), "empty", "and an untitled artifact cannot be saved empty");
+  assert.equal(state(TITLE, "x".repeat(200)), "ready", "200 characters is inside the cap");
+  assert.equal(state(TITLE, "x".repeat(201)), "too_long", "201 is outside it");
+  assert.equal(state(TITLE, `  ${"x".repeat(201)}  `), "too_long", "and the cap counts the trimmed value");
+
+  const notice = renameNoticeOf();
+  assert.equal(notice("unchanged"), null, "nothing to say about an unchanged title");
+  assert.equal(notice("ready"), null);
+  assert.equal(notice("empty"), "Enter a title to save.", "an empty title is explained");
+  assert.match(String(notice("too_long")), /200 characters/, "and so is the cap");
+});
+
+test("the rename dialog is a shared-dialog form with a prefilled field, cancel, save and the server's answer", () => {
+  const dialog = islandSource.slice(
+    islandSource.indexOf("function RenameDialog("),
+    islandSource.indexOf("function ViewerActions("),
+  );
+  assert.notEqual(dialog, "", "the dialog is where the island can read it");
+  assert.match(dialog, /<Dialog\s+open\s+onOpenChange=/, "it is the shared dialog primitive");
+  assert.match(dialog, /<DialogContent size="sm"/, "at the size the delete dialog uses");
+  assert.match(dialog, /<DialogHead \/>/);
+  assert.match(dialog, /<DialogTitle>Rename artifact<\/DialogTitle>/);
+  assert.match(dialog, /const \[value, setValue\] = useState\(title\)/, "the current title is prefilled, not empty");
+  assert.match(
+    dialog,
+    /<Field label="Title" htmlFor="artifact-rename-title" error=\{error \?\? notice \?\? undefined\}>/,
+  );
+  assert.match(dialog, /<Input\s+id="artifact-rename-title"\s+value=\{value\}/, "one labelled input holds the title");
+  assert.match(dialog, /autoFocus/, "and takes the focus when the dialog opens");
+  assert.match(dialog, /<Button variant="ghost" onClick=\{onClose\}>\s*Cancel\s*<\/Button>/, "cancel closes");
+  assert.match(
+    dialog,
+    /<Button type="submit" variant="primary" disabled=\{state !== "ready" \|\| busy\}>\s*\{busy \? "Saving…" : "Save"\}\s*<\/Button>/,
+    "save is disabled for an empty, unchanged or over-long title, and while saving",
+  );
+  assert.match(dialog, /renameArtifact\(id, value\.trim\(\)\)/, "the island sends the trimmed value");
+  assert.match(dialog, /setError\(result\.error\)/, "a server refusal becomes the reader's error message");
+  assert.match(dialog, /onSaved\(result\.value\.title\)/, "and the saved title is the one the server answered");
+  assert.equal(/role="alert"/.test(islandSource), false, "the field owns the alert, so the island declares none");
+});
+
+test("the island shows the persisted title in the bar the server drew, and never the typed one", () => {
+  const showTitle = exportedPolicy(islandSource, "applyTitle", ["root", "title"]) as (
+    root: { title: string; querySelector: (selector: string) => { textContent: string | null } | null } | undefined,
+    title: string,
+  ) => void;
+  const node = { textContent: TITLE };
+  const root = { title: "Artifact", querySelector: (selector: string) => (selector === ".vbar-title b" ? node : null) };
+  showTitle(root, "Renamed artifact");
+  assert.deepEqual(
+    [node.textContent, root.title],
+    ["Renamed artifact", "Renamed artifact"],
+    "the bar's title cell and the document title both say the new name",
+  );
+  const bare = { title: "Artifact", querySelector: () => null };
+  showTitle(bare, "Renamed artifact");
+  assert.equal(bare.title, "Renamed artifact", "a page without a title cell still retitles itself");
+  assert.doesNotThrow(() => showTitle(undefined, "Renamed artifact"), "and a page with no document is not a crash");
+  assert.match(
+    islandSource,
+    /const \[current, setCurrent\] = useState\(config\.title\)/,
+    "the island keeps the saved title in state, so a second rename and the share dialog read it",
+  );
+  assert.match(
+    islandSource,
+    /applyTitle\(document, (next|saved)\)/,
+    "the bar is rewritten from the server's answer, not from the input",
+  );
+  assert.equal(/window\.location\.reload/.test(islandSource), false, "a rename does not throw the page away");
 });
 
 test("the island mounts into the slot the bar draws and supplies the dialog providers", () => {
@@ -307,4 +413,22 @@ test("the delete dialog takes the three fields it shows", () => {
     /<DeleteModal\s+artifact=\{\{\s*id: config\.id,\s*title,\s*kind: config\.kind,?\s*\}\}/,
     "so does the island",
   );
+});
+
+test("the island's rename is the metadata patch, and its refusals are words the reader can act on", () => {
+  const artifactApi = read("../apps/dashboard/src/artifact-api.ts");
+  assert.match(
+    artifactApi,
+    /manageRequest\(\s*`\/api\/artifacts\/\$\{encodeURIComponent\(artifactId\)\}\/metadata`,\s*"PATCH"/,
+    "one PATCH to the metadata endpoint, and no other route",
+  );
+  assert.equal((artifactApi.match(/"PATCH"/g) ?? []).length, 1, "the dashboard renames through that one call");
+  assert.equal(renameMessage("title_required"), "Enter a title to save.", "an empty title says what to do");
+  assert.match(String(renameMessage("title_too_long")), /too long/, "an over-long title says what to do");
+  assert.equal(
+    renameMessage("not_found"),
+    "Only the owner can rename this artifact, and only while it exists.",
+    "a refusal names the reason the reader can check",
+  );
+  assert.equal(renameMessage("network"), undefined, "a transport failure keeps the client's own message");
 });

@@ -463,8 +463,8 @@ test("the audience matrix: each seat receives only what its grant prepares", asy
       if (model.management.kind === "menu") {
         assert.deepEqual(
           model.management.actions,
-          { share: true, delete: true },
-          `${label} an owner shares and deletes`,
+          { share: true, delete: true, rename: true },
+          `${label} an owner shares, renames and deletes`,
         );
         assert.deepEqual(
           model.management.config,
@@ -694,6 +694,36 @@ test("only the owner's own page carries a management menu, and every other seat 
           `${label} the slot holds the focus control and signals no menu at all`,
         );
       if (!shipsManagement(seat)) assert.equal(/manage/i.test(page), false, `${label} no management affordance`);
+    }
+  }
+});
+
+test("the management vocabulary grows a rename column that only the owner cell carries", async () => {
+  for (const seat of SEATS) {
+    for (const kind of ARTIFACT_KINDS) {
+      const label = `${seat} x ${kind}`;
+      const { model, page } = await cellOf(seat, kind);
+      assert.equal(
+        model.management.kind === "menu",
+        ownsPage(seat),
+        `${label} only the owner's own page carries a management column`,
+      );
+      if (model.management.kind !== "menu") continue;
+      assert.deepEqual(
+        keysOf(model.management.actions),
+        ["delete", "rename", "share"],
+        `${label} the owner's column is share, rename and delete`,
+      );
+      assert.deepEqual(
+        model.management.actions,
+        { share: true, delete: true, rename: true },
+        `${label} the rename cell is the owner's, with no exception per kind`,
+      );
+      assert.match(
+        page,
+        /<span data-island="actions"><button type="button" data-control="menu"/,
+        `${label} the menu that offers the rename is mounted for the owner`,
+      );
     }
   }
 });

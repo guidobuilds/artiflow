@@ -77,7 +77,7 @@ const managementOf = (input: ViewerPreparation, request: ViewerRequest, access: 
     ? { kind: "none" }
     : {
         kind: "menu",
-        actions: { share: true, delete: true },
+        actions: { share: true, delete: true, rename: true },
         config: { id: input.artifact.id, title: input.artifact.title, kind: input.artifact.kind },
         assets: viewerActionsAssets(),
       };
