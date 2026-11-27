@@ -304,9 +304,6 @@ type SurfaceBox = { frameId: string; x: number; y: number; w: number; h: number 
 
 const SURFACE_GAP = 40;
 
-const collides = (left: SurfaceBox, right: SurfaceBox): boolean =>
-  left.x < right.x + right.w && right.x < left.x + left.w && left.y < right.y + right.h && right.y < left.y + left.h;
-
 const surfaceBox = (frame: SceneFrame): SurfaceBox => ({
   frameId: frame.id,
   x: finite(frame.x) ? frame.x : 0,
@@ -327,8 +324,8 @@ const surfaceColumn = (boxes: SurfaceBox[]): SurfaceBox[] => {
 export function surfaceLayout(frames: SceneFrame[]): SurfaceLayout {
   if (frames.length === 0) return { placements: [], width: 0, height: 0 };
   const boxes = frames.map(surfaceBox);
-  const spread = boxes.every((box, at) => boxes.every((other, index) => index === at || !collides(box, other)));
-  const placed = spread ? boxes : surfaceColumn(boxes);
+  const unstored = boxes.every((box) => box.x === boxes[0]?.x && box.y === boxes[0]?.y);
+  const placed = unstored ? surfaceColumn(boxes) : boxes;
   const left = Math.min(...placed.map((box) => box.x));
   const top = Math.min(...placed.map((box) => box.y));
   const right = Math.max(...placed.map((box) => box.x + box.w));

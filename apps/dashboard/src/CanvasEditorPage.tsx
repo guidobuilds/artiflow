@@ -22,6 +22,7 @@ import {
   fitScale,
   getScene,
   layerRows,
+  moveFrame,
   moveNode,
   moveNodes,
   nudgeSelection,
@@ -61,6 +62,15 @@ type Drag = {
 };
 
 type SelectionBox = { x: number; y: number; w: number; h: number };
+
+type FrameDrag = {
+  frameId: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  unit: number;
+  snapshot: Scene;
+};
 
 type LayerDrag = {
   id: string;
@@ -197,6 +207,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     detail.data?.ok && detail.data.value.revision !== null ? detail.data.value.revision.revisionNumber : null;
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
+  const frameDrag = useRef<FrameDrag | null>(null);
+  const frameDragged = useRef(false);
   const marqueeStart = useRef<{ clientX: number; clientY: number } | null>(null);
   const marqueeDragged = useRef(false);
   const nodeDragged = useRef(false);
@@ -679,6 +691,51 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
   };
+  const startFrameDrag = (event: ReactPointerEvent<HTMLDivElement>, entry: SceneFrame) => {
+    if (readOnly || event.button !== 0 || spaceHeld.current) return;
+    event.stopPropagation();
+    frameDragged.current = false;
+    showFrame(entry.id);
+    frameDrag.current = {
+      frameId: entry.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      unit: scale === 0 ? 1 : scale,
+      snapshot: session.current?.state.scene ?? scene,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onFrameDragMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const pending = frameDrag.current;
+    if (pending === null || pending.pointerId !== event.pointerId) return;
+    const dx = (event.clientX - pending.startX) / pending.unit;
+    const dy = (event.clientY - pending.startY) / pending.unit;
+    if (!frameDragged.current) {
+      if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return;
+      frameDragged.current = true;
+      setZoom(scale);
+      setFitted(false);
+      setPan(view);
+    }
+    update(moveFrame(pending.snapshot, layout.placements, pending.frameId, dx, dy));
+  };
+  const endFrameDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const pending = frameDrag.current;
+    if (pending === null) return;
+    frameDrag.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (!frameDragged.current) return;
+    if (canonicalScene(pending.snapshot) === canonicalScene(session.current?.state.scene ?? scene)) return;
+    commitEdit(pending.snapshot);
+  };
+  const cancelFrameDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    frameDrag.current = null;
+    frameDragged.current = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  };
 
   const reload = async () => {
     const controller = session.current;
@@ -840,10 +897,10 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                       className={`canvas-frame${active ? " canvas-frame-active" : ""}`}
                       data-frame-id={entry.id}
                       style={{ left: at.x, top: at.y, width: entry.w, height: entry.h }}
-                      onPointerDown={(event) => {
-                        if (event.button !== 0 || spaceHeld.current || active) return;
-                        showFrame(entry.id);
-                      }}
+                      onPointerDown={(event) => startFrameDrag(event, entry)}
+                      onPointerMove={onFrameDragMove}
+                      onPointerUp={endFrameDrag}
+                      onPointerCancel={cancelFrameDrag}
                     >
                       {entry.nodes.map((node) => (
                         <div
