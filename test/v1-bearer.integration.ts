@@ -319,12 +319,15 @@ function publicIssuerResource(): string {
 }
 
 test("comments write under comments:write, resolve and delete included", async () => {
+  const current = await request(`/api/v1/artifacts/${documentId}/document`, bearer(ownerWide));
+  const { revisionId: currentRevision } = (await current.json()) as { revisionId: string };
   const created = await request(`/api/v1/artifacts/${documentId}/comments`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${ownerWide}` },
     body: JSON.stringify({
       anchor: { kind: "text-range", startLine: 1, startCol: 1, endLine: 1, endCol: 9, quotedText: "# Bearer" },
       body: "Looks good",
+      expectedRevisionId: currentRevision,
     }),
   });
   if (created.status !== 201)
