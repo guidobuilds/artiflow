@@ -4,7 +4,6 @@ import { test } from "node:test";
 import { ARTIFACT_KINDS } from "@artiflow/domain/kinds";
 
 import {
-  artifacts,
   artifactAssets,
   artifactComments,
   artifactPublicLinks,
