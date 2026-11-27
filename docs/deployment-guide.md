@@ -86,6 +86,24 @@ The full variable contract, including `ARTIFLOW_ALLOWED_HOSTS`,
 `ARTIFLOW_INTERNAL_ORIGIN` and the optional social providers, is in the
 [configuration reference](../apps/web/src/content/docs/docs/reference/configuration.md).
 
+### Viewer bundles
+
+The API serves the viewer's browser bundles out of the dashboard build: it reads
+`apps/dashboard/dist/.vite/manifest.json` (the API image already copies that one file) and takes the
+entries whose key ends in `viewer-comments.tsx` and `viewer-actions.tsx`. Three variables name those
+files, and none of them is a setting you normally touch:
+
+| Variable                         | Effect                                                                                           |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `ARTIFLOW_DASHBOARD_DIST`        | Directory holding the dashboard build; the manifest is read from `.vite/manifest.json` inside it |
+| `ARTIFLOW_VIEWER_COMMENTS_ASSET` | Serve this one script URL as the comments bundle, with no stylesheet and no manifest read        |
+| `ARTIFLOW_VIEWER_ACTIONS_ASSET`  | Serve this one script URL as the owner's management bundle, the same way                         |
+
+A missing manifest entry is not fatal: the page still renders, the comments column mounts with no
+script to fill it, and the owner's **Actions** menu is left out. The exact log lines and the
+development fallback are in the
+[configuration reference](../apps/web/src/content/docs/docs/reference/configuration.md).
+
 ### Sign-in per deployment
 
 Public registration is closed in every profile: `POST /api/auth/sign-up/email`

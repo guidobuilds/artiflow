@@ -59,12 +59,17 @@ Links do not expire on their own, and a public link always serves the artifact's
 the revision that was current when the link was created. To stop sharing entirely, revoke the link or
 delete the artifact.
 
+Appending `?meta=1` to a link answers JSON instead of the page: `kind`, `revisionNumber`, `sha256`,
+`sizeBytes` and `comments`. The last one is whether the link currently shows comments — false on a
+canvas or a deck however the option is set. The viewer polls that answer, which is how an open page
+notices a new revision or a link that stopped resolving.
+
 ## What a visitor gets
 
-| Kind     | Public view                                                       |
-| -------- | ----------------------------------------------------------------- |
-| HTML     | The page in the same sandbox as the owner viewer, without the bar |
-| Markdown | The rendered document read-only: no editor, no bar                |
+| Kind     | Public view                                                                                   |
+| -------- | --------------------------------------------------------------------------------------------- |
+| HTML     | The page in the same sandbox as the owner viewer, behind a bar with no title and no back link |
+| Markdown | The rendered document read-only: no editor, and the same bar with no title and no back link   |
 
 A public link is read-only by construction. Visitors cannot comment, edit, see revision history or
 learn who else has access.
@@ -76,9 +81,10 @@ it off hides them again on the same link, immediately.
 
 ## Embedding
 
-`/artifact/<artifactId>?embed=1` drops the viewer bar when you want the artifact alone, which is what
-the OpenCode desktop integration uses for its artifact tabs. It needs a signed-in owner or invitee;
-public links are already just the artifact.
+`/artifact/<artifactId>?embed=1` gives you the document alone, which is what the OpenCode desktop
+integration uses for its artifact tabs. Embed carries no viewer chrome at all: no bar, no comments
+host, no comment config or bundle, no bridge or pins, and no owner management menu. It needs a
+signed-in owner or invitee; a public link ignores the parameter and renders as the public page.
 
 ## Delete an artifact
 

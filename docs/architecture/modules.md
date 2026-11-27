@@ -169,15 +169,38 @@ owner id, and it re-checks the scope on every tool call.
 
 ### HTTP surfaces
 
-| File                              | Responsibility                                                                                                                                                                                               | Depends on                                                |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| `apps/api/src/library.ts`         | Owner reads (`GET /api/artifacts`, `/:id`, `/shared`), the owner/recipient viewer (`GET /artifact/:id`), and the owner delete route. One last-registered 405 catch-all.                                      | db, auth, storage, deletion, viewer-html, viewer-markdown |
-| `apps/api/src/sharing.ts`         | Owner-only grant CRUD (`/shares`) and public-link management (`/links`), plus the session-free public viewer (`GET /share/:token`). Exports the single read predicate used by every delivery path.           | db, auth, storage, viewer-html                            |
-| `apps/api/src/editing.ts`         | Markdown autosave (`PUT /document`), document read, revision history and restore. A save lands as an operation batch on the draft sequence; a whole revision is written only when a snapshot freezes.        | db, auth, storage, commits, documents, markdown           |
-| `apps/api/src/comments.ts`        | Anchored comment threads. One access gate, artifact row lock for mutations, validates the quoted source slice under the lock.                                                                                | db, auth, storage, markdown, `web/comment-anchors`        |
-| `apps/api/src/deletion.ts`        | Soft delete first, then best-effort removal of the artifact's own revision keys. No reference query: a key belongs to one revision of one artifact. Never fails a completed deletion because storage failed. | commits, s3, PostgreSQL                                   |
-| `apps/api/src/viewer-html.ts`     | The single viewer policy: CSP, sandbox value, attribute escaping, viewer bar, 404 page. Pure string work.                                                                                                    | —                                                         |
-| `apps/api/src/viewer-markdown.ts` | Server-rendered GFM (`html:false`) inside the same iframe model. Pure string work.                                                                                                                           | markdown-it, viewer-html                                  |
+| File                                           | Responsibility                                                                                                                                                                                                                  | Depends on                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `apps/api/src/library.ts`                      | Owner reads (`GET /api/artifacts`, `/:id`, `/shared`), the owner rename (`PATCH /api/artifacts/:id/metadata`), the owner/recipient viewer (`GET /artifact/:id`), and the owner delete route. One last-registered 405 catch-all. | db, auth, storage, deletion, viewer/prepare, viewer/views/* |
+| `apps/api/src/sharing.ts`                      | Owner-only grant CRUD (`/shares`) and public-link management (`/links`), plus the session-free public viewer (`GET /share/:token`) and its `?meta=1` payload. Exports the single read predicate used by every delivery path.    | db, auth, storage, viewer/prepare, viewer/views/*           |
+| `apps/api/src/editing.ts`                      | Markdown autosave (`PUT /document`), document read, revision history and restore. A save lands as an operation batch on the draft sequence; a whole revision is written only when a snapshot freezes.                           | db, auth, storage, commits, documents, markdown             |
+| `apps/api/src/comments.ts`                     | Anchored comment threads. One access gate, artifact row lock for mutations, validates the quoted source slice under the lock.                                                                                                   | db, auth, storage, markdown, `web/comment-anchors`          |
+| `apps/api/src/deletion.ts`                     | Soft delete first, then best-effort removal of the artifact's own revision keys. No reference query: a key belongs to one revision of one artifact. Never fails a completed deletion because storage failed.                    | commits, s3, PostgreSQL                                     |
+| `apps/api/src/viewer/prepare.ts`               | `prepareViewer`: the one place that projects ownership, computes access once and decides audience, chrome, entitlements, comments plan and refresh plan.                                                                        | db, comments repos, assets, model                           |
+| `apps/api/src/viewer/model.ts`                 | The viewer vocabulary — `ViewerModel`, audience, chrome, actions, comments and management plans — and `RefreshPlan`.                                                                                                            | assets, comments-data                                       |
+| `apps/api/src/viewer/artifact.ts`              | The outer document, its regions (bar, frame, comments host, data islands) and its one policy: CSP, sandbox value, headers and the refresh script.                                                                               | assets, chrome, model                                       |
+| `apps/api/src/viewer/chrome/theme.ts`          | Tokens and chrome CSS, the 404 page, the attribute and JSON escapers.                                                                                                                                                           | —                                                           |
+| `apps/api/src/viewer/chrome/bar.ts`            | The one bar, for every chrome level.                                                                                                                                                                                            | theme, model                                                |
+| `apps/api/src/viewer/chrome/panel.ts`          | The comments host and its CSS.                                                                                                                                                                                                  | —                                                           |
+| `apps/api/src/viewer/views/html.ts`            | The format view for a sandboxed HTML page.                                                                                                                                                                                      | artifact                                                    |
+| `apps/api/src/viewer/views/markdown.ts`        | The format view for a document: server-rendered GFM (`html:false`) in the page itself, not in a frame.                                                                                                                          | markdown-it, artifact, chrome                               |
+| `apps/api/src/viewer/views/scene.ts`           | The format view for a canvas or a deck; `views/canvas-controller.ts` and `views/deck-controller.ts` carry the two scene scripts.                                                                                                | domain scene, artifact                                      |
+| `apps/api/src/viewer/{html,markdown,scene}.ts` | Thin re-export surfaces kept so importers did not move at once.                                                                                                                                                                 | model, chrome, artifact, views                              |
+
+### Viewer
+
+Routes only read bytes, refuse, call `prepareViewer` and then a view. `prepareViewer`
+computes access once and returns a `ViewerModel` that already carries the chrome
+level, the entitlements, the comments plan, the management plan and the refresh
+plan, so no view decides who may see what.
+
+Two rules hold for the surface:
+
+- Bar controls are addressed by `data-control` (`focus`, `actions`, `menu`) and
+  never by CSS class, so an island can mount into a bar it does not own.
+- A view must not import another view. `views/html.ts`, `views/markdown.ts` and
+  `views/scene.ts` each reach the shared regions through `artifact.ts` and
+  `chrome/`.
 
 ### Persistence
 

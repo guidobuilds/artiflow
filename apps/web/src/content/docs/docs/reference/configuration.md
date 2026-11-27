@@ -111,15 +111,27 @@ and [Administer accounts and sign-in](/docs/self-hosting/administration/).
 
 ## Tooling and deployment variables
 
-These are read by repository scripts or the container definitions, not by the API configuration:
+These are read by repository scripts, the container definitions or the viewer itself, not by the API
+configuration:
 
-| Variable                        | Read by                               | Default                 | Purpose                                                                             |
-| ------------------------------- | ------------------------------------- | ----------------------- | ----------------------------------------------------------------------------------- |
-| `ARTIFLOW_DEV_RUNTIME`          | `scripts/dev.mjs`                     | `bun`                   | Runtime for the API in development; `node` is the declared fallback                 |
-| `ARTIFLOW_API_PROXY_TARGET`     | `apps/dashboard/vite.config.ts`       | `http://127.0.0.1:8787` | API upstream for the Vite dev server proxy                                          |
-| `ARTIFLOW_ALLOW_REMOTE_MIGRATE` | migration script                      | off                     | `1` is required to migrate a non-loopback database; a loopback target needs nothing |
-| `ARTIFLOW_PROD_ENV_FILE`        | `docker-compose.prod.yml`             | `.env.prod`             | Which env file the production stack loads                                           |
-| `ARTIFLOW_SITE_ADDRESS`         | `docker-compose.prod.yml` web service | none (**required**)     | Public DNS name Caddy serves with TLS; `:80` for a smoke test without DNS           |
+| Variable                         | Read by                               | Default                 | Purpose                                                                                  |
+| -------------------------------- | ------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------- |
+| `ARTIFLOW_DEV_RUNTIME`           | `scripts/dev.mjs`                     | `bun`                   | Runtime for the API in development; `node` is the declared fallback                      |
+| `ARTIFLOW_API_PROXY_TARGET`      | `apps/dashboard/vite.config.ts`       | `http://127.0.0.1:8787` | API upstream for the Vite dev server proxy                                               |
+| `ARTIFLOW_ALLOW_REMOTE_MIGRATE`  | migration script                      | off                     | `1` is required to migrate a non-loopback database; a loopback target needs nothing      |
+| `ARTIFLOW_PROD_ENV_FILE`         | `docker-compose.prod.yml`             | `.env.prod`             | Which env file the production stack loads                                                |
+| `ARTIFLOW_SITE_ADDRESS`          | `docker-compose.prod.yml` web service | none (**required**)     | Public DNS name Caddy serves with TLS; `:80` for a smoke test without DNS                |
+| `ARTIFLOW_DASHBOARD_DIST`        | `apps/api/src/viewer/assets.ts`       | `apps/dashboard/dist`   | Directory the API reads `.vite/manifest.json` from, to find the viewer's browser bundles |
+| `ARTIFLOW_VIEWER_COMMENTS_ASSET` | `apps/api/src/viewer/assets.ts`       | unset                   | Serve this one script URL as the comments bundle; the manifest is not read               |
+| `ARTIFLOW_VIEWER_ACTIONS_ASSET`  | `apps/api/src/viewer/assets.ts`       | unset                   | Serve this one script URL as the owner's management bundle; the manifest is not read     |
+
+Nothing here fails a page. When the manifest names no comment bundle, the viewer logs `[viewer] no
+comment bundle in <path>; production serves the viewer without comments` and serves the page anyway:
+the comments column mounts with no script to fill it, so no thread appears. The same miss for the
+management entry logs `... without management` and omits the owner's **Actions** menu entirely. In
+development the miss falls back to the Vite dev entries (`/src/viewer-comments.tsx`,
+`/src/viewer-actions.tsx`) instead, and `ARTIFLOW_REQUIRE_ASSETS=1` forces the production behaviour. An
+explicit comments or actions asset is used as-is, with no stylesheet and no manifest read.
 
 The production compose file also sets `SITE_ADDRESS` and `API_UPSTREAM` for its own web container, and
 sets `NODE_ENV=production` plus `ARTIFLOW_API_HOST=0.0.0.0` for the API container. Those three are
