@@ -40,6 +40,9 @@ import {
   anchorKindsForDocument,
   anchorKindAllowed,
   anchorText,
+  artboardAnchorRefusal,
+  artboardAnchorSource,
+  isArtboardAnchor,
   isSceneAnchor,
   sceneAnchorIsOrphaned,
   sceneAnchorRefusal,
@@ -1292,6 +1295,35 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
               return refusal("unknown_node", "anchor_node_is_not_in_the_scene", {
                 artifactId,
                 nodeId: anchor.nodeId,
+              });
+          }
+          if (isArtboardAnchor(anchor)) {
+            const loaded = await loadScene(backend, access.userId, artifactId);
+            if (!loaded.ok) return sceneRefusalOf(loaded.refusal);
+            const reason = artboardAnchorRefusal(loaded.value.scene, anchor);
+            if (reason === "unknown_frame")
+              return refusal("unknown_frame", "anchor_frame_is_not_in_the_scene", {
+                artifactId,
+                boardId: anchor.boardId,
+              });
+            if (reason === "unknown_source")
+              return refusal("unknown_source", "anchor_frame_has_no_artboard", {
+                artifactId,
+                boardId: anchor.boardId,
+              });
+            if (reason === "revision_mismatch")
+              return refusal("revision_mismatch", "anchor_revision_is_not_the_pinned_source", {
+                artifactId,
+                boardId: anchor.boardId,
+                revisionId: anchor.revisionId,
+              });
+            const sourceId = artboardAnchorSource(loaded.value.scene, anchor);
+            if (sourceId === null) return refusal("unknown_source", "anchor_frame_has_no_artboard", { artifactId });
+            const sourceDocument = await backend.commentDocument(client, access.userId, sourceId, "shared");
+            if (sourceDocument === null || sourceDocument.kind !== "html")
+              return refusal("source_unavailable", "source_is_not_readable", {
+                artifactId,
+                sourceArtifactId: sourceId,
               });
           }
           return insertStored(client, artifactId, access.userId, null, anchor, revision.id, body);

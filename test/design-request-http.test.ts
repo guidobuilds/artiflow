@@ -240,3 +240,95 @@ test("an artboard anchor is only accepted for a canvas", async () => {
   assert.equal(outcome.status, 201, "an owner may request as well");
   assert.equal(outcome.inserted.length, 1);
 });
+
+const ROW = {
+  id: "thread-artboard",
+  artifactId: DESIGN_ID,
+  authorId: VIEWER,
+  authorName: "Ann",
+  authorImage: null,
+  parentId: null,
+  anchor: ARTBOARD_ANCHOR,
+  body: "Please change the label",
+  resolvedAt: null,
+  resolvedBy: null,
+  revisionId: null,
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+};
+
+async function listThreads(
+  sourceAccess: "html" | "markdown" | null,
+): Promise<{
+  status: number;
+  body: { canComment: boolean; comments: { anchor: unknown; body: string }[] };
+  reads: number;
+}> {
+  const results: unknown[] = [
+    [{ id: DESIGN_ID, ownerId: "owner-1", kind: "canvas", access: "commenter", deletedAt: null }],
+    [ROW],
+    sourceAccess === null
+      ? []
+      : [{ id: SOURCE_ID, ownerId: "owner-1", kind: sourceAccess, access: "reader", deletedAt: null }],
+  ];
+  const db = { ...queryBuilder(results), transaction: async (run: (tx: unknown) => Promise<unknown>) => run(db) };
+  let reads = 0;
+  const storage = {
+    client: {
+      send: async () => {
+        reads += 1;
+        throw new Error("the comments listing must not read artifact bytes");
+      },
+    },
+    bucket: "test-bucket",
+    checkBucket: async (): Promise<void> => undefined,
+    destroy: (): void => undefined,
+  } as unknown as Storage;
+  const app = new Hono();
+  app.route(
+    "/",
+    createCommentsApp({
+      database: { db } as unknown as Database,
+      auth: {} as never,
+      storage,
+      publicOrigin: "https://app.test",
+      principal: true,
+      documentStore: documents(SCENE),
+    }),
+  );
+  const response = await app.request(`/api/artifacts/${DESIGN_ID}/comments`, {
+    headers: { "x-artiflow-principal": JSON.stringify({ userId: VIEWER, scopes: [] }) },
+  });
+  return {
+    status: response.status,
+    body: (await response.json()) as { canComment: boolean; comments: { anchor: unknown; body: string }[] },
+    reads,
+  };
+}
+
+test("the comments route lists the artboard anchor for a viewer who can read the source", async () => {
+  const listed = await listThreads("html");
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.canComment, true);
+  assert.deepEqual(listed.body.comments[0]?.anchor, ARTBOARD_ANCHOR);
+  assert.equal(listed.reads, 0, "listing an anchor never reads the source bytes");
+});
+
+test("the comments route redacts the source locator from a viewer who cannot read the source", async () => {
+  const listed = await listThreads(null);
+  assert.equal(listed.status, 200, "a design reader still reads the thread");
+  assert.deepEqual(listed.body.comments[0]?.anchor, {
+    ...ARTBOARD_ANCHOR,
+    selector: "",
+    textHint: "(hidden)",
+  });
+  assert.equal(JSON.stringify(listed.body).includes("Start free"), false, "no artifact text leaves through the API");
+  assert.equal(JSON.stringify(listed.body).includes("data-testid"), false, "no selector leaves either");
+  assert.equal(listed.body.comments[0]?.body, "Please change the label", "the person's own words stay");
+  assert.equal(listed.reads, 0, "redaction decides on permission, not on source bytes");
+});
+
+test("a source that is not an HTML page is treated as unreadable for the locator", async () => {
+  const listed = await listThreads("markdown");
+  assert.deepEqual(listed.body.comments[0]?.anchor, { ...ARTBOARD_ANCHOR, selector: "", textHint: "(hidden)" });
+});

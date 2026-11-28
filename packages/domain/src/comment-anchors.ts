@@ -59,6 +59,20 @@ export function artboardAnchorRefusal(scene: Scene, anchor: ArtboardPointAnchor)
   if (frame.source === undefined) return "unknown_source";
   return frame.source.revisionId === anchor.revisionId ? null : "revision_mismatch";
 }
+export const HIDDEN_ARTBOARD_LOCATOR = "(hidden)";
+
+export function artboardAnchorSource(scene: Scene, anchor: ArtboardPointAnchor): string | null {
+  const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
+  if (frame === undefined || frame.source === undefined) return null;
+  return frame.source.revisionId === anchor.revisionId ? frame.source.artifactId : null;
+}
+
+export const redactArtboardAnchor = (anchor: ArtboardPointAnchor): ArtboardPointAnchor => ({
+  ...anchor,
+  selector: "",
+  textHint: HIDDEN_ARTBOARD_LOCATOR,
+});
+
 export const artboardAnchorIsOrphaned = (scene: Scene, anchor: unknown): boolean =>
   isArtboardAnchor(anchor) && artboardAnchorRefusal(scene, anchor) !== null;
 export const acceptsSceneAnchors = (documentKind: string): boolean =>

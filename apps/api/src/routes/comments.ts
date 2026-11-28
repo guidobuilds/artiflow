@@ -29,8 +29,10 @@ import {
   anchorKindAllowed,
   anchorText,
   artboardAnchorRefusal,
+  artboardAnchorSource,
   isArtboardAnchor,
   isSceneAnchor,
+  redactArtboardAnchor,
   sceneAnchorIsOrphaned,
   sceneAnchorRefusal,
 } from "@artiflow/domain/comment-anchors";
@@ -85,11 +87,32 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     const { doc, userId } = result;
     const rows = await listComments(db, doc.id, true);
     const scene = acceptsSceneAnchors(doc.kind) ? await currentScene(doc.id) : null;
+    const readable = new Map<string, boolean>();
+    if (scene !== null) {
+      const sources = new Set(
+        rows.flatMap((row) => {
+          const anchor = row.anchor;
+          const sourceId = isArtboardAnchor(anchor) ? artboardAnchorSource(scene, anchor) : null;
+          return sourceId === null ? [] : [sourceId];
+        }),
+      );
+      await Promise.all(
+        [...sources].map(async (sourceId) => {
+          const sourceDocument = await commentDocument(db, userId, sourceId, "shared");
+          readable.set(sourceId, sourceDocument !== undefined && sourceDocument.kind === "html");
+        }),
+      );
+    }
+    const anchorOf = (anchor: unknown): unknown => {
+      if (scene === null || !isArtboardAnchor(anchor)) return anchor;
+      const sourceId = artboardAnchorSource(scene, anchor);
+      return sourceId !== null && readable.get(sourceId) !== true ? redactArtboardAnchor(anchor) : anchor;
+    };
     const serialize = (row: Row) => ({
       id: row.id,
       authorId: row.authorId,
       author: { id: row.authorId, name: row.authorName ?? "", image: row.authorImage ?? null },
-      anchor: (row.anchor ?? null) as CommentAnchorWire | null,
+      anchor: (anchorOf(row.anchor) ?? null) as CommentAnchorWire | null,
       body: row.body,
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),

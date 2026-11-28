@@ -1,4 +1,10 @@
-import { isArtboardAnchor, isSceneAnchor, type ArtboardPointAnchor } from "@artiflow/domain/comment-anchors";
+import {
+  artboardAnchorSource,
+  isArtboardAnchor,
+  isSceneAnchor,
+  redactArtboardAnchor,
+  type ArtboardPointAnchor,
+} from "@artiflow/domain/comment-anchors";
 import { viewerFor } from "@artiflow/domain/kinds";
 import type { Scene } from "@artiflow/domain/scene";
 
@@ -111,8 +117,6 @@ async function sessionLoad(
   return { loaded, access: seen.access };
 }
 
-const HIDDEN_LOCATOR = "(hidden)";
-
 async function redactUnreadableArtboardAnchors(
   input: ViewerPreparation,
   request: SessionRequest,
@@ -122,11 +126,6 @@ async function redactUnreadableArtboardAnchors(
   if (anchored.length === 0 || input.publishedScene === undefined) return config;
   const scene = await input.publishedScene();
   if (scene === null) return config;
-  const sourceOf = (anchor: ArtboardPointAnchor): string | null => {
-    const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
-    if (frame === undefined || frame.source === undefined) return null;
-    return frame.source.revisionId === anchor.revisionId ? frame.source.artifactId : null;
-  };
   const readable = new Map<string, boolean>();
   const canRead = async (sourceId: string): Promise<boolean> => {
     const known = readable.get(sourceId);
@@ -137,7 +136,7 @@ async function redactUnreadableArtboardAnchors(
   };
   const hidden = await Promise.all(
     anchored.map(async (thread) => {
-      const sourceId = sourceOf(thread.anchor as ArtboardPointAnchor);
+      const sourceId = artboardAnchorSource(scene, thread.anchor as ArtboardPointAnchor);
       return sourceId !== null && !(await canRead(sourceId)) ? thread.id : null;
     }),
   );
@@ -147,7 +146,7 @@ async function redactUnreadableArtboardAnchors(
     ...config,
     threads: config.threads.map((thread) =>
       hiddenIds.has(thread.id)
-        ? { ...thread, anchor: { ...(thread.anchor as ArtboardPointAnchor), selector: "", textHint: HIDDEN_LOCATOR } }
+        ? { ...thread, anchor: redactArtboardAnchor(thread.anchor as ArtboardPointAnchor) }
         : thread,
     ),
   };
