@@ -35,3 +35,28 @@ export const refreshArtboardSource = async (
   );
   return result.ok ? result.value : null;
 };
+
+export type ArtboardPick = {
+  readonly frameId: string;
+  readonly revisionId: string;
+  readonly nonce: string;
+  readonly html: string;
+};
+
+export const parseArtboardPick = (body: unknown): ArtboardPick | null => {
+  if (!record(body)) return null;
+  if (typeof body.frameId !== "string" || body.frameId === "") return null;
+  if (typeof body.revisionId !== "string" || !REVISION_ID.test(body.revisionId)) return null;
+  if (typeof body.nonce !== "string" || body.nonce === "") return null;
+  if (typeof body.html !== "string" || body.html === "") return null;
+  return { frameId: body.frameId, revisionId: body.revisionId, nonce: body.nonce, html: body.html };
+};
+
+export const fetchArtboardPick = async (designId: string, frameId: string): Promise<ArtboardPick | null> => {
+  const result = await manageRequest(
+    `/api/artifacts/${encodeURIComponent(designId)}/frames/${encodeURIComponent(frameId)}/pick`,
+    "GET",
+    parseArtboardPick,
+  );
+  return result.ok ? result.value : null;
+};

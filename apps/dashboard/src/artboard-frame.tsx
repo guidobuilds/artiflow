@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { createMessageBudget, encodeCommand, parseBridgeMessage } from "@artiflow/domain/html-bridge";
 import type { SceneFrame, TextAlign } from "@artiflow/domain/scene";
 import {
   SCENE_MAX_OVERRIDES,
@@ -9,6 +10,12 @@ import {
   SCENE_OVERRIDE_SPACING_MAX,
   SCENE_VARIANTS,
   isEditableTarget,
+  isResolvableLocator,
+  isSceneOverrideAlign,
+  isSceneOverrideColor,
+  isSceneOverrideFontSize,
+  isSceneOverrideSpacing,
+  isSceneOverrideText,
   overridesStatusOf,
   resolvedStyleOf,
   type SceneOverride,
@@ -21,7 +28,7 @@ import { sceneViewHref } from "@artiflow/domain/scene-link";
 import { Button } from "@/components/ui/button.tsx";
 import { Icon } from "@/components/ui/icon.tsx";
 
-import { refreshArtboardSource } from "./artboard-source.ts";
+import { fetchArtboardPick, refreshArtboardSource, type ArtboardPick } from "./artboard-source.ts";
 
 const shortRevision = (revisionId: string): string => revisionId.slice(0, 8);
 
@@ -105,6 +112,30 @@ export function ArtboardUpdateAction({
   );
 }
 
+type OverrideField = "text" | "size" | "spacing";
+
+const HEX_SIX = /^#[0-9a-f]{6}$/i;
+
+const colorInputValue = (value: string | undefined): string => {
+  if (value === undefined) return "#111111";
+  if (HEX_SIX.test(value)) return value;
+  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(value);
+  if (short !== null) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
+  return "#111111";
+};
+
+const draftOf = (
+  entry: SceneOverride,
+  variant: SceneVariantId | undefined,
+): { text: string; fontSize: string; spacing: string } => {
+  const style = resolvedStyleOf(entry, variant);
+  return {
+    text: entry.text ?? "",
+    fontSize: String(style.fontSize ?? 16),
+    spacing: String(style.spacing ?? 0),
+  };
+};
+
 function OverrideRow({
   entry,
   variant,
@@ -120,8 +151,57 @@ function OverrideRow({
   onRemove: () => void;
   onEndEdit: () => void;
 }) {
-  const [draft, setDraft] = useState(entry.text ?? "");
   const style = resolvedStyleOf(entry, variant);
+  const [draft, setDraft] = useState(() => draftOf(entry, variant));
+  const [error, setError] = useState<{ field: OverrideField; message: string } | null>(null);
+  useEffect(() => {
+    setDraft((current) => ({ ...current, text: entry.text ?? "" }));
+  }, [entry.text]);
+  useEffect(() => {
+    setDraft((current) => ({ ...current, fontSize: String(style.fontSize ?? 16) }));
+  }, [style.fontSize]);
+  useEffect(() => {
+    setDraft((current) => ({ ...current, spacing: String(style.spacing ?? 0) }));
+  }, [style.spacing]);
+  const fail = (field: OverrideField, message: string) => {
+    setError({ field, message });
+  };
+  const commitText = () => {
+    const stored = entry.text ?? "";
+    if (draft.text === stored) {
+      setError(null);
+      onEndEdit();
+      return;
+    }
+    if (draft.text.trim() === "") {
+      if (stored !== "") fail("text", "Text cannot be empty. Remove this edit to drop the text change.");
+      else setError(null);
+      onEndEdit();
+      return;
+    }
+    if (!isSceneOverrideText(draft.text)) {
+      fail("text", `Text must be at most ${SCENE_MAX_OVERRIDE_TEXT} characters.`);
+      onEndEdit();
+      return;
+    }
+    setError(null);
+    onPatch({ text: draft.text });
+    onEndEdit();
+  };
+  const commitNumber = (field: "size" | "spacing") => {
+    const raw = (field === "size" ? draft.fontSize : draft.spacing).trim();
+    const value = raw === "" ? Number.NaN : Number(raw);
+    if (field === "size" && !isSceneOverrideFontSize(value)) {
+      fail("size", `Size must be between ${SCENE_OVERRIDE_FONT_SIZE_MIN} and ${SCENE_OVERRIDE_FONT_SIZE_MAX}.`);
+      return;
+    }
+    if (field === "spacing" && !isSceneOverrideSpacing(value)) {
+      fail("spacing", `Spacing must be between 0 and ${SCENE_OVERRIDE_SPACING_MAX}.`);
+      return;
+    }
+    setError(null);
+    onPatch({ style: field === "size" ? { fontSize: value } : { spacing: value } });
+  };
   const preview = {
     color: style.color ?? "#111111",
     fontSize: `${style.fontSize ?? 16}px`,
@@ -134,31 +214,38 @@ function OverrideRow({
         <code>{entry.selector === "" ? `text “${entry.textHint}”` : entry.selector}</code>
       </p>
       <p className="canvas-override-preview" style={preview} aria-label="Preview of this element">
-        {draft === "" ? "(no text change)" : draft}
+        {draft.text === "" ? "(no text change)" : draft.text}
       </p>
       <label className="canvas-field">
         <span>Text</span>
         <textarea
           aria-label="Element text"
+          aria-invalid={error?.field === "text"}
           rows={2}
           maxLength={SCENE_MAX_OVERRIDE_TEXT}
           disabled={disabled}
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onBlur={() => {
-            onPatch({ text: draft });
-            onEndEdit();
-          }}
+          value={draft.text}
+          onChange={(event) => setDraft((current) => ({ ...current, text: event.target.value }))}
+          onBlur={commitText}
         />
       </label>
+      {error?.field === "text" ? (
+        <p className="canvas-field-error" role="alert">
+          {error.message}
+        </p>
+      ) : null}
       <label className="canvas-field">
         <span>Colour</span>
         <input
           type="color"
           aria-label="Element colour"
           disabled={disabled}
-          value={style.color ?? "#111111"}
-          onChange={(event) => onPatch({ style: { color: event.target.value } })}
+          value={colorInputValue(style.color)}
+          onChange={(event) => {
+            if (!isSceneOverrideColor(event.target.value)) return;
+            setError(null);
+            onPatch({ style: { color: event.target.value } });
+          }}
         />
       </label>
       <label className="canvas-field">
@@ -166,20 +253,31 @@ function OverrideRow({
         <input
           type="number"
           aria-label="Element font size"
+          aria-invalid={error?.field === "size"}
           min={SCENE_OVERRIDE_FONT_SIZE_MIN}
           max={SCENE_OVERRIDE_FONT_SIZE_MAX}
           disabled={disabled}
-          value={style.fontSize ?? 16}
-          onChange={(event) => onPatch({ style: { fontSize: Number(event.target.value) } })}
+          value={draft.fontSize}
+          onChange={(event) => setDraft((current) => ({ ...current, fontSize: event.target.value }))}
+          onBlur={() => commitNumber("size")}
         />
       </label>
+      {error?.field === "size" ? (
+        <p className="canvas-field-error" role="alert">
+          {error.message}
+        </p>
+      ) : null}
       <label className="canvas-field">
         <span>Alignment</span>
         <select
           aria-label="Element alignment"
           disabled={disabled}
           value={style.align ?? "left"}
-          onChange={(event) => onPatch({ style: { align: event.target.value as TextAlign } })}
+          onChange={(event) => {
+            const align = event.target.value as TextAlign;
+            if (!isSceneOverrideAlign(align)) return;
+            onPatch({ style: { align } });
+          }}
         >
           {ALIGN_OPTIONS.map((option) => (
             <option key={option} value={option}>
@@ -193,13 +291,20 @@ function OverrideRow({
         <input
           type="number"
           aria-label="Element spacing"
+          aria-invalid={error?.field === "spacing"}
           min={0}
           max={SCENE_OVERRIDE_SPACING_MAX}
           disabled={disabled}
-          value={style.spacing ?? 0}
-          onChange={(event) => onPatch({ style: { spacing: Number(event.target.value) } })}
+          value={draft.spacing}
+          onChange={(event) => setDraft((current) => ({ ...current, spacing: event.target.value }))}
+          onBlur={() => commitNumber("spacing")}
         />
       </label>
+      {error?.field === "spacing" ? (
+        <p className="canvas-field-error" role="alert">
+          {error.message}
+        </p>
+      ) : null}
       <Button variant="danger-ghost" size="sm" disabled={disabled} onClick={onRemove}>
         <Icon name="trash" className="size-3.5" />
         Remove this edit
@@ -208,7 +313,118 @@ function OverrideRow({
   );
 }
 
+type PickState = { status: "loading" } | { status: "error" } | { status: "ready"; pick: ArtboardPick };
+
+function ArtboardPickDialog({
+  designId,
+  frameId,
+  onPick,
+  onClose,
+}: {
+  designId: string;
+  frameId: string;
+  onPick: (target: SceneOverrideTarget) => void;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<PickState>({ status: "loading" });
+  const [warning, setWarning] = useState<string | null>(null);
+  const frameRef = useRef<HTMLIFrameElement | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchArtboardPick(designId, frameId).then((pick) => {
+      if (cancelled) return;
+      setState(pick === null ? { status: "error" } : { status: "ready", pick });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [designId, frameId]);
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    const nonce = state.pick.nonce;
+    const budget = createMessageBudget();
+    const selectMode = () => {
+      frameRef.current?.contentWindow?.postMessage(encodeCommand({ type: "mode", on: true }, nonce), "*");
+    };
+    const onMessage = (event: MessageEvent) => {
+      const parsed = parseBridgeMessage(event.data, {
+        nonce,
+        source: event.source,
+        frame: frameRef.current?.contentWindow ?? undefined,
+        budget,
+      });
+      if (!parsed.ok) return;
+      if (parsed.message.type === "ready") {
+        selectMode();
+        return;
+      }
+      if (parsed.message.type !== "select") return;
+      const target = { selector: parsed.message.selector, textHint: parsed.message.textHint };
+      if (!isResolvableLocator(target)) {
+        setWarning(
+          "That element cannot be identified reliably. Pick it again, or choose one with an id or a data attribute.",
+        );
+        return;
+      }
+      onPick(target);
+      onClose();
+    };
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+    };
+  }, [state, onPick, onClose]);
+  const enter = () => {
+    if (state.status !== "ready") return;
+    frameRef.current?.contentWindow?.postMessage(encodeCommand({ type: "mode", on: true }, state.pick.nonce), "*");
+  };
+  return (
+    <div
+      className="canvas-pick-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Pick an element on the artboard"
+      onKeyDown={(event) => {
+        if (event.code === "Escape") onClose();
+      }}
+    >
+      <div className="canvas-pick-dialog">
+        <div className="canvas-pick-head">
+          <h2 className="caps">Pick an element</h2>
+          <p className="canvas-pick-hint" role="status">
+            {state.status === "loading" ? "Opening the artboard…" : ""}
+            {state.status === "error" ? "The artboard could not be opened to pick from." : ""}
+            {state.status === "ready"
+              ? "Click an element inside the artboard. Its text, colour, size, alignment and spacing become editable here."
+              : ""}
+          </p>
+          <Button size="sm" variant="secondary" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+        {warning === null ? null : (
+          <p className="canvas-field-error" role="alert">
+            {warning}
+          </p>
+        )}
+        {state.status === "ready" ? (
+          <iframe
+            ref={frameRef}
+            className="canvas-pick-frame"
+            title="Artboard, pick an element"
+            sandbox="allow-scripts"
+            referrerPolicy="no-referrer"
+            srcDoc={state.pick.html}
+            onLoad={enter}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function ArtboardOverrideEditor({
+  designId,
   frame,
   disabled,
   onAdd,
@@ -217,6 +433,7 @@ export function ArtboardOverrideEditor({
   onVariant,
   onEndEdit,
 }: {
+  designId: string;
   frame: SceneFrame;
   disabled: boolean;
   onAdd: (target: SceneOverrideTarget) => void;
@@ -227,12 +444,20 @@ export function ArtboardOverrideEditor({
 }) {
   const [selector, setSelector] = useState("");
   const [hint, setHint] = useState("");
+  const [picking, setPicking] = useState(false);
   if (frame.source === undefined) return null;
   const status = overridesStatusOf(frame);
   const entries = frame.overrides?.entries ?? [];
   const variant = frame.overrides?.variant;
   const target = { selector, textHint: hint };
-  const canAdd = !disabled && isEditableTarget(target) && entries.length < SCENE_MAX_OVERRIDES;
+  const filled = isEditableTarget(target);
+  const resolvable = filled && isResolvableLocator(target);
+  const canAdd = !disabled && resolvable && entries.length < SCENE_MAX_OVERRIDES;
+  const add = (picked: SceneOverrideTarget) => {
+    onAdd(picked);
+    setSelector("");
+    setHint("");
+  };
   return (
     <aside
       aria-label="Artboard edits"
@@ -246,20 +471,20 @@ export function ArtboardOverrideEditor({
       <h2 className="caps mb-3">Artboard edits</h2>
       {status === "stale" ? (
         <p className="canvas-override-stale" role="status">
-          The source moved to a newer revision. These edits are kept but not applied; the next edit rebinds them to the
-          revision on screen.
+          The source moved to a newer revision. These edits are kept but not applied; editing an element you already
+          edited rebinds them to the revision on screen.
         </p>
       ) : null}
       {frame.locked === true ? (
         <p className="canvas-override-locked" role="status">
-          This proposal is locked, so its edits cannot change.
+          This proposal is locked: it cannot move or be removed, but its text and style can still be edited.
         </p>
       ) : null}
       <label className="canvas-field">
         <span>Variant</span>
         <select
           aria-label="Variant"
-          disabled={disabled}
+          disabled={disabled || entries.length === 0}
           value={variant ?? ""}
           onChange={(event) => onVariant(event.target.value === "" ? null : (event.target.value as SceneVariantId))}
         >
@@ -271,6 +496,11 @@ export function ArtboardOverrideEditor({
           ))}
         </select>
       </label>
+      <p className="canvas-override-note">
+        {entries.length === 0
+          ? "A variant restyles the elements you edit here, so it stays unavailable until this proposal has at least one element edit."
+          : "A variant restyles the elements you edited above; the values you set yourself win."}
+      </p>
       {entries.map((entry) => (
         <OverrideRow
           key={entry.key}
@@ -283,11 +513,15 @@ export function ArtboardOverrideEditor({
         />
       ))}
       <div className="canvas-override-add" role="group" aria-label="Add an element to edit">
+        <Button size="sm" disabled={disabled || entries.length >= SCENE_MAX_OVERRIDES} onClick={() => setPicking(true)}>
+          Pick an element on the artboard
+        </Button>
         <label className="canvas-field">
-          <span>Element selector</span>
+          <span>or type its id</span>
           <input
             type="text"
             aria-label="Element selector"
+            aria-invalid={filled && !resolvable}
             placeholder="#hero"
             disabled={disabled}
             value={selector}
@@ -299,21 +533,20 @@ export function ArtboardOverrideEditor({
           <input
             type="text"
             aria-label="Element text hint"
+            aria-invalid={filled && !resolvable}
             placeholder="Share this version"
             disabled={disabled}
             value={hint}
             onChange={(event) => setHint(event.target.value)}
           />
         </label>
-        <Button
-          size="sm"
-          disabled={!canAdd}
-          onClick={() => {
-            onAdd(target);
-            setSelector("");
-            setHint("");
-          }}
-        >
+        {filled && !resolvable ? (
+          <p className="canvas-field-error" role="alert">
+            Use an id (#hero), one attribute selector ([data-block=&quot;hero&quot;]) or the element&apos;s text. Other
+            selectors are not editable, because the artboard cannot resolve them.
+          </p>
+        ) : null}
+        <Button size="sm" disabled={!canAdd} onClick={() => add(target)}>
           Add element
         </Button>
       </div>
@@ -321,6 +554,9 @@ export function ArtboardOverrideEditor({
         Text, colour, size, alignment and spacing are editable here. Any other property is not editable, and an element
         the artboard no longer has stays stored without guessing which element it meant.
       </p>
+      {picking ? (
+        <ArtboardPickDialog designId={designId} frameId={frame.id} onPick={add} onClose={() => setPicking(false)} />
+      ) : null}
     </aside>
   );
 }

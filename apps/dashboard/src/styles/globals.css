@@ -1843,3 +1843,49 @@ mark.viewer-comment-mark-resolved {
   background: rgba(255, 106, 43, 0.12);
   color: var(--fg);
 }
+
+.canvas-field-error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #b3261e;
+}
+.canvas-pick-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 10, 10, 0.72);
+}
+.canvas-pick-dialog {
+  display: grid;
+  gap: 10px;
+  width: min(1180px, 100%);
+  max-height: 100%;
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.canvas-pick-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.canvas-pick-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+.canvas-pick-frame {
+  display: block;
+  width: 100%;
+  height: min(70vh, 720px);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
+}

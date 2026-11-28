@@ -20,6 +20,7 @@ import ShareModal from "./ShareModal.tsx";
 import { invalidateLibrary, libraryOwnedQuery } from "./query/library.ts";
 import {
   canonicalScene,
+  validateScene,
   type Scene,
   type SceneFrame,
   type SceneGuideKind,
@@ -481,6 +482,14 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       update(next);
     },
     [commitEdit, scene, update],
+  );
+
+  const commitOverrides = useCallback(
+    (next: Scene) => {
+      if (!validateScene(next).ok) return;
+      editScene(next);
+    },
+    [editScene],
   );
 
   const endTextEdit = useCallback(() => {
@@ -1515,17 +1524,18 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
           />
         ) : frame !== null && frame.source !== undefined ? (
           <ArtboardOverrideEditor
+            designId={initial.artifactId}
             frame={frame}
             disabled={readOnly}
             onAdd={(target) =>
-              editScene(addFrameOverride(session.current?.state.scene ?? scene, frame.id, target))
+              commitOverrides(addFrameOverride(session.current?.state.scene ?? scene, frame.id, target))
             }
             onPatch={(key, patch) =>
-              editScene(patchFrameOverride(session.current?.state.scene ?? scene, frame.id, key, patch))
+              commitOverrides(patchFrameOverride(session.current?.state.scene ?? scene, frame.id, key, patch))
             }
-            onRemove={(key) => editScene(removeFrameOverride(session.current?.state.scene ?? scene, frame.id, key))}
+            onRemove={(key) => commitOverrides(removeFrameOverride(session.current?.state.scene ?? scene, frame.id, key))}
             onVariant={(variant) =>
-              editScene(setFrameVariant(session.current?.state.scene ?? scene, frame.id, variant))
+              commitOverrides(setFrameVariant(session.current?.state.scene ?? scene, frame.id, variant))
             }
             onEndEdit={endTextEdit}
           />
