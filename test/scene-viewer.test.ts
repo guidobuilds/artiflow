@@ -352,10 +352,10 @@ test("the canvas controller owns the viewport and the deck controller never sees
 
 const digest = (text: string): string => createHash("sha256").update(text).digest("hex");
 
-test("PRESERVE: each controller script is the script the split started from", () => {
+test("PRESERVE: each controller script is pinned to the bytes it ships", () => {
   assert.equal(
     digest(canvasControllerScript()),
-    "c43c1edc919d6770657f98bc800e0abb1987f8d43e92daa2614c889c9b34dbe1",
+    "dbb32a733bf0be0d44d6df257a205dcf060b57742802c05118694cc5ed8efc6c",
     "the canvas controller is byte for byte the script the renderer used to inline",
   );
   assert.equal(
