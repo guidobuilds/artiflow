@@ -182,6 +182,39 @@ el almacenamiento y borra objetos que ninguna fila reclama.
 
 ---
 
+### 2.8 Artboards vivos: un frame que apunta a una página publicada
+
+Un frame de un Diseño puede mostrar una página HTML existente en lugar de nodos propios. La
+referencia vive en el frame y no copia bytes:
+
+```json
+{ "id": "propuesta-a", "name": "Propuesta A", "x": 0, "y": 0, "w": 390, "h": 640, "nodes": [],
+  "source": { "artifactId": "<página>", "revisionId": "<revisión elegida>", "mode": "fluid" } }
+```
+
+Decisiones que sostienen la entrega:
+
+- **La revisión está fijada.** Publicar una revisión nueva del origen no cambia el artboard. La
+  actualización es explícita, por artboard: `update_frame` con el `revisionId` nuevo, desde el botón
+  “Update to latest revision” del editor (confirmado, y publica el Diseño) o desde `scene_apply`.
+- **El permiso se revalida al abrir el Diseño.** `apps/api/src/viewer/artboards.ts` resuelve cada
+  origen con el viewer efectivo (`readableArtifactPredicate`) y devuelve `ready`, `forbidden`,
+  `missing`, `not_html` o `too_large`. Vincular no escribe ACLs: quien no puede leer el origen ve
+  “This proposal is not available to you.” y ningún byte. Un viewer público o anónimo nunca recibe
+  contenido del origen.
+- **El contenido se sirve inline y sin ampliar accesos.** `views/scene.ts` compone un `iframe`
+  sandbox con `data:` (límite `ARTBOARD_MAX_INLINE_BYTES`, 1 MiB) resuelto del lado del servidor;
+  no hay endpoint nuevo que permita leer revisiones históricas arbitrarias. Funciona igual en el
+  visor web y en MCP Apps, donde `artifact_get_scene` resuelve para el usuario que pregunta.
+- **Fijo o fluido.** `mode: "fixed"` dibuja la página al ancho del frame; `mode: "fluid"` la
+  reacomoda en 390 o 1280 dentro de la misma caja del canvas, sin escalarla como imagen. El frame
+  conserva `x/y/w/h` como geometría del canvas y no admite nodos sueltos.
+- **Página autónoma intacta.** El origen mantiene su visor y su enlace; incorporarlo no lo modifica.
+- **MCP.** `add_frame`/`update_frame` aceptan `source` (y `source: null` lo quita); `scene_apply`
+  responde `url` con el enlace absoluto al Diseño; `scene_read` devuelve `source` y `sourceState`
+  (revisión fijada, estado y última revisión). El editor dibuja el artboard como tarjeta: acomodar,
+  nombrar y ordenar; la comparación en vivo ocurre en el visor del Diseño.
+
 ## 3. Modelo actual y arquitectura actual
 
 ### 3.1 DER actual

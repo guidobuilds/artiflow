@@ -41,6 +41,43 @@ missing image is visible instead of silent.
 Ids are stable and unique across the whole scene — a node cannot reuse its frame's id — because
 they are what comments and edits anchor to.
 
+## Live artboards
+
+A frame can point at an existing Page instead of holding nodes, so a Design compares real proposals
+without copying them:
+
+```json
+{
+  "id": "proposal-a",
+  "name": "Proposal A",
+  "x": 0,
+  "y": 0,
+  "w": 390,
+  "h": 640,
+  "nodes": [],
+  "source": {
+    "artifactId": "0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11",
+    "revisionId": "8f0d9c2e-51a4-4cbb-9a0e-2f3c4d5e6f70",
+    "mode": "fluid"
+  }
+}
+```
+
+- The reference is **pinned to one revision**. Publishing a newer revision of the page does not
+  change the artboard: the person updates it on purpose, per artboard, with the editor's
+  “Update to latest revision” action (or with one `update_frame` from `scene_apply`).
+- Pointing at a page grants nobody access. The Design revalidates read access every time someone
+  opens it and draws “This proposal is not available to you.” instead of the content.
+- `mode` is `fixed` (the page draws at the frame's width) or `fluid` (the page reflows at the
+  viewport the person picks — 390 or 1280 — inside the same frame box). The page is never scaled
+  as an image.
+- The linked page keeps its own viewer and link; the artboard never rewrites it.
+- An artboard frame carries no loose nodes, and its box (`x`, `y`, `w`, `h`) is still its place and
+  size on the canvas.
+
+Rendering resolves the source for the person opening the Design, so the web viewer, the editor and
+the agent host all show the same pinned revision — or the same unavailable state.
+
 ## What the server refuses
 
 Validation answers with a named reason rather than a screenshot that looks wrong:
@@ -52,6 +89,8 @@ Validation answers with a named reason rather than a screenshot that looks wrong
   negative coordinate, and the frame no longer clips it;
 - a property the renderer cannot honour — `layout`, `constraints`, a component reference — because
   accepting it and ignoring it would be a lie;
+- a `source` that is not a canonical artifact and revision id with `mode` set to `fixed` or `fluid`,
+  or a frame that carries both a `source` and nodes;
 - more frames or nodes than the [limits](/docs/reference/limits/) allow, or nesting deeper than one
   frame level.
 
@@ -90,7 +129,11 @@ network, keeps no storage and loads no external font or script.
   instead of drawn at a stale position. The dashboard editor and the owner's viewer show them; a public
   link does not, yet.
 - **No shared layout engine.** Nodes carry absolute geometry. Automatic layout arrives with the
-  editor, where the server has to agree with the browser about where things end up.
+  editor, where the server has to agree with the browser about where things end up. A live artboard
+  is the exception: its page is laid out by the browser at the chosen viewport width, and the editor
+  shows it as a card rather than as an editable preview.
+- **No Play yet.** Artboards are compared in the canvas; walking a prototype and operating it come
+  with the next delivery.
 - **No vector images.** PNG, JPEG, WebP and GIF are accepted; SVG is refused, because it is a
   document that can carry script and serving it from our origin deserves its own decision.
 
@@ -103,4 +146,11 @@ current draft when there is one, so an agent sees what it just changed.
 
 `scene_apply` is the write tool: a batch of id-addressed operations against a base sequence, atomic,
 and its answer carries the absolute box of every node the batch touched plus any violation the final
-validation found — the closest thing to eyes an agent gets without a renderer.
+validation found — the closest thing to eyes an agent gets without a renderer. It also answers `url`,
+the link that opens the Design.
+
+An artboard is created by adding a frame whose `source` names the page and the revision; `scene_read`
+answers that frame with its `source` and a `sourceState` naming the pinned revision number, whether it
+is still readable and which revision is the latest, so an agent can decide whether to repin it with
+one `update_frame` instead of guessing. Repinning is the same explicit call: publish a revision of the
+page, read the new revision id with `artifact_get`, then update that frame's `source.revisionId`.

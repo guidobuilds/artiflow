@@ -198,6 +198,28 @@ Rules the server enforces, refusing the whole scene when one fails:
   `sha256` it returns. An asset the artifact does not reference renders as a placeholder.
 - limits: 200 frames, 2000 nodes, one frame level deep; `artifact_write` takes at most 1 MiB of text.
 
+### Live artboards — a frame that shows a published Page
+
+A frame may reference an existing HTML artifact instead of holding nodes, so a Design compares real
+proposals side by side:
+
+```json
+{ "id": "proposal-a", "name": "Proposal A", "x": 0, "y": 0, "w": 390, "h": 640, "nodes": [],
+  "source": { "artifactId": "<page-id>", "revisionId": "<revision-id>", "mode": "fluid" } }
+```
+
+- read the page with `artifact_get` (it answers `revisionId`) and pin that id; `mode` is `fixed` or
+  `fluid`. Never invent an id: the source is stored, not copied, and the page keeps its own viewer
+  and link.
+- `fixed` draws the page at the frame width; `fluid` reflows it at 390 or 1280 inside the frame box.
+  A fluid frame is normally 1280 wide and 640–900 high; a fixed one states the device width.
+- an artboard frame carries no nodes, and `nodes: []` is how you write it. Do not mix both.
+- pinning grants nobody access and publishing a newer revision of the page does not change the
+  artboard. Repin on purpose, one frame at a time, with `update_frame` and the new revision id.
+- `scene_read` answers an artboard frame with its `source` and a `sourceState` (pinned revision
+  number, `status`, latest revision), so you can see whether it is stale before asking.
+- `scene_apply` answers `url`: the absolute link to open the Design for the person.
+
 Read a published scene by outline and by frame, never the whole document:
 
 - `scene_outline` returns frames with id, name, node count and bounds.
