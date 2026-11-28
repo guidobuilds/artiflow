@@ -92,8 +92,10 @@ test("an anonymous viewer of a Design never gets source content", async () => {
 });
 
 test("a source that is not an HTML page is refused by name", async () => {
-  const frames = await resolve({ rows: { [PAGE]: row({ kind: "markdown" }), [OTHER_PAGE]: row({ artifactId: OTHER_PAGE }) } });
-  assert.deepEqual(frames.a, { kind: "unavailable", reason: "not_html" });
+  for (const kind of ["markdown", "canvas", "deck"]) {
+    const frames = await resolve({ rows: { [PAGE]: row({ kind }), [OTHER_PAGE]: row({ artifactId: OTHER_PAGE }) } });
+    assert.deepEqual(frames.a, { kind: "unavailable", reason: "not_html" }, `a ${kind} source is never embedded`);
+  }
 });
 
 test("a deleted source or a revision that no longer exists is reported as missing", async () => {

@@ -5,6 +5,8 @@ import vm from "node:vm";
 import { SCENE_FORMAT_VERSION, type Scene } from "@artiflow/domain/scene";
 
 import { artboardControllerScript } from "../apps/api/src/viewer/views/artboard-controller.ts";
+import { DOCUMENT_CSP, withDocumentPolicy } from "../apps/api/src/viewer/artifact.ts";
+import { escapeAttribute } from "../apps/api/src/viewer/chrome/theme.ts";
 import { renderSceneDocument, type SceneArtboards } from "../apps/api/src/viewer/scene.ts";
 
 const SOURCE_ARTIFACT = "0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11";
@@ -65,7 +67,6 @@ test("an artboard renders its pinned revision as a sandboxed page, not as nodes"
   assert.match(a, /title="Proposal A"/);
   const page = dataUrlOf(a);
   assert.ok(page !== null, "the artboard carries an inline document");
-  assert.match(page, /^<base href="https:\/\/artiflow\.test\/artifact\/0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11\/">/);
   assert.match(page, /<h1>Proposal A v3<\/h1>/);
   assert.match(a, /Proposal A v3|v3/, "the pinned revision is named");
 });
@@ -116,7 +117,8 @@ test("an artboard that is too large to inline says so instead of failing the sce
   });
   assert.match(frameTag(html, "a"), /too large/i);
   const b = dataUrlOf(frameTag(html, "b"));
-  assert.equal(b?.startsWith("<base"), false, "no base is injected without an origin");
+  assert.ok(b !== null);
+  assert.equal(b.includes("<base"), false, "the sealed document injects no base element");
 });
 
 test("an artboard without a resolved source is reported as unavailable, never blank", () => {
@@ -247,4 +249,60 @@ test("the canvas controller reflows a fluid artboard by width, without scaling i
   assert.equal(iframe.style.width, "1280px");
   assert.equal(narrow.getAttribute("aria-pressed"), "false");
   assert.equal(wide.getAttribute("aria-pressed"), "true");
+});
+
+const POLICY_META = `content-security-policy" content="${escapeAttribute(DOCUMENT_CSP)}"`;
+
+test("the inline artboard document carries the same policy the html viewer applies", () => {
+  const html = renderSceneDocument(scene(), undefined, undefined, [], "canvas", artboards());
+  const page = dataUrlOf(frameTag(html, "a"));
+  assert.ok(page !== null);
+  assert.match(page, new RegExp(POLICY_META.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<h1>"), "the policy precedes the body");
+  assert.ok(page.includes(escapeAttribute("default-src 'none'")), "the policy seals every other source");
+  assert.ok(page.includes(escapeAttribute("connect-src 'self'")), "no connection escapes the sealed frame");
+  assert.equal(page.includes("frame-src"), false, "the sealed document cannot frame anything");
+  assert.equal(page.includes("img-src *"), false);
+  assert.equal(page.includes("unsafe-eval"), false);
+});
+
+test("a referenced page without a doctype still receives the policy before its content", () => {
+  const page = withDocumentPolicy("<h1>no doctype</h1>");
+  assert.match(page, /^<meta http-equiv="content-security-policy" content=/);
+  assert.ok(page.includes(escapeAttribute(DOCUMENT_CSP)));
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<h1>"));
+});
+
+test("a BOM, leading whitespace and a doctype keep the policy inside the head", () => {
+  const source = "\uFEFF\n  <!doctype html><html><head><title>t</title></head><body><h1>x</h1></body></html>";
+  const page = withDocumentPolicy(source);
+  assert.equal(page.startsWith("\uFEFF"), true, "the BOM stays first");
+  assert.ok(page.indexOf("<!doctype html>") < page.indexOf("content-security-policy"), "the doctype stays first");
+  assert.ok(page.indexOf("<head>") < page.indexOf("content-security-policy"), "the policy lands inside the head");
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<title>"), "the policy precedes other head content");
+  assert.match(page, /<body><h1>x<\/h1><\/body>/);
+});
+
+test("a headless page with a doctype keeps the doctype first and the policy next", () => {
+  const source = "<!DOCTYPE html><h1>bare</h1>";
+  const page = withDocumentPolicy(source);
+  assert.equal(page.startsWith("<!DOCTYPE html><meta http-equiv=\"content-security-policy\""), true);
+  assert.match(page, /<\/h1>$/);
+});
+
+test("the policy is injected once, not twice", () => {
+  const once = withDocumentPolicy("<h1>x</h1>");
+  const twice = withDocumentPolicy(once);
+  assert.equal(twice, once);
+});
+
+test("only a scene with artboards allows frame-src data:, and only for its own frames", () => {
+  const withArtboards = renderSceneDocument(scene(), undefined, undefined, [], "canvas", artboards());
+  assert.match(withArtboards, /frame-src data:/);
+  const plain: Scene = {
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [{ id: "p", name: "Plain", x: 0, y: 0, w: 100, h: 80, nodes: [] }],
+  };
+  const without = renderSceneDocument(plain);
+  assert.equal(without.includes("frame-src"), false, "a scene without artboards keeps its exact policy");
 });

@@ -39,6 +39,28 @@ export const VIEWER_HEADERS = {
 
 export const DOCUMENT_HEADERS = { ...VIEWER_HEADERS, "content-security-policy": DOCUMENT_CSP } as const;
 
+const DOCUMENT_POLICY_META = `<meta http-equiv="content-security-policy" content="${escapeAttribute(DOCUMENT_CSP)}">`;
+const HEAD_OPEN = /<head(?:\s[^>]*)?>/i;
+const DOCTYPE = /<!doctype[^>]*>/i;
+
+export function withDocumentPolicy(html: string): string {
+  if (html.includes(DOCUMENT_POLICY_META)) return html;
+  const bom = html.startsWith("\uFEFF") ? "\uFEFF" : "";
+  const body = bom === "" ? html : html.slice(1);
+  const head = HEAD_OPEN.exec(body);
+  if (head !== null) {
+    const at = head.index + head[0].length;
+    return `${bom}${body.slice(0, at)}${DOCUMENT_POLICY_META}${body.slice(at)}`;
+  }
+  const doctype = DOCTYPE.exec(body);
+  if (doctype !== null) {
+    const at = doctype.index + doctype[0].length;
+    return `${bom}${body.slice(0, at)}${DOCUMENT_POLICY_META}${body.slice(at)}`;
+  }
+  const leading = /^\s*/.exec(body)?.[0] ?? "";
+  return `${bom}${leading}${DOCUMENT_POLICY_META}${body.slice(leading.length)}`;
+}
+
 export const SANDBOX = "allow-scripts";
 
 export const originOf = (url: string): string | null => {

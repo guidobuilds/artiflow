@@ -202,10 +202,15 @@ Decisiones que sostienen la entrega:
   `missing`, `not_html` o `too_large`. Vincular no escribe ACLs: quien no puede leer el origen ve
   “This proposal is not available to you.” y ningún byte. Un viewer público o anónimo nunca recibe
   contenido del origen.
-- **El contenido se sirve inline y sin ampliar accesos.** `views/scene.ts` compone un `iframe`
-  sandbox con `data:` (límite `ARTBOARD_MAX_INLINE_BYTES`, 1 MiB) resuelto del lado del servidor;
-  no hay endpoint nuevo que permita leer revisiones históricas arbitrarias. Funciona igual en el
-  visor web y en MCP Apps, donde `artifact_get_scene` resuelve para el usuario que pregunta.
+- **El contenido se sirve inline, sellado y sin ampliar accesos.** `views/scene.ts` compone un
+  `iframe` sandbox con `data:` (límite `ARTBOARD_MAX_INLINE_BYTES`, 1 MiB) resuelto del lado del
+  servidor; no hay endpoint nuevo que permita leer revisiones históricas arbitrarias. Un documento
+  `data:` no hereda la CSP del padre, así que `withDocumentPolicy` (misma `DOCUMENT_CSP` que usa la
+  página HTML autónoma) inyecta el `<meta http-equiv="content-security-policy">` después del doctype
+  y dentro del `<head>` cuando existe, tolerando BOM y espacios. Sin red, sin frames y sin eval: una
+  página que pide recursos externos los pierde dentro del Diseño, a cambio de contenido sellado.
+  Funciona igual en el visor web y en MCP Apps, donde `artifact_get_scene` resuelve para el usuario
+  que pregunta.
 - **Fijo o fluido.** `mode: "fixed"` dibuja la página al ancho del frame; `mode: "fluid"` la
   reacomoda en 390 o 1280 dentro de la misma caja del canvas, sin escalarla como imagen. El frame
   conserva `x/y/w/h` como geometría del canvas y no admite nodos sueltos.

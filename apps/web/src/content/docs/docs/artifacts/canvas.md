@@ -76,7 +76,11 @@ without copying them:
   size on the canvas.
 
 Rendering resolves the source for the person opening the Design, so the web viewer, the editor and
-the agent host all show the same pinned revision — or the same unavailable state.
+the agent host all show the same pinned revision — or the same unavailable state. The referenced page
+is inlined as a sealed document: it carries the same document policy the standalone page viewer
+applies (`default-src 'none'`, no framing, no eval), so it cannot reach the network even though a
+`data:` document inherits no policy from its parent. A page that pulls images or scripts from a URL
+therefore draws them as missing inside a Design; only self-contained pages compare faithfully.
 
 ## What the server refuses
 

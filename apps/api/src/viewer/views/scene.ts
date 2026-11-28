@@ -15,7 +15,7 @@ import {
 } from "@artiflow/domain/scene";
 
 import { presentsSlides } from "@artiflow/domain/kinds";
-import { artifactView, originOf, sceneDocumentCsp, type ArtifactPage } from "../artifact.ts";
+import { artifactView, originOf, sceneDocumentCsp, withDocumentPolicy, type ArtifactPage } from "../artifact.ts";
 import { escapeAttribute } from "../chrome/theme.ts";
 import { sceneThreadPlacement, type SceneThreadOrphan, type SceneThreadPin } from "../comments-data.ts";
 import type { ViewerModel } from "../model.ts";
@@ -156,11 +156,8 @@ const ARTBOARD_UNAVAILABLE_TEXT: Record<SceneArtboardUnavailableReason, string> 
 const revisionLabel = (number: number | null, revisionId: string): string =>
   number === null ? revisionId.slice(0, 8) : `v${number}`;
 
-const baseTagOf = (origin: string | null, artifactId: string): string =>
-  origin === null ? "" : `<base href="${escapeAttribute(`${origin}/artifact/${encodeURIComponent(artifactId)}/`)}">`;
-
-const sourcePageOf = (source: ArtboardSource, content: Extract<SceneArtboardContent, { kind: "ready" }>): string =>
-  Buffer.from(`${baseTagOf(content.origin, source.artifactId)}${content.html}`, "utf8").toString("base64");
+const sourcePageOf = (content: Extract<SceneArtboardContent, { kind: "ready" }>): string =>
+  Buffer.from(withDocumentPolicy(content.html), "utf8").toString("base64");
 
 const DEFAULT_VIEWPORT: ArtboardViewportWidth = 1280;
 
@@ -185,7 +182,7 @@ const renderArtboard = (frame: SceneFrame, source: ArtboardSource, content: Scen
     source.mode === "fluid"
       ? renderViewportControls(frame, initialViewportOf(frame, source.mode))
       : `<span class="scene-artboard-bar"><span class="scene-artboard-mode">Fixed ${num(frame.w)}</span></span>`;
-  return `<div class="scene-artboard" style="width:${px(frame.w)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(source, content)}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
+  return `<div class="scene-artboard" style="width:${px(frame.w)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(content)}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
 };
 
 const renderFrame = (
