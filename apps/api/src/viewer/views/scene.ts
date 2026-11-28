@@ -246,7 +246,7 @@ export function renderSceneDocument(
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Slides" hidden></nav>`
       : `<div class="scene-stage" id="stage">
-<p class="scene-empty">This canvas has no frames yet.</p>
+<p class="scene-empty">This design has no frames yet.</p>
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
     : slides

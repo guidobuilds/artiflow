@@ -1000,6 +1000,12 @@ test("a frame and a canvas-level node at the same scene coordinates paint at the
   assert.equal(attrOf(surfaceTag(farHtml), "data-surface-h"), "550", "and tall enough for both");
 });
 
+test("an empty Design says so with its own name, not the canvas wording", () => {
+  const html = renderSceneDocument({ formatVersion: SCENE_FORMAT_VERSION, frames: [] });
+  assert.equal(html.includes("This design has no frames yet."), true, "the empty state names the Design");
+  assert.equal(html.includes("This canvas has no frames yet."), false, "the old canvas wording is gone");
+});
+
 test("a canvas whose only content is canvas-level draws it instead of the empty message", () => {
   const looseOnly: Scene = {
     formatVersion: SCENE_FORMAT_VERSION,
@@ -1007,7 +1013,7 @@ test("a canvas whose only content is canvas-level draws it instead of the empty 
     nodes: [rect({ id: "loose-1", x: 100, y: 40 })],
   };
   const html = renderSceneDocument(looseOnly);
-  assert.equal(html.includes("This canvas has no frames yet."), false, "the message is only for an empty canvas");
+  assert.equal(html.includes("This design has no frames yet."), false, "the message is only for an empty design");
   assert.equal(html.includes('class="scene-empty"'), false, "no empty state stands in front of the nodes");
   assert.ok(surfaceTag(html).length > 0, "the nodes ride on the surface the frames would use");
   assert.deepEqual(nodeAt(html, "loose-1"), { x: 0, y: 0 }, "the only node starts the surface it is drawn on");
