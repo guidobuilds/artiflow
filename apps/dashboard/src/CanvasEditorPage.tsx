@@ -337,6 +337,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (element === null) return;
     const onWheel = (event: WheelEvent) => {
       if (!hasSurface) return;
+      if (event.target instanceof Element && event.target.closest(".canvas-frames-panel, .canvas-shortcuts")) return;
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault();
         const bounds = element.getBoundingClientRect();

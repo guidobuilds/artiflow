@@ -1494,6 +1494,11 @@ test("the canvas chrome is one 40px bar, a frames chip, an edit pill, the zoom c
   assert.match(pill, /disabled=\{readOnly \|\| selected\.length === 0\}/, "delete waits for a selection");
   assert.match(css, /\.canvas-zoom \{[^}]*right: 16px;[^}]*bottom: 20px;/, "the zoom sits bottom right");
 
+  assert.match(
+    between(page, "const onWheel =", "event.preventDefault();"),
+    /closest\("\.canvas-frames-panel, \.canvas-shortcuts"\)\) return;/,
+    "a wheel over a floating panel scrolls the panel instead of panning the canvas",
+  );
   assert.match(page, /event\.key === "\?"/, "the ? key toggles the shortcuts");
   assert.match(page, /aria-label="Keyboard shortcuts"/);
   for (const keys of ["Ctrl/⌘ Z", "Ctrl/⌘ ⇧ Z", "Del / ⌫", "Esc", "Alt ↑ / Alt ↓", "PgUp / PgDn", "Space + drag"])
