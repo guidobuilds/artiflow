@@ -15,17 +15,24 @@ import { Menu, MenuHead, MenuItem, MenuSeparator } from "@/components/ui/menu.ts
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import DeleteModal from "./DeleteModal.tsx";
-import { ArtboardCard, ArtboardUpdateAction } from "./artboard-frame.tsx";
+import { ArtboardCard, ArtboardOverrideEditor, ArtboardUpdateAction } from "./artboard-frame.tsx";
 import ShareModal from "./ShareModal.tsx";
 import { invalidateLibrary, libraryOwnedQuery } from "./query/library.ts";
 import {
   canonicalScene,
+  validateScene,
   type Scene,
   type SceneFrame,
   type SceneGuideKind,
   type SceneNode,
   type TextNode,
 } from "@artiflow/domain/scene";
+import {
+  addFrameOverride,
+  patchFrameOverride,
+  removeFrameOverride,
+  setFrameVariant,
+} from "@artiflow/domain/scene-overrides";
 import { getArtifactDetail } from "./editor-api.ts";
 import { queryKeys } from "./query/keys.ts";
 import {
@@ -475,6 +482,14 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       update(next);
     },
     [commitEdit, scene, update],
+  );
+
+  const commitOverrides = useCallback(
+    (next: Scene) => {
+      if (!validateScene(next).ok) return;
+      editScene(next);
+    },
+    [editScene],
   );
 
   const endTextEdit = useCallback(() => {
@@ -959,7 +974,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const zoomLevel = Math.round(scale * 100);
   const layerRowList = frame === null ? [] : layerRows(frame);
   const looseRowList = layerRows({ nodes: visibleNotes });
-  const inspectorOpen = selectedNode?.type === "text";
+  const inspectorOpen = selectedNode?.type === "text" || (frame !== null && frame.source !== undefined);
   const frameIndex = frame === null ? -1 : frames.findIndex((entry) => entry.id === frame.id);
   const nodeTypeOf = (id: string): SceneNode["type"] | null => locateNode(scene, id)?.node.type ?? null;
   const viewerHref = `/artifact/${encodeURIComponent(initial.artifactId)}`;
@@ -1506,6 +1521,23 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
             }}
             onEndEdit={endTextEdit}
             onRemove={removeSelected}
+          />
+        ) : frame !== null && frame.source !== undefined ? (
+          <ArtboardOverrideEditor
+            designId={initial.artifactId}
+            frame={frame}
+            disabled={readOnly}
+            onAdd={(target) =>
+              commitOverrides(addFrameOverride(session.current?.state.scene ?? scene, frame.id, target))
+            }
+            onPatch={(key, patch) =>
+              commitOverrides(patchFrameOverride(session.current?.state.scene ?? scene, frame.id, key, patch))
+            }
+            onRemove={(key) => commitOverrides(removeFrameOverride(session.current?.state.scene ?? scene, frame.id, key))}
+            onVariant={(variant) =>
+              commitOverrides(setFrameVariant(session.current?.state.scene ?? scene, frame.id, variant))
+            }
+            onEndEdit={endTextEdit}
           />
         ) : null}
       </div>

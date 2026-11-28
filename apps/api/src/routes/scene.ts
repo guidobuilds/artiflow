@@ -4,7 +4,8 @@ import { Hono, type Context } from "hono";
 
 import { diffSceneOperations } from "@artiflow/domain/scene-operations";
 import { rendersScene } from "@artiflow/domain/kinds";
-import { validateScene } from "@artiflow/domain/scene";
+import { validateScene, type Scene } from "@artiflow/domain/scene";
+import { appliedOverridesOf } from "@artiflow/domain/scene-overrides";
 import type { SceneDraftResponse, SavedScene } from "@artiflow/contracts/scene";
 import {
   docGateFor,
@@ -23,8 +24,10 @@ import {
   publish,
   type DocumentErrorKind,
 } from "../domain/documents/service.ts";
-import { currentSourceRevisionOf } from "./artboard-sources.ts";
-import { refreshArtboardPlan } from "../viewer/artboards.ts";
+import { artboardDepsOf, currentSourceRevisionOf } from "./artboard-sources.ts";
+import { refreshArtboardPlan, resolveSceneArtboards } from "../viewer/artboards.ts";
+import { originOf } from "../viewer/artifact.ts";
+import { artboardPickPage } from "../viewer/artboard-pick.ts";
 
 const requireScene = (c: Context, row: DocRow): Response | null =>
   rendersScene(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
@@ -142,6 +145,49 @@ export function createSceneApp(options: EditingOptions) {
           ? applied.value.revisionId
           : (row.revisionId as string),
     } satisfies SavedScene);
+  });
+
+  app.get("/api/artifacts/:id/frames/:frameId/pick", async (c) => {
+    const gate = await docGate(c);
+    if (gate instanceof Response) return gate;
+    const row = gate.row;
+    const wrongKind = requireScene(c, row);
+    if (wrongKind) return wrongKind;
+    const noCurrent = requireCurrent(c, row);
+    if (noCurrent) return noCurrent;
+    const notEditor = requireEditor(c, row);
+    if (notEditor) return notEditor;
+    const opened = await openDraft({ store, storage, artifactId: row.id });
+    if (!opened.ok) return unavailable(c, opened.kind);
+    const current = opened.value;
+    if (current.scene === null) return c.json({ error: "artifact_unavailable" }, 500);
+    const frameId = c.req.param("frameId") ?? "";
+    const frame = current.scene.frames.find((entry) => entry.id === frameId);
+    if (frame === undefined) return c.json({ error: "unknown_frame" }, 404);
+    if (frame.source === undefined) return c.json({ error: "not_an_artboard" }, 409);
+    const single = { ...current.scene, frames: [frame] } satisfies Scene;
+    const artboards = await resolveSceneArtboards(
+      single,
+      gate.userId,
+      artboardDepsOf({
+        db,
+        storage,
+        viewerId: gate.userId,
+        origin: originOf(c.req.url),
+        maxBytes: cap,
+      }),
+    );
+    const content = artboards[frame.id];
+    if (content === undefined || content.kind !== "ready") return c.json({ error: "artboard_unavailable" }, 409);
+    const nonce = randomUUID();
+    c.header("cache-control", "no-store");
+    return c.json({
+      artifactId: row.id,
+      frameId: frame.id,
+      revisionId: frame.source.revisionId,
+      nonce,
+      html: artboardPickPage(content, appliedOverridesOf(frame), nonce),
+    });
   });
 
   app.post("/api/artifacts/:id/frames/:frameId/source/refresh", async (c) => {

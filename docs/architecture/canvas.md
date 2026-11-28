@@ -399,6 +399,72 @@ campos desconocidos y la validación rechaza con un motivo nombrado (`page_limit
 `invalid_annotation`, `invalid_guides`, `frame_locked`, `page_not_empty`) en vez de fallar en
 silencio.
 
+### 2.13 Editar un artboard vivo sin tocar su HTML
+
+El HTML de un artboard es un artefacto inmutable: una edición visual nunca reescribe sus bytes ni
+mueve su revisión. Lo que se edita se guarda como **overrides del Diseño**, al lado del frame, y se
+aplica al renderizar dentro del iframe sellado. La página autónoma del `source` queda idéntica byte
+por byte.
+
+- **Dónde viven.** Un frame con `source` puede declarar `overrides`: `sourceRevisionId` (la revisión
+  del `source` sobre la que se editó) y `entries`, una lista de hasta 40 overrides. Un frame sin
+  `source` no los acepta: sin artboard vivo no hay nada que sobreescribir, y la validación responde
+  `invalid_override`.
+- **Cómo se elige el elemento.** En el editor la persona pulsa **Pick an element on the artboard**:
+  el servidor entrega la misma página sellada del artboard, con el script de overrides y el puente
+  de selección de los pedidos de cambio, y el editor recibe el localizador que produce ese puente.
+  El puente sólo describe el elemento (no edita, no escribe): el editor decide. Esta selección para
+  editar vive sólo en el editor: **ni Focus ni Play la ofrecen**, y Play tampoco muestra ningún
+  control de edición.
+- **Qué localizadores se aceptan.** Tres formas, las mismas que resuelve el puente: `#id` con un
+  identificador que no necesite escapes, un único selector de atributo (`[data-block="hero"]`,
+  `[data-testid="cta"]`) o el texto del elemento como pista. Cualquier otro selector (`.cta`,
+  `#a .b`, combinadores) se rechaza con `invalid_override` y el editor lo muestra como no editable:
+  se prefiere no guardar nada a guardar una edición que el artboard no puede aplicar.
+- **Cómo se identifica un elemento.** Cada entrada lleva ese localizador — `selector` o `textHint` —
+  más `key`, la clave estable derivada de él (`node:<selector>` o `text:<hint>`). La clave se guarda
+  y se valida: si no coincide con el localizador, el documento se rechaza. Dos entradas con la misma
+  clave en un frame también. Un localizador vacío no es editable.
+- **Qué se puede cambiar.** `text` (hasta 400 caracteres, nunca vacío) y cuatro propiedades de
+  estilo: `color`, `fontSize` (6–200), `align` (`left`, `center`, `right`) y `spacing` (0–96,
+  espaciado entre letras). Cualquier otra propiedad se rechaza con `unsupported_property` en vez de
+  guardarse sin efecto. `color` se valida contra hexadecimal, `rgb()`/`hsl()` y un puñado de
+  palabras: una cadena que pudiera escapar del atributo `style` no entra. El editor no emite un
+  valor vacío ni fuera de rango: muestra el campo en error, nombra el campo y conserva el valor
+  anterior, así que la escena local nunca queda inválida y el guardado no se traba.
+- **Variantes.** `variant` es un ajuste comprensible que agrupa varios valores: `compact`,
+  `comfortable` y `spacious` mueven tamaño y espaciado juntos; `warm` y `cool` mueven el color de
+  acento. La variante aporta valores por defecto y el estilo explícito de cada entrada gana. Como el
+  ajuste vive en el frame, probar `spacious` en la propuesta B no cambia la A. Una variante no tiene
+  nada que recolorear mientras el frame no tenga al menos una entrada, así que el control queda
+  deshabilitado con esa explicación en vez de aceptar una elección sin efecto.
+- **Cómo se aplica.** El visor inyecta un script en el mismo iframe sellado del artboard: resuelve el
+  elemento con el localizador, reemplaza el texto y escribe solo las cuatro propiedades permitidas.
+  El script revalida cada valor antes de escribirlo y no concede red ni acceso al padre. No cambia el
+  sandbox (`allow-scripts`). Un elemento que ya no está no se inventa: el override queda guardado,
+  el visor simplemente no lo aplica y el editor sigue mostrando el localizador para que la persona lo
+  quite o lo reemplace. No hay un estado "no editable" por elemento: lo que se muestra como no
+  editable es el localizador que el resolver no puede usar, y por eso no se guarda.
+- **Qué pasa si el `source` cambia de revisión.** Política elegida: los overrides **se conservan y se
+  marcan obsoletos**; no se aplican ni se borran. Si `source.revisionId` deja de coincidir con
+  `sourceRevisionId`, el frame queda en estado `stale`, el visor no inyecta el script y el editor
+  avisa que el HTML cambió. El rebind es explícito: sólo cuando la persona **cambia de forma
+  deliberada un elemento que ya estaba editado** (texto, color, tamaño, alineación o espaciado
+  distinto), o agrega uno nuevo, las entradas guardadas se atan de nuevo a la revisión que está en
+  pantalla. Un parche que no cambia ningún valor, o que nombra un elemento que la propuesta no tiene,
+  no es una edición: no persiste, no ensucia el historial de deshacer y **nunca** rebindea.
+- **Bloqueo.** `locked` protege lo que no debe moverse: un frame bloqueado sigue rechazando `x`, `y`,
+  `w`, `h`, el `source` y el borrado con `frame_locked`. El texto y el estilo sí se editan, porque
+  cambiar una palabra o un color no altera la propuesta aprobada que se quiso proteger.
+- **Focus y Play.** Los overrides se aplican también en Focus y en Play: lo que la persona ajustó es
+  parte del diseño que se reproduce, y la variante se ve igual en los tres modos. Ninguno de los dos
+  permite editar: el script sólo escribe los valores guardados, no hay controles de edición dentro
+  del iframe y el puente de selección del editor no se inyecta en Play.
+- **Persistencia y deshacer.** El cliente no inventa operaciones nuevas: el guardado envía la escena
+  completa y el servidor la diferencia en `update_frame` con `props.overrides`, con el mismo
+  `baseSeq`. Un conflicto de `baseSeq` conserva el trabajo local y lo informa como conflicto. Los
+  overrides entran en las instantáneas de deshacer junto con el resto de la escena.
+
 ## 3. Modelo actual y arquitectura actual
 
 ### 3.1 DER actual

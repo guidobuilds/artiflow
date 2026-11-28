@@ -826,3 +826,52 @@ test("a refresh on a frame that is not an artboard refuses by name", async () =>
   assert.equal(response.status, 409);
   assert.deepEqual(await bodyOf(response), { error: "not_an_artboard" });
 });
+
+const SOURCE_ARTIFACT = "0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11";
+const SOURCE_REVISION = "8f0d9c2e-51a4-4cbb-9a0e-2f3c4d5e6f70";
+
+const sourcedScene = (): Scene =>
+  ({
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [
+      {
+        id: "f1",
+        name: "Home",
+        x: 40,
+        y: 20,
+        w: 390,
+        h: 640,
+        nodes: [],
+        source: { artifactId: SOURCE_ARTIFACT, revisionId: SOURCE_REVISION, mode: "fixed" },
+      },
+    ],
+  }) as unknown as Scene;
+
+const pickPath = (frameId: string) => `/api/artifacts/${CANVAS_ID}/frames/${frameId}/pick`;
+
+const pick = (world: World, frameId: string, options: Partial<EditingOptions> = {}) =>
+  appOf(world, options).request(pickPath(frameId), { method: "GET", headers: { origin: DASHBOARD_ORIGIN } });
+
+test("the pick endpoint refuses a frame that is not there and a frame without an artboard", async () => {
+  const world = routeWorld({ draft: { seq: 0, scene: PUBLISHED } });
+  const missing = await pick(world, "nope");
+  assert.deepEqual([missing.status, await bodyOf(missing)], [404, { error: "unknown_frame" }]);
+  const note = await pick(world, "f1");
+  assert.deepEqual([note.status, await bodyOf(note)], [409, { error: "not_an_artboard" }]);
+  assert.equal(world.operations.length, 0, "picking never writes the document");
+});
+
+test("the pick endpoint is closed to anyone who is not the editor or cannot see the design", async () => {
+  const world = routeWorld({ draft: { seq: 0, scene: sourcedScene() } });
+  const anonymous = { api: { getSession: async () => null } } as unknown as EditingOptions["auth"];
+  assert.equal((await pick(world, "f1", { auth: anonymous })).status, 401);
+  const stranger = routeWorld({
+    access: "none",
+    visible: false,
+    user: STRANGER_ID,
+    draft: { seq: 0, scene: sourcedScene() },
+  });
+  const refused = await pick(stranger, "f1");
+  assert.deepEqual([refused.status, await bodyOf(refused)], [404, { error: "not_found" }]);
+  assert.equal(stranger.operations.length, 0);
+});

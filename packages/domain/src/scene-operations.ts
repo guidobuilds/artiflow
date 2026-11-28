@@ -11,6 +11,7 @@ import {
   type SceneRefusalDetail,
   type SceneRefusalReason,
 } from "./scene.ts";
+import { overridesRefusal, type SceneFrameOverrides } from "./scene-overrides.ts";
 
 export type SceneOperationRefusalReason =
   | "empty_operations"
@@ -55,6 +56,7 @@ export type SceneFramePatch = {
   source?: ArtboardSource | null;
   page?: string | null;
   locked?: boolean;
+  overrides?: SceneFrameOverrides | null;
 } & { readonly [property: string]: unknown };
 
 export type ScenePagePatch = { name?: string } & { readonly [property: string]: unknown };
@@ -265,10 +267,20 @@ function updateFrame(draft: Scene, raw: Record<string, unknown>): Step {
   if (frame.locked === true && touchesGeometry(props)) return stepRefusal("frame_locked", { id: frame.id });
   const sourceIssue = frameSourceRefusal(props, frame);
   if (sourceIssue !== null) return stepRefusal("invalid_source", sourceIssue);
+  if ("overrides" in props && props.overrides !== null) {
+    if (frame.source === undefined) return stepRefusal("invalid_override", { id: frame.id, property: "overrides" });
+    const overrides = overridesRefusal(props.overrides, "props.overrides");
+    if (overrides !== null) return stepRefusal(overrides.reason, { ...overrides.detail, path: overrides.path });
+  }
   const rest = clone(props) as Record<string, unknown>;
   delete rest.source;
   delete rest.page;
+  delete rest.overrides;
   Object.assign(frame, rest);
+  if ("overrides" in props) {
+    if (props.overrides === null) delete frame.overrides;
+    else frame.overrides = props.overrides as SceneFrameOverrides;
+  }
   if ("page" in props) {
     if (props.page === null) delete frame.page;
     else frame.page = props.page as string;
@@ -555,6 +567,7 @@ function framePatchOf(before: SceneFrame, after: SceneFrame): SceneFramePatch {
   if (before.w !== after.w) patch.w = after.w;
   if (before.h !== after.h) patch.h = after.h;
   if (!sameValue(before.source ?? null, after.source ?? null)) patch.source = after.source ?? null;
+  if (!sameValue(before.overrides ?? null, after.overrides ?? null)) patch.overrides = after.overrides ?? null;
   if (before.page !== after.page) patch.page = after.page ?? null;
   if (before.locked !== after.locked) patch.locked = after.locked;
   return patch as SceneFramePatch;
@@ -570,6 +583,7 @@ function framePatches(before: SceneFrame, after: SceneFrame): { patch: SceneFram
   if (full.x !== undefined) grows.x = full.x;
   if (full.y !== undefined) grows.y = full.y;
   if (full.source !== undefined) grows.source = full.source;
+  if (full.overrides !== undefined) grows.overrides = full.overrides;
   if (full.w !== undefined) (full.w > before.w ? grows : shrunk).w = full.w;
   if (full.h !== undefined) (full.h > before.h ? grows : shrunk).h = full.h;
   return [
