@@ -82,6 +82,77 @@ applies (`default-src 'none'`, no framing, no eval), so it cannot reach the netw
 `data:` document inherits no policy from its parent. A page that pulls images or scripts from a URL
 therefore draws them as missing inside a Design; only self-contained pages compare faithfully.
 
+## Focus, Play and connected screens
+
+A Design is looked at in three modes over the same document:
+
+- **Canvas** places and compares artboards.
+- **Focus** fills the view with one artboard at 390 or 1280, without the canvas chrome. Going back
+  returns to the same place of the canvas, with the same frame selected. A fixed artboard keeps the
+  width it was authored with; a fluid one offers 390 and 1280.
+- **Play** runs one artboard at a time, follows the connections the design declared, and shows no
+  editing tools, notes or guides.
+
+The mode travels in the viewer URL, so a link opens the same starting point for anyone who can read
+the Design:
+
+```
+/artifact/<design-id>?frame=<frame-id>&view=focus&width=390
+/artifact/<design-id>?frame=<frame-id>&view=play&width=1280
+```
+
+`view` accepts `focus` or `play`; `width` accepts `390` or `1280`; `frame` is a frame id of that
+Design. An unknown value, or a frame the Design does not hold, falls back to the canvas with no
+other effect. Play needs a frame that is a live artboard. The editor's artboard card links to both
+modes for that artboard, and `scene_read` gives the frame ids to build the same link from a chat.
+The link points at the screen it names: walking the prototype inside Play does not rewrite it, so a
+link always opens the same starting point.
+
+### How a page connects to another screen
+
+Artboards run sealed: they have scripts and nothing else — no network, no same-origin access, no
+top navigation. They reach another screen with one message to the container:
+
+```html
+<script>
+  parent.postMessage(
+    {
+      channel: "artiflow-play",
+      version: 1,
+      kind: "navigate",
+      frame: "<frame-id of the destination artboard>",
+      state: { plan: "pro" },
+    },
+    "*",
+  );
+</script>
+```
+
+The container accepts a message only when all of this holds, and otherwise does nothing at all:
+
+- it arrives in Play, from the artboard currently being played;
+- `channel` is `artiflow-play`, `version` is `1` and `kind` is `navigate`;
+- `frame` is the id of another frame of the **same** Design, and that frame is a live artboard;
+- `state`, when present, is a JSON object of at most 2048 characters.
+
+Navigation never depends on the order of the frames on the canvas: it is the connection the page
+declares, or nothing.
+
+The destination artboard receives the decision the flow carried:
+
+```js
+window.addEventListener("message", (event) => {
+  const data = event.data;
+  if (data === null || typeof data !== "object") return;
+  if (data.channel !== "artiflow-play" || data.kind !== "enter") return;
+  document.querySelector("#plan").textContent = data.state?.plan ?? "free";
+});
+```
+
+That is the whole state contract: a screen that needs to remember something either owns it (the
+whole flow lives in one artboard) or passes it to the next screen in the navigation message. There is
+no per-screen state store.
+
 ## What the server refuses
 
 Validation answers with a named reason rather than a screenshot that looks wrong:
@@ -118,7 +189,8 @@ selected.
 In the read-only viewer, one frame is visible at a time, scaled to fit. Move between frames with the arrow keys, page up and
 down, home and end, by clicking the frame index, or by opening `?frame=<frame-id>`. Wheel zooms
 around the pointer, space-drag or middle-drag pans, and Fit resets the view; zoom and pan belong to
-the frame you are looking at.
+the frame you are looking at. Each live artboard also offers Focus and Play, and both keep the
+canvas where it was when the person comes back.
 
 The document is served into the same sandboxed frame as an HTML artifact: it does not reach the
 network, keeps no storage and loads no external font or script.
@@ -136,8 +208,9 @@ network, keeps no storage and loads no external font or script.
   editor, where the server has to agree with the browser about where things end up. A live artboard
   is the exception: its page is laid out by the browser at the chosen viewport width, and the editor
   shows it as a card rather than as an editable preview.
-- **No Play yet.** Artboards are compared in the canvas; walking a prototype and operating it come
-  with the next delivery.
+- **Connections are declared by the page.** An artboard is a sealed page, so a jump between screens
+  is a message the page sends, never a link the Design guesses from the canvas order. A prototype
+  that needs to run as one screen with shared state should be authored as one artboard.
 - **No vector images.** PNG, JPEG, WebP and GIF are accepted; SVG is refused, because it is a
   document that can carry script and serving it from our origin deserves its own decision.
 

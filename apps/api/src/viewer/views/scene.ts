@@ -15,6 +15,7 @@ import {
 } from "@artiflow/domain/scene";
 
 import { presentsSlides } from "@artiflow/domain/kinds";
+import type { SceneViewPlan } from "@artiflow/domain/scene-link";
 import { artifactView, originOf, sceneDocumentCsp, withDocumentPolicy, type ArtifactPage } from "../artifact.ts";
 import { escapeAttribute } from "../chrome/theme.ts";
 import { sceneThreadPlacement, type SceneThreadOrphan, type SceneThreadPin } from "../comments-data.ts";
@@ -159,30 +160,72 @@ const revisionLabel = (number: number | null, revisionId: string): string =>
 const sourcePageOf = (content: Extract<SceneArtboardContent, { kind: "ready" }>): string =>
   Buffer.from(withDocumentPolicy(content.html), "utf8").toString("base64");
 
+export type SceneRenderView =
+  | { readonly kind: "canvas" }
+  | { readonly kind: "focus"; readonly width: ArtboardViewportWidth }
+  | { readonly kind: "play"; readonly width: ArtboardViewportWidth };
+
+export const CANVAS_RENDER_VIEW: SceneRenderView = { kind: "canvas" };
+
+export const renderViewOf = (plan: SceneViewPlan): SceneRenderView | undefined =>
+  plan.kind === "canvas" ? undefined : { kind: plan.kind, width: plan.width };
+
 const DEFAULT_VIEWPORT: ArtboardViewportWidth = 1280;
 
-const initialViewportOf = (frame: SceneFrame, mode: ArtboardSource["mode"]): ArtboardViewportWidth => {
+const initialViewportOf = (
+  frame: SceneFrame,
+  mode: ArtboardSource["mode"],
+  view: SceneRenderView,
+): ArtboardViewportWidth => {
+  if (view.kind !== "canvas") return view.width;
   if (mode === "fixed") return DEFAULT_VIEWPORT;
   return ARTBOARD_VIEWPORT_WIDTHS.find((width) => width === frame.w) ?? DEFAULT_VIEWPORT;
 };
 
-const renderViewportControls = (frame: SceneFrame, active: ArtboardViewportWidth): string =>
+const renderViewportControls = (frame: SceneFrame, active: ArtboardViewportWidth, view: SceneRenderView): string =>
   `<span class="scene-artboard-bar" role="group" aria-label="Viewport width for ${escapeAttribute(frame.name)}">${ARTBOARD_VIEWPORT_WIDTHS.map(
     (width) =>
       `<button type="button" class="scene-artboard-width" data-artboard-width="${num(width)}" aria-pressed="${width === active ? "true" : "false"}">${num(width)}</button>`,
-  ).join("")}<span class="scene-artboard-mode">Fluid</span></span>`;
+  ).join("")}<span class="scene-artboard-mode">Fluid</span>${renderBarActions(frame, view)}</span>`;
 
-const renderArtboard = (frame: SceneFrame, source: ArtboardSource, content: SceneArtboardContent | undefined): string => {
-  const width = artboardViewportWidth(source, initialViewportOf(frame, source.mode), frame.w);
+const renderBarActions = (frame: SceneFrame, view: SceneRenderView): string => {
+  if (view.kind === "play") return "";
+  const enter =
+    view.kind === "canvas"
+      ? `<button type="button" class="scene-artboard-enter" data-scene-enter="focus" data-scene-target="${escapeAttribute(frame.id)}">Focus</button><button type="button" class="scene-artboard-enter" data-scene-enter="play" data-scene-target="${escapeAttribute(frame.id)}">Play</button>`
+      : "";
+  return `${enter}<button type="button" class="scene-artboard-back" data-scene-exit="true">Back to canvas</button>`;
+};
+
+const artboardWidthOf = (
+  frame: SceneFrame,
+  source: ArtboardSource,
+  content: SceneArtboardContent | undefined,
+  view: SceneRenderView,
+): number =>
+  content === undefined || content.kind !== "ready"
+    ? frame.w
+    : artboardViewportWidth(source, initialViewportOf(frame, source.mode, view), frame.w);
+
+const renderArtboard = (
+  frame: SceneFrame,
+  source: ArtboardSource,
+  content: SceneArtboardContent | undefined,
+  view: SceneRenderView,
+  boxWidth: number,
+): string => {
+  const width = artboardWidthOf(frame, source, content, view);
   if (content === undefined || content.kind === "unavailable") {
     const reason = content === undefined ? "forbidden" : content.reason;
-    return `<div class="scene-artboard scene-artboard-unavailable" role="status" style="width:${px(frame.w)};height:${px(frame.h)}"><p>${ARTBOARD_UNAVAILABLE_TEXT[reason]}</p><span class="scene-artboard-name">${escapeAttribute(frame.name)}</span></div>`;
+    return `<div class="scene-artboard scene-artboard-unavailable" role="status" style="width:${px(boxWidth)};height:${px(frame.h)}"><p>${ARTBOARD_UNAVAILABLE_TEXT[reason]}</p><span class="scene-artboard-name">${escapeAttribute(frame.name)}</span></div>`;
   }
   const bar =
-    source.mode === "fluid"
-      ? renderViewportControls(frame, initialViewportOf(frame, source.mode))
-      : `<span class="scene-artboard-bar"><span class="scene-artboard-mode">Fixed ${num(frame.w)}</span></span>`;
-  return `<div class="scene-artboard" style="width:${px(frame.w)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(content)}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
+    view.kind === "play"
+      ? ""
+      : source.mode === "fluid"
+        ? renderViewportControls(frame, initialViewportOf(frame, source.mode, view), view)
+        : `<span class="scene-artboard-bar" role="group" aria-label="Artboard ${escapeAttribute(frame.name)}"><span class="scene-artboard-mode">Fixed ${num(frame.w)}</span>${renderBarActions(frame, view)}</span>`;
+  return `<div class="scene-artboard" style="width:${px(boxWidth)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(content)}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
 };
 
 const renderFrame = (
@@ -192,20 +235,35 @@ const renderFrame = (
   pins: readonly SceneThreadPin[] = [],
   placement: FramePlacement | null = null,
   artboard?: SceneArtboardContent,
+  view: SceneRenderView = CANVAS_RENDER_VIEW,
+  active = false,
 ): string => {
   const source = frame.source;
+  const framed = view.kind !== "canvas";
   const revisionName = source === undefined ? "" : ` · ${revisionLabel(artboard?.kind === "ready" ? artboard.revisionNumber : null, source.revisionId)}`;
   const label = `${frame.name}, ${num(frame.w)} by ${num(frame.h)}${source === undefined ? "" : `, ${source.mode} artboard`}`;
-  const placed =
+  const boxWidth =
+    source === undefined || view.kind === "canvas" ? frame.w : artboardWidthOf(frame, source, artboard, view);
+  const styleOf = (width: string): string =>
     placement === null
+      ? width === ""
+        ? ""
+        : ` style="${width}"`
+      : ` style="left:${px(placement.x)};top:${px(placement.y)}${width === "" ? "" : `;${width}`}"`;
+  const placed = placement === null ? "" : ` data-frame-x="${num(placement.x)}" data-frame-y="${num(placement.y)}"`;
+  const artboardAttribute = source === undefined ? "" : ' data-artboard="true"';
+  const activeAttribute = active ? ' data-scene-active="true"' : "";
+  const name =
+    view.kind === "play"
       ? ""
-      : ` data-frame-x="${num(placement.x)}" data-frame-y="${num(placement.y)}" style="left:${px(placement.x)};top:${px(placement.y)}"`;
-  return `<section class="scene-frame" id="frame-${escapeAttribute(frame.id)}" data-frame-id="${escapeAttribute(frame.id)}" data-frame-w="${num(frame.w)}" data-frame-h="${num(frame.h)}"${placed}${visible ? "" : " hidden"} aria-label="${escapeAttribute(label)}">
-<p class="scene-frame-name">${escapeAttribute(frame.name)}<span class="scene-frame-size">${num(frame.w)} × ${num(frame.h)}${revisionName}</span></p>
-<div class="scene-frame-body${source === undefined ? "" : " scene-artboard-host"}" style="width:${px(frame.w)};height:${px(frame.h)}">${
+      : `<p class="scene-frame-name">${escapeAttribute(frame.name)}<span class="scene-frame-size">${num(frame.w)} × ${num(frame.h)}${revisionName}</span></p>`;
+  const pinMarks = framed ? "" : renderPins(pins);
+  return `<section class="scene-frame" id="frame-${escapeAttribute(frame.id)}" data-frame-id="${escapeAttribute(frame.id)}" data-frame-w="${num(frame.w)}" data-frame-h="${num(frame.h)}"${artboardAttribute}${activeAttribute}${placed}${styleOf(framed ? `width:${px(boxWidth)}` : "")}${visible ? "" : " hidden"} aria-label="${escapeAttribute(label)}">
+${name}
+<div class="scene-frame-body${source === undefined ? "" : " scene-artboard-host"}" style="width:${px(boxWidth)};height:${px(frame.h)}">${
     source === undefined
-      ? `${frame.nodes.map((node) => renderNode(node, images)).join("")}${renderPins(pins)}`
-      : renderArtboard(frame, source, artboard)
+      ? `${frame.nodes.map((node) => renderNode(node, images)).join("")}${pinMarks}`
+      : renderArtboard(frame, source, artboard, view, boxWidth)
   }</div>
 </section>`;
 };
@@ -266,7 +324,18 @@ const ARTBOARD_CSS = `.scene-artboard-host{overflow:hidden}
 .scene-artboard-mode{color:#8f969d}
 .scene-artboard-unavailable{display:grid;place-content:center;gap:6px;height:100%;padding:16px;text-align:center;color:#6b7178;background:#f4f4f2;font-size:12px}
 .scene-artboard-unavailable p{margin:0}
-.scene-artboard-name{font:500 11px ui-monospace,SFMono-Regular,Consolas,monospace;color:#8a9096}`;
+.scene-artboard-name{font:500 11px ui-monospace,SFMono-Regular,Consolas,monospace;color:#8a9096}
+body[data-scene-view="focus"] .scene-tools,body[data-scene-view="play"] .scene-tools,body[data-scene-view="focus"] .scene-index,body[data-scene-view="play"] .scene-index,body[data-scene-view="focus"] .scene-pin,body[data-scene-view="play"] .scene-pin{display:none}
+body[data-scene-view="focus"] .scene-frame:not([data-scene-active="true"]),body[data-scene-view="play"] .scene-frame:not([data-scene-active="true"]){display:none}
+body[data-scene-view="focus"] .scene-frame-body,body[data-scene-view="play"] .scene-frame-body{box-shadow:none;border-radius:0}
+body[data-scene-view="focus"] .scene-artboard-frame,body[data-scene-view="play"] .scene-artboard-frame{pointer-events:auto}
+body[data-scene-view="focus"] .scene-artboard-enter,body[data-scene-view="play"] .scene-artboard-enter{display:none}
+.scene-artboard-back{display:none}
+body[data-scene-view="focus"] .scene-artboard-back{display:inline-flex}
+body[data-scene-view="play"] .scene-artboard-bar{display:none}
+.scene-play-exit{position:fixed;top:12px;right:12px;z-index:3;height:30px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#f4f4f2;font:500 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
+.scene-play-exit:hover{background:#2c2c2c}
+.scene-play-exit:focus-visible{outline:2px solid #ff6a2b;outline-offset:2px}`;
 
 const SLIDES_CSS = `.scene-slides{background-image:none}
 .scene-counter{margin:0;display:grid;place-content:center;height:28px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#c3c8cd;font:500 12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}`;
@@ -284,8 +353,11 @@ export function renderSceneDocument(
   threads: readonly { id: string; anchor?: unknown }[] = [],
   kind = "canvas",
   artboards: SceneArtboards = {},
+  view: SceneRenderView = CANVAS_RENDER_VIEW,
 ): string {
   const slides = presentsSlides(kind);
+  const framed = view.kind !== "canvas" && !slides;
+  const renderView: SceneRenderView = framed ? view : CANVAS_RENDER_VIEW;
   const origin = images === undefined ? null : originOf(images.origin);
   const source = images !== undefined && origin !== null ? { ...images, origin } : undefined;
   let policy = source === undefined ? BASE_DOCUMENT_CSP : sceneDocumentCsp(source.origin);
@@ -318,12 +390,34 @@ export function renderSceneDocument(
   const slidesOf = scene.frames.map((frame) =>
     slides
       ? renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id), null, artboardOf(frame))
-      : renderFrame(frame, true, source, pinsOf(frame.id), placementOf(frame.id), artboardOf(frame)),
+      : renderFrame(
+          frame,
+          true,
+          source,
+          pinsOf(frame.id),
+          placementOf(frame.id),
+          artboardOf(frame),
+          renderView,
+          framed && frame.id === selectedId,
+        ),
   );
   const surfaceSize = `data-surface-w="${num(surface === null ? 0 : surface.width)}" data-surface-h="${num(surface === null ? 0 : surface.height)}"`;
   const indexHidden = scene.frames.length === 0 ? " hidden" : "";
   const activeAttribute = requested === null ? "" : ` data-active-frame="${escapeAttribute(requested)}"`;
-  const chrome = empty
+  const surfaceOf = (): string => `<div class="scene-surface" id="surface"${activeAttribute} ${surfaceSize}>
+${slidesOf.join("\n")}${looseOf()}
+</div>`;
+  const singleChrome = (): string =>
+    `<div class="scene-stage" id="stage">${
+      view.kind === "play"
+        ? '\n<button type="button" class="scene-play-exit" data-scene-exit="true">Exit Play</button>'
+        : ""
+    }
+${surfaceOf()}
+</div>`;
+  const chrome = framed
+    ? singleChrome()
+    : empty
     ? slides
       ? `<div class="scene-stage scene-slides" id="stage">
 <p class="scene-empty">This deck has no slides yet.</p>
@@ -341,17 +435,16 @@ ${slidesOf.join("\n")}
 <nav class="scene-index" id="frame-index" aria-label="Slides" hidden>${renderIndex(scene, selectedId)}</nav>`
       : `<div class="scene-stage" id="stage">
 <div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button></div>
-<div class="scene-surface" id="surface"${activeAttribute} ${surfaceSize}>
-${slidesOf.join("\n")}${looseOf()}
-</div>
+${surfaceOf()}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames"${indexHidden}>${renderIndex(scene, selectedId)}</nav>`;
+  const viewAttributes = framed ? ` data-scene-view="${view.kind}"` : "";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
 <style>
 ${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : `${DOCUMENT_CSS}\n${SURFACE_CSS}`}${hasArtboards ? `\n${ARTBOARD_CSS}` : ""}
 </style></head>
-<body>
+${"<body"}${viewAttributes}>
 ${chrome}${orphans === "" ? "" : `\n${orphans}`}
 <script>
 ${slides ? deckControllerScript() : canvasControllerScript()}
@@ -366,12 +459,13 @@ export type SceneViewInput = {
   readonly threads?: readonly { id: string; anchor?: unknown }[];
   readonly kind?: string;
   readonly artboards?: SceneArtboards | undefined;
+  readonly view?: SceneRenderView | undefined;
 };
 
 export const sceneView = (model: ViewerModel, input: SceneViewInput): ArtifactPage =>
   artifactView(model, {
     srcdoc: escapeAttribute(
-      renderSceneDocument(input.scene, input.frameId, input.images, input.threads, input.kind, input.artboards ?? {}),
+      renderSceneDocument(input.scene, input.frameId, input.images, input.threads, input.kind, input.artboards ?? {}, input.view ?? CANVAS_RENDER_VIEW),
     ),
     images: input.images?.origin,
   });

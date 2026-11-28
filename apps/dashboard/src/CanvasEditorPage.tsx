@@ -1121,7 +1121,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                       {entry.source === undefined ? (
                         entry.nodes.map((node) => nodeMarkup(node, active))
                       ) : (
-                        <ArtboardCard frame={entry} />
+                        <ArtboardCard designId={initial.artifactId} frame={entry} />
                       )}
                     </div>
                   );
