@@ -66,7 +66,8 @@ revision. This plugin exposes no comment-writing tool; another client against
 the instance API can add or reply to comments.
 
 The three scene tools cover `canvas` and `deck` artifacts, and they read and write
-the same scene the dashboard editor does. Read the frame index with
+the same scene the dashboard canvas editor does; a deck is authored from this
+surface, since the dashboard edits canvases only. Read the frame index with
 `artiflow_scene_outline` first: it names the frame ids `artiflow_scene_read`
 accepts and the `seq` a batch must match. Read before editing — one frame, or the
 canvas level when no `frameId` is given — because a read returns at most 200 nodes

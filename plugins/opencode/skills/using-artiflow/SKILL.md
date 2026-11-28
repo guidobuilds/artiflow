@@ -43,8 +43,8 @@ instead of applying twice. A stale `baseSeq` refuses with `concurrent_edit` and
 the absolute box of every node the batch touched inside a frame, plus the scene's
 `violations`, which are the server's own report on the finished scene and not a
 formality; a loose canvas node is in no box, so read the canvas level to see it.
-Two limits: the dashboard editor writes the same scene, and uploading an image is
-not available from this surface.
+Two limits: only a canvas is editable in the dashboard, so a deck is authored from
+this surface, and uploading an image is not available here.
 
 **Read comments.** `artiflow_list_comments` returns an owned document's comment
 threads read-only: roots with ordered nested replies, source anchors, quoted text
