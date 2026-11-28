@@ -33,6 +33,7 @@ const NEW_REVISION = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const RESTORED_REVISION = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const MISSING_REVISION = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const FOREIGN_REVISION = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const LATER_REVISION = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 const TOKEN = "b".repeat(43);
 
 const digestOf = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -269,21 +270,35 @@ const dbOf = (world: World): Database => {
     if (table === documentDrafts || table === artifactComments) return [];
     return [];
   };
-  return {
-    db: {
-      select: () => ({ from: (table: unknown) => chainOf((conditions) => rowsFor(table, conditions)) }),
-      insert: () => ({
-        values: (values: Record<string, unknown>) => ({
+  const database = {
+    select: () => ({ from: (table: unknown) => chainOf((conditions) => rowsFor(table, conditions)) }),
+    insert: () => ({
+      values: (values: Record<string, unknown>) => ({
+        returning: async (): Promise<unknown[]> => {
+          const row = { id: randomUUID(), createdAt: new Date(), showComments: false, ...values };
+          world.inserts.push(row);
+          world.links.push(row);
+          return [row];
+        },
+      }),
+    }),
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: (condition: unknown) => ({
           returning: async (): Promise<unknown[]> => {
-            const row = { id: randomUUID(), createdAt: new Date(), showComments: false, ...values };
-            world.inserts.push(row);
-            world.links.push(row);
-            return [row];
+            const revokedAt = values.revokedAt instanceof Date ? values.revokedAt : new Date();
+            const changed = world.links.filter(
+              (row) => matched(row, [condition]) && liveOnly(row, [condition]),
+            );
+            for (const row of changed) row.revokedAt = revokedAt;
+            return changed.map((row) => ({ id: row.id }));
           },
         }),
       }),
-    },
-  } as unknown as Database;
+    }),
+    transaction: async (run: (tx: unknown) => Promise<unknown>) => run(database),
+  };
+  return { db: database } as unknown as Database;
 };
 
 const sessionFor = (userId: string | null) =>
@@ -322,11 +337,21 @@ const shareView = async (world: World, path: string): Promise<Reply> =>
     })(),
   );
 
-const linkRowOf = (pinnedRevisionId: string | null, revoked = false): Record<string, unknown> => ({
+const sharingAppOf = (world: World) => {
+  const app = new Hono();
+  app.route("/", createSharingApp({ database: dbOf(world), auth: sessionFor(OWNER), publicOrigin: ORIGIN }));
+  return app;
+};
+
+const linkRowOf = (
+  pinnedRevisionId: string | null,
+  revoked = false,
+  showComments = false,
+): Record<string, unknown> => ({
   id: randomUUID(),
   tokenHash: createHash("sha256").update(TOKEN).digest("hex"),
   artifactId: ARTIFACT,
-  showComments: false,
+  showComments,
   pinnedRevisionId,
   revokedAt: revoked ? new Date("2026-01-03T00:00:00.000Z") : null,
   storageKey: afterKey,
@@ -362,7 +387,42 @@ test("a requested revision is served only when it belongs to this design", async
 
   const current = await view(world, `/artifact/${ARTIFACT}?revision=${NEW_REVISION}`);
   assert.equal(current.status, 200);
-  assert.equal(current.body.includes("You are looking at version"), false, "the current revision is not announced as older");
+  assert.ok(current.body.includes("is the latest publication"), "a requested current revision is still pinned");
+  assert.equal(current.body.includes("const refresh ="), false, "and never polls for a newer publication");
+
+  const published = worldOf();
+  const laterBytes = new TextEncoder().encode(canonicalScene(sceneOf("Checkout C")));
+  const laterKey = newRevisionStorageKey();
+  published.objects.set(laterKey, laterBytes);
+  published.revisions = [
+    revisionRowOf({
+      id: LATER_REVISION,
+      revisionNumber: 3,
+      storageKey: laterKey,
+      sha256: digestOf(laterBytes),
+      sizeBytes: laterBytes.length,
+      publishedAt: "2026-01-03T00:00:00.000Z",
+    }),
+    ...published.revisions,
+  ];
+  published.artifact = {
+    ...published.artifact,
+    currentRevisionId: LATER_REVISION,
+    revisionId: LATER_REVISION,
+    revisionNumber: 3,
+    sha256: digestOf(laterBytes),
+    storageKey: laterKey,
+    revisionCount: 3,
+  };
+  const stillPinned = await view(published, `/artifact/${ARTIFACT}?revision=${NEW_REVISION}`);
+  assert.equal(stillPinned.status, 200);
+  assert.ok(stillPinned.body.includes("Checkout B"), "the requested revision survives a newer publication");
+  assert.equal(stillPinned.body.includes("Checkout C"), false);
+  assert.equal(stillPinned.body.includes("const refresh ="), false, "and the URL never reloads onto it");
+
+  const latestNow = await view(published, `/artifact/${ARTIFACT}`);
+  assert.ok(latestNow.body.includes("Checkout C"), "while the unpinned URL follows the new publication");
+  assert.ok(latestNow.body.includes("const refresh ="), "and keeps polling it");
 });
 
 test("the design lists its versions so an older one can be reopened", async () => {
@@ -375,6 +435,8 @@ test("the design lists its versions so an older one can be reopened", async () =
 
   const single = worldOf({ revisionCount: 1 });
   single.revisions = single.revisions.slice(0, 1);
+  assert.ok(page.body.includes('data-island="restore"'), "an editor can restore an older version from the latest view");
+
   const bare = await view(single, `/artifact/${ARTIFACT}`);
   assert.equal(bare.status, 200);
   assert.equal(bare.body.includes("data-versions-open"), false, "a design with one publication offers no history");
@@ -667,3 +729,88 @@ test("a pinned link can be created from the design's own revisions", async () =>
   assert.ok(String(created.json?.url).startsWith(`${ORIGIN}/share/`));
 });
 
+test("the versions panel says one older version in the singular and many in the plural", async () => {
+  const world = worldOf();
+  const older = Array.from({ length: 24 }, (_, index) =>
+    revisionRowOf({
+      id: randomUUID(),
+      revisionNumber: index + 3,
+      storageKey: newRevisionStorageKey(),
+      sha256: digestOf(BEFORE_BYTES),
+      sizeBytes: BEFORE_BYTES.length,
+      publishedAt: "2026-01-01T00:00:00.000Z",
+    }),
+  );
+  world.revisions = [...older, ...world.revisions];
+  world.artifact = { ...world.artifact, revisionCount: 26 };
+  const one = await view(world, `/artifact/${ARTIFACT}`);
+  assert.equal(one.status, 200);
+  assert.ok(one.body.includes("1 older version is in the history"), "one hidden version is singular");
+  assert.equal(one.body.includes("1 older versions"), false);
+
+  world.revisions = [
+    revisionRowOf({
+      id: randomUUID(),
+      revisionNumber: 27,
+      storageKey: newRevisionStorageKey(),
+      sha256: digestOf(BEFORE_BYTES),
+      sizeBytes: BEFORE_BYTES.length,
+      publishedAt: "2026-01-01T00:00:00.000Z",
+    }),
+    ...world.revisions,
+  ];
+  world.artifact = { ...world.artifact, revisionCount: 27 };
+  const two = await view(world, `/artifact/${ARTIFACT}`);
+  assert.ok(two.body.includes("2 older versions are in the history"), "two hidden versions are plural");
+});
+
+test("rotating a pinned link issues a new token, keeps the pin and drops the old token", async () => {
+  const world = worldOf();
+  const pinned = linkRowOf(OLD_REVISION);
+  world.links = [pinned];
+  const rotated = await replyOf(
+    await sharingAppOf(world).request(`/api/artifacts/${ARTIFACT}/links/${String(pinned.id)}/rotate`, {
+      method: "POST",
+      headers: { origin: ORIGIN, "content-type": "application/json", cookie: "session=one" },
+    }),
+  );
+  assert.equal(rotated.status, 201, rotated.body);
+  assert.equal(rotated.json?.pinnedRevisionId, OLD_REVISION, "the rotated link stays pinned to the same revision");
+  const token = String(rotated.json?.token);
+  assert.equal(token.length, 43);
+  assert.notEqual(token, TOKEN, "the rotated link carries a new token");
+  const created = world.links.find((row) => row.tokenHash === digestOf(new TextEncoder().encode(token)));
+  assert.equal(created?.pinnedRevisionId, OLD_REVISION, "the replacement row stores the pin");
+  assert.notEqual(pinned.revokedAt, null, "the old row is revoked, never reused");
+
+  const oldToken = await shareView(world, `/share/${TOKEN}`);
+  assert.equal(oldToken.status, 404, "the token before the rotation stops working");
+  const newToken = await shareView(world, `/share/${token}`);
+  assert.equal(newToken.status, 200, "the rotated token serves the pinned revision");
+  assert.ok(newToken.body.includes("Checkout A"));
+  assert.ok(newToken.body.includes("Pinned to version 1"));
+});
+
+test("a link cannot be pinned to a revision of another artifact", async () => {
+  const world = worldOf();
+  const refused = await replyOf(
+    await sharingAppOf(world).request(`/api/artifacts/${ARTIFACT}/links`, {
+      method: "POST",
+      headers: { origin: ORIGIN, "content-type": "application/json", cookie: "session=one" },
+      body: JSON.stringify({ pinnedRevisionId: FOREIGN_REVISION }),
+    }),
+  );
+  assert.equal(refused.status, 404, "a foreign revision is never pinned");
+  assert.equal(refused.json?.error, "revision_not_found");
+  assert.equal(world.inserts.length, 0);
+});
+
+test("a pinned link never serves the comments of the latest publication", async () => {
+  const world = worldOf();
+  world.links = [linkRowOf(OLD_REVISION, false, true)];
+  const comments = await shareView(world, `/share/${TOKEN}/comments`);
+  assert.equal(comments.status, 404, "the comments endpoint refuses a pinned link");
+  const page = await shareView(world, `/share/${TOKEN}`);
+  assert.equal(page.status, 200);
+  assert.equal(page.body.includes('id="viewer-comments"'), false, "and the page mounts no comments host");
+});

@@ -230,12 +230,11 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       return c.json({ error: "no_current_revision" }, 409);
     const currentId = row.revisionId;
     const pinnedRow =
-      requestedRevisionId === undefined || requestedRevisionId === currentId
-        ? undefined
-        : await revisionRow(db, artifactId, requestedRevisionId);
-    if (requestedRevisionId !== undefined && requestedRevisionId !== currentId && pinnedRow === undefined)
+      requestedRevisionId === undefined ? undefined : await revisionRow(db, artifactId, requestedRevisionId);
+    if (requestedRevisionId !== undefined && pinnedRow === undefined)
       return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-    const wantsHistory = pinnedRow !== undefined || row.revisionCount > 1;
+    const pinned = pinnedRow !== undefined;
+    const wantsHistory = pinned || row.revisionCount > 1;
     const history = wantsHistory ? await revisionHistory(db, artifactId, VERSIONS_SHOWN + 1) : [];
     const currentEntry = history.find((entry) => entry.id === currentId);
     const current = {
@@ -259,7 +258,6 @@ export function createLibraryApp(options: LibraryOptions): Hono {
             sha256: pinnedRow.sha256,
             storageKey: pinnedRow.storageKey,
           };
-    const pinned = pinnedRow !== undefined;
     const artifact = { ...row, revisionId: shown.id, revisionNumber: shown.revisionNumber, sha256: shown.sha256 };
     const request =
       transport === "bearer" ? ({ kind: "bearer", viewerId } as const) : ({ kind: "session", viewerId } as const);
@@ -272,7 +270,9 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
     const search = new URL(c.req.url).searchParams;
     const frameId = search.get("frame");
-    const editor = pinned && transport === "session" ? await documentFor(db, viewerId, artifactId) : undefined;
+    const editor = wantsHistory && !embed && transport === "session"
+      ? await documentFor(db, viewerId, artifactId)
+      : undefined;
     const canEditRow = editor !== undefined && canEdit(editor);
     const shownBanner =
       embed || transport === "bearer" || !pinned ? undefined : pinnedRevisionBanner({

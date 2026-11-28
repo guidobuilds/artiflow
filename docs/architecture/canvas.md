@@ -319,7 +319,9 @@ Un Diseño acumula revisiones inmutables; la persona necesita poder recorrerlas 
   artifact *y* contra el acceso vigente (`readableArtifactPredicate`). Una revisión inexistente, de
   otro artifact o de un Diseño que ya no se puede leer responde 404: nunca se cae a la última
   publicación. La página se sella con el número y la fecha de esa revisión, avisa cuál es la última y
-  no monta el sondeo de refresco, así que no cambia si alguien publica mientras se lee.
+  no monta el sondeo de refresco, así que no cambia si alguien publica mientras se lee. **Una
+  revisión pedida es siempre una revisión fijada**, incluso cuando el id pedido es el de la
+  publicación actual: esa URL no sondea ni cambia cuando aparece otra publicación.
 - **Elegir cuál mirar.** El visor ofrece las últimas 25 revisiones (y dice cuántas quedan atrás) con
   enlace a cada una y a la comparación contra la actual. La lista la sirve el mismo historial que ya
   usa `GET /api/artifacts/:id/revisions`.
@@ -335,12 +337,20 @@ Un Diseño acumula revisiones inmutables; la persona necesita poder recorrerlas 
   un enlace público. Sin pin, el enlace sigue la última publicación. Con pin, `/share/:token` sirve
   esa revisión incluso después de publicar otra, la anuncia como «Pinned to version N» y no cae a la
   última si el pin deja de resolver (404). Revocar el enlace lo corta; el pin no concede permisos
-  nuevos porque el enlace solo muestra el artifact que ya autorizaba.
+  nuevos porque el enlace solo muestra el artifact que ya autorizaba. Dos límites, explícitos:
+  un enlace fijado **no monta comentarios** (la opción `showComments` solo aplica a los enlaces que
+  siguen la última publicación, y `/share/:token/comments` responde 404 para un enlace fijado);
+  y el alcance de un enlace **no se edita**: `PATCH` solo cambia `showComments`, así que cambiar de
+  «última» a «fija» (o al revés) exige crear otro enlace, y rotar conserva `pinnedRevisionId`, de
+  modo que un enlace fijado rotado sigue fijado.
 
 **Borrador y publicado.** El Diseño sí tiene un borrador real (`documentDrafts.seq` frente a
-`artifacts.publishedSeq`): es lo que el canvas edita y publica. El visor web muestra **solo** la
-última publicación y lo dice; el editor muestra si hay cambios sin publicar («Unpublished changes ·
-published vN»). No se inventa un borrador en el visor ni se presenta un borrador como publicado.
+`artifacts.publishedSeq`): es lo que el canvas edita y publica. Esa distinción vive en dos lugares y
+en ninguno más: la etiqueta de publicación del visor (número y fecha de la versión que se está
+mirando, y si es la última) y el chip del canvas («Published · vN» o «Unpublished changes ·
+published vN»). El visor **no** avisa de cambios sin publicar: mostrar ese aviso exigiría leer el
+borrador en cada visita y el único lector que puede actuar sobre él es quien ya tiene el canvas
+abierto con el chip. No se inventa un borrador en el visor ni se presenta un borrador como publicado.
 
 ## 3. Modelo actual y arquitectura actual
 

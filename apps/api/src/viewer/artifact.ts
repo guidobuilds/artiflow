@@ -321,7 +321,11 @@ function versionsOf(versions: ViewerVersions | undefined): string {
     })
     .join("");
   const note =
-    versions.hidden > 0 ? `<p class="vbar-versions-note">Showing the ${versions.rows.length} most recent; ${versions.hidden} older versions are in the history.</p>` : "";
+    versions.hidden > 0
+      ? `<p class="vbar-versions-note">Showing the ${versions.rows.length} most recent; ${versions.hidden} older ${
+          versions.hidden === 1 ? "version is" : "versions are"
+        } in the history.</p>`
+      : "";
   return `<details class="vbar-versions"><summary>Versions</summary><ol>${rows}</ol>${note}</details>`;
 }
 

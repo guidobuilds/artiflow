@@ -149,7 +149,11 @@ grant is refused before insert.
 No expiry column: links live until revoked, by product decision. The raw token is
 never stored, logged or returned after creation. A pinned link is resolved per request
 and returns 404 if the pinned revision is gone; it never falls back to the latest
-publication, so what a reader sees cannot change behind their back.
+publication, so what a reader sees cannot change behind their back. A pinned link ignores
+`showComments`: a historical publication is read-only, so its comments endpoint answers 404.
+Rotation keeps `pinnedRevisionId` on the replacement row, which means a rotated pinned link stays
+pinned; switching a link between following the latest publication and staying on one revision needs
+a new link, never an edit of the existing one.
 
 ### `artifactComments`
 

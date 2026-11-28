@@ -65,19 +65,25 @@ export function pinnedRevisionBanner(input: {
   canEdit: boolean;
   frameId: string | null;
 }): ViewerBanner {
-  const links: ViewerBannerLink[] = [{ href: `/artifact/${encodeURIComponent(input.artifactId)}`, label: "View latest version" }];
-  if (input.latest !== null)
+  const newest = input.latest !== null && input.latest.id === input.viewing.id;
+  const links: ViewerBannerLink[] = newest
+    ? []
+    : [{ href: `/artifact/${encodeURIComponent(input.artifactId)}`, label: "View latest version" }];
+  if (input.latest !== null && !newest)
     links.push({
       href: compareHref({ artifactId: input.artifactId, from: input.viewing.id, to: input.latest.id, frameId: input.frameId }),
       label: `Compare with version ${input.latest.number}`,
     });
   const editor = input.canEdit ? editorHref(input.artifactId, input.kind) : null;
   if (editor !== null) links.push({ href: editor, label: "Open the editor" });
-  const latestText =
-    input.latest === null ? "This is the only publication." : `The latest publication is version ${input.latest.number}.`;
+  const status = newest
+    ? `Version ${input.viewing.number}, published ${day(input.viewing.publishedAt)}, is the latest publication.`
+    : `You are looking at version ${input.viewing.number}, published ${day(input.viewing.publishedAt)}.${
+        input.latest === null ? "" : ` The latest publication is version ${input.latest.number}.`
+      }`;
   return {
     tone: "info",
-    text: `You are looking at version ${input.viewing.number}, published ${day(input.viewing.publishedAt)}. ${latestText} This view never changes when someone publishes again.`,
+    text: `${status} This view stays on that version and never changes when someone publishes again.`,
     links,
   };
 }
@@ -87,21 +93,5 @@ export function pinnedLinkBanner(input: { number: number; publishedAt: Date }): 
     tone: "info",
     text: `Pinned to version ${input.number}, published ${day(input.publishedAt)}. This link keeps showing it after newer publications.`,
     links: [],
-  };
-}
-
-export function draftBanner(input: {
-  artifactId: string;
-  kind: string;
-  revisionNumber: number;
-  draftSeq: number;
-  publishedSeq: number;
-}): ViewerBanner | undefined {
-  const editor = editorHref(input.artifactId, input.kind);
-  if (input.draftSeq <= input.publishedSeq || editor === null) return undefined;
-  return {
-    tone: "warning",
-    text: `You are looking at version ${input.revisionNumber}, the last publication. The design has unpublished draft changes that this view does not show.`,
-    links: [{ href: editor, label: "Continue editing the draft" }],
   };
 }
