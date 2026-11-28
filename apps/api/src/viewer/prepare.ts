@@ -1,4 +1,4 @@
-import { isSceneAnchor } from "@artiflow/domain/comment-anchors";
+import { isArtboardAnchor, isSceneAnchor, type ArtboardPointAnchor } from "@artiflow/domain/comment-anchors";
 import { viewerFor } from "@artiflow/domain/kinds";
 import type { Scene } from "@artiflow/domain/scene";
 
@@ -111,6 +111,48 @@ async function sessionLoad(
   return { loaded, access: seen.access };
 }
 
+const HIDDEN_LOCATOR = "(hidden)";
+
+async function redactUnreadableArtboardAnchors(
+  input: ViewerPreparation,
+  request: SessionRequest,
+  config: ViewerCommentsConfig,
+): Promise<ViewerCommentsConfig> {
+  const anchored = config.threads.filter((thread) => isArtboardAnchor(thread.anchor));
+  if (anchored.length === 0 || input.publishedScene === undefined) return config;
+  const scene = await input.publishedScene();
+  if (scene === null) return config;
+  const sourceOf = (anchor: ArtboardPointAnchor): string | null => {
+    const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
+    if (frame === undefined || frame.source === undefined) return null;
+    return frame.source.revisionId === anchor.revisionId ? frame.source.artifactId : null;
+  };
+  const readable = new Map<string, boolean>();
+  const canRead = async (sourceId: string): Promise<boolean> => {
+    const known = readable.get(sourceId);
+    if (known !== undefined) return known;
+    const found = (await commentDocument(input.db, request.viewerId, sourceId, "shared")) !== undefined;
+    readable.set(sourceId, found);
+    return found;
+  };
+  const hidden = await Promise.all(
+    anchored.map(async (thread) => {
+      const sourceId = sourceOf(thread.anchor as ArtboardPointAnchor);
+      return sourceId !== null && !(await canRead(sourceId)) ? thread.id : null;
+    }),
+  );
+  const hiddenIds = new Set(hidden.flatMap((id) => (id === null ? [] : [id])));
+  if (hiddenIds.size === 0) return config;
+  return {
+    ...config,
+    threads: config.threads.map((thread) =>
+      hiddenIds.has(thread.id)
+        ? { ...thread, anchor: { ...(thread.anchor as ArtboardPointAnchor), selector: "", textHint: HIDDEN_LOCATOR } }
+        : thread,
+    ),
+  };
+}
+
 async function sessionCommentsPlan(
   input: ViewerPreparation,
   request: SessionRequest,
@@ -141,8 +183,9 @@ async function sessionCommentsPlan(
       list: `/artifact/${artifactId}/comments`,
     },
   });
-  if (viewerFor(artifact.kind) === "scene") return { kind: "document", config };
-  return pagePlan(config, source, nonce);
+  const redacted = await redactUnreadableArtboardAnchors(input, request, config);
+  if (viewerFor(artifact.kind) === "scene") return { kind: "document", config: redacted };
+  return pagePlan(redacted, source, nonce);
 }
 
 async function publicCommentsPlan(input: ViewerPreparation, request: PublicRequest): Promise<ViewerCommentsPlan> {
