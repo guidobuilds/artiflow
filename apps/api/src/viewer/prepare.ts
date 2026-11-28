@@ -5,11 +5,18 @@ import type { Scene } from "@artiflow/domain/scene";
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import type { AppDb } from "../adapters/postgres/db/client.ts";
 import { viewerActionsAssets, viewerCommentsAssets } from "./assets.ts";
-import { bridgeNonce, bridgePins, viewerCommentsConfig, type ViewerCommentsConfig } from "./comments-data.ts";
+import {
+  bridgeNonce,
+  bridgePins,
+  designRequestNonce,
+  viewerCommentsConfig,
+  type ViewerCommentsConfig,
+} from "./comments-data.ts";
 import { loadViewerComments, type ViewerCommentLoad } from "./comments-degrade.ts";
 import { htmlBridgeScript } from "./html-bridge-script.ts";
 import {
   refreshPlan,
+  type DesignRequestShellConfig,
   type ViewerActions,
   type ViewerAudience,
   type ViewerChrome,
@@ -168,12 +175,27 @@ const refreshOf = (input: ViewerPreparation, commentsShown: boolean): ViewerRefr
     : { plan: refreshPlan(`/api/artifacts/${artifact.id}`), revisionNumber, sha256 };
 };
 
+const designRequestOf = (input: ViewerPreparation, canComment: boolean): DesignRequestShellConfig | undefined => {
+  const { artifact, request, embed } = input;
+  if (embed || request.kind === "public" || artifact.kind !== "canvas") return undefined;
+  if (artifact.revisionId === null || artifact.revisionId === "") return undefined;
+  return {
+    nonce: designRequestNonce(artifact.id, artifact.sha256),
+    canComment,
+    commentsEndpoint: `/api/artifacts/${artifact.id}/comments`,
+    expectedRevisionId: artifact.revisionId,
+    designId: artifact.id,
+    designTitle: artifact.title ?? "Design",
+  };
+};
+
 const modelOf = (
   input: ViewerPreparation,
   access: string | null,
   actions: ViewerActions,
   management: ViewerManagementPlan,
   comments: ViewerCommentsPlan,
+  designRequest?: DesignRequestShellConfig | undefined,
 ): ViewerModel => {
   const { artifact, request, embed } = input;
   const chrome = chromeOf(request, embed);
@@ -196,6 +218,7 @@ const modelOf = (
     management,
     comments,
     refresh: refreshOf(input, commentsShown),
+    ...(designRequest === undefined ? {} : { designRequest }),
   };
 };
 
@@ -204,7 +227,14 @@ async function prepareSession(input: ViewerPreparation, request: SessionRequest)
   const access = input.artifact.ownerId === request.viewerId ? "owner" : session.access;
   const management = managementOf(input, request, access);
   const comments = input.embed ? { kind: "none" as const } : await sessionCommentsPlan(input, request, session.loaded);
-  return modelOf(input, access, actionsOf(session.loaded), management, comments);
+  return modelOf(
+    input,
+    access,
+    actionsOf(session.loaded),
+    management,
+    comments,
+    designRequestOf(input, session.loaded.canComment),
+  );
 }
 
 async function preparePublic(input: ViewerPreparation, request: PublicRequest): Promise<ViewerModel> {

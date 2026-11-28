@@ -2,6 +2,7 @@ import { assetsHead, assetsScripts, type Assets } from "./assets.ts";
 import { artifactBar } from "./chrome/bar.ts";
 import { commentsHost, PANEL_CSS, shellCommentsClass } from "./chrome/panel.ts";
 import { escapeAttribute, escapeJsonText, THEME_BOOTSTRAP, VIEWER_CHROME_CSS } from "./chrome/theme.ts";
+import { DESIGN_REQUEST_STORAGE_KEY, designRequestShellScript } from "./design-request-shell.ts";
 import {
   bridgeComments,
   managementMenu,
@@ -9,6 +10,7 @@ import {
   type ViewerManagementMenu,
   type ViewerMeta,
   type ViewerModel,
+  type DesignRequestShellConfig,
   type ViewerRefresh,
   type WrapperComments,
 } from "./model.ts";
@@ -276,6 +278,7 @@ type ArtifactSlots = {
   readonly refresh: ViewerRefresh;
   readonly comments?: WrapperComments | undefined;
   readonly management?: ViewerManagementMenu | undefined;
+  readonly designRequest?: DesignRequestShellConfig | undefined;
 };
 
 const frameHeaders = (images: string | null | undefined): Record<string, string> =>
@@ -302,7 +305,12 @@ function artifactPage(slots: ArtifactSlots): ArtifactPage {
     management === undefined
       ? ""
       : `<script type="application/json" id="viewer-management-data">${escapeJsonText(JSON.stringify(management.config))}</script>`;
-  const payloads = [commentsData, managementData].filter((value) => value !== "");
+  const designRequest = slots.designRequest;
+  const designRequestData =
+    designRequest === undefined
+      ? ""
+      : `<script type="application/json" id="${DESIGN_REQUEST_STORAGE_KEY}">${escapeJsonText(JSON.stringify(designRequest))}</script>`;
+  const payloads = [commentsData, managementData, designRequestData].filter((value) => value !== "");
   const tail = payloads.length === 0 ? "" : `${payloads.join("\n")}\n${assetsScripts(...assets)}`;
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Artifact</title>
@@ -321,7 +329,7 @@ ${tail}
 <script>
 ${FOCUS_SCRIPT}
 ${viewerRefreshScript(slots.refresh)}
-</script></body></html>`;
+</script>${designRequest === undefined ? "" : `\n<script>\n${designRequestShellScript()}\n</script>`}</body></html>`;
   return { html, headers: frameHeaders(slots.images) };
 }
 
@@ -335,6 +343,7 @@ export const artifactView = (model: ViewerModel, frame: ArtifactFrame): Artifact
     refresh: model.refresh,
     comments: bridgeComments(model.comments),
     management: managementMenu(model.management),
+    designRequest: model.designRequest,
   });
 
 export const wrapperPage = (
