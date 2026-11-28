@@ -38,9 +38,11 @@ L0  Core (unique)          MCP tools + MCP Apps resource (ui://artiflow/artifact
                            + HTTP API + server-rendered viewers            [exists]
 L1  Shared knowledge       One SKILL.md authoring skill + AGENTS.md; identical content
                            everywhere; only the installer differs           [planned]
-L2  Viewer shell           Implemented once inside L0's resource: comments, sharing and
-                           version switching run via bridge-proxied tool calls; no cookies,
-                           no direct network (CSP connect-src 'none')       [partial]
+L2  Viewer shell           Implemented once inside L0's resource: html pages, canvas and deck
+                           scenes (rendered server-side and fetched with a proxied read),
+                           comments, sharing and version switching via bridge-proxied tool
+                           calls; no cookies, no direct network except the instance's own
+                           image origin                                   [partial]
 L3  Per-harness adapters   Stateless glue + packaging. Never reimplement validation or
                            domain logic; every adapter calls L0 and passes the instance URL
                            in configuration                                  [this roadmap]

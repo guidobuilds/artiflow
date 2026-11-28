@@ -14,7 +14,28 @@ export const viewerScriptMap = (capabilities: ViewerCapabilities): string =>
 export const VIEWER_DOCUMENT_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-src 'self'; base-uri 'none'; form-action 'none'";
 
-export const mcpAppsViewerHtml = (capabilities: ViewerCapabilities = KIND_CAPABILITIES): string => `<!DOCTYPE html>
+export type ViewerOptions = { imageOrigin?: string };
+
+const CSP_SAFE_ORIGIN = /^https?:\/\/[a-z0-9._:\-[\]]+$/i;
+
+export const viewerImageOrigin = (value: string | undefined): string | null => {
+  if (value === undefined) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return CSP_SAFE_ORIGIN.test(url.origin) ? url.origin : null;
+  } catch {
+    return null;
+  }
+};
+
+export const SCENE_DOCUMENT_CSP = (imageOrigin?: string): string =>
+  `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src ${viewerImageOrigin(imageOrigin) ?? "'none'"}; base-uri 'none'; form-action 'none'`;
+
+export const mcpAppsViewerHtml = (
+  capabilities: ViewerCapabilities = KIND_CAPABILITIES,
+  options: ViewerOptions = {},
+): string => `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -39,6 +60,7 @@ var statusEl = document.getElementById("status");
 var textEl = document.getElementById("text");
 var frameEl = document.getElementById("frame");
 var DOCUMENT_CSP = "${VIEWER_DOCUMENT_CSP}";
+var SCENE_DOCUMENT_CSP = "${SCENE_DOCUMENT_CSP(options.imageOrigin)}";
 var HOST_TOOL_CALL_CAP_MS = 4 * 60 * 1000;
 var REQUEST_TIMEOUT_MS = HOST_TOOL_CALL_CAP_MS - 60 * 1000;
 var loadSeq = 0;
@@ -129,14 +151,18 @@ function metadataOf(params) {
 }
 
 function showHtml(html) {
+  showDocument(html, DOCUMENT_CSP);
+}
+
+function showDocument(html, policy) {
   textEl.hidden = true;
   frameEl.hidden = false;
-  currentBlobUrl = URL.createObjectURL(new Blob([withCspAfterDoctype(html)], { type: "text/html" }));
+  currentBlobUrl = URL.createObjectURL(new Blob([withCspAfterDoctype(html, policy)], { type: "text/html" }));
   frameEl.src = currentBlobUrl;
 }
 
-function withCspAfterDoctype(html) {
-  var meta = '<meta http-equiv="Content-Security-Policy" content="' + DOCUMENT_CSP + '">';
+function withCspAfterDoctype(html, policy) {
+  var meta = '<meta http-equiv="Content-Security-Policy" content="' + policy + '">';
   var doctype = html.slice(0, 200).toLowerCase().indexOf("<!doctype");
   var close = doctype === -1 ? -1 : html.indexOf(">", doctype);
   if (close === -1) return meta + html;
@@ -147,6 +173,10 @@ var KIND_VIEWERS = ${viewerScriptMap(capabilities)};
 
 function viewerIsSandboxedDocument(kind) {
   return KIND_VIEWERS[kind] === "sandboxed-html";
+}
+
+function viewerRendersScene(kind) {
+  return KIND_VIEWERS[kind] === "scene";
 }
 
 function showText(text) {
@@ -164,6 +194,32 @@ function showPayload(payload) {
   statusEl.hidden = true;
 }
 
+function toolPayload(result) {
+  var payload = result && result.structuredContent;
+  if (payload && typeof payload === "object") return payload;
+  try {
+    var parsed = JSON.parse(result && result.content && result.content[0] && result.content[0].text);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function loadSceneDocument(artifactId) {
+  var result = await sendRequest("tools/call", { name: "artifact_get_scene", arguments: { artifactId: artifactId } });
+  if (result && result.isError) {
+    setStatus("The scene could not be read: " + JSON.stringify(result.content) + canonicalHint(), true);
+    return null;
+  }
+  var payload = toolPayload(result);
+  var html = payload === null ? null : payload.documentHtml;
+  if (typeof html !== "string" || html === "") {
+    setStatus("The scene response carried no document." + canonicalHint(), true);
+    return null;
+  }
+  return html;
+}
+
 async function loadArtifact(artifactId, revisionId) {
   var seq = loadSeq;
   currentArtifactId = artifactId;
@@ -175,14 +231,19 @@ async function loadArtifact(artifactId, revisionId) {
     });
     if (seq !== loadSeq) return;
     if (result && result.isError) { setStatus("The artifact could not be read: " + JSON.stringify(result.content) + canonicalHint(), true); return; }
-    var payload = result && result.structuredContent;
-    if (!payload) {
-      try { payload = JSON.parse(result && result.content && result.content[0] && result.content[0].text); }
-      catch (error) { payload = null; }
-    }
+    var payload = toolPayload(result);
     if (!payload) { setStatus("The artifact response was empty." + canonicalHint(), true); return; }
-    showPayload(payload);
-    if (payload && typeof payload.sha256 === "string") renderedSha256 = payload.sha256;
+    if (viewerRendersScene(payload.kind)) {
+      var documentHtml = await loadSceneDocument(artifactId);
+      if (seq !== loadSeq) return;
+      if (documentHtml === null) return;
+      showDocument(documentHtml, SCENE_DOCUMENT_CSP);
+      setStatus("");
+      statusEl.hidden = true;
+    } else {
+      showPayload(payload);
+    }
+    if (typeof payload.sha256 === "string") renderedSha256 = payload.sha256;
   } catch (error) {
     if (seq !== loadSeq) return;
     setStatus("The artifact could not be loaded: " + (error && error.message ? error.message : error) + canonicalHint(), true);

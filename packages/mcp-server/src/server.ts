@@ -95,9 +95,14 @@ function decodeBase64(value: string): Uint8Array | undefined {
   return bytes.length > 0 ? bytes : undefined;
 }
 
+export type SceneDocumentInput = { artifactId: string; kind: string; scene: Scene };
+
+export type SceneDocumentRender = (input: SceneDocumentInput) => Promise<string>;
+
 export type ArtifactToolOptions = {
   backend: McpBackend;
   viewerHtml: () => string;
+  sceneDocument?: SceneDocumentRender;
   requireScope?: string;
   readScope?: string;
 };
@@ -1000,6 +1005,33 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         const outcome = await sceneOutlineOf(backend, { artifactId, ownerId: access.userId });
         if (!outcome.ok) return sceneRefusalOf(outcome.refusal);
         return reply(outcome.value);
+      },
+    );
+    server.registerTool(
+      "artifact_get_scene",
+      {
+        title: "Render a canvas or deck for the host viewer",
+        annotations: { readOnlyHint: true },
+        description: `Render one owned canvas or deck's current draft as a complete HTML document, the same document the instance's own viewer serves: a canvas arrives as one surface with its frames, a frame index and a fit control, a deck as one slide at a time with back, forward and the slide list, so a host draws the design instead of the scene JSON. Requires ${readScope}. The document names a single image origin, the instance's own, and an image the artifact does not own draws as a placeholder, so nothing else is ever fetched. Read it with artifact_get when the bytes matter; any artifact kind that is not a canvas or a deck refuses with wrong_kind.`,
+        inputSchema: { artifactId: documentIdSchema },
+      },
+      async ({ artifactId }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const render = options.sceneDocument;
+        if (render === undefined) return refusal("unavailable", "scene_document_renderer_unavailable", { artifactId });
+        const loaded = await loadScene(backend, access.userId, artifactId);
+        if (!loaded.ok) return sceneRefusalOf(loaded.refusal);
+        return reply({
+          artifactId,
+          revisionId: loaded.value.revisionId,
+          kind: loaded.value.kind,
+          documentHtml: await render({
+            artifactId,
+            kind: loaded.value.kind,
+            scene: loaded.value.scene,
+          }),
+        });
       },
     );
     server.registerTool(

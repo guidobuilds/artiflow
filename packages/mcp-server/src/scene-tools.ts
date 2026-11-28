@@ -136,7 +136,7 @@ export type SceneOutcome<T> = { ok: true; value: T } | { ok: false; refusal: Sce
 
 export type SceneToolPorts = Pick<McpBackend, "selectReadRevision" | "documentDraft" | "sceneApply">;
 
-export type LoadedScene = { revisionId: string; seq: number; scene: Scene };
+export type LoadedScene = { revisionId: string; kind: string; seq: number; scene: Scene };
 
 type SceneFailure = {
   kind: string;
@@ -189,7 +189,7 @@ export async function loadScene(
       ok: false,
       refusal: { error: "invalid_scene", message: parsed.reason, artifactId, path: parsed.path },
     };
-  return { ok: true, value: { revisionId: row.id, seq: draft.value.seq, scene: parsed.value } };
+  return { ok: true, value: { revisionId: row.id, kind: row.kind, seq: draft.value.seq, scene: parsed.value } };
 }
 
 export async function sceneCurrentOf(
