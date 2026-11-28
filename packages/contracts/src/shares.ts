@@ -21,6 +21,9 @@ export const linkRowSchema = z.object({
   createdAt: z.string(),
   revokedAt: z.string().nullable(),
   showComments: z.boolean().optional(),
+  pinnedRevisionId: z.string().nullable().optional(),
+  pinnedRevisionNumber: z.number().int().positive().nullable().optional(),
+  pinnedPublishedAt: z.string().nullable().optional(),
 });
 export type LinkRow = z.infer<typeof linkRowSchema>;
 
@@ -32,7 +35,14 @@ export const linkRevealSchema = z.object({
   url: z.string(),
   token: z.string(),
   showComments: z.boolean().optional(),
+  pinnedRevisionId: z.string().nullable().optional(),
+  pinnedRevisionNumber: z.number().int().positive().nullable().optional(),
 });
+
+export const createLinkRequestSchema = z.object({
+  pinnedRevisionId: z.string().min(1).nullable().optional(),
+});
+export type CreateLinkRequest = z.infer<typeof createLinkRequestSchema>;
 export type LinkReveal = z.infer<typeof linkRevealSchema>;
 
 export const linkCommentsResponseSchema = z.object({ comments: z.array(commentThreadSchema) });

@@ -253,6 +253,7 @@ export const artifactPublicLinks = pgTable(
       onDelete: "set null",
     }),
     showComments: boolean("showComments").notNull().default(false),
+    pinnedRevisionId: text("pinnedRevisionId").references(() => artifactRevisions.id, { onDelete: "cascade" }),
     createdAt: date("createdAt").notNull().defaultNow(),
   },
   (table) => [

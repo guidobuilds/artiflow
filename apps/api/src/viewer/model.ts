@@ -55,6 +55,32 @@ export type ViewerManagementPlan =
 
 export type ViewerManagementMenu = { readonly config: ViewerManagementConfig; readonly assets: Assets };
 
+export type ViewerBannerLink = { readonly href: string; readonly label: string };
+
+export type ViewerBanner = {
+  readonly tone: "info" | "warning";
+  readonly text: string;
+  readonly links: readonly ViewerBannerLink[];
+};
+
+export type ViewerVersion = {
+  readonly id: string;
+  readonly number: number;
+  readonly publishedAt: string;
+  readonly href: string;
+  readonly compareHref: string | null;
+  readonly latest: boolean;
+};
+
+export type ViewerVersions = {
+  readonly artifactId: string;
+  readonly rows: readonly ViewerVersion[];
+  readonly hidden: number;
+  readonly viewingId: string | null;
+  readonly canRestore: boolean;
+  readonly expectedRevisionId: string;
+};
+
 export type ViewerRevision = { readonly id: string | null; readonly number: number; readonly sha256: string };
 
 export type ViewerCommentBridge = { readonly nonce: string; readonly script: string };
@@ -95,6 +121,8 @@ export type ViewerModel = {
   readonly comments: ViewerCommentsPlan;
   readonly refresh: ViewerRefresh;
   readonly designRequest?: DesignRequestShellConfig | undefined;
+  readonly banner?: ViewerBanner | undefined;
+  readonly versions?: ViewerVersions | undefined;
 };
 
 export const commentThreads = (plan: ViewerCommentsPlan): readonly ViewerCommentThread[] =>

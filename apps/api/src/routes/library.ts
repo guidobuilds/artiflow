@@ -11,6 +11,7 @@ import {
   artifactShares,
   MAX_ARTIFACT_BYTES,
 } from "../adapters/postgres/db/artifact-schema.ts";
+import { revisionHistory, revisionRow, type RevisionRow } from "../domain/revisions.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { deleteArtifact, type DeletionWiring } from "../domain/deletion.ts";
 import { renameArtifact } from "../domain/commits.ts";
@@ -25,19 +26,34 @@ import type {
   SharedArtifactListResponse,
 } from "@artiflow/contracts/artifacts";
 import { originOf } from "../viewer/artifact.ts";
-import { NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
+import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
 import { commentConfig, commentThreads } from "../viewer/model.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
 import { htmlView } from "../viewer/views/html.ts";
 import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.ts";
-import { renderViewOf, sceneView, type SceneImages } from "../viewer/views/scene.ts";
+import {
+  CANVAS_RENDER_VIEW,
+  renderSceneDocument,
+  renderViewOf,
+  sceneView,
+  type SceneImages,
+} from "../viewer/views/scene.ts";
+import { compareView, comparisonUnavailablePage } from "../viewer/views/compare.ts";
+import { pinnedRevisionBanner, versionsOf, VERSIONS_SHOWN } from "../viewer/revisions.ts";
+import { canEdit, documentFor } from "./editing.ts";
 import { resolveSceneArtboards } from "../viewer/artboards.ts";
 import { artboardDepsOf } from "./artboard-sources.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
-import { parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
+import { DEFAULT_ARTBOARD_VIEWPORT, parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
 import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
-import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
+import {
+  acceptsTextOperations,
+  rendersInlineMarkdown,
+  rendersScene,
+  viewerFor,
+  wireNameFor,
+} from "@artiflow/domain/kinds";
 import { cookieMutationGuard, isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
 import { readPrincipal } from "../http/principal.ts";
 
@@ -122,7 +138,7 @@ const methodNotAllowed = (c: Context) => jsonError(c, "method_not_allowed", 405)
 async function readableArtifact(db: AppDb, artifactId: string, userId: string) {
   return (
     await db
-      .select(columns)
+      .select({ ...columns, revisionCount })
       .from(artifacts)
       .leftJoin(artifactRevisions, eq(artifactRevisions.id, artifacts.currentRevisionId))
       .where(and(eq(artifacts.id, artifactId), readableArtifactPredicate(userId)))
@@ -206,42 +222,97 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     viewerId: string,
     embed: boolean,
     transport: "session" | "bearer",
+    requestedRevisionId?: string,
   ) => {
     const row = await readableArtifact(db, artifactId, viewerId);
     if (!row) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-    if (!row.storageKey || !row.sha256 || row.revisionNumber === null)
+    if (!row.storageKey || !row.sha256 || row.revisionNumber === null || row.revisionId === null)
       return c.json({ error: "no_current_revision" }, 409);
-    const artifact = { ...row, revisionNumber: row.revisionNumber, sha256: row.sha256 };
+    const currentId = row.revisionId;
+    const pinnedRow =
+      requestedRevisionId === undefined || requestedRevisionId === currentId
+        ? undefined
+        : await revisionRow(db, artifactId, requestedRevisionId);
+    if (requestedRevisionId !== undefined && requestedRevisionId !== currentId && pinnedRow === undefined)
+      return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const wantsHistory = pinnedRow !== undefined || row.revisionCount > 1;
+    const history = wantsHistory ? await revisionHistory(db, artifactId, VERSIONS_SHOWN + 1) : [];
+    const currentEntry = history.find((entry) => entry.id === currentId);
+    const current = {
+      id: currentId,
+      revisionNumber: currentEntry?.revisionNumber ?? row.revisionNumber,
+      publishedAt: currentEntry?.createdAt ?? row.updatedAt,
+    };
+    const shown =
+      pinnedRow === undefined
+        ? {
+            id: currentId,
+            revisionNumber: current.revisionNumber,
+            publishedAt: current.publishedAt,
+            sha256: row.sha256,
+            storageKey: row.storageKey,
+          }
+        : {
+            id: pinnedRow.id,
+            revisionNumber: pinnedRow.revisionNumber,
+            publishedAt: pinnedRow.createdAt,
+            sha256: pinnedRow.sha256,
+            storageKey: pinnedRow.storageKey,
+          };
+    const pinned = pinnedRow !== undefined;
+    const artifact = { ...row, revisionId: shown.id, revisionNumber: shown.revisionNumber, sha256: shown.sha256 };
     const request =
       transport === "bearer" ? ({ kind: "bearer", viewerId } as const) : ({ kind: "session", viewerId } as const);
     const read = await getRevisionBytes({
       storage,
-      storageKey: row.storageKey,
-      sha256: row.sha256,
+      storageKey: shown.storageKey,
+      sha256: shown.sha256,
       maxBytes,
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
+    const search = new URL(c.req.url).searchParams;
+    const frameId = search.get("frame");
+    const editor = pinned && transport === "session" ? await documentFor(db, viewerId, artifactId) : undefined;
+    const canEditRow = editor !== undefined && canEdit(editor);
+    const shownBanner =
+      embed || transport === "bearer" || !pinned ? undefined : pinnedRevisionBanner({
+        artifactId,
+        kind: row.kind,
+        viewing: { id: shown.id, number: shown.revisionNumber, publishedAt: shown.publishedAt },
+        latest: { id: current.id, number: current.revisionNumber },
+        canEdit: canEditRow,
+        frameId,
+      });
+    const versions =
+      embed || transport === "bearer"
+        ? undefined
+        : versionsOf({
+            artifactId,
+            currentRevisionId: current.id,
+            viewingRevisionId: shown.id,
+            rows: history,
+            frameId,
+            canRestore: canEditRow,
+          });
+    const shared = { db, artifact, request, embed, pinned, banner: shownBanner, versions };
     if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const model = await prepareViewer({ db, artifact, request, embed, source: decoded.text });
+      const model = await prepareViewer({ ...shared, source: decoded.text });
       const page = markdownView(model, renderMarkdownFragment(decoded.text));
       return c.html(page.html, 200, page.headers);
     }
     if (viewerFor(row.kind) === "scene") {
       const scene = readScene(new TextDecoder().decode(read.value.bytes));
       if (!scene.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const plan = planSceneView(scene.value, parseSceneLink(new URL(c.req.url).searchParams));
+      const plan = planSceneView(scene.value, parseSceneLink(search));
       const origin = originOf(c.req.url);
       const images: SceneImages | undefined =
         origin === null
           ? undefined
           : { origin, artifactId: row.id, digests: await sceneAssetDigests(db, row.id, scene.value) };
       const model = await prepareViewer({
-        db,
-        artifact,
-        request,
-        embed,
+        ...shared,
         source: null,
         publishedScene: async () => scene.value,
       });
@@ -260,12 +331,20 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       });
       return c.html(page.html, 200, page.headers);
     }
-    const model = await prepareViewer({ db, artifact, request, embed, source: null });
+    const model = await prepareViewer({ ...shared, source: null });
     const page = htmlView(model, new TextDecoder().decode(read.value.bytes));
     return c.html(page.html, 200, page.headers);
   };
 
+  const requestedRevision = (c: Context): { invalid: true } | { invalid: false; id: string | undefined } => {
+    const value = c.req.query("revision");
+    if (value === undefined || value === "") return { invalid: false, id: undefined };
+    return isUuid(value) ? { invalid: false, id: value } : { invalid: true };
+  };
+
   app.get("/artifact/:id", async (c) => {
+    const revision = requestedRevision(c);
+    if (revision.invalid) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
     if (c.req.raw.headers.has("authorization")) {
       if (!options.bearerVerifier) return c.json({ error: "unauthorized" }, 401);
       return options.bearerVerifier(c.req.raw, (_request, claims) => {
@@ -277,12 +356,105 @@ export function createLibraryApp(options: LibraryOptions): Hono {
           c.header("www-authenticate", 'Bearer error="insufficient_scope", scope="artifacts:read"');
           return c.json({ error: "insufficient_scope" }, 401);
         }
-        return viewerPage(c, c.req.param("id"), claims.userId, c.req.query("embed") === "1", "bearer");
+        return viewerPage(c, c.req.param("id"), claims.userId, c.req.query("embed") === "1", "bearer", revision.id);
       });
     }
     const viewerId = await sessionUserId(auth, c.req.raw.headers);
     if (!viewerId) return c.json({ error: "unauthorized" }, 401);
-    return viewerPage(c, c.req.param("id"), viewerId, c.req.query("embed") === "1", "session");
+    return viewerPage(c, c.req.param("id"), viewerId, c.req.query("embed") === "1", "session", revision.id);
+  });
+
+  app.get("/artifact/:id/compare", async (c) => {
+    const viewerId = await sessionUserId(auth, c.req.raw.headers);
+    if (!viewerId) return c.json({ error: "unauthorized" }, 401);
+    const artifactId = c.req.param("id");
+    const row = await readableArtifact(db, artifactId, viewerId);
+    if (!row) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    if (!rendersScene(row.kind)) return c.html(comparisonUnavailablePage(), 409, NOT_FOUND_HEADERS);
+    const from = c.req.query("from") ?? "";
+    const to = c.req.query("to") ?? "";
+    if (!isUuid(from) || !isUuid(to)) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const [before, after] = await Promise.all([revisionRow(db, artifactId, from), revisionRow(db, artifactId, to)]);
+    if (before === undefined || after === undefined) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const sceneOf = async (revision: RevisionRow): Promise<Scene | null> => {
+      const read = await getRevisionBytes({
+        storage,
+        storageKey: revision.storageKey,
+        sha256: revision.sha256,
+        maxBytes,
+      });
+      if (!read.ok) return null;
+      const parsed = readScene(new TextDecoder().decode(read.value.bytes));
+      return parsed.ok ? parsed.value : null;
+    };
+    const [beforeScene, afterScene] = await Promise.all([sceneOf(before), sceneOf(after)]);
+    if (beforeScene === null || afterScene === null) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const asked = c.req.query("frame");
+    const requested = asked === undefined || asked === "" ? null : asked;
+    const hasFrame = (scene: Scene): boolean =>
+      requested !== null && scene.frames.some((entry) => entry.id === requested);
+    if (requested !== null && !(hasFrame(beforeScene) && hasFrame(afterScene)))
+      return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const frameOf = (scene: Scene): string | null => {
+      if (requested !== null) return requested;
+      const first = scene.frames[0]?.id ?? null;
+      return first !== null && afterScene.frames.some((entry) => entry.id === first) ? first : null;
+    };
+    const origin = originOf(c.req.url);
+    const sideOf = async (scene: Scene, revision: RevisionRow, label: "A" | "B") => {
+      const frameId = frameOf(scene);
+      const images: SceneImages | undefined =
+        origin === null
+          ? undefined
+          : { origin, artifactId, digests: await sceneAssetDigests(db, artifactId, scene) };
+      const artboards = await resolveSceneArtboards(
+        scene,
+        viewerId,
+        artboardDepsOf({ db, storage, viewerId, origin, maxBytes }),
+      );
+      return {
+        label,
+        number: revision.revisionNumber,
+        publishedAt: revision.createdAt.toISOString(),
+        srcdoc: escapeAttribute(
+          renderSceneDocument(
+            scene,
+            frameId ?? undefined,
+            images,
+            [],
+            row.kind,
+            artboards,
+            frameId === null ? CANVAS_RENDER_VIEW : { kind: "focus", width: DEFAULT_ARTBOARD_VIEWPORT },
+          ),
+        ),
+      };
+    };
+    const [sideA, sideB] = await Promise.all([sideOf(beforeScene, before, "A"), sideOf(afterScene, after, "B")]);
+    const frameName =
+      requested !== null
+        ? (beforeScene.frames.find((entry) => entry.id === requested)?.name ?? requested)
+        : (beforeScene.frames[0]?.name ?? null);
+    const model = await prepareViewer({
+      db,
+      artifact: { ...row, revisionId: after.id, revisionNumber: after.revisionNumber, sha256: after.sha256 },
+      request: { kind: "session", viewerId },
+      embed: false,
+      source: null,
+      pinned: true,
+      banner: {
+        tone: "info",
+        text: `A is version ${before.revisionNumber} and B is version ${after.revisionNumber}. Each side stays on its own publication.`,
+        links: [
+          { href: `/artifact/${encodeURIComponent(artifactId)}`, label: "Back to the latest version" },
+          {
+            href: `/artifact/${encodeURIComponent(artifactId)}?revision=${encodeURIComponent(from)}`,
+            label: `Open version ${before.revisionNumber}`,
+          },
+        ],
+      },
+    });
+    const page = compareView(model, { frameName, sides: [sideA, sideB], images: origin ?? undefined });
+    return c.html(page.html, 200, { ...page.headers, "x-robots-tag": "noindex" });
   });
 
   app.get("/artifact/:id/comments", async (c) => {

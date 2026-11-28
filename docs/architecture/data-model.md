@@ -143,10 +143,13 @@ grant is refused before insert.
 | `showComments`  | boolean               | Off by default; the owner opts a link into read-only comments. |
 | `revokedAt`     | timestamptz nullable  | Revocation timestamp; row retained for provenance.             |
 | `rotatedFromId` | uuid nullable self-FK | Predecessor in a rotation chain.                               |
+| `pinnedRevisionId` | text nullable FK → artifactRevisions | When set, the link always serves that revision; `NULL` follows `artifacts.currentRevisionId`. Cascade with the revision. |
 | `createdAt`     | timestamptz           |                                                                |
 
 No expiry column: links live until revoked, by product decision. The raw token is
-never stored, logged or returned after creation.
+never stored, logged or returned after creation. A pinned link is resolved per request
+and returns 404 if the pinned revision is gone; it never falls back to the latest
+publication, so what a reader sees cannot change behind their back.
 
 ### `artifactComments`
 

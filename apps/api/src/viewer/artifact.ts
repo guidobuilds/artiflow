@@ -12,6 +12,8 @@ import {
   type ViewerModel,
   type DesignRequestShellConfig,
   type ViewerRefresh,
+  type ViewerBanner,
+  type ViewerVersions,
   type WrapperComments,
 } from "./model.ts";
 
@@ -94,10 +96,28 @@ button[data-control]:hover{background:var(--hover);color:var(--fg)}
 body.focus .vbar{display:none}
 body.focus .vbar-exit{display:block}`;
 
+export const NOTICE_CSS = `.vnotice{display:flex;flex:0 0 auto;flex-wrap:wrap;align-items:center;gap:4px 12px;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--bg-raised);color:var(--fg-muted);font:12.5px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+.vnotice-text{margin:0;flex:1 1 280px;min-width:0}
+.vnotice-link{color:var(--fg);text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--line-strong)}
+.vnotice-link:hover{text-decoration-color:currentColor}
+.vnotice-error{flex:1 1 100%;margin:0;color:#ff9a9a;font-size:12px}
+.vbar-versions{position:relative;display:flex;align-items:center;min-width:0}
+.vbar-versions summary{list-style:none;cursor:pointer;padding:5px 9px;border:1px solid var(--line-strong);border-radius:8px;color:var(--fg-muted);font:500 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif}
+.vbar-versions summary::-webkit-details-marker{display:none}
+.vbar-versions[open] summary,.vbar-versions summary:hover{color:var(--fg);background:var(--hover)}
+.vbar-versions ol{position:absolute;top:calc(100% + 6px);left:0;z-index:5;margin:0;padding:6px;min-width:280px;max-height:min(60vh,420px);overflow:auto;list-style:none;background:var(--bg-raised);border:1px solid var(--line-strong);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.4)}
+.vbar-versions li{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:6px;color:var(--fg-muted);font:12px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
+.vbar-versions li[data-current="true"]{color:var(--fg);font-weight:600;background:var(--hover)}
+.vbar-versions li a{color:inherit;text-decoration:none}
+.vbar-versions li a:hover{text-decoration:underline;text-underline-offset:3px}
+.vbar-versions .vbar-version-date{margin-left:auto;color:var(--fg-muted);font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace}
+.vbar-versions-note{margin:4px 8px 2px;color:var(--fg-muted);font-size:11px}`;
+
 const DOCUMENT_CSS = `${FOCUS_CSS}
 ${SHELL_CSS}
 ${PANEL_CSS}
-${FRAME_CSS}`;
+${FRAME_CSS}
+${NOTICE_CSS}`;
 
 const FOCUS_CONTROL = `<button type="button" title="Focus mode (F)" data-control="focus">Focus</button>`;
 
@@ -279,7 +299,39 @@ type ArtifactSlots = {
   readonly comments?: WrapperComments | undefined;
   readonly management?: ViewerManagementMenu | undefined;
   readonly designRequest?: DesignRequestShellConfig | undefined;
+  readonly banner?: ViewerBanner | undefined;
+  readonly versions?: ViewerVersions | undefined;
 };
+
+const isoDay = (value: string): string => (value.length >= 10 ? value.slice(0, 10) : value);
+
+function versionsOf(versions: ViewerVersions | undefined): string {
+  if (versions === undefined || versions.rows.length === 0) return "";
+  const restoreOf = (row: { id: string }): string =>
+    versions.canRestore && row.id !== versions.expectedRevisionId
+      ? `<span data-island="restore" data-artifact-id="${escapeAttribute(versions.artifactId)}" data-revision-id="${escapeAttribute(row.id)}" data-expected-revision-id="${escapeAttribute(versions.expectedRevisionId)}"></span>`
+      : "";
+  const rows = versions.rows
+    .map((row) => {
+      const compare =
+        row.id === versions.expectedRevisionId
+          ? ""
+          : `<a href="${escapeAttribute(row.compareHref ?? "")}" data-versions-compare>Compare</a>`;
+      return `<li data-current="${row.id === versions.viewingId ? "true" : "false"}"><a href="${escapeAttribute(row.href)}" data-versions-open>v${row.number}</a><span class="vbar-version-date">${escapeAttribute(isoDay(row.publishedAt))}</span>${compare}${restoreOf(row)}</li>`;
+    })
+    .join("");
+  const note =
+    versions.hidden > 0 ? `<p class="vbar-versions-note">Showing the ${versions.rows.length} most recent; ${versions.hidden} older versions are in the history.</p>` : "";
+  return `<details class="vbar-versions"><summary>Versions</summary><ol>${rows}</ol>${note}</details>`;
+}
+
+export function bannerMarkup(banner: ViewerBanner | undefined): string {
+  if (banner === undefined) return "";
+  const links = banner.links
+    .map((link) => `<a class="vnotice-link" href="${escapeAttribute(link.href)}">${escapeAttribute(link.label)}</a>`)
+    .join("");
+  return `<div class="vnotice" role="status" data-tone="${banner.tone}"><p class="vnotice-text">${escapeAttribute(banner.text)}</p>${links}</div>`;
+}
 
 const frameHeaders = (images: string | null | undefined): Record<string, string> =>
   images === undefined ? { ...VIEWER_HEADERS } : { ...sceneHeaders(images) };
@@ -295,6 +347,7 @@ function artifactPage(slots: ArtifactSlots): ArtifactPage {
     meta: slots.meta,
     control: FOCUS_CONTROL,
     management: management !== undefined,
+    versions: versionsOf(slots.versions),
   });
   const chrome = bar === "" ? "" : `${bar}\n${FOCUS_EXIT}`;
   const commentsData =
@@ -321,7 +374,7 @@ ${DOCUMENT_CSS}
 </style>
 ${assets.length === 0 ? "" : assetsHead(...assets)}</head>
 <body>${chrome}
-<div class="docshell${shellCommentsClass(comments !== undefined)}" id="docshell">
+${bannerMarkup(slots.banner)}<div class="docshell${shellCommentsClass(comments !== undefined)}" id="docshell">
 <iframe sandbox="${SANDBOX}" referrerpolicy="no-referrer" srcdoc="${slots.srcdoc}${bridge}"></iframe>
 ${commentsHost(comments !== undefined)}
 </div>
@@ -344,6 +397,8 @@ export const artifactView = (model: ViewerModel, frame: ArtifactFrame): Artifact
     comments: bridgeComments(model.comments),
     management: managementMenu(model.management),
     designRequest: model.designRequest,
+    banner: model.banner,
+    versions: model.versions,
   });
 
 export const wrapperPage = (
