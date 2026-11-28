@@ -273,14 +273,59 @@ test("a referenced page without a doctype still receives the policy before its c
   assert.ok(page.indexOf("content-security-policy") < page.indexOf("<h1>"));
 });
 
-test("a BOM, leading whitespace and a doctype keep the policy inside the head", () => {
+const POLICY_ELEMENT = '<meta http-equiv="content-security-policy"';
+
+const metaCount = (html: string): number => html.split(POLICY_ELEMENT).length - 1;
+
+test("a BOM and a leading doctype keep the policy right after the doctype and before any content", () => {
   const source = "\uFEFF\n  <!doctype html><html><head><title>t</title></head><body><h1>x</h1></body></html>";
   const page = withDocumentPolicy(source);
   assert.equal(page.startsWith("\uFEFF"), true, "the BOM stays first");
-  assert.ok(page.indexOf("<!doctype html>") < page.indexOf("content-security-policy"), "the doctype stays first");
-  assert.ok(page.indexOf("<head>") < page.indexOf("content-security-policy"), "the policy lands inside the head");
-  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<title>"), "the policy precedes other head content");
+  assert.equal(
+    page.startsWith("\uFEFF\n  <!doctype html><meta http-equiv=\"content-security-policy\""),
+    true,
+    "the doctype stays first and the policy follows it immediately",
+  );
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<html>"), "the policy precedes the document element");
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<head>"));
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<title>"));
   assert.match(page, /<body><h1>x<\/h1><\/body>/);
+});
+
+test("a page that copies the policy inside a comment still gets ours before its content", () => {
+  const source = `<h1>visible</h1><!-- ${POLICY_META} -->`;
+  const page = withDocumentPolicy(source);
+  assert.equal(page.startsWith(POLICY_ELEMENT), true, "the injection is ours, not a copy the page chose");
+  assert.ok(page.indexOf("default-src") < page.indexOf("<h1>"));
+  assert.equal(metaCount(page), 1, "one policy element: the copy inside the comment is inert text");
+  assert.equal(page.endsWith(source.slice(source.indexOf("<h1>"))), true, "the page content is untouched");
+});
+
+test("a script before the head never runs before the policy", () => {
+  const source = "<script>alert(1)</script><head><title>t</title></head><body><p>x</p></body>";
+  const page = withDocumentPolicy(source);
+  assert.equal(page.startsWith(POLICY_ELEMENT), true);
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<script>"), "no script precedes the policy");
+});
+
+test("an image with an error handler before the head never loads before the policy", () => {
+  const source = '<img src="https://collect.test/x" onerror="steal()"><head><title>t</title></head>';
+  const page = withDocumentPolicy(source);
+  assert.equal(page.startsWith(POLICY_ELEMENT), true);
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<img"), "no subresource precedes the policy");
+});
+
+test("a doctype that is not the first token does not push the policy after executable content", () => {
+  const source = "<script>alert(1)</script><!doctype html><p>x</p>";
+  const page = withDocumentPolicy(source);
+  assert.equal(page.startsWith(POLICY_ELEMENT), true);
+  assert.ok(page.indexOf("content-security-policy") < page.indexOf("<script>"));
+});
+
+test("the policy is injected exactly once into a document that does not carry it", () => {
+  const page = withDocumentPolicy("<h1>x</h1>");
+  assert.equal(metaCount(page), 1);
+  assert.equal(metaCount(withDocumentPolicy(page)), 2, "a second call injects a second policy, never zero");
 });
 
 test("a headless page with a doctype keeps the doctype first and the policy next", () => {
@@ -288,12 +333,6 @@ test("a headless page with a doctype keeps the doctype first and the policy next
   const page = withDocumentPolicy(source);
   assert.equal(page.startsWith("<!DOCTYPE html><meta http-equiv=\"content-security-policy\""), true);
   assert.match(page, /<\/h1>$/);
-});
-
-test("the policy is injected once, not twice", () => {
-  const once = withDocumentPolicy("<h1>x</h1>");
-  const twice = withDocumentPolicy(once);
-  assert.equal(twice, once);
 });
 
 test("only a scene with artboards allows frame-src data:, and only for its own frames", () => {
