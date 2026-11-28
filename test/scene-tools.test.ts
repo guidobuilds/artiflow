@@ -1225,3 +1225,127 @@ test("artifact_get_scene refuses bytes that are not a scene instead of drawing t
   const { callTool } = await connect(canvasWorkspace({ text: "<p>not a scene</p>" }).backend);
   refused(await callTool("artifact_get_scene", { artifactId: ARTIFACT }), "invalid_scene");
 });
+
+const SOURCE_PAGE = "0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11";
+const PINNED_REVISION = "8f0d9c2e-51a4-4cbb-9a0e-2f3c4d5e6f70";
+
+const artboardText = (): string =>
+  canvasText([
+    {
+      id: "board-a",
+      name: "Proposal A",
+      x: 0,
+      y: 0,
+      w: 390,
+      h: 640,
+      nodes: [],
+      source: { artifactId: SOURCE_PAGE, revisionId: PINNED_REVISION, mode: "fluid" },
+    },
+    {
+      id: "board-b",
+      name: "Proposal B",
+      x: 430,
+      y: 0,
+      w: 390,
+      h: 640,
+      nodes: [rectNode("b1")],
+    },
+  ]);
+
+test("scene_read reports the pinned revision and the state of an artboard", async () => {
+  const workspace = canvasWorkspace({ text: artboardText() });
+  const backend: McpBackend = {
+    ...workspace.backend,
+    artboardStates: async (_requesterId, refs) =>
+      refs.map((ref) => ({
+        artifactId: ref.artifactId,
+        revisionId: ref.revisionId,
+        status: "ready" as const,
+        revisionNumber: 3,
+        currentRevisionId: "c1b2a3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+        currentRevisionNumber: 5,
+      })),
+  };
+  const { callTool } = await connect(backend);
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "board-a" }));
+  const frame = read.frame as ToolPayload;
+  assert.deepEqual(frame.source, { artifactId: SOURCE_PAGE, revisionId: PINNED_REVISION, mode: "fluid" });
+  assert.deepEqual(frame.sourceState, {
+    artifactId: SOURCE_PAGE,
+    revisionId: PINNED_REVISION,
+    status: "ready",
+    revisionNumber: 3,
+    currentRevisionId: "c1b2a3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    currentRevisionNumber: 5,
+  });
+  assert.equal(frame.nodeCount, 0, "an artboard frame advertises no loose nodes");
+});
+
+test("scene_read reports an artboard it can no longer resolve instead of failing the read", async () => {
+  const workspace = canvasWorkspace({ text: artboardText() });
+  const backend: McpBackend = {
+    ...workspace.backend,
+    artboardStates: async (_requesterId, refs) =>
+      refs.map((ref) => ({
+        artifactId: ref.artifactId,
+        revisionId: ref.revisionId,
+        status: "unavailable" as const,
+        revisionNumber: null,
+        currentRevisionId: null,
+        currentRevisionNumber: null,
+      })),
+  };
+  const { callTool } = await connect(backend);
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "board-a" }));
+  const frame = read.frame as ToolPayload;
+  assert.equal((frame.sourceState as ToolPayload).status, "unavailable");
+  assert.equal((frame.sourceState as ToolPayload).revisionNumber, null);
+  assert.deepEqual(frame.source, { artifactId: SOURCE_PAGE, revisionId: PINNED_REVISION, mode: "fluid" });
+});
+
+test("scene_apply answers the absolute link that opens the Design", async () => {
+  const workspace = canvasWorkspace({ text: artboardText() });
+  const backend: McpBackend = {
+    ...workspace.backend,
+    artboardStates: async (_requesterId, refs) =>
+      refs.map((ref) => ({
+        artifactId: ref.artifactId,
+        revisionId: ref.revisionId,
+        status: "ready" as const,
+        revisionNumber: 3,
+        currentRevisionId: ref.revisionId,
+        currentRevisionNumber: 3,
+      })),
+  };
+  const { callTool } = await connect(backend, SCOPES, { publicOrigin: "https://artiflow.test" });
+  const before = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "board-b" }));
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: before.seq,
+      idempotencyKey: "artboard-link-1",
+      ops: [
+        {
+          op: "add_frame",
+          frame: {
+            id: "board-c",
+            name: "Proposal C",
+            x: 860,
+            y: 0,
+            w: 1280,
+            h: 800,
+            nodes: [],
+            source: { artifactId: SOURCE_PAGE, revisionId: PINNED_REVISION, mode: "fixed" },
+          },
+        },
+      ],
+    }),
+  );
+  assert.equal(applied.url, `https://artiflow.test/artifact/${ARTIFACT}`);
+  const created = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "board-c" }));
+  assert.deepEqual((created.frame as ToolPayload).source, {
+    artifactId: SOURCE_PAGE,
+    revisionId: PINNED_REVISION,
+    mode: "fixed",
+  });
+});

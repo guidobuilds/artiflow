@@ -95,7 +95,7 @@ function decodeBase64(value: string): Uint8Array | undefined {
   return bytes.length > 0 ? bytes : undefined;
 }
 
-export type SceneDocumentInput = { artifactId: string; kind: string; scene: Scene };
+export type SceneDocumentInput = { artifactId: string; kind: string; scene: Scene; userId: string };
 
 export type SceneDocumentRender = (input: SceneDocumentInput) => Promise<string>;
 
@@ -1039,6 +1039,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             artifactId,
             kind: loaded.value.kind,
             scene: loaded.value.scene,
+            userId: access.userId,
           }),
         });
       },
@@ -1068,6 +1069,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         outputSchema: {
           artifactId: z.string(),
           baseSeq: z.number().int(),
+          url: z.string().optional(),
           seq: z.number().int(),
           applied: z.number().int(),
           replayed: z.boolean(),
@@ -1100,7 +1102,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           },
         );
         if (!outcome.ok) return sceneRefusalOf(outcome.refusal);
-        const value = outcome.value;
+        const value = { ...outcome.value, ...viewerLink(input.artifactId) };
         return { content: [{ type: "text", text: JSON.stringify(value) }], structuredContent: value };
       },
     );

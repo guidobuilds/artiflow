@@ -8,12 +8,13 @@ import {
   readScene,
   sceneOutline,
   sceneSubtree,
+  type ArtboardSource,
   type Scene,
   type SceneNode,
   type SceneOutlineEntry,
 } from "@artiflow/domain/scene";
 import type { SceneNodeBox, SceneOperation, SceneViolation } from "@artiflow/domain/scene-operations";
-import type { McpBackend, McpDocumentAuthorKind } from "./ports.ts";
+import type { McpBackend, McpDocumentAuthorKind, McpArtboardState } from "./ports.ts";
 
 export const MAX_SCENE_READ_NODES = 200;
 export const MAX_SCENE_READ_BYTES = 65_536;
@@ -134,7 +135,10 @@ export type SceneRefusalBody = { error: string; message: string } & Record<strin
 
 export type SceneOutcome<T> = { ok: true; value: T } | { ok: false; refusal: SceneRefusalBody };
 
-export type SceneToolPorts = Pick<McpBackend, "selectReadRevision" | "documentDraft" | "sceneApply">;
+export type SceneToolPorts = Pick<
+  McpBackend,
+  "selectReadRevision" | "documentDraft" | "sceneApply" | "artboardStates"
+>;
 
 export type LoadedScene = { revisionId: string; kind: string; seq: number; scene: Scene };
 
@@ -258,6 +262,8 @@ export type SceneFrameRead = {
   bbox: SceneOutlineEntry["bbox"];
   nodeCount: number;
   nodes: SceneNode[];
+  source?: ArtboardSource;
+  sourceState?: McpArtboardState;
 };
 
 export type SceneReadValue =
@@ -325,6 +331,14 @@ export async function sceneReadOf(
   const nodes = frame.nodes.filter((node) => wanted === undefined || wanted.has(node.id));
   if (nodes.length > MAX_SCENE_READ_NODES)
     return { ok: false, refusal: sceneNodeCapRefusal(artifactId, nodes.length, input.frameId) };
+  const artboardState =
+    frame.source === undefined
+      ? undefined
+      : (
+          await ports.artboardStates(input.ownerId, [
+            { artifactId: frame.source.artifactId, revisionId: frame.source.revisionId },
+          ])
+        )[0];
   const projected = {
     id: frame.id,
     name: frame.name,
@@ -335,6 +349,8 @@ export async function sceneReadOf(
     bbox: entry.bbox,
     nodeCount: nodes.length,
     nodes,
+    ...(frame.source === undefined ? {} : { source: frame.source }),
+    ...(artboardState === undefined ? {} : { sourceState: artboardState }),
   };
   const observedBytes = new TextEncoder().encode(JSON.stringify(projected)).length;
   if (observedBytes > MAX_SCENE_READ_BYTES)

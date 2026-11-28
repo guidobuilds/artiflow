@@ -208,6 +208,17 @@ export class McpRollback<T> extends Error {
   }
 }
 
+export type McpArtboardRef = { artifactId: string; revisionId: string };
+
+export type McpArtboardState = {
+  artifactId: string;
+  revisionId: string;
+  status: "ready" | "unavailable" | "missing" | "not_html";
+  revisionNumber: number | null;
+  currentRevisionId: string | null;
+  currentRevisionNumber: number | null;
+};
+
 export type McpBackend = {
   caps: McpCaps;
   createUpload(input: McpCreateUploadInput): Promise<McpResult<McpUploadRow>>;
@@ -260,6 +271,7 @@ export type McpBackend = {
   documentApply(input: McpDocumentApplyInput): Promise<McpResult<McpDocumentApplied>>;
   documentPublish(ownerId: string, artifactId: string): Promise<McpResult<McpDocumentPublished>>;
   sceneApply(input: McpSceneApplyInput): Promise<McpResult<McpSceneApplied>>;
+  artboardStates(requesterId: string, refs: readonly McpArtboardRef[]): Promise<McpArtboardState[]>;
   uploadAsset(input: McpAssetUploadInput): Promise<McpResult<McpAssetStored>>;
 };
 
