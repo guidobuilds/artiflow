@@ -30,11 +30,12 @@ import { commentConfig, commentThreads } from "../viewer/model.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
 import { htmlView } from "../viewer/views/html.ts";
 import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.ts";
-import { sceneView, type SceneImages } from "../viewer/views/scene.ts";
+import { renderViewOf, sceneView, type SceneImages } from "../viewer/views/scene.ts";
 import { resolveSceneArtboards } from "../viewer/artboards.ts";
 import { artboardDepsOf } from "./artboard-sources.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
+import { parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
 import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
 import { acceptsTextOperations, rendersInlineMarkdown, viewerFor, wireNameFor } from "@artiflow/domain/kinds";
 import { cookieMutationGuard, isJsonContentType, isUuid, jsonError, sessionUserId } from "../http/index.ts";
@@ -230,7 +231,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (viewerFor(row.kind) === "scene") {
       const scene = readScene(new TextDecoder().decode(read.value.bytes));
       if (!scene.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const frame = c.req.query("frame");
+      const plan = planSceneView(scene.value, parseSceneLink(new URL(c.req.url).searchParams));
       const origin = originOf(c.req.url);
       const images: SceneImages | undefined =
         origin === null
@@ -246,7 +247,8 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       });
       const page = sceneView(model, {
         scene: scene.value,
-        frameId: frame,
+        frameId: plan.frameId ?? undefined,
+        view: renderViewOf(plan),
         images,
         threads: commentThreads(model.comments),
         kind: row.kind,

@@ -23,9 +23,10 @@ import { commentThreads } from "../viewer/model.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
 import { htmlView } from "../viewer/views/html.ts";
 import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.ts";
-import { sceneView } from "../viewer/views/scene.ts";
+import { renderViewOf, sceneView } from "../viewer/views/scene.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
+import { parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
 import { rendersInlineMarkdown, rendersScene, viewerFor } from "@artiflow/domain/kinds";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { ACTIVE_ACCOUNT_STATUS } from "../identity/account-status.ts";
@@ -513,9 +514,11 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
               token,
             };
       const model = await prepareViewer({ db, artifact, request, embed: false, source: null });
+      const plan = planSceneView(scene.value, parseSceneLink(new URL(c.req.url).searchParams));
       const page = sceneView(model, {
         scene: scene.value,
-        frameId: c.req.query("frame"),
+        frameId: plan.frameId ?? undefined,
+        view: renderViewOf(plan),
         images,
         threads: commentThreads(model.comments),
         kind: row.kind,

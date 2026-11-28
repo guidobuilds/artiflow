@@ -18,6 +18,7 @@
     "./markdown": "./src/markdown.ts",
     "./markdown-doc": "./src/markdown-doc.ts",
     "./scene": "./src/scene.ts",
+    "./scene-link": "./src/scene-link.ts",
     "./scene-operations": "./src/scene-operations.ts"
   },
   "scripts": {
