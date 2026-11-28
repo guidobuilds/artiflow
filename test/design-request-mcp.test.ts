@@ -21,6 +21,7 @@ const OWNER = "44444444-4444-4444-8444-444444444444";
 const DESIGN_REVISION = "55555555-5555-4555-8555-555555555555";
 const SOURCE_REVISION = "33333333-3333-4333-8333-333333333333";
 const OLD_REVISION = "77777777-7777-4777-8777-777777777777";
+const OTHER_REVISION = "66666666-6666-4666-8666-666666666666";
 
 const scene: Scene = {
   formatVersion: SCENE_FORMAT_VERSION,
@@ -81,7 +82,7 @@ const ROWS: McpCommentRow[] = [
   },
 ];
 
-function backendFor(source: SourceKind) {
+function backendFor(source: SourceKind, activeScene: Scene = scene) {
   const inserted: McpCommentInsert[] = [];
   let byteReads = 0;
   const backend = {
@@ -122,7 +123,7 @@ function backendFor(source: SourceKind) {
     }),
     documentDraft: async () => ({
       ok: true,
-      value: { artifactId: DESIGN, kind: "canvas", seq: 1, text: canonicalScene(scene) },
+      value: { artifactId: DESIGN, kind: "canvas", seq: 1, text: canonicalScene(activeScene) },
     }),
   } as unknown as McpBackend;
   return { backend, inserted, byteReads: () => byteReads };
@@ -149,8 +150,8 @@ const connect = async (
   return (name, args) => client.callTool({ name, arguments: args }) as Promise<ToolResult>;
 };
 
-const call = async (source: SourceKind, anchorValue: unknown = anchor) => {
-  const world = backendFor(source);
+const call = async (source: SourceKind, anchorValue: unknown = anchor, activeScene: Scene = scene) => {
+  const world = backendFor(source, activeScene);
   const callTool = await connect(world.backend);
   const result = await callTool("artifact_add_comment", {
     artifactId: DESIGN,
@@ -160,8 +161,8 @@ const call = async (source: SourceKind, anchorValue: unknown = anchor) => {
   return { result, world };
 };
 
-const list = async (source: SourceKind) => {
-  const world = backendFor(source);
+const list = async (source: SourceKind, activeScene: Scene = scene) => {
+  const world = backendFor(source, activeScene);
   const callTool = await connect(world.backend);
   const result = await callTool("artifact_list_comments", { artifactId: DESIGN });
   return { result, world };
@@ -246,5 +247,36 @@ test("the agent surface redacts an artboard locator from a caller who cannot rea
 
 test("an unreadable source that is not an HTML page is redacted as well", async () => {
   const { result } = await list("markdown");
+  assert.deepEqual(threadsOf(result)[0]?.anchor, { ...anchor, selector: "", textHint: "(hidden)" });
+});
+
+const repinnedScene: Scene = {
+  ...scene,
+  frames: [
+    {
+      ...scene.frames[0]!,
+      source: {
+        ...(scene.frames[0]!.source as { artifactId: string; revisionId: string; mode: "fixed" }),
+        revisionId: OTHER_REVISION,
+      },
+    },
+    scene.frames[1]!,
+  ],
+};
+
+const framelessScene: Scene = { ...scene, frames: [scene.frames[1]!] };
+
+test("the agent surface redacts a repinned frame without source access", async () => {
+  const { result } = await list(null, repinnedScene);
+  assert.deepEqual(threadsOf(result)[0]?.anchor, { ...anchor, selector: "", textHint: "(hidden)" });
+});
+
+test("the agent surface lists a repinned frame raw to a caller with source access", async () => {
+  const { result } = await list("html", repinnedScene);
+  assert.deepEqual(threadsOf(result)[0]?.anchor, anchor);
+});
+
+test("the agent surface redacts a frame that no longer exists even with source access", async () => {
+  const { result } = await list("html", framelessScene);
   assert.deepEqual(threadsOf(result)[0]?.anchor, { ...anchor, selector: "", textHint: "(hidden)" });
 });

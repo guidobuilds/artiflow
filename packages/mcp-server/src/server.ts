@@ -41,9 +41,11 @@ import {
   anchorKindAllowed,
   anchorText,
   artboardAnchorRefusal,
-  artboardAnchorSource,
+  artboardAnchorNeedsRedaction,
+  artboardAnchorSourceId,
   artboardSourceIsReadable,
   isArtboardAnchor,
+  pinnedArtboardAnchorSource,
   redactArtboardAnchor,
   isSceneAnchor,
   sceneAnchorIsOrphaned,
@@ -1248,7 +1250,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           const sources = new Set(
             rows.flatMap((row) => {
               const entry = row.anchor;
-              const sourceId = isArtboardAnchor(entry) ? artboardAnchorSource(scene, entry) : null;
+              const sourceId = isArtboardAnchor(entry) ? artboardAnchorSourceId(scene, entry) : null;
               return sourceId === null ? [] : [sourceId];
             }),
           );
@@ -1259,10 +1261,10 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             }),
           );
         }
+        const readableSource = (sourceId: string): boolean => readable.get(sourceId) === true;
         const redact = (anchor: unknown): unknown => {
-          if (scene === null || !isArtboardAnchor(anchor)) return anchor;
-          const sourceId = artboardAnchorSource(scene, anchor);
-          return sourceId !== null && readable.get(sourceId) !== true ? redactArtboardAnchor(anchor) : anchor;
+          if (!isArtboardAnchor(anchor)) return anchor;
+          return artboardAnchorNeedsRedaction(scene, anchor, readableSource) ? redactArtboardAnchor(anchor) : anchor;
         };
         return reply({
           comments: rows
@@ -1340,7 +1342,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
                 boardId: anchor.boardId,
                 revisionId: anchor.revisionId,
               });
-            const sourceId = artboardAnchorSource(loaded.value.scene, anchor);
+            const sourceId = pinnedArtboardAnchorSource(loaded.value.scene, anchor);
             if (sourceId === null) return refusal("unknown_source", "anchor_frame_has_no_artboard", { artifactId });
             const sourceDocument = await backend.commentDocument(client, access.userId, sourceId, "shared");
             if (!artboardSourceIsReadable(sourceDocument))

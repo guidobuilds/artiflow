@@ -259,6 +259,7 @@ const ROW = {
 
 async function listThreads(
   sourceAccess: "html" | "markdown" | null,
+  viewerScene: Scene = SCENE,
 ): Promise<{
   status: number;
   body: { canComment: boolean; comments: { anchor: unknown; body: string }[] };
@@ -293,7 +294,7 @@ async function listThreads(
       storage,
       publicOrigin: "https://app.test",
       principal: true,
-      documentStore: documents(SCENE),
+      documentStore: documents(viewerScene),
     }),
   );
   const response = await app.request(`/api/artifacts/${DESIGN_ID}/comments`, {
@@ -331,4 +332,28 @@ test("the comments route redacts the source locator from a viewer who cannot rea
 test("a source that is not an HTML page is treated as unreadable for the locator", async () => {
   const listed = await listThreads("markdown");
   assert.deepEqual(listed.body.comments[0]?.anchor, { ...ARTBOARD_ANCHOR, selector: "", textHint: "(hidden)" });
+});
+
+const repinnedScene: Scene = {
+  ...SCENE,
+  frames: [{ ...SCENE.frames[0]!, source: { ...SCENE.frames[0]!.source!, revisionId: OTHER_REVISION } }],
+};
+
+const framelessScene: Scene = { ...SCENE, frames: [] };
+
+test("a repinned frame without source access redacts the locator on the comments API too", async () => {
+  const listed = await listThreads(null, repinnedScene);
+  assert.deepEqual(listed.body.comments[0]?.anchor, { ...ARTBOARD_ANCHOR, selector: "", textHint: "(hidden)" });
+  assert.equal(listed.reads, 0, "redaction never reads the source bytes");
+});
+
+test("a repinned frame with source access lists the anchor raw", async () => {
+  const listed = await listThreads("html", repinnedScene);
+  assert.deepEqual(listed.body.comments[0]?.anchor, ARTBOARD_ANCHOR);
+});
+
+test("a frame that no longer exists redacts the locator even for a reader with source access", async () => {
+  const listed = await listThreads("html", framelessScene);
+  assert.deepEqual(listed.body.comments[0]?.anchor, { ...ARTBOARD_ANCHOR, selector: "", textHint: "(hidden)" });
+  assert.equal(listed.reads, 0, "an unresolvable frame never pays for a source read");
 });

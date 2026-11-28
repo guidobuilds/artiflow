@@ -15,6 +15,7 @@ const DESIGN_ID = "design-one";
 const VIEWER = "viewer-one";
 const SOURCE_ID = "22222222-2222-4222-8222-222222222222";
 const SOURCE_REVISION = "33333333-3333-4333-8333-333333333333";
+const OTHER_REVISION = "66666666-6666-4666-8666-666666666666";
 
 const SCENE: Scene = {
   formatVersion: SCENE_FORMAT_VERSION,
@@ -91,8 +92,11 @@ const queryBuilder = (results: readonly unknown[]) => {
   return { select: chain };
 };
 
-async function afterListing(sourceAccessible: boolean): Promise<{ canComment: boolean; threads: unknown[] }> {
-  const bytes = Buffer.from(canonicalScene(SCENE), "utf8");
+async function afterListing(
+  sourceAccessible: boolean,
+  viewerScene: Scene = SCENE,
+): Promise<{ canComment: boolean; threads: unknown[] }> {
+  const bytes = Buffer.from(canonicalScene(viewerScene), "utf8");
   const artifact = {
     id: DESIGN_ID,
     title: "Shared version picker",
@@ -154,4 +158,34 @@ test("a viewer without source access reads the thread but never the locator capt
 test("a viewer with source access reads the artboard anchor unchanged", async () => {
   const { threads } = await afterListing(true);
   assert.deepEqual((threads[0] as { anchor: unknown }).anchor, ANCHOR);
+});
+
+const repinned: Scene = {
+  ...SCENE,
+  frames: [{ ...SCENE.frames[0]!, source: { ...SCENE.frames[0]!.source!, revisionId: OTHER_REVISION } }],
+};
+
+const withoutFrame: Scene = { ...SCENE, frames: [] };
+
+test("a repinned frame without source access still redacts the locator", async () => {
+  const { threads } = await afterListing(false, repinned);
+  assert.deepEqual((threads[0] as { anchor: { selector: string; textHint: string } }).anchor, {
+    ...ANCHOR,
+    selector: "",
+    textHint: "(hidden)",
+  });
+});
+
+test("a repinned frame with source access may show the anchor raw", async () => {
+  const { threads } = await afterListing(true, repinned);
+  assert.deepEqual((threads[0] as { anchor: unknown }).anchor, ANCHOR);
+});
+
+test("a frame that no longer exists redacts the locator even for a reader with source access", async () => {
+  const { threads } = await afterListing(true, withoutFrame);
+  assert.deepEqual((threads[0] as { anchor: { selector: string } }).anchor, {
+    ...ANCHOR,
+    selector: "",
+    textHint: "(hidden)",
+  });
 });

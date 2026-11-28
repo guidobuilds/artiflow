@@ -15,7 +15,10 @@ import {
   anchorKindAllowed,
   anchorShapeIsValid,
   artboardAnchorIsOrphaned,
+  artboardAnchorNeedsRedaction,
   artboardAnchorRefusal,
+  artboardAnchorSourceId,
+  pinnedArtboardAnchorSource,
   isArtboardAnchor,
   isSceneAnchor,
   sceneAnchorIsOrphaned,
@@ -260,6 +263,56 @@ test("an artboard anchor names its frame, the pinned source revision and the sel
   assert.equal(anchorShapeIsValid(artboardPoint), true);
   assert.equal(anchorShapeIsValid({ ...artboardPoint, boardId: "" }), false);
   assert.equal(anchorShapeIsValid({ ...artboardPoint, selector: "", textHint: "" }), false);
+});
+
+test("the redaction rule fails closed when the anchor cannot name a readable source", () => {
+  const readable = () => true;
+  const unreadable = () => false;
+  assert.equal(artboardAnchorNeedsRedaction(null, artboardPoint, readable), true, "no scene means no proof");
+  assert.equal(
+    artboardAnchorNeedsRedaction({ ...artboardScene, frames: [] }, artboardPoint, readable),
+    true,
+    "a frame that no longer exists cannot prove the reader saw the source",
+  );
+  assert.equal(
+    artboardAnchorNeedsRedaction({ ...artboardScene, frames: [scene.frames[1]!] }, artboardPoint, readable),
+    true,
+    "a frame without an artboard cannot prove it either",
+  );
+  const repinned = {
+    ...artboardScene,
+    frames: [
+      { ...artboardScene.frames[0]!, source: { ...artboardScene.frames[0]!.source!, revisionId: "revision-9" } },
+    ],
+  };
+  assert.equal(
+    artboardAnchorNeedsRedaction(repinned, artboardPoint, unreadable),
+    true,
+    "a moved pin with an unreadable source is redacted",
+  );
+  assert.equal(
+    artboardAnchorNeedsRedaction(repinned, artboardPoint, readable),
+    false,
+    "a moved pin is not redacted from a reader who can read the source",
+  );
+  assert.equal(artboardAnchorNeedsRedaction(artboardScene, artboardPoint, readable), false);
+  assert.equal(artboardAnchorNeedsRedaction(artboardScene, artboardPoint, unreadable), true);
+});
+
+test("the unpinned resolver names the source the frame points at, and the pinned one still refuses a mismatch", () => {
+  assert.equal(artboardAnchorSourceId(artboardScene, artboardPoint), "artifact-source");
+  assert.equal(pinnedArtboardAnchorSource(artboardScene, artboardPoint), "artifact-source");
+  assert.equal(
+    pinnedArtboardAnchorSource(artboardScene, { ...artboardPoint, revisionId: "revision-9" }),
+    null,
+    "the validating resolver keeps refusing a revision the frame no longer pins",
+  );
+  assert.equal(
+    artboardAnchorSourceId(artboardScene, { ...artboardPoint, revisionId: "revision-9" }),
+    "artifact-source",
+    "the redaction resolver ignores the revision on purpose",
+  );
+  assert.equal(artboardAnchorSourceId(artboardScene, { ...artboardPoint, boardId: "frame-missing" }), null);
 });
 
 test("an artboard anchor resolves against the frame and the revision it pinned", () => {

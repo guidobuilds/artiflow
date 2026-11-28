@@ -64,11 +64,24 @@ export const HIDDEN_ARTBOARD_LOCATOR = "(hidden)";
 export const artboardSourceIsReadable = (source: { readonly kind: string } | null | undefined): boolean =>
   source !== null && source !== undefined && source.kind === "html";
 
-export function artboardAnchorSource(scene: Scene, anchor: ArtboardPointAnchor): string | null {
+export const artboardAnchorSourceId = (scene: Scene, anchor: ArtboardPointAnchor): string | null =>
+  scene.frames.find((candidate) => candidate.id === anchor.boardId)?.source?.artifactId ?? null;
+
+export function pinnedArtboardAnchorSource(scene: Scene, anchor: ArtboardPointAnchor): string | null {
   const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
   if (frame === undefined || frame.source === undefined) return null;
   return frame.source.revisionId === anchor.revisionId ? frame.source.artifactId : null;
 }
+
+export const artboardAnchorNeedsRedaction = (
+  scene: Scene | null,
+  anchor: ArtboardPointAnchor,
+  canReadSource: (sourceId: string) => boolean,
+): boolean => {
+  if (scene === null) return true;
+  const sourceId = artboardAnchorSourceId(scene, anchor);
+  return sourceId === null || !canReadSource(sourceId);
+};
 
 export const redactArtboardAnchor = (anchor: ArtboardPointAnchor): ArtboardPointAnchor => ({
   ...anchor,

@@ -29,7 +29,8 @@ import {
   anchorKindAllowed,
   anchorText,
   artboardAnchorRefusal,
-  artboardAnchorSource,
+  artboardAnchorNeedsRedaction,
+  artboardAnchorSourceId,
   artboardSourceIsReadable,
   isArtboardAnchor,
   isSceneAnchor,
@@ -93,7 +94,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
       const sources = new Set(
         rows.flatMap((row) => {
           const anchor = row.anchor;
-          const sourceId = isArtboardAnchor(anchor) ? artboardAnchorSource(scene, anchor) : null;
+          const sourceId = isArtboardAnchor(anchor) ? artboardAnchorSourceId(scene, anchor) : null;
           return sourceId === null ? [] : [sourceId];
         }),
       );
@@ -105,9 +106,9 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
       );
     }
     const anchorOf = (anchor: unknown): unknown => {
-      if (scene === null || !isArtboardAnchor(anchor)) return anchor;
-      const sourceId = artboardAnchorSource(scene, anchor);
-      return sourceId !== null && readable.get(sourceId) !== true ? redactArtboardAnchor(anchor) : anchor;
+      if (!isArtboardAnchor(anchor)) return anchor;
+      const readableSource = (sourceId: string): boolean => readable.get(sourceId) === true;
+      return artboardAnchorNeedsRedaction(scene, anchor, readableSource) ? redactArtboardAnchor(anchor) : anchor;
     };
     const serialize = (row: Row) => ({
       id: row.id,

@@ -1,5 +1,6 @@
 import {
-  artboardAnchorSource,
+  artboardAnchorNeedsRedaction,
+  artboardAnchorSourceId,
   artboardSourceIsReadable,
   isArtboardAnchor,
   isSceneAnchor,
@@ -126,22 +127,27 @@ async function redactUnreadableArtboardAnchors(
   const anchored = config.threads.filter((thread) => isArtboardAnchor(thread.anchor));
   if (anchored.length === 0 || input.publishedScene === undefined) return config;
   const scene = await input.publishedScene();
-  if (scene === null) return config;
   const readable = new Map<string, boolean>();
-  const canRead = async (sourceId: string): Promise<boolean> => {
-    const known = readable.get(sourceId);
-    if (known !== undefined) return known;
-    const found = artboardSourceIsReadable(await commentDocument(input.db, request.viewerId, sourceId, "shared"));
-    readable.set(sourceId, found);
-    return found;
-  };
-  const hidden = await Promise.all(
-    anchored.map(async (thread) => {
-      const sourceId = artboardAnchorSource(scene, thread.anchor as ArtboardPointAnchor);
-      return sourceId !== null && !(await canRead(sourceId)) ? thread.id : null;
-    }),
+  if (scene !== null) {
+    const sources = new Set(
+      anchored.flatMap((thread) => {
+        const sourceId = artboardAnchorSourceId(scene, thread.anchor as ArtboardPointAnchor);
+        return sourceId === null ? [] : [sourceId];
+      }),
+    );
+    await Promise.all(
+      [...sources].map(async (sourceId) => {
+        const found = artboardSourceIsReadable(await commentDocument(input.db, request.viewerId, sourceId, "shared"));
+        readable.set(sourceId, found);
+      }),
+    );
+  }
+  const readableSource = (sourceId: string): boolean => readable.get(sourceId) === true;
+  const hiddenIds = new Set(
+    anchored
+      .filter((thread) => artboardAnchorNeedsRedaction(scene, thread.anchor as ArtboardPointAnchor, readableSource))
+      .map((thread) => thread.id),
   );
-  const hiddenIds = new Set(hidden.flatMap((id) => (id === null ? [] : [id])));
   if (hiddenIds.size === 0) return config;
   return {
     ...config,
