@@ -551,3 +551,28 @@ test("Play exits to the overview where the person left the canvas", () => {
   assert.equal(run.tab("b").getAttribute("aria-current"), "true", "the screen that was played stays selected");
   assert.equal(run.shows("b"), false);
 });
+
+test("a fluid artboard in the canvas keeps the authored frame width", () => {
+  const wide = scene();
+  const first = wide.frames[0]!;
+  const html = renderSceneDocument(
+    { ...wide, frames: [{ ...first, w: 1440, h: 900 }] },
+    undefined,
+    undefined,
+    [],
+    "canvas",
+    artboards(),
+  );
+  assert.match(
+    frameTag(html, "a"),
+    /scene-frame-body[^>]*style="width:1440px;height:900px"/,
+    "the canvas host is the authored frame, not the preview viewport",
+  );
+});
+
+test("Back to canvas is offered only inside Focus", () => {
+  const html = renderSceneDocument(scene(), undefined, undefined, [], "canvas", artboards());
+  assert.match(html, /\.scene-artboard-back\{display:none\}/);
+  assert.match(html, /body\[data-scene-view="focus"\] \.scene-artboard-back\{display:inline-flex\}/);
+  assert.doesNotMatch(html, /body\[data-scene-view="canvas"\] \.scene-artboard-back/);
+});

@@ -242,7 +242,8 @@ const renderFrame = (
   const framed = view.kind !== "canvas";
   const revisionName = source === undefined ? "" : ` · ${revisionLabel(artboard?.kind === "ready" ? artboard.revisionNumber : null, source.revisionId)}`;
   const label = `${frame.name}, ${num(frame.w)} by ${num(frame.h)}${source === undefined ? "" : `, ${source.mode} artboard`}`;
-  const boxWidth = source === undefined ? frame.w : artboardWidthOf(frame, source, artboard, view);
+  const boxWidth =
+    source === undefined || view.kind === "canvas" ? frame.w : artboardWidthOf(frame, source, artboard, view);
   const styleOf = (width: string): string =>
     placement === null
       ? width === ""
@@ -329,7 +330,8 @@ body[data-scene-view="focus"] .scene-frame:not([data-scene-active="true"]),body[
 body[data-scene-view="focus"] .scene-frame-body,body[data-scene-view="play"] .scene-frame-body{box-shadow:none;border-radius:0}
 body[data-scene-view="focus"] .scene-artboard-frame,body[data-scene-view="play"] .scene-artboard-frame{pointer-events:auto}
 body[data-scene-view="focus"] .scene-artboard-enter,body[data-scene-view="play"] .scene-artboard-enter{display:none}
-body[data-scene-view="canvas"] .scene-artboard-back{display:none}
+.scene-artboard-back{display:none}
+body[data-scene-view="focus"] .scene-artboard-back{display:inline-flex}
 body[data-scene-view="play"] .scene-artboard-bar{display:none}
 .scene-play-exit{position:fixed;top:12px;right:12px;z-index:3;height:30px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#f4f4f2;font:500 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
 .scene-play-exit:hover{background:#2c2c2c}
