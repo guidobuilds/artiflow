@@ -162,102 +162,116 @@ function seed(): World {
   return world;
 }
 
-type Chain = {
-  from: (table: unknown) => Chain;
-  leftJoin: (table: unknown) => Chain;
-  innerJoin: (table: unknown) => Chain;
-  where: (expression: unknown) => Chain;
-  groupBy: () => Chain;
-  orderBy: () => Chain;
-  limit: () => Chain;
-  for: () => Chain;
-  then: (onFulfilled: (rows: unknown[]) => unknown, onRejected?: (error: unknown) => unknown) => Promise<unknown>;
-};
-
 const dialect = new PgDialect();
 
+class SelectChain<T> extends Promise<T> {
+  readonly joins = new Set<unknown>();
+  table: unknown = null;
+  compiled: { sql: string; params: unknown[] } = { sql: "", params: [] };
+  grouped = false;
+
+  from(table: unknown): this {
+    this.table = table;
+    return this;
+  }
+
+  leftJoin(table: unknown): this {
+    this.joins.add(table);
+    return this;
+  }
+
+  innerJoin(table: unknown): this {
+    this.joins.add(table);
+    return this;
+  }
+
+  where(expression: unknown): this {
+    this.compiled = dialect.sqlToQuery(expression as SQL);
+    return this;
+  }
+
+  groupBy(): this {
+    this.grouped = true;
+    return this;
+  }
+
+  orderBy(): this {
+    return this;
+  }
+
+  limit(): this {
+    return this;
+  }
+
+  for(): this {
+    return this;
+  }
+}
+
 function fakeDatabase(world: World): Database {
-  const select = (): Chain => {
-    let table: unknown = null;
-    const joins = new Set<unknown>();
-    let compiled: { sql: string; params: unknown[] } = { sql: "", params: [] };
-    let grouped = false;
-    const rows = (): unknown[] => {
-      if (table === artifacts && joins.has(artifactRevisions)) {
-        const artifactId = String(compiled.params[0]);
-        const ownerId = String(compiled.params[1]);
-        const artifact = world.artifacts.get(artifactId);
-        if (!artifact || artifact.ownerId !== ownerId) return [];
-        if (grouped)
-          return [
-            {
-              ...artifact,
-              revisionCount: world.revisions.filter((row) => row.artifactId === artifactId).length,
-            },
-          ];
-        const revision = world.revisions.find((row) => row.id === artifact.currentRevisionId);
+  const select = (): SelectChain<unknown[]> => {
+    let query!: SelectChain<unknown[]>;
+    query = new SelectChain<unknown[]>((resolve) => {
+      queueMicrotask(() => resolve(rows(query)));
+    });
+    return query;
+  };
+
+  const rows = (query: SelectChain<unknown[]>): unknown[] => {
+    if (query.table === artifacts && query.joins.has(artifactRevisions)) {
+      const artifactId = String(query.compiled.params[0]);
+      const ownerId = String(query.compiled.params[1]);
+      const artifact = world.artifacts.get(artifactId);
+      if (!artifact || artifact.ownerId !== ownerId) return [];
+      if (query.grouped)
         return [
           {
             ...artifact,
-            id: revision?.id ?? null,
-            revisionNumber: revision?.revision ?? null,
-            sha256: revision?.sha256 ?? null,
-            sizeBytes: revision?.sizeBytes ?? null,
-            storageKey: revision?.storageKey ?? null,
+            revisionCount: world.revisions.filter((row) => row.artifactId === artifactId).length,
           },
         ];
-      }
-      if (table === artifacts) {
-        const artifact = world.artifacts.get(String(compiled.params[0]));
-        return artifact ? [{ ...artifact }] : [];
-      }
-      if (table === artifactRevisions) {
-        if (compiled.sql.includes("count("))
-          return [{ count: world.revisions.filter((row) => row.artifactId === String(compiled.params[0])).length }];
-        if (compiled.sql.includes('"storageKey"'))
-          return world.revisions
-            .filter((row) => row.storageKey === String(compiled.params[0]))
-            .map((row) => ({ sha256: row.sha256 }));
-        return world.revisions.filter((row) => row.id === String(compiled.params[0]));
-      }
-      if (table === documentDrafts) {
-        const draft = world.drafts.get(String(compiled.params[0]));
-        return draft ? [{ ...draft }] : [];
-      }
-      if (table === documentOperations)
-        return world.operations.filter(
-          (row) => row.artifactId === String(compiled.params[0]) && row.idempotencyKey === String(compiled.params[1]),
-        );
-      return [];
-    };
-    const query: Chain = {
-      from: (next) => {
-        table = next;
-        return query;
-      },
-      leftJoin: (next) => {
-        joins.add(next);
-        return query;
-      },
-      innerJoin: (next) => {
-        joins.add(next);
-        return query;
-      },
-      where: (expression) => {
-        compiled = dialect.sqlToQuery(expression as SQL);
-        return query;
-      },
-      groupBy: () => {
-        grouped = true;
-        return query;
-      },
-      orderBy: () => query,
-      limit: () => query,
-      for: () => query,
-      then: (onFulfilled, onRejected) => Promise.resolve(rows()).then(onFulfilled, onRejected),
-    };
-    return query;
+      const revision = world.revisions.find((row) => row.id === artifact.currentRevisionId);
+      return [
+        {
+          ...artifact,
+          id: revision?.id ?? null,
+          revisionNumber: revision?.revision ?? null,
+          sha256: revision?.sha256 ?? null,
+          sizeBytes: revision?.sizeBytes ?? null,
+          storageKey: revision?.storageKey ?? null,
+        },
+      ];
+    }
+    if (query.table === artifacts) {
+      const artifact = world.artifacts.get(String(query.compiled.params[0]));
+      return artifact ? [{ ...artifact }] : [];
+    }
+    if (query.table === artifactRevisions) {
+      if (query.compiled.sql.includes("count("))
+        return [
+          {
+            count: world.revisions.filter((row) => row.artifactId === String(query.compiled.params[0])).length,
+          },
+        ];
+      if (query.compiled.sql.includes('"storageKey"'))
+        return world.revisions
+          .filter((row) => row.storageKey === String(query.compiled.params[0]))
+          .map((row) => ({ sha256: row.sha256 }));
+      return world.revisions.filter((row) => row.id === String(query.compiled.params[0]));
+    }
+    if (query.table === documentDrafts) {
+      const draft = world.drafts.get(String(query.compiled.params[0]));
+      return draft ? [{ ...draft }] : [];
+    }
+    if (query.table === documentOperations)
+      return world.operations.filter(
+        (row) =>
+          row.artifactId === String(query.compiled.params[0]) &&
+          row.idempotencyKey === String(query.compiled.params[1]),
+      );
+    return [];
   };
+
   const insert = (table: unknown) => ({
     values: (values: Record<string, unknown>) => {
       const chain = {
