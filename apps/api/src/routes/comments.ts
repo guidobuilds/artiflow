@@ -28,6 +28,8 @@ import {
   acceptsSceneAnchors,
   anchorKindAllowed,
   anchorText,
+  artboardAnchorRefusal,
+  isArtboardAnchor,
   isSceneAnchor,
   sceneAnchorIsOrphaned,
   sceneAnchorRefusal,
@@ -175,6 +177,18 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         const scene = await currentScene(doc.id);
         if (scene === null) return c.json({ error: "artifact_unavailable" }, 500);
         if (sceneAnchorRefusal(scene, anchor) !== null) return c.json({ error: "unknown_node" }, 400);
+      }
+      if (anchor !== null && isArtboardAnchor(anchor)) {
+        const scene = await currentScene(doc.id);
+        if (scene === null) return c.json({ error: "artifact_unavailable" }, 500);
+        const refusal = artboardAnchorRefusal(scene, anchor);
+        if (refusal !== null) return c.json({ error: refusal }, 400);
+        const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
+        const source = frame?.source;
+        if (source === undefined) return c.json({ error: "unknown_source" }, 400);
+        const sourceDocument = await commentDocument(client, userId, source.artifactId, "shared");
+        if (sourceDocument === undefined || sourceDocument.kind !== "html")
+          return c.json({ error: "source_unavailable" }, 403);
       }
       if (parentId === null) {
         const expectedRevisionId = typeof body.expectedRevisionId === "string" ? body.expectedRevisionId.trim() : "";

@@ -193,7 +193,14 @@ export const artifactShares = pgTable(
 );
 
 export { MAX_COMMENT_BODY, MAX_COMMENT_QUOTE };
-export const COMMENT_ANCHOR_KINDS = ["text-range", "element", "page-point", "board-point", "slide-point"] as const;
+export const COMMENT_ANCHOR_KINDS = [
+  "text-range",
+  "element",
+  "page-point",
+  "board-point",
+  "slide-point",
+  "artboard-point",
+] as const;
 export const artifactComments = pgTable(
   "artifactComments",
   {
@@ -220,7 +227,7 @@ export const artifactComments = pgTable(
     ),
     check(
       "artifactComments_anchor_kind_check",
-      sql`${sql.identifier("anchor")} is null or ${sql.identifier("anchor")} ->> 'kind' in ('text-range', 'element', 'page-point', 'board-point', 'slide-point')`,
+      sql`${sql.identifier("anchor")} is null or ${sql.identifier("anchor")} ->> 'kind' in ('text-range', 'element', 'page-point', 'board-point', 'slide-point', 'artboard-point')`,
     ),
     check(
       "artifactComments_body_cap_check",

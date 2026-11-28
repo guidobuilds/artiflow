@@ -148,6 +148,13 @@
       "when": 1795346225876,
       "tag": "0020_flaky_night_thrasher",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1795400000000,
+      "tag": "0021_artboard_anchor",
+      "breakpoints": true
     }
   ]
 }

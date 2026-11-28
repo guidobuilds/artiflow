@@ -14,9 +14,13 @@ import {
   anchorIsCurrent,
   anchorKindAllowed,
   anchorShapeIsValid,
+  artboardAnchorIsOrphaned,
+  artboardAnchorRefusal,
+  isArtboardAnchor,
   isSceneAnchor,
   sceneAnchorIsOrphaned,
   sceneAnchorRefusal,
+  type ArtboardPointAnchor,
   type BoardPointAnchor,
   type SlidePointAnchor,
 } from "@artiflow/domain/comment-anchors";
@@ -45,6 +49,41 @@ const slidePoint: SlidePointAnchor = {
   nodeId: "node-live",
   x: 0.5,
   y: 0.5,
+};
+const artboardPoint: ArtboardPointAnchor = {
+  kind: "artboard-point",
+  boardId: "frame-home",
+  revisionId: "revision-7",
+  selector: 'button[data-testid="cta"]',
+  textHint: "Start free",
+  x: 0.4,
+  y: 0.6,
+  viewportWidth: 1280,
+};
+const artboardScene: Scene = {
+  formatVersion: SCENE_FORMAT_VERSION,
+  frames: [
+    {
+      id: "frame-home",
+      name: "Home",
+      x: 0,
+      y: 0,
+      w: 400,
+      h: 300,
+      nodes: [],
+      source: { artifactId: "artifact-source", revisionId: "revision-7", mode: "fixed" },
+    },
+    {
+      id: "frame-away",
+      name: "Away",
+      x: 400,
+      y: 0,
+      w: 200,
+      h: 200,
+      nodes: [],
+      source: { artifactId: "artifact-other", revisionId: "revision-9", mode: "fluid" },
+    },
+  ],
 };
 const scene: Scene = {
   formatVersion: SCENE_FORMAT_VERSION,
@@ -76,9 +115,10 @@ const createIssues = (value: unknown): string[] =>
 const revisionId = "55555555-5555-4555-8555-555555555555";
 
 test("every anchor kind parses a well-formed instance", () => {
-  for (const anchor of [textRange, element, pagePoint, boardPoint, slidePoint])
+  for (const anchor of [textRange, element, pagePoint, boardPoint, slidePoint, artboardPoint])
     assert.deepEqual(anchorIssues(anchor), []);
   assert.deepEqual([...COMMENT_ANCHOR_KINDS].sort(), [
+    "artboard-point",
     "board-point",
     "element",
     "page-point",
@@ -152,13 +192,16 @@ test("create requests require an anchor and the revision on roots and refuse anc
 test("the registry maps document kinds to accepted anchor kinds", () => {
   assert.deepEqual(ANCHOR_KINDS_BY_DOCUMENT.markdown, ["text-range"]);
   assert.deepEqual(ANCHOR_KINDS_BY_DOCUMENT.html, ["element", "page-point"]);
-  assert.deepEqual(ANCHOR_KINDS_BY_DOCUMENT.canvas, ["board-point"]);
+  assert.deepEqual(ANCHOR_KINDS_BY_DOCUMENT.canvas, ["board-point", "artboard-point"]);
   assert.equal(anchorKindAllowed("markdown", "text-range"), true);
   assert.equal(anchorKindAllowed("markdown", "element"), false);
   assert.equal(anchorKindAllowed("html", "page-point"), true);
   assert.equal(anchorKindAllowed("html", "text-range"), false);
   assert.equal(anchorKindAllowed("canvas", "board-point"), true);
   assert.equal(anchorKindAllowed("canvas", "slide-point"), false, "a canvas names a node, not a slide");
+  assert.equal(anchorKindAllowed("canvas", "artboard-point"), true);
+  assert.equal(anchorKindAllowed("deck", "artboard-point"), false, "a deck holds slides, not live artboards");
+  assert.equal(anchorKindAllowed("html", "artboard-point"), false);
   assert.equal(anchorKindAllowed("pdf", "text-range"), false);
 });
 
@@ -199,12 +242,44 @@ test("a scene anchor resolves against the frame that holds its node", () => {
   assert.equal(sceneAnchorIsOrphaned(scene, null), false);
 });
 
-test("every anchor kind a canvas accepts is a scene anchor", () => {
-  for (const anchor of anchorKindsFor("canvas")) assert.equal(isSceneAnchor({ kind: anchor }), true);
+test("every anchor kind a canvas accepts names a scene node or a live artboard", () => {
+  for (const anchor of anchorKindsFor("canvas"))
+    assert.equal(
+      isSceneAnchor({ kind: anchor }) || isArtboardAnchor({ kind: anchor }),
+      true,
+      `${anchor} is a canvas anchor`,
+    );
+});
+
+test("an artboard anchor names its frame, the pinned source revision and the selection", () => {
+  assert.deepEqual(anchorIssues(artboardPoint), []);
+  assert.deepEqual(anchorIssues({ ...artboardPoint, selector: "", textHint: "" }), ["rejected"]);
+  assert.deepEqual(anchorIssues({ ...artboardPoint, x: 1.4 }), ["rejected"]);
+  assert.deepEqual(anchorIssues({ ...artboardPoint, viewportWidth: 0 }), ["rejected"]);
+  assert.deepEqual(anchorIssues({ ...artboardPoint, revisionId: undefined }), ["rejected"]);
+  assert.equal(anchorShapeIsValid(artboardPoint), true);
+  assert.equal(anchorShapeIsValid({ ...artboardPoint, boardId: "" }), false);
+  assert.equal(anchorShapeIsValid({ ...artboardPoint, selector: "", textHint: "" }), false);
+});
+
+test("an artboard anchor resolves against the frame and the revision it pinned", () => {
+  assert.equal(isArtboardAnchor(artboardPoint), true);
+  assert.equal(isArtboardAnchor(boardPoint), false);
+  assert.equal(isSceneAnchor(artboardPoint), false, "a live artboard is not a scene node");
+  assert.equal(artboardAnchorRefusal(artboardScene, artboardPoint), null);
+  assert.equal(artboardAnchorRefusal(artboardScene, { ...artboardPoint, boardId: "frame-missing" }), "unknown_frame");
+  assert.equal(
+    artboardAnchorRefusal(artboardScene, { ...artboardPoint, revisionId: "revision-8" }),
+    "revision_mismatch",
+    "a request pinned to another revision needs a new target",
+  );
+  assert.equal(artboardAnchorRefusal(scene, artboardPoint), "unknown_source", "a plain frame has no artboard");
+  assert.equal(artboardAnchorIsOrphaned(artboardScene, artboardPoint), false);
+  assert.equal(artboardAnchorIsOrphaned(artboardScene, { ...artboardPoint, revisionId: "revision-8" }), true);
 });
 
 test("shape validation accepts stored anchors and refuses junk", () => {
-  for (const anchor of [textRange, element, pagePoint, boardPoint, slidePoint])
+  for (const anchor of [textRange, element, pagePoint, boardPoint, slidePoint, artboardPoint])
     assert.equal(anchorShapeIsValid(anchor), true);
   assert.equal(anchorShapeIsValid(null), false);
   assert.equal(

@@ -59,7 +59,7 @@ export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
     plural: "Designs",
     icon: "canvas",
     viewer: "scene",
-    anchors: ["board-point"],
+    anchors: ["board-point", "artboard-point"],
     comments: true,
     agentWrite: "replace-document",
     titleSource: "frame-name",
