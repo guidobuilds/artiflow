@@ -62,6 +62,15 @@ survives a reader that does not know that property yet.
 From the dashboard, a canvas opens in an editor that speaks the same language as the viewer: one frame
 at a time, zoom to fit, drag to move, handles to resize, and a save that sends the sequence it read.
 
+The editor keeps the surface as large as the window allows. The top bar holds the artiflow mark (back to
+the library), the document name and its save state. The name opens the document menu: Share, Open in
+viewer, Reload from server and Delete. Over the surface float the frames chip (top left), the edit pill
+(bottom centre), the zoom (bottom right) and a `?` button (bottom left) that lists every shortcut. The chip
+expands into the frame list, with the active frame's layers and the canvas-level nodes under it. The pill
+adds text and rectangles and deletes the selection. With more than one node selected, it also shows the
+count and the front and back actions. The text inspector opens on the right only while a text node is
+selected.
+
 In the read-only viewer, one frame is visible at a time, scaled to fit. Move between frames with the arrow keys, page up and
 down, home and end, by clicking the frame index, or by opening `?frame=<frame-id>`. Wheel zooms
 around the pointer, space-drag or middle-drag pans, and Fit resets the view; zoom and pan belong to

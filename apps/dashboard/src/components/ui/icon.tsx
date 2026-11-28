@@ -151,6 +151,21 @@ const paths = {
     </>
   ),
   chat: <path d="M4 5h16v11H9l-5 4z" />,
+  text: <path d="M5 7V5h14v2M12 5v14M9 19h6" />,
+  rect: <rect x="4" y="6" width="16" height="12" />,
+  front: (
+    <>
+      <path d="M4 15V4h11" />
+      <rect x="9" y="9" width="11" height="11" />
+    </>
+  ),
+  back: (
+    <>
+      <rect x="4" y="4" width="11" height="11" />
+      <path d="M20 9v11H9" />
+    </>
+  ),
+  layers: <path d="m12 4 8 4-8 4-8-4 8-4zM4 12l8 4 8-4M4 16l8 4 8-4" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof paths;

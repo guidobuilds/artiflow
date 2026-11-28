@@ -314,9 +314,9 @@ const layerSnippet = (text: string): string => {
   return trimmed.length > LAYER_SNIPPET_LENGTH ? `${trimmed.slice(0, LAYER_SNIPPET_LENGTH)}…` : trimmed;
 };
 
-export function layerRows(frame: SceneFrame): { id: string; label: string }[] {
+export function layerRows(container: { nodes: readonly SceneNode[] }): { id: string; label: string }[] {
   const ordinals = new Map<SceneNode["type"], number>();
-  const rows = frame.nodes.map((node) => {
+  const rows = container.nodes.map((node) => {
     const ordinal = (ordinals.get(node.type) ?? 0) + 1;
     ordinals.set(node.type, ordinal);
     const label = node.type === "text" ? layerSnippet(node.text) : `${layerTypeName(node)} ${ordinal}`;
