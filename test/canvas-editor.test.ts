@@ -550,8 +550,13 @@ test("the surface covers the canvas-level nodes and reports the one origin it su
   const stored = surfaceLayout([frame("frame-1", 100, 60)], [rectNode("loose-1", 100, 60)]);
   assert.deepEqual(
     stored.origin,
-    { x: 0, y: 0 },
-    "one frame never carries its stored place, so its surface still starts at the origin",
+    { x: 100, y: 60 },
+    "one frame carries its stored place, so the canvas level shares its corner instead of shifting a whole origin",
+  );
+  assert.deepEqual(
+    stored.placements,
+    [{ frameId: "frame-1", x: 0, y: 0 }],
+    "the only frame defines the origin, so it still paints at the surface corner",
   );
 
   const far = surfaceLayout([frame("frame-1", 0, 0, 400, 400)], [rectNode("loose-1", -200, 500)]);
@@ -654,6 +659,20 @@ test("the canvas screen paints the canvas-level nodes at the one origin the surf
     /<p className="canvas-empty" role="status">\s*This canvas has no frames yet\./,
     "the empty state stays for a canvas with neither level filled",
   );
+});
+
+test("a single frame keeps the position it stores, so the canvas level lines up with it", () => {
+  const single = surfaceLayout(
+    [{ id: "frame-1", name: "Frame", x: 100, y: 60, w: 800, h: 600, nodes: [] }],
+    [{ id: "loose", type: "rect", x: 100, y: 60, w: 20, h: 20, fill: "#f00" }],
+  );
+  assert.deepEqual(
+    single.placements,
+    [{ frameId: "frame-1", x: 0, y: 0 }],
+    "the only frame defines the origin instead of being reset to zero",
+  );
+  assert.deepEqual(single.origin, { x: 100, y: 60 }, "the origin is the position the frame stores");
+  assert.deepEqual([single.width, single.height], [800, 600], "the surface keeps the frame's own size");
 });
 
 test("a selection rectangle takes every node of the active frame that it touches, in frame order", () => {

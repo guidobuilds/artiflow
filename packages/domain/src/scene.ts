@@ -330,7 +330,7 @@ const surfaceColumn = (boxes: SurfaceBox[]): SurfaceBox[] => {
 
 export function surfaceLayout(frames: SceneFrame[], nodes: readonly SceneNode[] = []): SurfaceLayout {
   const boxes = frames.map(surfaceBox);
-  const unstored = boxes.length > 0 && boxes.every((box) => box.x === boxes[0]?.x && box.y === boxes[0]?.y);
+  const unstored = boxes.length > 1 && boxes.every((box) => box.x === boxes[0]?.x && box.y === boxes[0]?.y);
   const placed = unstored ? surfaceColumn(boxes) : boxes;
   const areas: SurfaceArea[] = [...placed, ...nodes.map(surfaceNodeArea)];
   if (areas.length === 0) return { placements: [], width: 0, height: 0, origin: { x: 0, y: 0 } };
