@@ -167,7 +167,7 @@ function addFrame(draft: Scene, raw: Record<string, unknown>): Step {
   return { ok: true, touched: nodeIdsOf(added) };
 }
 
-function frameSourceRefusal(props: Record<string, unknown>, frame: SceneFrame): SceneRefusalDetail | null {
+function frameSourceRefusal(props: Record<string, unknown>, frame: SceneFrame): SceneOperationDetail | null {
   if (!("source" in props)) return null;
   if (props.source === null) return null;
   const source = readArtboardSource(props.source);

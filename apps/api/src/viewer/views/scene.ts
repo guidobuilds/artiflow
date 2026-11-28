@@ -162,10 +162,11 @@ const baseTagOf = (origin: string | null, artifactId: string): string =>
 const sourcePageOf = (source: ArtboardSource, content: Extract<SceneArtboardContent, { kind: "ready" }>): string =>
   Buffer.from(`${baseTagOf(content.origin, source.artifactId)}${content.html}`, "utf8").toString("base64");
 
+const DEFAULT_VIEWPORT: ArtboardViewportWidth = 1280;
+
 const initialViewportOf = (frame: SceneFrame, mode: ArtboardSource["mode"]): ArtboardViewportWidth => {
-  if (mode === "fixed") return ARTBOARD_VIEWPORT_WIDTHS[0];
-  const authored = ARTBOARD_VIEWPORT_WIDTHS.find((width) => width === frame.w);
-  return authored ?? ARTBOARD_VIEWPORT_WIDTHS[ARTBOARD_VIEWPORT_WIDTHS.length - 1];
+  if (mode === "fixed") return DEFAULT_VIEWPORT;
+  return ARTBOARD_VIEWPORT_WIDTHS.find((width) => width === frame.w) ?? DEFAULT_VIEWPORT;
 };
 
 const renderViewportControls = (frame: SceneFrame, active: ArtboardViewportWidth): string =>

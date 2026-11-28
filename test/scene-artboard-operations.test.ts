@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { SCENE_FORMAT_VERSION, canonicalScene, validateScene, type Scene } from "@artiflow/domain/scene";
+import { SCENE_FORMAT_VERSION, canonicalScene, validateScene, type Scene, type SceneFrame } from "@artiflow/domain/scene";
 import { applySceneOperations, diffSceneOperations, type SceneOperation } from "@artiflow/domain/scene-operations";
 
 const SOURCE_ARTIFACT = "0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11";
@@ -69,7 +69,12 @@ test("add_frame creates an artboard that references one revision", () => {
   const next = applied([
     {
       op: "add_frame",
-      frame: artboard({ id: "c", name: "Proposal C", x: 860, source: { artifactId: SOURCE_ARTIFACT, revisionId: REVISION_TWO, mode: "fluid" } }),
+      frame: artboard({
+        id: "c",
+        name: "Proposal C",
+        x: 860,
+        source: { artifactId: SOURCE_ARTIFACT, revisionId: REVISION_TWO, mode: "fluid" },
+      }) as unknown as SceneFrame,
     },
   ]);
   assert.deepEqual(next.frames[2]?.source, {
@@ -80,7 +85,9 @@ test("add_frame creates an artboard that references one revision", () => {
 });
 
 test("add_frame refuses an artboard that also carries loose nodes", () => {
-  const outcome = refused([{ op: "add_frame", frame: artboard({ id: "c", nodes: [rect("c1")] }) }]);
+  const outcome = refused([
+    { op: "add_frame", frame: artboard({ id: "c", nodes: [rect("c1")] }) as unknown as SceneFrame },
+  ]);
   assert.equal(outcome.reason, "invalid_source");
   assert.equal(outcome.opIndex, 0);
   assert.equal(outcome.detail.property, "nodes");
@@ -121,7 +128,7 @@ test("update_frame refuses a malformed reference without touching the scene", ()
     { artifactId: SOURCE_ARTIFACT, revisionId: REVISION_TWO, mode: "fixed", url: "https://example.test" },
     "artifact",
   ]) {
-    const outcome = refused([{ op: "update_frame", id: "a", props: { source } }]);
+    const outcome = refused([{ op: "update_frame", id: "a", props: { source: source as never } }]);
     assert.equal(outcome.reason, "invalid_source");
   }
   assert.equal(canonicalScene(scene()), canonicalScene(scene()));
