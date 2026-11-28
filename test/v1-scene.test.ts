@@ -402,6 +402,9 @@ test("the outline route answers one entry per frame and the draft it read", asyn
     frameCount: 1,
     looseNodeCount: 1,
     frames: [{ id: FRAME, name: "Home", nodeCount: 1, bbox: { x: 40, y: 20, w: 100, h: 60 } }],
+    pageCount: 0,
+    pages: [],
+    guides: null,
   });
 });
 

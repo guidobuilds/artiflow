@@ -58,8 +58,7 @@ const OPERATIONS: SceneOperation[] = [
 
 const apply = (scene: Scene, operations: readonly SceneOperation[]): Scene => {
   const outcome = applySceneOperations(scene, operations);
-  assert.equal(outcome.ok, true, outcome.ok ? "" : outcome.reason);
-  if (!outcome.ok) throw new Error(outcome.reason);
+  if (!outcome.ok) assert.fail(`${outcome.reason} at operation ${outcome.opIndex}`);
   return outcome.value.scene;
 };
 
@@ -285,6 +284,8 @@ test("a scene without pages, notes, guides or lock keeps the document it always 
   assert.equal(canonicalScene(checked.value), plain, "an untouched legacy document canonicalizes to the same bytes");
 
   const html = render(legacy);
+  assert.equal(html.includes(".scene-pages{"), false, "a legacy design ships none of the new stylesheet");
+  assert.equal(render(paged()).includes(".scene-pages{"), true, "a paged design ships the page stylesheet");
   for (const absent of [
     '<nav class="scene-pages"',
     '<div class="scene-guides"',

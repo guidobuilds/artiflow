@@ -481,6 +481,11 @@ export function renderSceneDocument(
   const slides = presentsSlides(kind);
   const framed = view.kind !== "canvas" && !slides;
   const pages = slides ? [] : scenePages(scene);
+  const extended =
+    pages.length > 0 ||
+    scene.guides !== undefined ||
+    scene.frames.some((frame) => frame.locked === true) ||
+    (scene.nodes ?? []).some((node) => node.annotation !== undefined);
   const pageContent = scenePageContent(scene, pageId ?? null);
   const paged = !framed && pages.length > 0;
   const pageFrames = paged ? pageContent.frames : scene.frames;
@@ -576,7 +581,7 @@ export function renderSceneDocument(
             page.id === activePage?.id ? ' aria-current="page"' : ""
           }>${escapeAttribute(page.name)}</a>`,
       )
-      .join("")}</nav>`;
+      .join("")}</nav>\n`;
   };
   const guidesOf = (): string =>
     guides.length === 0
@@ -610,8 +615,7 @@ ${surfaceOf()}
         : `<div class="scene-stage" id="stage">
 <p class="scene-empty">This design has no frames yet.</p>
 </div>
-${pagesOf()}
-<nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
+${pagesOf()}<nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
       : slides
         ? `<div class="scene-stage scene-slides" id="stage">
 <div class="scene-tools"><button type="button" id="prev" title="Previous slide">Back</button><button type="button" id="next" title="Next slide">Forward</button><button type="button" id="strip" aria-pressed="false" title="Show the slide list">Slides</button>${renderCounter(selectedIndex, scene.frames.length)}</div>
@@ -622,8 +626,7 @@ ${slidesOf.join("\n")}
 <div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button>${guides.length === 0 ? "" : '<button type="button" id="guides" aria-pressed="false" title="Show alignment guides">Guides</button>'}</div>
 ${surfaceOf()}
 </div>
-${pagesOf()}
-<nav class="scene-index" id="frame-index" aria-label="Frames"${indexHidden}>${renderIndex(pageFrames, selectedId)}</nav>`;
+${pagesOf()}<nav class="scene-index" id="frame-index" aria-label="Frames"${indexHidden}>${renderIndex(pageFrames, selectedId)}</nav>`;
   const requestOf = (thread: SceneRequestThread, index: number): string => {
     const anchor = thread.anchor;
     if (!isArtboardAnchor(anchor) || request === undefined) return "";
@@ -704,7 +707,7 @@ ${body}${unavailable}${copy}<button type="button" class="scene-request-show" dat
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
 <style>
-${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : `${DOCUMENT_CSS}\n${SURFACE_CSS}\n${PAGES_CSS}`}${hasArtboards ? `\n${ARTBOARD_CSS}` : ""}
+${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : `${DOCUMENT_CSS}\n${SURFACE_CSS}${extended ? `\n${PAGES_CSS}` : ""}`}${hasArtboards ? `\n${ARTBOARD_CSS}` : ""}
 </style></head>
 ${"<body"}${viewAttributes}>
 ${chrome}${requestUi}${orphans === "" ? "" : `\n${orphans}`}${requestConfig}

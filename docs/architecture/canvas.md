@@ -352,6 +352,39 @@ published vN»). El visor **no** avisa de cambios sin publicar: mostrar ese avis
 borrador en cada visita y el único lector que puede actuar sobre él es quien ya tiene el canvas
 abierto con el chip. No se inventa un borrador en el visor ni se presenta un borrador como publicado.
 
+### 2.12 Páginas, notas, guías y bloqueo
+
+Un Diseño grande necesita orden sin tocar la geometría ni el prototipo. Cuatro piezas opcionales del
+scene lo resuelven, y un documento que no las declara se comporta exactamente como antes:
+
+- **Páginas de diseño.** `scene.pages` es una lista ordenada de `{id, name}` (hasta 40). Un frame
+  declara `page` y un nodo suelto declara `page`; los ids comparten el espacio del scene, así que una
+  página nunca reutiliza el id de un frame o de un nodo. El contenido sin `page` pertenece a la
+  primera página declarada, de modo que agregar páginas a un Diseño existente no esconde nada. Una
+  página de diseño es una sección del mismo Diseño, no una página HTML autónoma. En el visor, el
+  enlace acepta `?page=<id>`, la vista general dibuja solo esa página y ofrece un conmutador; sin
+  `pages`, se ve el lienzo único de siempre.
+- **Notas y títulos de conjunto.** Un nodo del nivel lienzo declara `annotation`: `kind` es `title` o
+  `note`, y `targets` nombra los frames que explica. Un `title` siempre apunta a dos o más
+  artboards; una `note` puede apuntar a cualquiera, incluso a ninguno. Una anotación nunca vive
+  dentro de un frame y nunca aparece en Focus ni en Play: es material de trabajo, no del prototipo.
+- **Guías.** `scene.guides` declara `kind` (`columns`, `rows` o `grid`), `count` (1–24), `gutter`,
+  `margin` y `color` opcionales. Las guías son un overlay que el visor dibuja encima de la superficie
+  y que se muestra u oculta; no cambian la geometría de ningún nodo y no salen en Focus, Play ni en
+  una exportación futura.
+- **Bloqueo.** Un frame declara `locked: true` para impedir que se mueva o se borre por error.
+  Mover o borrar el frame —o mover o borrar uno de sus nodos— se rechaza con `frame_locked` en
+  `scene_apply` y en el guardado del canvas, mientras el texto, el color y el estilo siguen
+  editables. `locked: false` restaura las dos acciones.
+
+Las cuatro piezas viajan en el modelo de escena: las operaciones `add_page`, `update_page`,
+`remove_page` y `reorder_page` administran páginas, los patches de frame y de nodo suelto llevan
+`page`, `annotation` y `locked`, y `scene_outline` informa `pageCount`, `pages` y `guides`. Un
+cliente que no conoce estos campos sigue leyendo el documento: son opcionales, se conservan los
+campos desconocidos y la validación rechaza con un motivo nombrado (`page_limit`, `unknown_page`,
+`invalid_annotation`, `invalid_guides`, `frame_locked`, `page_not_empty`) en vez de fallar en
+silencio.
+
 ## 3. Modelo actual y arquitectura actual
 
 ### 3.1 DER actual

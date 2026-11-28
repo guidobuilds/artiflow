@@ -86,6 +86,13 @@ export async function openCanvas(artifact: { id: string; viewerHref: string }, t
 
 export type LocatedNode = { frame: SceneFrame | null; node: SceneNode };
 
+export const frameIsLocked = (frame: SceneFrame | null): boolean => frame !== null && frame.locked === true;
+
+export const lockedArtboardHolds = (scene: Scene, nodeId: string): boolean => {
+  const located = locateNode(scene, nodeId);
+  return located !== null && frameIsLocked(located.frame);
+};
+
 export function locateNode(scene: Scene, nodeId: string): LocatedNode | null {
   for (const frame of scene.frames) {
     const node = frame.nodes.find((candidate) => candidate.id === nodeId);
@@ -169,7 +176,8 @@ export function moveFrame(
   dx: number,
   dy: number,
 ): Scene {
-  if (!scene.frames.some((frame) => frame.id === frameId)) return scene;
+  const target = scene.frames.find((frame) => frame.id === frameId);
+  if (target === undefined || frameIsLocked(target)) return scene;
   const placed = new Map(placements.map((placement) => [placement.frameId, placement]));
   const offsetX = rounded(dx);
   const offsetY = rounded(dy);
@@ -187,7 +195,7 @@ export function moveFrame(
 
 export function moveNode(scene: Scene, nodeId: string, dx: number, dy: number): Scene {
   const located = locateNode(scene, nodeId);
-  if (located === null) return scene;
+  if (located === null || frameIsLocked(located.frame)) return scene;
   const { frame, node } = located;
   const moved = sizedNode({ ...node, x: node.x + rounded(dx), y: node.y + rounded(dy) });
   return replaceNode(scene, frame, moved);
@@ -195,7 +203,7 @@ export function moveNode(scene: Scene, nodeId: string, dx: number, dy: number): 
 
 export function moveNodes(scene: Scene, ids: string[], dx: number, dy: number): Scene {
   const start = ids.map((id) => locateNode(scene, id)).find((located) => located !== null);
-  if (start === undefined) return scene;
+  if (start === undefined || frameIsLocked(start.frame)) return scene;
   const seen = new Set<string>();
   const group = containerNodes(scene, start.frame).filter((node) => {
     if (!ids.includes(node.id) || seen.has(node.id)) return false;
@@ -211,7 +219,7 @@ export function moveNodes(scene: Scene, ids: string[], dx: number, dy: number): 
 
 export function resizeNode(scene: Scene, nodeId: string, w: number, h: number): Scene {
   const located = locateNode(scene, nodeId);
-  if (located === null) return scene;
+  if (located === null || frameIsLocked(located.frame)) return scene;
   const { frame, node } = located;
   const width = Math.max(MIN_NODE_SIZE, rounded(w));
   const height = Math.max(MIN_NODE_SIZE, rounded(h));
@@ -232,7 +240,7 @@ export function addNode(scene: Scene, frameId: string, node: SceneNode): Scene {
 
 export function removeNode(scene: Scene, nodeId: string): Scene {
   const located = locateNode(scene, nodeId);
-  if (located === null) return scene;
+  if (located === null || frameIsLocked(located.frame)) return scene;
   return withContainerNodes(
     scene,
     located.frame,
@@ -390,3 +398,23 @@ export const zoomBy = (scale: number, factor: number): number =>
   clamp(Number.isFinite(scale * factor) ? scale * factor : scale, MIN_SCALE, MAX_SCALE);
 
 export { surfaceLayout, type SurfaceLayout, type SurfacePlacement } from "@artiflow/domain/scene";
+
+export {
+  DEFAULT_SCENE_GUIDES,
+  addScenePage,
+  assignFramePage,
+  assignNotePage,
+  guideLines,
+  pageHasContent,
+  removeScenePage,
+  renameScenePage,
+  reorderScenePage,
+  scenePageContent,
+  scenePageOf,
+  scenePages,
+  setFrameLocked,
+  setSceneGuides,
+  type GuideLine,
+  type ScenePageContent,
+  type ScenePageEntry,
+} from "@artiflow/domain/scene-pages";

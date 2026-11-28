@@ -212,7 +212,9 @@ function updateFrame(draft: Scene, raw: Record<string, unknown>): Step {
   if (frame.locked === true && touchesGeometry(props)) return stepRefusal("frame_locked", { id: frame.id });
   const sourceIssue = frameSourceRefusal(props, frame);
   if (sourceIssue !== null) return stepRefusal("invalid_source", sourceIssue);
-  const { source, page, ...rest } = clone(props) as Record<string, unknown>;
+  const rest = clone(props) as Record<string, unknown>;
+  delete rest.source;
+  delete rest.page;
   Object.assign(frame, rest);
   if ("page" in props) {
     if (props.page === null) delete frame.page;
@@ -317,7 +319,9 @@ function updateCanvasNode(draft: Scene, raw: Record<string, unknown>): Step {
   if ("id" in props) return stepRefusal("invalid_arguments", { property: "id", id: found.node.id });
   const issue = inspectGeometry(props);
   if (issue !== null) return stepRefusal(issue.reason, { property: issue.property, id: found.node.id });
-  const { page, annotation, ...rest } = clone(props) as Record<string, unknown>;
+  const rest = clone(props) as Record<string, unknown>;
+  delete rest.page;
+  delete rest.annotation;
   Object.assign(found.node, rest);
   if ("page" in props) {
     if (props.page === null) delete (found.node as { page?: string }).page;

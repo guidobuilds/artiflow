@@ -1281,6 +1281,120 @@
 .canvas-shortcuts-group kbd {
   width: auto;
 }
+.canvas-pages {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 300px);
+  padding: 4px 6px;
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-floating);
+  transform: translateX(-50%);
+}
+.canvas-page-button {
+  flex: none;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canvas-page-button:hover {
+  color: var(--fg);
+}
+.canvas-page-button[aria-current="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--fg);
+  font-weight: 500;
+}
+.canvas-page-action {
+  flex: none;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--fg-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.canvas-page-action:hover:not(:disabled) {
+  color: var(--fg);
+}
+.canvas-page-action[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+.canvas-page-action:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.canvas-page-action:focus-visible,
+.canvas-page-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.canvas-page-field {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-subtle);
+  font-size: 11px;
+}
+.canvas-page-field input,
+.canvas-page-select {
+  height: 26px;
+  max-width: 140px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 11.5px;
+}
+.canvas-page-select {
+  flex: none;
+}
+.canvas-frame-lock {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(20, 20, 20, 0.82);
+  color: #c3c8cd;
+  font:
+    500 10px/1.6 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+.canvas-guides {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.canvas-guides span {
+  position: absolute;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+}
 .canvas-frames-panel {
   top: 12px;
   left: 12px;

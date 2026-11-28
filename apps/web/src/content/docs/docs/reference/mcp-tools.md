@@ -697,8 +697,10 @@ Without a `frameId`, the canvas level comes back as `canvas`, the same envelope 
 }
 ```
 
-The canvas level has no id, name, geometry or `bbox`, because a loose node sits at scene coordinates with
-nothing around it. `nodeIds` narrows both replies; an id the chosen level does not hold is `unknown_node`
+`scene_outline` also reports `pageCount`, the `pages` entries with their frame and note counts, and
+the `guides` spec (or `null`), so one read tells you how a Design is organized. The canvas level has
+no id, name, geometry or `bbox`, because a loose node sits at scene coordinates with nothing around
+it. `nodeIds` narrows both replies; an id the chosen level does not hold is `unknown_node`
 / `node_not_in_frame` or `node_not_in_scene` with its `nodeId`.
 
 Node geometry is relative to its frame and `bbox` is absolute; a loose node's geometry is already
@@ -720,8 +722,8 @@ Each operation is one of:
 
 | Op                    | Fields                                                                                 |
 | --------------------- | -------------------------------------------------------------------------------------- |
-| `add_frame`           | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`                              |
-| `update_frame`        | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`                               |
+| `add_frame`           | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`, optional `page` and `locked` |
+| `update_frame`        | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`, `page`, `locked`              |
 | `remove_frame`        | `id`                                                                                   |
 | `add_node`            | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields             |
 | `update_node`         | `id`, and `props` with any node property except `id`                                   |
@@ -729,10 +731,14 @@ Each operation is one of:
 | `reorder_node`        | `id`, and `index` inside its frame (`0` is the back, the last index the front)         |
 | `remove_node`         | `id`                                                                                   |
 | `add_canvas_node`     | `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields, added to the canvas level |
-| `update_canvas_node`  | `id`, and `props` with any node property except `id`                                   |
+| `update_canvas_node`  | `id`, and `props` with any node property except `id`, plus `page` and `annotation`       |
 | `move_canvas_node`    | `id`, `x`, `y`, optional `w` and `h`                                                   |
 | `reorder_canvas_node` | `id`, and `index` on the canvas level (`0` is the back, the last index the front)      |
 | `remove_canvas_node`  | `id`                                                                                   |
+| `add_page`            | `page` with `id` and `name`, appended to the design pages                              |
+| `update_page`         | `id`, and `props` with `name`                                                          |
+| `remove_page`         | `id`; refuses with `page_not_empty` while a frame or note still belongs to it          |
+| `reorder_page`        | `id`, and `index` in the page order (`0` is first)                                     |
 | `replace_scene`       | `scene`: the escape hatch that replaces the whole scene                                |
 
 Node types and their extra fields are `rect` (`fill`, optional `radius`), `text` (`text`, optional
@@ -742,6 +748,22 @@ in order. The `_node` operations address a node inside one frame; the `_canvas_n
 loose node on the canvas level, whose geometry is scene coordinates and whose order is the canvas
 painting order. The five canvas operations are the only way to create, move, restack or delete that
 level.
+
+A Design also organizes its artboards into **pages** and carries workspace annotations that never
+reach the prototype:
+
+- A frame takes an optional `page`, the id of a declared `pages` entry, and an optional `locked`.
+  While `locked` is true, moving or removing the frame, or moving or removing one of its nodes,
+  refuses with `frame_locked`; text, fill and style updates stay allowed, and `locked: false`
+  restores both actions. Content with no `page` belongs to the first declared page, so a design
+  without `pages` behaves as a single surface.
+- A canvas-level node takes an optional `page` and an optional `annotation`: `kind` is `title` or
+  `note`, and `targets` lists the frame ids the annotation explains. A `title` always targets at
+  least two artboards; a `note` may target any number, including none. Annotations are hidden in
+  Focus and Play, and they are never allowed inside a frame.
+- The scene takes an optional `guides` spec: `kind` (`columns`, `rows` or `grid`), `count` (1–24),
+  optional `gutter`, `margin` and `color`. Guides are an overlay for the viewer only; they never
+  change node geometry and never appear in Focus, Play or an export.
 
 ```json
 {

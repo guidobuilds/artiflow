@@ -157,8 +157,17 @@ then batch, then re-read:
    an `idempotencyKey` you choose, and 1–50 ops applied in order as one atomic
    batch: `add_frame`, `update_frame`, `remove_frame`, `add_node`, `update_node`,
    `move_node`, `reorder_node`, `remove_node`, the five canvas-level equivalents
-   (`add_canvas_node` through `remove_canvas_node`) and `replace_scene`. One
-   failed op changes nothing.
+   (`add_canvas_node` through `remove_canvas_node`), the page operations
+   (`add_page`, `update_page`, `remove_page`, `reorder_page`) and `replace_scene`.
+   One failed op changes nothing.
+- Organize with pages: assign a frame with `update_frame` `page` and a note with
+  `update_canvas_node` `page`; content without a page belongs to the first one, so
+  a scene with no `pages` behaves as one surface. Explain a group with a
+  canvas-level annotation (`annotation: {kind: "title", targets: [a, b]}` for a
+  title over at least two artboards, `{kind: "note"}` for a sticky), align with
+  `guides` and protect an approved artboard with `update_frame` `locked: true`:
+  its words and colours stay editable while moving or removing it refuses with
+  `frame_locked`. Annotations and guides never appear in Focus or Play.
 
 Editing discipline: read before every batch, pass the `seq` you read as `baseSeq`,
 and reuse one `idempotencyKey` when you retry a batch you are not sure arrived —
