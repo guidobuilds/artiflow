@@ -640,7 +640,7 @@ test("the 0020 migration adds the operation log, the draft, the asset tables and
   const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
     entries: { idx: number; tag: string }[];
   };
-  assert.equal(journal.entries.length, 21, "the journal chains every migration, the branch's included");
+  assert.equal(journal.entries.length, 22, "the journal chains every migration, the branch's included");
   assert.deepEqual(
     journal.entries.map((entry) => entry.idx),
     journal.entries.map((_, index) => index),
@@ -648,7 +648,7 @@ test("the 0020 migration adds the operation log, the draft, the asset tables and
   );
   assert.deepEqual(
     [journal.entries.at(-1)?.idx, journal.entries.at(-1)?.tag],
-    [20, "0020_flaky_night_thrasher"],
+    [21, "0021_artboard_anchor"],
     "the new migration is the last entry",
   );
   assert.deepEqual(

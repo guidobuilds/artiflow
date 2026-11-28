@@ -321,20 +321,29 @@ id exists on another account.
 ## Comments
 
 A comment is a generic entity whose anchor is discriminated by `kind`. Markdown accepts
-`text-range` anchors, `html` accepts `element` and `page-point`, and `canvas` accepts `board-point`.
+`text-range` anchors, `html` accepts `element` and `page-point`, and `canvas` accepts `board-point` and
+`artboard-point`.
 An anchor that does not belong to the artifact's kind is refused with `400 unsupported_anchor_kind`.
 A scene anchor is resolved against the current scene before it is stored, so a node the scene does not
 hold is `400 unknown_node`; a thread whose node is gone is listed with `orphaned: true`. A root comment always carries an
 anchor, a reply never does: a root without one is `400 root_requires_anchor` and a reply that sends
 one is `400 reply_has_no_anchor`.
 
-| Kind          | Shape                                                                                                     | Document |
-| ------------- | --------------------------------------------------------------------------------------------------------- | -------- |
-| `text-range`  | `{startLine, startCol, endLine, endCol, quotedText}` — 1-indexed, end-exclusive, over the Markdown source | Markdown |
-| `element`     | `{selector, point:{x,y} in 0–1, textHint (≤120 chars), viewportWidth}`                                    | HTML     |
-| `page-point`  | `{x in 0–1, y in pixels, viewportWidth}`                                                                  | HTML     |
-| `board-point` | `{boardId (frame), nodeId, x, y}` — x and y are fractions of the node's own box                           | Canvas   |
-| `slide-point` | `{slideId, nodeId, x, y}` — same rules as `board-point`                                                   | Deck     |
+| Kind             | Shape                                                                                                                                                                          | Document |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| `text-range`     | `{startLine, startCol, endLine, endCol, quotedText}` — 1-indexed, end-exclusive, over the Markdown source                                                                      | Markdown |
+| `element`        | `{selector, point:{x,y} in 0–1, textHint (≤120 chars), viewportWidth}`                                                                                                         | HTML     |
+| `page-point`     | `{x in 0–1, y in pixels, viewportWidth}`                                                                                                                                       | HTML     |
+| `board-point`    | `{boardId (frame), nodeId, x, y}` — x and y are fractions of the node's own box                                                                                                | Canvas   |
+| `slide-point`    | `{slideId, nodeId, x, y}` — same rules as `board-point`                                                                                                                        | Deck     |
+| `artboard-point` | `{boardId (frame), revisionId, selector, textHint, x, y in 0–1, viewportWidth}` — a change request inside a live artboard, resolved against the frame's pinned source revision | Canvas   |
+
+An `artboard-point` is how the Design viewer turns a selection inside a live artboard into a request
+for the agent. It is accepted only when the frame holds that artboard at exactly that source
+revision (`400 unknown_frame`, `400 unknown_source`, `400 revision_mismatch`) and when the caller can
+read the source artifact (`403 source_unavailable`); the route never reads the source bytes. The
+request reference is built by `packages/domain/src/design-request.ts` and separates the selection,
+the person's request and the artifact content.
 
 `GET /artifacts/{artifactId}/comments` returns threads for anyone who can read the artifact. The
 author is an entity: `{ id, name, image }`, never an email of another participant.

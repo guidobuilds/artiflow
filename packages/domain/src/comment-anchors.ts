@@ -17,7 +17,18 @@ export type ElementAnchor = {
 export type PagePointAnchor = { kind: "page-point"; x: number; y: number; viewportWidth: number };
 export type BoardPointAnchor = { kind: "board-point"; boardId: string; nodeId: string; x: number; y: number };
 export type SlidePointAnchor = { kind: "slide-point"; slideId: string; nodeId: string; x: number; y: number };
-export type AnyCommentAnchor = TextRangeAnchor | ElementAnchor | PagePointAnchor | BoardPointAnchor | SlidePointAnchor;
+export type ArtboardPointAnchor = {
+  kind: "artboard-point";
+  boardId: string;
+  revisionId: string;
+  selector: string;
+  textHint: string;
+  x: number;
+  y: number;
+  viewportWidth: number;
+};
+export type AnyCommentAnchor =
+  TextRangeAnchor | ElementAnchor | PagePointAnchor | BoardPointAnchor | SlidePointAnchor | ArtboardPointAnchor;
 export type CommentAnchorKind = AnyCommentAnchor["kind"];
 export type SceneAnchor = BoardPointAnchor | SlidePointAnchor;
 
@@ -34,10 +45,52 @@ export const anchorKindsForDocument = (documentKind: string): readonly CommentAn
 export const anchorKindAllowed = (documentKind: string, kind: CommentAnchorKind): boolean =>
   anchorKindsForDocument(documentKind).includes(kind);
 export const SCENE_ANCHOR_KINDS: readonly CommentAnchorKind[] = ["board-point", "slide-point"];
+export const ARTBOARD_ANCHOR_KINDS: readonly CommentAnchorKind[] = ["artboard-point"];
 export const isSceneAnchor = (anchor: unknown): anchor is SceneAnchor =>
   typeof anchor === "object" &&
   anchor !== null &&
   SCENE_ANCHOR_KINDS.includes((anchor as { kind: CommentAnchorKind }).kind);
+export const isArtboardAnchor = (anchor: unknown): anchor is ArtboardPointAnchor =>
+  typeof anchor === "object" && anchor !== null && (anchor as { kind?: unknown }).kind === "artboard-point";
+export type ArtboardAnchorRefusalReason = "unknown_frame" | "unknown_source" | "revision_mismatch";
+export function artboardAnchorRefusal(scene: Scene, anchor: ArtboardPointAnchor): ArtboardAnchorRefusalReason | null {
+  const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
+  if (frame === undefined) return "unknown_frame";
+  if (frame.source === undefined) return "unknown_source";
+  return frame.source.revisionId === anchor.revisionId ? null : "revision_mismatch";
+}
+export const HIDDEN_ARTBOARD_LOCATOR = "(hidden)";
+
+export const artboardSourceIsReadable = (source: { readonly kind: string } | null | undefined): boolean =>
+  source !== null && source !== undefined && source.kind === "html";
+
+export const artboardAnchorSourceId = (scene: Scene, anchor: ArtboardPointAnchor): string | null =>
+  scene.frames.find((candidate) => candidate.id === anchor.boardId)?.source?.artifactId ?? null;
+
+export function pinnedArtboardAnchorSource(scene: Scene, anchor: ArtboardPointAnchor): string | null {
+  const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
+  if (frame === undefined || frame.source === undefined) return null;
+  return frame.source.revisionId === anchor.revisionId ? frame.source.artifactId : null;
+}
+
+export const artboardAnchorNeedsRedaction = (
+  scene: Scene | null,
+  anchor: ArtboardPointAnchor,
+  canReadSource: (sourceId: string) => boolean,
+): boolean => {
+  if (scene === null) return true;
+  const sourceId = artboardAnchorSourceId(scene, anchor);
+  return sourceId === null || !canReadSource(sourceId);
+};
+
+export const redactArtboardAnchor = (anchor: ArtboardPointAnchor): ArtboardPointAnchor => ({
+  ...anchor,
+  selector: "",
+  textHint: HIDDEN_ARTBOARD_LOCATOR,
+});
+
+export const artboardAnchorIsOrphaned = (scene: Scene, anchor: unknown): boolean =>
+  isArtboardAnchor(anchor) && artboardAnchorRefusal(scene, anchor) !== null;
 export const acceptsSceneAnchors = (documentKind: string): boolean =>
   anchorKindsForDocument(documentKind).some((kind) => SCENE_ANCHOR_KINDS.includes(kind));
 export type SceneAnchorRefusalReason = "unknown_node";
@@ -108,6 +161,17 @@ export function anchorShapeIsValid(anchor: unknown): boolean {
   if (candidate.kind === "slide-point")
     return (
       nonEmptyString(candidate.slideId) && nonEmptyString(candidate.nodeId) && ratio(candidate.x) && ratio(candidate.y)
+    );
+  if (candidate.kind === "artboard-point")
+    return (
+      nonEmptyString(candidate.boardId) &&
+      nonEmptyString(candidate.revisionId) &&
+      typeof candidate.selector === "string" &&
+      typeof candidate.textHint === "string" &&
+      (candidate.selector !== "" || candidate.textHint !== "") &&
+      ratio(candidate.x) &&
+      ratio(candidate.y) &&
+      positiveInteger(candidate.viewportWidth)
     );
   return false;
 }

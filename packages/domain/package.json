@@ -19,7 +19,9 @@
     "./markdown-doc": "./src/markdown-doc.ts",
     "./scene": "./src/scene.ts",
     "./scene-link": "./src/scene-link.ts",
-    "./scene-operations": "./src/scene-operations.ts"
+    "./scene-operations": "./src/scene-operations.ts",
+    "./design-bridge": "./src/design-bridge.ts",
+    "./design-request": "./src/design-request.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

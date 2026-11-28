@@ -171,7 +171,10 @@ required `expectedRevisionId` (`concurrent_edit` when stale,
 
 The five tools require canonical lowercase UUIDs. A new root carries the anchor, and the anchor kind is
 gated per artifact kind — Markdown takes `text-range`, HTML `element` and `page-point`, a canvas
-`board-point` — so an anchor the document kind does not accept refuses with `unsupported_anchor_kind`:
+`board-point` or `artboard-point` — so an anchor the document kind does not accept refuses with
+`unsupported_anchor_kind`. An `artboard-point` names a frame, the source revision it pinned and the
+element selection; it refuses with `unknown_frame`, `unknown_source`, `revision_mismatch` or
+`source_unavailable` before any source bytes are read:
 
 - `artifact_list_comments` (read) returns roots with nested `replies`, anchors,
   quotes, bodies and resolved timestamps.

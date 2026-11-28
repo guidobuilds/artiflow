@@ -358,6 +358,8 @@ const withoutManagementStyles = (page: string): string =>
 const withoutPerViewCells = (page: string): string =>
   withoutBundlePreamble(withoutManagementStyles(page))
     .replace(commentsData, "DATA")
+    .replace(/<script type="application\/json" id="viewer-design-request-data">[\s\S]*?<\/script>/, "DESIGN")
+    .replace(/srcdoc="[^"]*"/, 'srcdoc="DOC"')
     .replace(menuTrigger, "")
     .replace(emptyActionsCell, "")
     .replace(menuConfigLine, "")

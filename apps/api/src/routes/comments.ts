@@ -28,7 +28,13 @@ import {
   acceptsSceneAnchors,
   anchorKindAllowed,
   anchorText,
+  artboardAnchorRefusal,
+  artboardAnchorNeedsRedaction,
+  artboardAnchorSourceId,
+  artboardSourceIsReadable,
+  isArtboardAnchor,
   isSceneAnchor,
+  redactArtboardAnchor,
   sceneAnchorIsOrphaned,
   sceneAnchorRefusal,
 } from "@artiflow/domain/comment-anchors";
@@ -83,11 +89,32 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
     const { doc, userId } = result;
     const rows = await listComments(db, doc.id, true);
     const scene = acceptsSceneAnchors(doc.kind) ? await currentScene(doc.id) : null;
+    const readable = new Map<string, boolean>();
+    if (scene !== null) {
+      const sources = new Set(
+        rows.flatMap((row) => {
+          const anchor = row.anchor;
+          const sourceId = isArtboardAnchor(anchor) ? artboardAnchorSourceId(scene, anchor) : null;
+          return sourceId === null ? [] : [sourceId];
+        }),
+      );
+      await Promise.all(
+        [...sources].map(async (sourceId) => {
+          const sourceDocument = await commentDocument(db, userId, sourceId, "shared");
+          readable.set(sourceId, artboardSourceIsReadable(sourceDocument));
+        }),
+      );
+    }
+    const anchorOf = (anchor: unknown): unknown => {
+      if (!isArtboardAnchor(anchor)) return anchor;
+      const readableSource = (sourceId: string): boolean => readable.get(sourceId) === true;
+      return artboardAnchorNeedsRedaction(scene, anchor, readableSource) ? redactArtboardAnchor(anchor) : anchor;
+    };
     const serialize = (row: Row) => ({
       id: row.id,
       authorId: row.authorId,
       author: { id: row.authorId, name: row.authorName ?? "", image: row.authorImage ?? null },
-      anchor: (row.anchor ?? null) as CommentAnchorWire | null,
+      anchor: (anchorOf(row.anchor) ?? null) as CommentAnchorWire | null,
       body: row.body,
       resolvedAt: row.resolvedAt?.toISOString() ?? null,
       createdAt: row.createdAt.toISOString(),
@@ -175,6 +202,17 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         const scene = await currentScene(doc.id);
         if (scene === null) return c.json({ error: "artifact_unavailable" }, 500);
         if (sceneAnchorRefusal(scene, anchor) !== null) return c.json({ error: "unknown_node" }, 400);
+      }
+      if (anchor !== null && isArtboardAnchor(anchor)) {
+        const scene = await currentScene(doc.id);
+        if (scene === null) return c.json({ error: "artifact_unavailable" }, 500);
+        const refusal = artboardAnchorRefusal(scene, anchor);
+        if (refusal !== null) return c.json({ error: refusal }, 400);
+        const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
+        const source = frame?.source;
+        if (source === undefined) return c.json({ error: "unknown_source" }, 400);
+        const sourceDocument = await commentDocument(client, userId, source.artifactId, "shared");
+        if (!artboardSourceIsReadable(sourceDocument)) return c.json({ error: "source_unavailable" }, 403);
       }
       if (parentId === null) {
         const expectedRevisionId = typeof body.expectedRevisionId === "string" ? body.expectedRevisionId.trim() : "";

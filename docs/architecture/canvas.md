@@ -188,8 +188,16 @@ Un frame de un Diseño puede mostrar una página HTML existente en lugar de nodo
 referencia vive en el frame y no copia bytes:
 
 ```json
-{ "id": "propuesta-a", "name": "Propuesta A", "x": 0, "y": 0, "w": 390, "h": 640, "nodes": [],
-  "source": { "artifactId": "<página>", "revisionId": "<revisión elegida>", "mode": "fluid" } }
+{
+  "id": "propuesta-a",
+  "name": "Propuesta A",
+  "x": 0,
+  "y": 0,
+  "w": 390,
+  "h": 640,
+  "nodes": [],
+  "source": { "artifactId": "<página>", "revisionId": "<revisión elegida>", "mode": "fluid" }
+}
 ```
 
 Decisiones que sostienen la entrega:
@@ -275,8 +283,32 @@ almacenamiento de estado por pantalla ni backend nuevo.
 
 **Permisos y límites.** El enlace de Play no reemplaza la revalidación de acceso al origen: un lector
 sin permiso ve «This proposal is not available to you.» también en Play, y el contenedor no entrega
-estado a un artboard no disponible. Quedan fuera: comentarios y pedidos de cambio, comparación de
-revisiones, compartir una versión fija, edición directa, páginas internas y componentes.
+estado a un artboard no disponible. Quedan fuera de Play: comentarios y pedidos de cambio,
+comparación de revisiones, compartir una versión fija, edición directa, páginas internas y
+componentes.
+
+### 2.10 Pedir un cambio desde un artboard vivo
+
+En el visor del Diseño (Canvas y Focus, nunca Play) cada artboard legible lleva una bridge inyectada
+con el mismo contrato de mensajes que los comentarios de HTML. El iframe sigue sellado con origen
+opaco y sin acceso al padre: su HTML solo puede proponer una selección (`select`), nunca abrir una
+solicitud ni obtener permisos. La persona confirma.
+
+Con la selección, el contenedor arma una referencia portable: Diseño, artboard, revisión fijada del
+source, elemento o punto normalizado y el pedido de la persona. La referencia separa de forma
+explícita qué es selección, qué es pedido de la persona y qué es contenido del artifact —dato, nunca
+instrucción— y no incluye tokens, cookies, DOM ni datos de otros artifacts.
+
+La solicitud se guarda como comentario raíz con ancla `artboard-point`, atada al frame y a la revisión
+fijada del source; el servidor revalida ambas y que el source sea legible antes de escribir, sin leer
+sus bytes. Al volver al mismo artboard el hilo sigue visible como pin dentro del artboard y como ficha
+en el panel. El estado se deriva siempre de evidencia y solo se muestran los dos que el producto
+puede probar: **pendiente** mientras el target siga fijando la revisión de la solicitud, y **target
+cambiado** cuando el frame pasó a fijar otra revisión; un source ilegible se muestra como **no
+disponible** y un guardado fallido se informa como error, nunca como publicado. «Aplicado» o
+«publicado» exigiría evidencia de la edición del agente y del estado de publicación de la última
+revisión, y no se promete hasta que exista. Comentar no concede editar ni publicar, y quien no puede
+leer el source ve el estado no disponible, sin referencia.
 
 ## 3. Modelo actual y arquitectura actual
 

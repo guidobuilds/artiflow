@@ -86,7 +86,7 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
     plural: "Designs",
     icon: "canvas",
     viewer: "scene",
-    anchors: ["board-point"],
+    anchors: ["board-point", "artboard-point"],
     comments: true,
     agentWrite: "replace-document",
     titleSource: "frame-name",
@@ -493,8 +493,12 @@ test("a canvas row that disappears or loses its row breaks the matrix", () => {
 test("a kind that declares comments must accept an anchor, and losing the canvas one is a gap", () => {
   assert.deepEqual(auditKindMatrix(KIND_CAPABILITIES), [], "the shipped matrix is green with canvas commenting");
   assert.equal(acceptsComments("canvas"), true);
-  assert.deepEqual(anchorKindsFor("canvas"), ["board-point"]);
-  assert.deepEqual([...anchorKindsFor("canvas")].sort(), ["board-point"], "a canvas anchor names a node");
+  assert.deepEqual(anchorKindsFor("canvas"), ["board-point", "artboard-point"]);
+  assert.deepEqual(
+    [...anchorKindsFor("canvas")].sort(),
+    ["artboard-point", "board-point"],
+    "a canvas anchor names a node or a live artboard",
+  );
 
   const anchorless = {
     ...KIND_CAPABILITIES,

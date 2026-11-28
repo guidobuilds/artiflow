@@ -1,15 +1,30 @@
-import { isSceneAnchor } from "@artiflow/domain/comment-anchors";
+import {
+  artboardAnchorNeedsRedaction,
+  artboardAnchorSourceId,
+  artboardSourceIsReadable,
+  isArtboardAnchor,
+  isSceneAnchor,
+  redactArtboardAnchor,
+  type ArtboardPointAnchor,
+} from "@artiflow/domain/comment-anchors";
 import { viewerFor } from "@artiflow/domain/kinds";
 import type { Scene } from "@artiflow/domain/scene";
 
 import { commentDocument, listComments } from "../adapters/postgres/comments-repo.ts";
 import type { AppDb } from "../adapters/postgres/db/client.ts";
 import { viewerActionsAssets, viewerCommentsAssets } from "./assets.ts";
-import { bridgeNonce, bridgePins, viewerCommentsConfig, type ViewerCommentsConfig } from "./comments-data.ts";
+import {
+  bridgeNonce,
+  bridgePins,
+  designRequestNonce,
+  viewerCommentsConfig,
+  type ViewerCommentsConfig,
+} from "./comments-data.ts";
 import { loadViewerComments, type ViewerCommentLoad } from "./comments-degrade.ts";
 import { htmlBridgeScript } from "./html-bridge-script.ts";
 import {
   refreshPlan,
+  type DesignRequestShellConfig,
   type ViewerActions,
   type ViewerAudience,
   type ViewerChrome,
@@ -104,6 +119,46 @@ async function sessionLoad(
   return { loaded, access: seen.access };
 }
 
+async function redactUnreadableArtboardAnchors(
+  input: ViewerPreparation,
+  request: SessionRequest,
+  config: ViewerCommentsConfig,
+): Promise<ViewerCommentsConfig> {
+  const anchored = config.threads.filter((thread) => isArtboardAnchor(thread.anchor));
+  if (anchored.length === 0) return config;
+  const scene = input.publishedScene === undefined ? null : await input.publishedScene();
+  const readable = new Map<string, boolean>();
+  if (scene !== null) {
+    const sources = new Set(
+      anchored.flatMap((thread) => {
+        const sourceId = artboardAnchorSourceId(scene, thread.anchor as ArtboardPointAnchor);
+        return sourceId === null ? [] : [sourceId];
+      }),
+    );
+    await Promise.all(
+      [...sources].map(async (sourceId) => {
+        const found = artboardSourceIsReadable(await commentDocument(input.db, request.viewerId, sourceId, "shared"));
+        readable.set(sourceId, found);
+      }),
+    );
+  }
+  const readableSource = (sourceId: string): boolean => readable.get(sourceId) === true;
+  const hiddenIds = new Set(
+    anchored
+      .filter((thread) => artboardAnchorNeedsRedaction(scene, thread.anchor as ArtboardPointAnchor, readableSource))
+      .map((thread) => thread.id),
+  );
+  if (hiddenIds.size === 0) return config;
+  return {
+    ...config,
+    threads: config.threads.map((thread) =>
+      hiddenIds.has(thread.id)
+        ? { ...thread, anchor: redactArtboardAnchor(thread.anchor as ArtboardPointAnchor) }
+        : thread,
+    ),
+  };
+}
+
 async function sessionCommentsPlan(
   input: ViewerPreparation,
   request: SessionRequest,
@@ -134,8 +189,9 @@ async function sessionCommentsPlan(
       list: `/artifact/${artifactId}/comments`,
     },
   });
-  if (viewerFor(artifact.kind) === "scene") return { kind: "document", config };
-  return pagePlan(config, source, nonce);
+  const redacted = await redactUnreadableArtboardAnchors(input, request, config);
+  if (viewerFor(artifact.kind) === "scene") return { kind: "document", config: redacted };
+  return pagePlan(redacted, source, nonce);
 }
 
 async function publicCommentsPlan(input: ViewerPreparation, request: PublicRequest): Promise<ViewerCommentsPlan> {
@@ -168,12 +224,27 @@ const refreshOf = (input: ViewerPreparation, commentsShown: boolean): ViewerRefr
     : { plan: refreshPlan(`/api/artifacts/${artifact.id}`), revisionNumber, sha256 };
 };
 
+const designRequestOf = (input: ViewerPreparation, canComment: boolean): DesignRequestShellConfig | undefined => {
+  const { artifact, request, embed } = input;
+  if (embed || request.kind === "public" || artifact.kind !== "canvas") return undefined;
+  if (artifact.revisionId === null || artifact.revisionId === "") return undefined;
+  return {
+    nonce: designRequestNonce(artifact.id, artifact.sha256),
+    canComment,
+    commentsEndpoint: `/api/artifacts/${artifact.id}/comments`,
+    expectedRevisionId: artifact.revisionId,
+    designId: artifact.id,
+    designTitle: artifact.title ?? "Design",
+  };
+};
+
 const modelOf = (
   input: ViewerPreparation,
   access: string | null,
   actions: ViewerActions,
   management: ViewerManagementPlan,
   comments: ViewerCommentsPlan,
+  designRequest?: DesignRequestShellConfig | undefined,
 ): ViewerModel => {
   const { artifact, request, embed } = input;
   const chrome = chromeOf(request, embed);
@@ -196,6 +267,7 @@ const modelOf = (
     management,
     comments,
     refresh: refreshOf(input, commentsShown),
+    ...(designRequest === undefined ? {} : { designRequest }),
   };
 };
 
@@ -204,7 +276,14 @@ async function prepareSession(input: ViewerPreparation, request: SessionRequest)
   const access = input.artifact.ownerId === request.viewerId ? "owner" : session.access;
   const management = managementOf(input, request, access);
   const comments = input.embed ? { kind: "none" as const } : await sessionCommentsPlan(input, request, session.loaded);
-  return modelOf(input, access, actionsOf(session.loaded), management, comments);
+  return modelOf(
+    input,
+    access,
+    actionsOf(session.loaded),
+    management,
+    comments,
+    designRequestOf(input, session.loaded.canComment),
+  );
 }
 
 async function preparePublic(input: ViewerPreparation, request: PublicRequest): Promise<ViewerModel> {

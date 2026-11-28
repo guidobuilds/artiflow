@@ -6,6 +6,9 @@ import { sceneSubtree, type Scene } from "@artiflow/domain/scene";
 export const bridgeNonce = (artifactId: string, sha256: string): string =>
   createHash("sha256").update(`comments:${artifactId}:${sha256}`).digest("hex").slice(0, 32);
 
+export const designRequestNonce = (artifactId: string, sha256: string): string =>
+  createHash("sha256").update(`design-request:${artifactId}:${sha256}`).digest("hex").slice(0, 32);
+
 export type ViewerCommentAuthor = { id: string; name: string; image: string | null };
 
 export type ViewerComment = {

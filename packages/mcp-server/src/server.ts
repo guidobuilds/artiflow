@@ -40,6 +40,13 @@ import {
   anchorKindsForDocument,
   anchorKindAllowed,
   anchorText,
+  artboardAnchorRefusal,
+  artboardAnchorNeedsRedaction,
+  artboardAnchorSourceId,
+  artboardSourceIsReadable,
+  isArtboardAnchor,
+  pinnedArtboardAnchorSource,
+  redactArtboardAnchor,
   isSceneAnchor,
   sceneAnchorIsOrphaned,
   sceneAnchorRefusal,
@@ -1238,15 +1245,36 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         if ("content" in gate) return gate;
         const rows = await listComments(undefined, artifactId, false);
         const scene = acceptsSceneAnchors(gate.kind) ? await currentSceneOf(access.userId, artifactId) : null;
+        const readable = new Map<string, boolean>();
+        if (scene !== null) {
+          const sources = new Set(
+            rows.flatMap((row) => {
+              const entry = row.anchor;
+              const sourceId = isArtboardAnchor(entry) ? artboardAnchorSourceId(scene, entry) : null;
+              return sourceId === null ? [] : [sourceId];
+            }),
+          );
+          await Promise.all(
+            [...sources].map(async (sourceId) => {
+              const source = await backend.commentDocument(undefined, access.userId, sourceId, "shared");
+              readable.set(sourceId, artboardSourceIsReadable(source));
+            }),
+          );
+        }
+        const readableSource = (sourceId: string): boolean => readable.get(sourceId) === true;
+        const redact = (anchor: unknown): unknown => {
+          if (!isArtboardAnchor(anchor)) return anchor;
+          return artboardAnchorNeedsRedaction(scene, anchor, readableSource) ? redactArtboardAnchor(anchor) : anchor;
+        };
         return reply({
           comments: rows
             .filter((row) => row.parentId === null)
             .map((row) => ({
-              ...serializeComment(row),
+              ...serializeComment(row, undefined, redact),
               ...(scene === null ? {} : { orphaned: sceneAnchorIsOrphaned(scene, row.anchor) }),
               replies: rows
                 .filter((child) => child.parentId === row.id)
-                .map((child) => ({ ...serializeComment(child, row.anchor), replies: [] })),
+                .map((child) => ({ ...serializeComment(child, row.anchor, redact), replies: [] })),
             })),
         });
       },
@@ -1255,7 +1283,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       "artifact_add_comment",
       {
         title: "Comment on a document anchor",
-        description: `Add a root comment to an owned document at a discriminated anchor. Requires ${scope}. Markdown accepts { kind: 'text-range', startLine, startCol, endLine, endCol, quotedText } with 1-indexed UTF-16 columns, end-exclusive, and quotedText matching the CURRENT source exactly; html accepts { kind: 'element', selector, point: { x, y } in 0..1, textHint (max 120 chars), viewportWidth } and { kind: 'page-point', x in 0..1, y in pixels, viewportWidth }; a canvas accepts { kind: 'board-point', boardId, nodeId, x, y } with x and y normalized 0..1 inside that node, so the pin survives the node moving or resizing. Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses malformed anchors with validation, an anchor the document kind does not accept with unsupported_anchor_kind, a node the current scene does not hold with unknown_node, and changed quotes with anchor_mismatch.`,
+        description: `Add a root comment to an owned document at a discriminated anchor. Requires ${scope}. Markdown accepts { kind: 'text-range', startLine, startCol, endLine, endCol, quotedText } with 1-indexed UTF-16 columns, end-exclusive, and quotedText matching the CURRENT source exactly; html accepts { kind: 'element', selector, point: { x, y } in 0..1, textHint (max 120 chars), viewportWidth } and { kind: 'page-point', x in 0..1, y in pixels, viewportWidth }; a canvas accepts { kind: 'board-point', boardId, nodeId, x, y } with x and y normalized 0..1 inside that node, so the pin survives the node moving or resizing, and { kind: 'artboard-point', boardId, revisionId, selector, textHint, x, y } for a change request inside a live artboard, accepted only while the frame still pins that source revision (unknown_frame, unknown_source, revision_mismatch, source_unavailable). Nonblank body: at most ${MAX_COMMENT_BODY} Unicode characters; quote: at most ${MAX_COMMENT_QUOTE}. Refuses malformed anchors with validation, an anchor the document kind does not accept with unsupported_anchor_kind, a node the current scene does not hold with unknown_node, and changed quotes with anchor_mismatch.`,
         inputSchema: {
           artifactId: artifactIdSchema,
           anchor: commentAnchorSchema,
@@ -1292,6 +1320,35 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
               return refusal("unknown_node", "anchor_node_is_not_in_the_scene", {
                 artifactId,
                 nodeId: anchor.nodeId,
+              });
+          }
+          if (isArtboardAnchor(anchor)) {
+            const loaded = await loadScene(backend, access.userId, artifactId);
+            if (!loaded.ok) return sceneRefusalOf(loaded.refusal);
+            const reason = artboardAnchorRefusal(loaded.value.scene, anchor);
+            if (reason === "unknown_frame")
+              return refusal("unknown_frame", "anchor_frame_is_not_in_the_scene", {
+                artifactId,
+                boardId: anchor.boardId,
+              });
+            if (reason === "unknown_source")
+              return refusal("unknown_source", "anchor_frame_has_no_artboard", {
+                artifactId,
+                boardId: anchor.boardId,
+              });
+            if (reason === "revision_mismatch")
+              return refusal("revision_mismatch", "anchor_revision_is_not_the_pinned_source", {
+                artifactId,
+                boardId: anchor.boardId,
+                revisionId: anchor.revisionId,
+              });
+            const sourceId = pinnedArtboardAnchorSource(loaded.value.scene, anchor);
+            if (sourceId === null) return refusal("unknown_source", "anchor_frame_has_no_artboard", { artifactId });
+            const sourceDocument = await backend.commentDocument(client, access.userId, sourceId, "shared");
+            if (!artboardSourceIsReadable(sourceDocument))
+              return refusal("source_unavailable", "source_is_not_readable", {
+                artifactId,
+                sourceArtifactId: sourceId,
               });
           }
           return insertStored(client, artifactId, access.userId, null, anchor, revision.id, body);
@@ -1344,8 +1401,12 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
   };
 }
 
-const serializeComment = (row: McpCommentRow, inheritedAnchor?: unknown) => {
-  const anchor = (row.anchor ?? inheritedAnchor ?? null) as AnyCommentAnchor | null;
+const serializeComment = (
+  row: McpCommentRow,
+  inheritedAnchor?: unknown,
+  redact: (anchor: unknown) => unknown = (anchor) => anchor,
+) => {
+  const anchor = redact(row.anchor ?? inheritedAnchor ?? null) as AnyCommentAnchor | null;
   return {
     id: row.id,
     parentId: row.parentId,

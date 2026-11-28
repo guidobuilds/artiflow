@@ -71,6 +71,15 @@ export type ViewerCommentsPlan =
 
 export type ViewerMarginalComments = { readonly config: ViewerCommentsConfig; readonly assets: Assets };
 
+export type DesignRequestShellConfig = {
+  readonly nonce: string;
+  readonly canComment: boolean;
+  readonly commentsEndpoint: string;
+  readonly expectedRevisionId: string;
+  readonly designId: string;
+  readonly designTitle: string;
+};
+
 export type ViewerModel = {
   readonly id: string;
   readonly kind: string;
@@ -85,6 +94,7 @@ export type ViewerModel = {
   readonly management: ViewerManagementPlan;
   readonly comments: ViewerCommentsPlan;
   readonly refresh: ViewerRefresh;
+  readonly designRequest?: DesignRequestShellConfig | undefined;
 };
 
 export const commentThreads = (plan: ViewerCommentsPlan): readonly ViewerCommentThread[] =>

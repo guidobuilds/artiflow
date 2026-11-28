@@ -14,14 +14,18 @@ import {
   type TextNode,
 } from "@artiflow/domain/scene";
 
+import { isArtboardAnchor } from "@artiflow/domain/comment-anchors";
+import { designRequestReference, designRequestStatus, designRequestStatusLabel } from "@artiflow/domain/design-request";
 import { presentsSlides } from "@artiflow/domain/kinds";
-import type { SceneViewPlan } from "@artiflow/domain/scene-link";
+import { sceneViewHref, type SceneViewPlan } from "@artiflow/domain/scene-link";
 import { artifactView, originOf, sceneDocumentCsp, withDocumentPolicy, type ArtifactPage } from "../artifact.ts";
-import { escapeAttribute } from "../chrome/theme.ts";
+import { escapeAttribute, escapeJsonText } from "../chrome/theme.ts";
 import { sceneThreadPlacement, type SceneThreadOrphan, type SceneThreadPin } from "../comments-data.ts";
-import type { ViewerModel } from "../model.ts";
+import type { DesignRequestShellConfig, ViewerModel } from "../model.ts";
 import { artboardControllerScript } from "./artboard-controller.ts";
 import { canvasControllerScript } from "./canvas-controller.ts";
+import { designRequestControllerScript, SCENE_REQUEST_STORAGE_KEY } from "../design-request-controller.ts";
+import { selectionBridgeScript } from "../selection-bridge-script.ts";
 import { deckControllerScript } from "./deck-controller.ts";
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
@@ -157,8 +161,47 @@ const ARTBOARD_UNAVAILABLE_TEXT: Record<SceneArtboardUnavailableReason, string> 
 const revisionLabel = (number: number | null, revisionId: string): string =>
   number === null ? revisionId.slice(0, 8) : `v${number}`;
 
-const sourcePageOf = (content: Extract<SceneArtboardContent, { kind: "ready" }>): string =>
-  Buffer.from(withDocumentPolicy(content.html), "utf8").toString("base64");
+const sourcePageOf = (content: Extract<SceneArtboardContent, { kind: "ready" }>, bridge = ""): string =>
+  Buffer.from(`${withDocumentPolicy(content.html)}${bridge}`, "utf8").toString("base64");
+
+type ArtboardBridge = { readonly nonce: string; readonly script: string };
+
+const artboardThreadPins = (
+  threads: readonly { id: string; anchor?: unknown }[],
+  frame: SceneFrame,
+): { id: string; number: number; selector: string; textHint: string; x: number; y: number }[] =>
+  threads.flatMap((thread, index) => {
+    const anchor = thread.anchor;
+    if (!isArtboardAnchor(anchor) || anchor.boardId !== frame.id) return [];
+    if (frame.source === undefined || frame.source.revisionId !== anchor.revisionId) return [];
+    return [
+      {
+        id: thread.id,
+        number: index + 1,
+        selector: anchor.selector,
+        textHint: anchor.textHint,
+        x: anchor.x,
+        y: anchor.y,
+      },
+    ];
+  });
+
+const artboardBridgeOf = (
+  frame: SceneFrame,
+  threads: readonly { id: string; anchor?: unknown }[],
+  request: DesignRequestShellConfig | undefined,
+): ArtboardBridge | undefined => {
+  if (request === undefined) return undefined;
+  const nonce = `${request.nonce}:${frame.id}`;
+  return {
+    nonce,
+    script: selectionBridgeScript({
+      nonce,
+      pins: artboardThreadPins(threads, frame),
+      allowSelect: request.canComment,
+    }),
+  };
+};
 
 export type SceneRenderView =
   | { readonly kind: "canvas" }
@@ -213,6 +256,7 @@ const renderArtboard = (
   content: SceneArtboardContent | undefined,
   view: SceneRenderView,
   boxWidth: number,
+  bridge?: ArtboardBridge | undefined,
 ): string => {
   const width = artboardWidthOf(frame, source, content, view);
   if (content === undefined || content.kind === "unavailable") {
@@ -225,7 +269,7 @@ const renderArtboard = (
       : source.mode === "fluid"
         ? renderViewportControls(frame, initialViewportOf(frame, source.mode, view), view)
         : `<span class="scene-artboard-bar" role="group" aria-label="Artboard ${escapeAttribute(frame.name)}"><span class="scene-artboard-mode">Fixed ${num(frame.w)}</span>${renderBarActions(frame, view)}</span>`;
-  return `<div class="scene-artboard" style="width:${px(boxWidth)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(content)}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
+  return `<div class="scene-artboard" style="width:${px(boxWidth)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(content, bridge?.script ?? "")}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
 };
 
 const renderFrame = (
@@ -237,10 +281,14 @@ const renderFrame = (
   artboard?: SceneArtboardContent,
   view: SceneRenderView = CANVAS_RENDER_VIEW,
   active = false,
+  bridge?: ArtboardBridge | undefined,
 ): string => {
   const source = frame.source;
   const framed = view.kind !== "canvas";
-  const revisionName = source === undefined ? "" : ` · ${revisionLabel(artboard?.kind === "ready" ? artboard.revisionNumber : null, source.revisionId)}`;
+  const revisionName =
+    source === undefined
+      ? ""
+      : ` · ${revisionLabel(artboard?.kind === "ready" ? artboard.revisionNumber : null, source.revisionId)}`;
   const label = `${frame.name}, ${num(frame.w)} by ${num(frame.h)}${source === undefined ? "" : `, ${source.mode} artboard`}`;
   const boxWidth =
     source === undefined || view.kind === "canvas" ? frame.w : artboardWidthOf(frame, source, artboard, view);
@@ -263,7 +311,7 @@ ${name}
 <div class="scene-frame-body${source === undefined ? "" : " scene-artboard-host"}" style="width:${px(boxWidth)};height:${px(frame.h)}">${
     source === undefined
       ? `${frame.nodes.map((node) => renderNode(node, images)).join("")}${pinMarks}`
-      : renderArtboard(frame, source, artboard, view, boxWidth)
+      : renderArtboard(frame, source, artboard, view, boxWidth, bridge)
   }</div>
 </section>`;
 };
@@ -333,6 +381,40 @@ body[data-scene-view="focus"] .scene-artboard-enter,body[data-scene-view="play"]
 .scene-artboard-back{display:none}
 body[data-scene-view="focus"] .scene-artboard-back{display:inline-flex}
 body[data-scene-view="play"] .scene-artboard-bar{display:none}
+#stage[data-request-selecting="true"] .scene-artboard-frame{pointer-events:auto;cursor:crosshair}
+.scene-request-start{position:fixed;left:12px;bottom:12px;z-index:3;height:30px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#f4f4f2;font:500 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
+.scene-request-start:hover{background:#2c2c2c}
+.scene-request-start[aria-pressed="true"]{border-color:#ff6a2b;background:#2a1a12;color:#ffffff}
+.scene-request-start:focus-visible{outline:2px solid #ff6a2b;outline-offset:2px}
+.scene-request-draft:empty{display:none}
+.scene-request-draft{position:fixed;left:12px;bottom:52px;z-index:3;width:min(340px,calc(100vw - 24px));padding:10px;border:1px solid #3a3a3a;border-radius:10px;background:rgba(20,20,20,.96);color:#f4f4f2;font:12px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.scene-request-draft-title{margin:0 0 2px;font-weight:600}
+.scene-request-draft-where{margin:0 0 8px;color:#8f969d;font:11px ui-monospace,SFMono-Regular,Consolas,monospace}
+.scene-request-draft-label{display:block;margin:0 0 8px}
+.scene-request-draft-label textarea{display:block;width:100%;margin-top:4px;padding:6px;border:1px solid #3a3a3a;border-radius:6px;background:#141414;color:#f4f4f2;font:12px/1.4 system-ui;resize:vertical}
+.scene-request-draft-actions{display:flex;gap:6px;margin:0}
+.scene-request-draft-actions button{height:26px;padding:0 10px;border:1px solid #3a3a3a;border-radius:6px;background:#262626;color:#f4f4f2;font:500 12px/1 system-ui;cursor:pointer}
+.scene-request-draft-actions button:first-child{border-color:#ff6a2b;background:#2a1a12}
+[data-request-state]{margin:8px 0 0;font-size:11px}
+[data-request-state][data-tone="error"]{color:#ff8a55}
+[data-request-state][data-tone="saved"]{color:#7fd18b}
+.scene-requests{position:fixed;right:12px;top:52px;z-index:3;width:min(320px,calc(100vw - 24px));max-height:60vh;overflow:auto;padding:10px;border:1px solid #3a3a3a;border-radius:10px;background:rgba(20,20,20,.96);color:#f4f4f2;font:12px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.scene-requests-title{margin:0 0 6px;color:#c3c8cd;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.scene-requests ul{margin:0;padding:0;list-style:none}
+.scene-request{padding:8px 0;border-top:1px solid #2a2a2a}
+.scene-request:first-child{border-top:0}
+.scene-request-head{display:flex;gap:6px;align-items:baseline;margin:0 0 4px}
+.scene-request-number{display:grid;place-content:center;min-width:18px;height:18px;border-radius:999px;background:#ff6a2b;color:#170b05;font:600 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}
+.scene-request-artboard{font-weight:600}
+.scene-request-status{margin-left:auto;padding:1px 6px;border:1px solid #3a3a3a;border-radius:999px;color:#c3c8cd;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.scene-request-status[data-status="pending"]{border-color:#8f969d;color:#c3c8cd}
+.scene-request-status[data-status="target_changed"],.scene-request-status[data-status="unavailable"]{border-color:#ff6a2b;color:#ff8a55}
+.scene-request-body{margin:0 0 6px;white-space:pre-wrap}
+.scene-request-unavailable{margin:0 0 6px;color:#ff8a55}
+.scene-request-reference{display:block;margin:0 0 6px;color:#8f969d;font-size:11px}
+.scene-request-reference textarea{display:block;width:100%;margin-top:4px;padding:6px;border:1px solid #3a3a3a;border-radius:6px;background:#141414;color:#c3c8cd;font:10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;resize:vertical}
+.scene-request-show{height:24px;padding:0 8px;border:1px solid #3a3a3a;border-radius:6px;background:#262626;color:#f4f4f2;font:500 11px/1 system-ui;cursor:pointer}
+body[data-scene-view="play"] .scene-request-start,body[data-scene-view="play"] .scene-request-draft,body[data-scene-view="play"] .scene-requests{display:none}
 .scene-play-exit{position:fixed;top:12px;right:12px;z-index:3;height:30px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#f4f4f2;font:500 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
 .scene-play-exit:hover{background:#2c2c2c}
 .scene-play-exit:focus-visible{outline:2px solid #ff6a2b;outline-offset:2px}`;
@@ -346,14 +428,22 @@ const SURFACE_CSS = `.scene-surface{position:absolute;top:0;left:0;transform-ori
 const BASE_DOCUMENT_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
+export type SceneRequestThread = {
+  readonly id: string;
+  readonly anchor?: unknown;
+  readonly body?: string;
+  readonly resolvedAt?: string | null;
+};
+
 export function renderSceneDocument(
   scene: Scene,
   frameId?: string,
   images?: SceneImages,
-  threads: readonly { id: string; anchor?: unknown }[] = [],
+  threads: readonly SceneRequestThread[] = [],
   kind = "canvas",
   artboards: SceneArtboards = {},
   view: SceneRenderView = CANVAS_RENDER_VIEW,
+  request?: DesignRequestShellConfig | undefined,
 ): string {
   const slides = presentsSlides(kind);
   const framed = view.kind !== "canvas" && !slides;
@@ -378,6 +468,28 @@ export function renderSceneDocument(
   };
   const hasArtboards = scene.frames.some((frame) => frame.source !== undefined);
   if (hasArtboards) policy = `${policy}; frame-src data:`;
+  const requestPanelVisible = !slides && view.kind !== "play" && request !== undefined;
+  const selectionEnabled = requestPanelVisible && request.canComment;
+  const bridgeOf = (frame: SceneFrame): ArtboardBridge | undefined =>
+    selectionEnabled && frame.source !== undefined && artboardOf(frame)?.kind === "ready"
+      ? artboardBridgeOf(frame, threads, request)
+      : undefined;
+  const requestFrames = selectionEnabled
+    ? scene.frames.flatMap((frame) => {
+        const bridge = bridgeOf(frame);
+        if (bridge === undefined || frame.source === undefined) return [];
+        const content = artboardOf(frame);
+        return [
+          {
+            id: frame.id,
+            revisionId: frame.source.revisionId,
+            revisionNumber: content?.kind === "ready" ? content.revisionNumber : null,
+            name: frame.name,
+            bridgeNonce: bridge.nonce,
+          },
+        ];
+      })
+    : [];
   const placementOf = (id: string): FramePlacement => {
     const found = surface === null ? undefined : surface.placements.find((entry) => entry.frameId === id);
     return found === undefined ? { x: 0, y: 0 } : { x: found.x, y: found.y };
@@ -399,6 +511,7 @@ export function renderSceneDocument(
           artboardOf(frame),
           renderView,
           framed && frame.id === selectedId,
+          bridgeOf(frame),
         ),
   );
   const surfaceSize = `data-surface-w="${num(surface === null ? 0 : surface.width)}" data-surface-h="${num(surface === null ? 0 : surface.height)}"`;
@@ -418,26 +531,101 @@ ${surfaceOf()}
   const chrome = framed
     ? singleChrome()
     : empty
-    ? slides
-      ? `<div class="scene-stage scene-slides" id="stage">
+      ? slides
+        ? `<div class="scene-stage scene-slides" id="stage">
 <p class="scene-empty">This deck has no slides yet.</p>
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Slides" hidden></nav>`
-      : `<div class="scene-stage" id="stage">
+        : `<div class="scene-stage" id="stage">
 <p class="scene-empty">This design has no frames yet.</p>
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
-    : slides
-      ? `<div class="scene-stage scene-slides" id="stage">
+      : slides
+        ? `<div class="scene-stage scene-slides" id="stage">
 <div class="scene-tools"><button type="button" id="prev" title="Previous slide">Back</button><button type="button" id="next" title="Next slide">Forward</button><button type="button" id="strip" aria-pressed="false" title="Show the slide list">Slides</button>${renderCounter(selectedIndex, scene.frames.length)}</div>
 ${slidesOf.join("\n")}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Slides" hidden>${renderIndex(scene, selectedId)}</nav>`
-      : `<div class="scene-stage" id="stage">
+        : `<div class="scene-stage" id="stage">
 <div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button></div>
 ${surfaceOf()}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames"${indexHidden}>${renderIndex(scene, selectedId)}</nav>`;
+  const requestOf = (thread: SceneRequestThread, index: number): string => {
+    const anchor = thread.anchor;
+    if (!isArtboardAnchor(anchor) || request === undefined) return "";
+    const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
+    const content = frame === undefined ? undefined : artboardOf(frame);
+    const available = content !== undefined && content.kind === "ready";
+    const sourceRevisionId = frame?.source?.revisionId ?? null;
+    const status = designRequestStatus({
+      anchoredRevisionId: anchor.revisionId,
+      currentSourceRevisionId: sourceRevisionId,
+    });
+    const label = available ? designRequestStatusLabel(status) : "Not available";
+    const state = available ? status : "unavailable";
+    const name = frame?.name ?? anchor.boardId;
+    const link = sceneViewHref(`/artifact/${request.designId}`, {
+      view: view.kind,
+      frameId: anchor.boardId,
+      width: view.kind === "canvas" ? null : view.width,
+    });
+    const reference = available
+      ? designRequestReference({
+          design: { id: request.designId, title: request.designTitle },
+          link,
+          artboard: { frameId: anchor.boardId, name },
+          revision: { id: anchor.revisionId, number: content.revisionNumber },
+          selection: {
+            selector: anchor.selector,
+            textHint: anchor.textHint,
+            point: { x: anchor.x, y: anchor.y },
+            viewportWidth: anchor.viewportWidth,
+          },
+          request: thread.body ?? "",
+        })
+      : null;
+    const referenceText = reference !== null && reference.ok ? reference.text : "";
+    const body =
+      available && (thread.body ?? "").trim() !== ""
+        ? `<p class="scene-request-body">${escapeAttribute(thread.body ?? "")}</p>`
+        : "";
+    const unavailable = available ? "" : '<p class="scene-request-unavailable">You cannot see this proposal.</p>';
+    const copy =
+      referenceText === ""
+        ? ""
+        : `<label class="scene-request-reference">Portable reference<textarea readonly rows="7" data-request-reference>${escapeAttribute(referenceText)}</textarea></label>`;
+    return `<li class="scene-request" data-request-thread="${escapeAttribute(thread.id)}" data-request-frame="${escapeAttribute(anchor.boardId)}">
+<p class="scene-request-head"><span class="scene-request-number">${index + 1}</span><span class="scene-request-artboard">${escapeAttribute(name)}</span><span class="scene-request-status" data-status="${state}">${escapeAttribute(label)}</span></p>
+${body}${unavailable}${copy}<button type="button" class="scene-request-show" data-request-show="${escapeAttribute(thread.id)}" data-request-frame="${escapeAttribute(anchor.boardId)}">Show on artboard</button>
+</li>`;
+  };
+  const requestCards = requestPanelVisible
+    ? threads
+        .map(requestOf)
+        .filter((card) => card !== "")
+        .join("\n")
+    : "";
+  const requestList =
+    requestCards === ""
+      ? ""
+      : `\n<aside class="scene-requests" id="scene-requests" aria-label="Change requests">\n<p class="scene-requests-title">Change requests</p>\n<ul>\n${requestCards}\n</ul>\n</aside>`;
+  const requestComposer =
+    requestFrames.length === 0
+      ? ""
+      : `\n<button type="button" class="scene-request-start" data-request-start aria-pressed="false">Request change</button>\n<div id="scene-request-draft" class="scene-request-draft"></div>`;
+  const requestUi = requestComposer + requestList;
+  const requestConfig =
+    requestFrames.length === 0
+      ? ""
+      : `\n<script type="application/json" id="${SCENE_REQUEST_STORAGE_KEY}">${escapeJsonText(
+          JSON.stringify({
+            nonce: request?.nonce ?? "",
+            canComment: request?.canComment === true,
+            frames: requestFrames,
+          }),
+        )}</script>`;
+
   const viewAttributes = framed ? ` data-scene-view="${view.kind}"` : "";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
@@ -445,10 +633,10 @@ ${surfaceOf()}
 ${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : `${DOCUMENT_CSS}\n${SURFACE_CSS}`}${hasArtboards ? `\n${ARTBOARD_CSS}` : ""}
 </style></head>
 ${"<body"}${viewAttributes}>
-${chrome}${orphans === "" ? "" : `\n${orphans}`}
+${chrome}${requestUi}${orphans === "" ? "" : `\n${orphans}`}${requestConfig}
 <script>
 ${slides ? deckControllerScript() : canvasControllerScript()}
-</script>${hasArtboards ? `\n<script>\n${artboardControllerScript()}\n</script>` : ""}
+</script>${hasArtboards ? `\n<script>\n${artboardControllerScript()}\n</script>` : ""}${requestFrames.length === 0 ? "" : `\n<script>\n${designRequestControllerScript()}\n</script>`}
 </body></html>`;
 }
 
@@ -456,16 +644,26 @@ export type SceneViewInput = {
   readonly scene: Scene;
   readonly frameId?: string | undefined;
   readonly images?: SceneImages | undefined;
-  readonly threads?: readonly { id: string; anchor?: unknown }[];
+  readonly threads?: readonly SceneRequestThread[];
   readonly kind?: string;
   readonly artboards?: SceneArtboards | undefined;
   readonly view?: SceneRenderView | undefined;
+  readonly request?: DesignRequestShellConfig | undefined;
 };
 
 export const sceneView = (model: ViewerModel, input: SceneViewInput): ArtifactPage =>
   artifactView(model, {
     srcdoc: escapeAttribute(
-      renderSceneDocument(input.scene, input.frameId, input.images, input.threads, input.kind, input.artboards ?? {}, input.view ?? CANVAS_RENDER_VIEW),
+      renderSceneDocument(
+        input.scene,
+        input.frameId,
+        input.images,
+        input.threads,
+        input.kind,
+        input.artboards ?? {},
+        input.view ?? CANVAS_RENDER_VIEW,
+        input.request ?? model.designRequest,
+      ),
     ),
     images: input.images?.origin,
   });

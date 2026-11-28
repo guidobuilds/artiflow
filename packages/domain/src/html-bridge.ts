@@ -8,6 +8,14 @@ export type BridgeNonce = string;
 export type ParentCommand =
   { type: "pins"; pins: BridgePin[] } | { type: "mode"; on: boolean } | { type: "focus"; id: string | null };
 
+export type SelectionLocator = {
+  selector: string;
+  textHint: string;
+  x: number;
+  y: number;
+  viewportWidth: number;
+};
+
 export type FrameEvent =
   | { type: "geometry"; id: string; x: number; y: number; visible: boolean }
   | {
@@ -19,6 +27,8 @@ export type FrameEvent =
       viewportWidth: number;
       viewportY: number;
     }
+  | ({ type: "select" } & SelectionLocator)
+  | { type: "cancel" }
   | { type: "pin-click"; id: string }
   | { type: "scroll"; y: number }
   | { type: "ready" };
@@ -91,6 +101,26 @@ const isRecord = (value: unknown): value is Record<string, unknown> => typeof va
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const isString = (value: unknown): value is string => typeof value === "string";
 
+export const MAX_SELECTION_SELECTOR = 512;
+export const MAX_SELECTION_HINT = 120;
+export const MAX_SELECTION_VIEWPORT = 1_000_000;
+
+const SELECT_KEYS = new Set(["channel", "version", "nonce", "type", "selector", "textHint", "x", "y", "viewportWidth"]);
+const ratio = (value: unknown): boolean => isFiniteNumber(value) && value >= 0 && value <= 1;
+
+const validSelection = (raw: Record<string, unknown>): boolean =>
+  Object.keys(raw).every((key) => SELECT_KEYS.has(key)) &&
+  isString(raw.selector) &&
+  raw.selector.length <= MAX_SELECTION_SELECTOR &&
+  isString(raw.textHint) &&
+  raw.textHint.length <= MAX_SELECTION_HINT &&
+  ratio(raw.x) &&
+  ratio(raw.y) &&
+  isFiniteNumber(raw.viewportWidth) &&
+  Number.isSafeInteger(raw.viewportWidth) &&
+  raw.viewportWidth >= 1 &&
+  raw.viewportWidth <= MAX_SELECTION_VIEWPORT;
+
 const validCommand = (raw: Record<string, unknown>): boolean => {
   switch (raw.type) {
     case "pins":
@@ -134,10 +164,13 @@ const validCommand = (raw: Record<string, unknown>): boolean => {
         isFiniteNumber(raw.viewportWidth) &&
         isFiniteNumber(raw.viewportY)
       );
+    case "select":
+      return validSelection(raw);
     case "pin-click":
       return isString(raw.id) && raw.id.length > 0;
     case "scroll":
       return isFiniteNumber(raw.y);
+    case "cancel":
     case "ready":
       return true;
     default:

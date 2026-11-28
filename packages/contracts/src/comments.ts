@@ -4,8 +4,16 @@ export const MAX_COMMENT_BODY = 4000;
 export const MAX_COMMENT_QUOTE = 2000;
 export const MAX_ELEMENT_TEXT_HINT = 120;
 export const MAX_ELEMENT_SELECTOR = 512;
+export const MAX_ANCHOR_TARGET = 200;
 
-export const COMMENT_ANCHOR_KINDS = ["text-range", "element", "page-point", "board-point", "slide-point"] as const;
+export const COMMENT_ANCHOR_KINDS = [
+  "text-range",
+  "element",
+  "page-point",
+  "board-point",
+  "slide-point",
+  "artboard-point",
+] as const;
 export type CommentAnchorKind = (typeof COMMENT_ANCHOR_KINDS)[number];
 
 const ratio = z.number().min(0).max(1);
@@ -61,12 +69,29 @@ export const slidePointAnchorSchema = z.object({
 });
 export type SlidePointAnchorWire = z.infer<typeof slidePointAnchorSchema>;
 
+export const artboardPointAnchorSchema = z
+  .object({
+    kind: z.literal("artboard-point"),
+    boardId: z.string().min(1).max(MAX_ANCHOR_TARGET),
+    revisionId: z.string().min(1).max(MAX_ANCHOR_TARGET),
+    selector: z.string().max(MAX_ELEMENT_SELECTOR),
+    textHint: z.string().max(MAX_ELEMENT_TEXT_HINT),
+    x: ratio,
+    y: ratio,
+    viewportWidth,
+  })
+  .refine(({ selector, textHint }) => selector !== "" || textHint !== "", {
+    message: "artboard_anchor_needs_locator",
+  });
+export type ArtboardPointAnchorWire = z.infer<typeof artboardPointAnchorSchema>;
+
 export const commentAnchorSchema = z.discriminatedUnion("kind", [
   textRangeAnchorSchema,
   elementAnchorSchema,
   pagePointAnchorSchema,
   boardPointAnchorSchema,
   slidePointAnchorSchema,
+  artboardPointAnchorSchema,
 ]);
 export type CommentAnchorWire = z.infer<typeof commentAnchorSchema>;
 
