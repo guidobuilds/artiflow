@@ -10,14 +10,15 @@ export type SceneLink = {
   readonly view: SceneView;
   readonly frameId: string | null;
   readonly width: ArtboardViewportWidth | null;
+  readonly page: string | null;
 };
 
 export type SceneViewPlan =
-  | { readonly kind: "canvas"; readonly frameId: string | null }
+  | { readonly kind: "canvas"; readonly frameId: string | null; readonly page: string | null }
   | { readonly kind: "focus"; readonly frameId: string; readonly width: ArtboardViewportWidth }
   | { readonly kind: "play"; readonly frameId: string; readonly width: ArtboardViewportWidth };
 
-export const CANVAS_PLAN: SceneViewPlan = { kind: "canvas", frameId: null };
+export const CANVAS_PLAN: SceneViewPlan = { kind: "canvas", frameId: null, page: null };
 
 const hasControlCharacter = (value: string): boolean => {
   for (const character of value) {
@@ -48,6 +49,7 @@ export const parseSceneLink = (params: { get(name: string): string | null }): Sc
     view: isView(view) ? view : "canvas",
     frameId: frameIdOf(params.get("frame")),
     width: widthOf(params.get("width")),
+    page: frameIdOf(params.get("page")),
   };
 };
 
@@ -56,14 +58,16 @@ export const sceneViewHref = (path: string, link: SceneLink): string => {
   if (link.frameId !== null) query.set("frame", link.frameId);
   if (link.view !== "canvas") query.set("view", link.view);
   if (link.view !== "canvas" && link.width !== null) query.set("width", String(link.width));
+  if (link.page !== null) query.set("page", link.page);
   const search = query.toString();
   return search === "" ? path : `${path}?${search}`;
 };
 
 export const planSceneView = (scene: Pick<Scene, "frames">, link: SceneLink): SceneViewPlan => {
   const frame = link.frameId === null ? undefined : scene.frames.find((entry) => entry.id === link.frameId);
-  if (frame === undefined) return CANVAS_PLAN;
-  if (link.view === "canvas") return { kind: "canvas", frameId: frame.id };
-  if (link.view === "play" && frame.source === undefined) return { kind: "canvas", frameId: frame.id };
+  if (frame === undefined) return { kind: "canvas", frameId: null, page: link.page };
+  if (link.view === "canvas") return { kind: "canvas", frameId: frame.id, page: link.page };
+  if (link.view === "play" && frame.source === undefined)
+    return { kind: "canvas", frameId: frame.id, page: link.page };
   return { kind: link.view, frameId: frame.id, width: link.width ?? DEFAULT_ARTBOARD_VIEWPORT };
 };

@@ -111,7 +111,7 @@ export const toolDefinitions: ToolDefinition[] = [
   {
     name: "scene_apply",
     description:
-      "One atomic batch of canvas operations against baseSeq: add/update/move/reorder/remove frames, nodes and canvas nodes, or replace_scene. idempotencyKey makes a retried batch replay instead of applying twice. A stale baseSeq refuses with concurrent_edit carrying currentSeq — re-read with scene_outline or scene_read and retry once with that fresh sequence, never blind-retry. The reply carries the new sequence with the computed boxes and violations.",
+      "One atomic batch of canvas operations against baseSeq: add/update/move/reorder/remove frames, nodes, canvas nodes, design pages, the guides spec and the per-frame lock, or replace_scene. idempotencyKey makes a retried batch replay instead of applying twice. A stale baseSeq refuses with concurrent_edit carrying currentSeq — re-read with scene_outline or scene_read and retry once with that fresh sequence, never blind-retry. The reply carries the new sequence with the computed boxes and violations.",
     properties: sceneApplyInputSchema.properties,
     required: sceneApplyInputSchema.required,
   },

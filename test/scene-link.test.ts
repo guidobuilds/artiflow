@@ -27,13 +27,13 @@ const scene = (): Scene => ({
 const linkOf = (search: string) => parseSceneLink(new URLSearchParams(search));
 
 test("a viewer link without a view stays in the canvas", () => {
-  assert.deepEqual(linkOf(""), { view: "canvas", frameId: null, width: null });
-  assert.deepEqual(planSceneView(scene(), linkOf("")), { kind: "canvas", frameId: null });
+  assert.deepEqual(linkOf(""), { view: "canvas", frameId: null, width: null, page: null });
+  assert.deepEqual(planSceneView(scene(), linkOf("")), { kind: "canvas", frameId: null, page: null });
 });
 
 test("a link opens a chosen artboard in focus at 390 or 1280", () => {
   const narrow = linkOf("?frame=a&view=focus&width=390");
-  assert.deepEqual(narrow, { view: "focus", frameId: "a", width: 390 });
+  assert.deepEqual(narrow, { view: "focus", frameId: "a", width: 390, page: null });
   assert.deepEqual(planSceneView(scene(), narrow), { kind: "focus", frameId: "a", width: 390 });
   const wide = linkOf("?frame=a&view=focus&width=1280");
   assert.deepEqual(planSceneView(scene(), wide), { kind: "focus", frameId: "a", width: 1280 });
@@ -56,7 +56,7 @@ test("play starts at the artboard in the link", () => {
 });
 
 test("play needs a frame that is a live artboard", () => {
-  assert.deepEqual(planSceneView(scene(), linkOf("?frame=b&view=play")), { kind: "canvas", frameId: "b" });
+  assert.deepEqual(planSceneView(scene(), linkOf("?frame=b&view=play")), { kind: "canvas", frameId: "b", page: null });
 });
 
 test("an unknown view, an unsupported width and a malformed frame are ignored", () => {
@@ -69,13 +69,13 @@ test("an unknown view, an unsupported width and a malformed frame are ignored", 
 });
 
 test("a destination that the scene does not hold has no effect", () => {
-  assert.deepEqual(planSceneView(scene(), linkOf("?frame=zzz&view=play&width=390")), { kind: "canvas", frameId: null });
-  assert.deepEqual(planSceneView(scene(), linkOf("?frame=zzz&view=focus")), { kind: "canvas", frameId: null });
-  assert.deepEqual(planSceneView(scene(), linkOf("?frame=zzz")), { kind: "canvas", frameId: null });
+  assert.deepEqual(planSceneView(scene(), linkOf("?frame=zzz&view=play&width=390")), { kind: "canvas", frameId: null, page: null });
+  assert.deepEqual(planSceneView(scene(), linkOf("?frame=zzz&view=focus")), { kind: "canvas", frameId: null, page: null });
+  assert.deepEqual(planSceneView(scene(), linkOf("?frame=zzz")), { kind: "canvas", frameId: null, page: null });
 });
 
 test("the canvas keeps the frame of the link selected", () => {
-  assert.deepEqual(planSceneView(scene(), linkOf("?frame=b")), { kind: "canvas", frameId: "b" });
+  assert.deepEqual(planSceneView(scene(), linkOf("?frame=b")), { kind: "canvas", frameId: "b", page: null });
 });
 
 test("a focus link ignores a width it does not carry", () => {
@@ -84,7 +84,7 @@ test("a focus link ignores a width it does not carry", () => {
 });
 
 test("a link built for sharing parses back into the same plan", () => {
-  const focus = sceneViewHref("/artifact/design", { view: "focus", frameId: "a", width: 390 });
+  const focus = sceneViewHref("/artifact/design", { view: "focus", frameId: "a", width: 390, page: null });
   assert.equal(focus, "/artifact/design?frame=a&view=focus&width=390");
   const search = focus.slice(focus.indexOf("?") + 1);
   assert.deepEqual(planSceneView(scene(), parseSceneLink(new URLSearchParams(search))), {
@@ -92,11 +92,12 @@ test("a link built for sharing parses back into the same plan", () => {
     frameId: "a",
     width: 390,
   });
-  const canvas = sceneViewHref("/artifact/design", { view: "canvas", frameId: "a", width: null });
+  const canvas = sceneViewHref("/artifact/design", { view: "canvas", frameId: "a", width: null, page: null });
   assert.equal(canvas, "/artifact/design?frame=a");
   assert.deepEqual(planSceneView(scene(), parseSceneLink(new URLSearchParams(canvas.slice(canvas.indexOf("?") + 1)))), {
     kind: "canvas",
     frameId: "a",
+    page: null,
   });
-  assert.equal(sceneViewHref("/artifact/design", { view: "canvas", frameId: null, width: null }), "/artifact/design");
+  assert.equal(sceneViewHref("/artifact/design", { view: "canvas", frameId: null, width: null, page: null }), "/artifact/design");
 });

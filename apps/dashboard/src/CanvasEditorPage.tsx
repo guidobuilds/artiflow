@@ -18,15 +18,28 @@ import DeleteModal from "./DeleteModal.tsx";
 import { ArtboardCard, ArtboardUpdateAction } from "./artboard-frame.tsx";
 import ShareModal from "./ShareModal.tsx";
 import { invalidateLibrary, libraryOwnedQuery } from "./query/library.ts";
-import { canonicalScene, type Scene, type SceneFrame, type SceneNode, type TextNode } from "@artiflow/domain/scene";
+import {
+  canonicalScene,
+  type Scene,
+  type SceneFrame,
+  type SceneGuideKind,
+  type SceneNode,
+  type TextNode,
+} from "@artiflow/domain/scene";
 import { getArtifactDetail } from "./editor-api.ts";
 import { queryKeys } from "./query/keys.ts";
 import {
+  DEFAULT_SCENE_GUIDES,
   addRectNode,
+  addScenePage,
   addTextNode,
+  assignFramePage,
+  assignNotePage,
   bringToFront,
   fitScale,
+  frameIsLocked,
   getScene,
+  guideLines,
   insideBounds,
   layerRows,
   locateNode,
@@ -35,9 +48,17 @@ import {
   moveNodes,
   nudgeSelection,
   removeNode,
+  removeScenePage,
+  renameScenePage,
   reorderNodeTo,
+  reorderScenePage,
   resizeNode,
   saveScene,
+  scenePageContent,
+  scenePageOf,
+  scenePages,
+  setFrameLocked,
+  setSceneGuides,
   selectNodesInRect,
   selectionBounds,
   sendToBack,
@@ -212,6 +233,8 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
   const [framesOpen, setFramesOpen] = useState(false);
+  const [activePage, setActivePage] = useState<string | null>(null);
+  const [guidesVisible, setGuidesVisible] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [panel, setPanel] = useState<"share" | "delete" | null>(null);
   const client = useQueryClient();
@@ -270,11 +293,15 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   }, []);
 
   const scene = state.scene;
-  const frames = scene.frames;
+  const pages = scenePages(scene);
+  const page = scenePageOf(scene, activePage);
+  const pageContent = scenePageContent(scene, page?.id);
+  const frames = pages.length === 0 ? scene.frames : pageContent.frames;
   const looseNodes = scene.nodes ?? [];
+  const visibleNotes = pages.length === 0 ? looseNodes : pageContent.notes;
   const frame: SceneFrame | null = frames.find((entry) => entry.id === activeFrame) ?? frames[0] ?? null;
-  const layout = surfaceLayout(frames, looseNodes);
-  const hasSurface = frames.length > 0 || looseNodes.length > 0;
+  const layout = surfaceLayout(frames, visibleNotes);
+  const hasSurface = frames.length > 0 || visibleNotes.length > 0;
   const fitZoom = fitScale(
     { w: layout.width, h: layout.height },
     { w: viewport.w, h: Math.max(0, viewport.h - FLOATING_INSET * 2) },
@@ -307,7 +334,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   };
   const marqueeSelection = (rect: SceneRect): string[] => {
     const offset = layout.origin;
-    const loose = selectNodesInRect(looseNodes, {
+    const loose = selectNodesInRect(visibleNotes, {
       x: rect.x + offset.x,
       y: rect.y + offset.y,
       w: rect.w,
@@ -379,6 +406,61 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const update = useCallback((next: Scene) => {
     session.current?.change(next);
   }, []);
+
+  const showPage = (id: string) => {
+    setActivePage(id);
+    setSelected([]);
+    const target = scene.frames.find((entry) => (entry.page ?? pages[0]?.id) === id);
+    setActiveFrame(target?.id ?? null);
+  };
+
+  const createPage = () => {
+    const id = `page-${crypto.randomUUID()}`;
+    const next = addScenePage(scene, { id, name: `Page ${pages.length + 1}` });
+    if (next === scene) return;
+    editScene(next);
+    setActivePage(id);
+  };
+
+  const renamePage = (name: string) => {
+    if (page === null) return;
+    const next = renameScenePage(scene, page.id, name);
+    if (next !== scene) editScene(next);
+  };
+
+  const movePage = (delta: number) => {
+    if (page === null) return;
+    const index = pages.findIndex((entry) => entry.id === page.id);
+    const next = reorderScenePage(scene, page.id, index + delta);
+    if (next !== scene) editScene(next);
+  };
+
+  const dropPage = () => {
+    if (page === null) return;
+    const next = removeScenePage(scene, page.id);
+    if (next === scene) return;
+    editScene(next);
+    setActivePage(null);
+  };
+
+  const assignSelectionToPage = (id: string) => {
+    let next = scene;
+    const target = id === "" ? null : id;
+    if (frame !== null) next = assignFramePage(next, frame.id, target);
+    for (const nodeId of selected)
+      if (locateNode(scene, nodeId)?.frame === null) next = assignNotePage(next, nodeId, target);
+    if (next !== scene) editScene(next);
+  };
+
+  const toggleFrameLock = () => {
+    if (frame === null) return;
+    editScene(setFrameLocked(scene, frame.id, !frameIsLocked(frame)));
+  };
+
+  const chooseGuides = (kind: string) => {
+    editScene(setSceneGuides(scene, kind === "" ? null : { ...DEFAULT_SCENE_GUIDES, kind: kind as SceneGuideKind }));
+    setGuidesVisible(kind !== "");
+  };
 
   const commitEdit = useCallback((before: Scene) => {
     const next = commitHistory(undoStack.current, redoStack.current, before);
@@ -601,7 +683,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     if (readOnly || event.button !== 0) return;
     const container = locateNode(scene, id)?.frame;
     if (container === undefined) return;
-    const rows = layerRows(container ?? { nodes: looseNodes });
+    const rows = layerRows(container ?? { nodes: visibleNotes });
     const index = rows.findIndex((row) => row.id === id);
     if (index < 0) return;
     event.stopPropagation();
@@ -876,7 +958,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const retry = () => session.current?.retry();
   const zoomLevel = Math.round(scale * 100);
   const layerRowList = frame === null ? [] : layerRows(frame);
-  const looseRowList = layerRows({ nodes: looseNodes });
+  const looseRowList = layerRows({ nodes: visibleNotes });
   const inspectorOpen = selectedNode?.type === "text";
   const frameIndex = frame === null ? -1 : frames.findIndex((entry) => entry.id === frame.id);
   const nodeTypeOf = (id: string): SceneNode["type"] | null => locateNode(scene, id)?.node.type ?? null;
@@ -1109,6 +1191,118 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       ) : null}
       <div className={`canvas-workspace${inspectorOpen ? " canvas-inspector-open" : ""}`}>
         <div className="canvas-stage-wrap" ref={stage}>
+          <nav aria-label="Design pages" className="canvas-pages">
+            {pages.length === 0 ? null : (
+              <>
+                {pages.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className="canvas-page-button"
+                    aria-current={entry.id === page?.id ? "true" : undefined}
+                    onClick={() => showPage(entry.id)}
+                  >
+                    {entry.name}
+                  </button>
+                ))}
+                <button type="button" className="canvas-page-action" onClick={createPage} disabled={readOnly}>
+                  + Page
+                </button>
+                {page === null ? null : (
+                  <>
+                    <label className="canvas-page-field">
+                      Page name
+                      <input
+                        value={page.name}
+                        aria-label="Page name"
+                        disabled={readOnly}
+                        onChange={(event) => renamePage(event.target.value)}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="canvas-page-action"
+                      aria-label="Move page left"
+                      disabled={readOnly}
+                      onClick={() => movePage(-1)}
+                    >
+                      ←
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-page-action"
+                      aria-label="Move page right"
+                      disabled={readOnly}
+                      onClick={() => movePage(1)}
+                    >
+                      →
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-page-action"
+                      aria-label="Remove page"
+                      disabled={readOnly}
+                      onClick={dropPage}
+                    >
+                      ×
+                    </button>
+                    <label className="canvas-page-field">
+                      Move selection to
+                      <select
+                        value={frame?.page ?? page.id}
+                        aria-label="Move selection to page"
+                        disabled={readOnly}
+                        onChange={(event) => assignSelectionToPage(event.target.value)}
+                      >
+                        {pages.map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            {entry.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                )}
+              </>
+            )}
+            {pages.length === 0 ? (
+              <button type="button" className="canvas-page-action" onClick={createPage} disabled={readOnly}>
+                Organize in pages
+              </button>
+            ) : null}
+            <span aria-hidden="true" className="canvas-pill-separator" />
+            <button
+              type="button"
+              className="canvas-page-action"
+              aria-pressed={frame !== null && frameIsLocked(frame)}
+              disabled={readOnly || frame === null}
+              onClick={toggleFrameLock}
+            >
+              {frame !== null && frameIsLocked(frame) ? "Unlock" : "Lock"}
+            </button>
+            <select
+              className="canvas-page-select"
+              aria-label="Alignment guides"
+              value={scene.guides?.kind ?? ""}
+              disabled={readOnly}
+              onChange={(event) => chooseGuides(event.target.value)}
+            >
+              <option value="">No guides</option>
+              <option value="columns">Columns</option>
+              <option value="rows">Rows</option>
+              <option value="grid">Grid</option>
+            </select>
+            {scene.guides === undefined ? null : (
+              <button
+                type="button"
+                className="canvas-page-action"
+                aria-pressed={guidesVisible}
+                onClick={() => setGuidesVisible((visible) => !visible)}
+              >
+                Guides
+              </button>
+            )}
+          </nav>
           <div
             className="canvas-stage"
             onPointerDown={startStageGesture}
@@ -1121,6 +1315,21 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                 className="canvas-surface"
                 style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${scale})` }}
               >
+                {guidesVisible && scene.guides !== undefined ? (
+                  <div
+                    aria-hidden="true"
+                    className="canvas-guides"
+                    data-guides-kind={scene.guides.kind}
+                    style={{ width: layout.width, height: layout.height }}
+                  >
+                    {guideLines(scene.guides, { w: layout.width, h: layout.height }).map((line, index) => (
+                      <span
+                        key={index}
+                        style={{ left: line.x, top: line.y, width: line.w, height: line.h }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
                 {frames.map((entry) => {
                   const at = placementOf(entry.id);
                   const active = entry.id === frame?.id;
@@ -1135,6 +1344,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                       onPointerUp={onFramePointerUp}
                       onPointerCancel={onFramePointerCancel}
                     >
+                      {frameIsLocked(entry) ? <span className="canvas-frame-lock">Locked</span> : null}
                       {entry.source === undefined ? (
                         entry.nodes.map((node) => nodeMarkup(node, active))
                       ) : (
@@ -1143,7 +1353,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                     </div>
                   );
                 })}
-                {looseNodes.map((node) => nodeMarkup(node, true, layout.origin))}
+                {visibleNotes.map((node) => nodeMarkup(node, true, layout.origin))}
               </div>
             ) : (
               <p className="canvas-empty" role="status">

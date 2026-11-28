@@ -7,6 +7,7 @@ export const canvasControllerScript = (): string => `(() => {
   const surface = document.getElementById("surface");
   const index = document.getElementById("frame-index");
   const fitControl = document.getElementById("fit");
+  const guidesControl = document.getElementById("guides");
   const frames = Array.from(document.querySelectorAll("[data-frame-id]"));
   const tabs = index === null ? [] : Array.from(index.querySelectorAll("button[data-target]"));
   const HASH_PREFIX = "#frame-";
@@ -377,6 +378,15 @@ export const canvasControllerScript = (): string => `(() => {
 
 
   if (fitControl !== null) fitControl.addEventListener("click", fit);
+
+  if (guidesControl !== null && stage !== null) {
+    const toggleGuides = () => {
+      const on = stage.getAttribute("data-guides") === "on";
+      stage.setAttribute("data-guides", on ? "off" : "on");
+      guidesControl.setAttribute("aria-pressed", on ? "false" : "true");
+    };
+    guidesControl.addEventListener("click", toggleGuides);
+  }
 
   if (index !== null) {
     index.addEventListener("click", (event) => {

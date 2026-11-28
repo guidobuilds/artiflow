@@ -230,7 +230,8 @@ proposals side by side:
 
 Read a published scene by outline and by frame, never the whole document:
 
-- `scene_outline` returns frames with id, name, node count and bounds.
+- `scene_outline` returns frames with id, name, node count and bounds, plus the design `pages`
+  (with their frame and note counts) and the `guides` spec.
 - `scene_read` returns one frame with its nodes, optionally narrowed by `nodeIds`; it refuses past
   200 nodes or 64 KiB rather than truncating.
 
@@ -238,7 +239,23 @@ Edit after publishing with one atomic batch instead of republishing:
 
 - `scene_apply` takes `baseSeq` from the read, an `idempotencyKey` and `ops`: `add_frame`,
   `update_frame`, `remove_frame`, `add_node`, `update_node`, `move_node`, `reorder_node`,
-  `remove_node`, `replace_scene`.
+  `remove_node`, the five canvas-level node operations, `add_page`, `update_page`, `remove_page`,
+  `reorder_page` and `replace_scene`.
+- organize a large design with pages: assign a frame with `update_frame` `page` and a note with
+  `update_canvas_node` `page`; content without a page belongs to the first one, so a scene with no
+  `pages` behaves as one surface.
+- explain a group with a canvas-level annotation: `update_canvas_node` with
+  `annotation: {kind: "title", targets: ["frame-a", "frame-b"]}` (a title always explains at least
+  two artboards) or `{kind: "note"}`. Annotations never render in Focus or Play, and never live
+  inside a frame.
+- align with `guides` (`columns`, `rows` or `grid` with `count`, `gutter`, `margin`, `color`) and
+  protect an approved artboard with `update_frame` `locked: true`: its words and colours stay
+  editable while moving, renaming or removing it —or moving or removing its nodes— refuses the whole
+  batch with `frame_locked`, including through `replace_scene`. Unlock with `locked: false` in one
+  batch and move or remove it in the next one.
+- retarget a group title before removing an artboard it explains: the batch refuses with
+  `invalid_annotation`, and `remove_page` refuses with `page_not_empty` while the page still holds
+  frames, notes or the first page's implicit content.
 - the reply carries the absolute box of every touched node plus the validation verdict: read it
   instead of assuming the result.
 - a stale `baseSeq` refuses with the current sequence, and replaying the same key applies once.

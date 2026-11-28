@@ -2,6 +2,15 @@ export const SCENE_FORMAT_VERSION = 1;
 export const SCENE_MAX_FRAMES = 200;
 export const SCENE_MAX_NODES = 2000;
 export const SCENE_MAX_DEPTH = 2;
+export const SCENE_MAX_PAGES = 40;
+export const SCENE_MAX_GUIDES = 24;
+export const SCENE_TITLE_MIN_FRAMES = 2;
+
+export const SCENE_ANNOTATION_KINDS = ["title", "note"] as const;
+export type SceneAnnotationKind = (typeof SCENE_ANNOTATION_KINDS)[number];
+
+export const SCENE_GUIDE_KINDS = ["columns", "rows", "grid"] as const;
+export type SceneGuideKind = (typeof SCENE_GUIDE_KINDS)[number];
 
 export const ARTBOARD_MODES = ["fixed", "fluid"] as const;
 export type ArtboardMode = (typeof ARTBOARD_MODES)[number];
@@ -59,6 +68,18 @@ export type PathNode = NodeGeometry & {
 } & SceneUnknowns;
 export type SceneNode = RectNode | TextNode | ImageNode | PathNode;
 
+export type ScenePage = { id: string; name: string } & SceneUnknowns;
+
+export type SceneAnnotation = { kind: SceneAnnotationKind; targets?: string[] } & SceneUnknowns;
+
+export type SceneGuides = {
+  kind: SceneGuideKind;
+  count: number;
+  gutter?: number;
+  margin?: number;
+  color?: string;
+} & SceneUnknowns;
+
 export type SceneFrame = {
   id: string;
   name: string;
@@ -68,9 +89,19 @@ export type SceneFrame = {
   h: number;
   nodes: SceneNode[];
   source?: ArtboardSource;
+  page?: string;
+  locked?: boolean;
 } & SceneUnknowns;
 
-export type Scene = { formatVersion: number; frames: SceneFrame[]; nodes?: SceneNode[] } & SceneUnknowns;
+export type SceneCanvasNode = SceneNode & { page?: string; annotation?: SceneAnnotation };
+
+export type Scene = {
+  formatVersion: number;
+  frames: SceneFrame[];
+  nodes?: SceneCanvasNode[];
+  pages?: ScenePage[];
+  guides?: SceneGuides;
+} & SceneUnknowns;
 
 export type SceneRefusalReason =
   | "malformed_scene"
@@ -83,7 +114,11 @@ export type SceneRefusalReason =
   | "too_deep"
   | "node_limit"
   | "frame_limit"
-  | "invalid_source";
+  | "invalid_source"
+  | "page_limit"
+  | "unknown_page"
+  | "invalid_annotation"
+  | "invalid_guides";
 
 export type SceneRefusalDetail = {
   version?: number;
@@ -185,6 +220,69 @@ export function readArtboardSource(value: unknown): SceneResult<ArtboardSource> 
   };
 }
 
+function pagesRefusal(value: unknown, ids: Set<string>): SceneRefusal | null {
+  if (!Array.isArray(value)) return refusal("malformed_scene", "pages");
+  if (value.length > SCENE_MAX_PAGES) return refusal("page_limit", "pages", { limit: SCENE_MAX_PAGES });
+  for (let index = 0; index < value.length; index += 1) {
+    const at = `pages[${index}]`;
+    const page = value[index];
+    if (!isRecord(page)) return refusal("malformed_scene", at);
+    if (!isId(page.id)) return refusal("malformed_scene", `${at}.id`);
+    if (ids.has(page.id)) return refusal("duplicate_id", `${at}.id`, { id: page.id });
+    ids.add(page.id);
+    if (!isId(page.name)) return refusal("malformed_scene", `${at}.name`);
+  }
+  return null;
+}
+
+function guidesRefusal(value: unknown): SceneRefusal | null {
+  if (!isRecord(value)) return refusal("invalid_guides", "guides");
+  if (!SCENE_GUIDE_KINDS.includes(value.kind as SceneGuideKind))
+    return refusal("invalid_guides", "guides.kind", { property: "kind" });
+  if (!Number.isSafeInteger(value.count) || (value.count as number) < 1 || (value.count as number) > SCENE_MAX_GUIDES)
+    return refusal("invalid_guides", "guides.count", { property: "count", limit: SCENE_MAX_GUIDES });
+  for (const key of ["gutter", "margin"] as const)
+    if (value[key] !== undefined && !(finite(value[key]) && (value[key] as number) >= 0))
+      return refusal("invalid_guides", `guides.${key}`, { property: key });
+  if (value.color !== undefined && typeof value.color !== "string")
+    return refusal("invalid_guides", "guides.color", { property: "color" });
+  return null;
+}
+
+function pageRefusal(value: unknown, where: string, pages: ReadonlySet<string>): SceneRefusal | null {
+  if (value === undefined) return null;
+  if (!isId(value)) return refusal("unknown_page", where);
+  if (!pages.has(value)) return refusal("unknown_page", where, { property: value });
+  return null;
+}
+
+function annotationRefusal(
+  value: unknown,
+  where: string,
+  frames: ReadonlySet<string>,
+): SceneRefusal | null {
+  if (!isRecord(value)) return refusal("invalid_annotation", where);
+  if (!SCENE_ANNOTATION_KINDS.includes(value.kind as SceneAnnotationKind))
+    return refusal("invalid_annotation", `${where}.kind`, { property: "kind" });
+  const targets = value.targets;
+  if (targets !== undefined) {
+    if (!Array.isArray(targets) || targets.length > SCENE_MAX_FRAMES)
+      return refusal("invalid_annotation", `${where}.targets`, { property: "targets" });
+    const seen = new Set<string>();
+    for (const target of targets) {
+      if (!isId(target) || !frames.has(target))
+        return refusal("invalid_annotation", `${where}.targets`, {
+          property: typeof target === "string" ? target : undefined,
+        });
+      if (seen.has(target)) return refusal("invalid_annotation", `${where}.targets`, { property: target });
+      seen.add(target);
+    }
+  }
+  if (value.kind === "title" && (targets === undefined || targets.length < SCENE_TITLE_MIN_FRAMES))
+    return refusal("invalid_annotation", `${where}.targets`, { property: "targets" });
+  return null;
+}
+
 function nodeShapeRefusal(node: Record<string, unknown>, where: string): SceneRefusal | null {
   if (node.type === "rect") {
     if (typeof node.fill !== "string" || node.fill === "") return refusal("malformed_scene", `${where}.fill`);
@@ -227,7 +325,18 @@ export function validateScene(input: unknown): SceneResult<Scene> {
   if (input.frames.length > SCENE_MAX_FRAMES) return refusal("frame_limit", "frames", { limit: SCENE_MAX_FRAMES });
 
   const ids = new Set<string>();
+  const pageIds = new Set<string>();
+  const frameIds = new Set<string>();
   let nodeCount = 0;
+  if (input.pages !== undefined) {
+    const pages = pagesRefusal(input.pages, ids);
+    if (pages !== null) return pages;
+    for (const page of input.pages as ScenePage[]) pageIds.add(page.id);
+  }
+  if (input.guides !== undefined) {
+    const guides = guidesRefusal(input.guides);
+    if (guides !== null) return guides;
+  }
   for (let index = 0; index < input.frames.length; index += 1) {
     const at = `frames[${index}]`;
     const frame = input.frames[index];
@@ -239,6 +348,11 @@ export function validateScene(input: unknown): SceneResult<Scene> {
     if (ids.has(frame.id)) return refusal("duplicate_id", `${at}.id`, { id: frame.id });
     ids.add(frame.id);
     if (!isId(frame.name)) return refusal("malformed_scene", `${at}.name`);
+    frameIds.add(frame.id);
+    const page = pageRefusal(frame.page, `${at}.page`, pageIds);
+    if (page !== null) return page;
+    if (frame.locked !== undefined && typeof frame.locked !== "boolean")
+      return refusal("malformed_scene", `${at}.locked`);
     for (const key of GEOMETRY_KEYS) if (!finite(frame[key])) return refusal("non_finite_number", `${at}.${key}`);
     if ((frame.w as number) <= 0 || (frame.h as number) <= 0)
       return refusal("malformed_scene", (frame.w as number) <= 0 ? `${at}.w` : `${at}.h`);
@@ -258,6 +372,7 @@ export function validateScene(input: unknown): SceneResult<Scene> {
       const shared = sharedNodeRefusal(frame.nodes[position], where, ids);
       if (shared !== null) return shared;
       const node = frame.nodes[position] as Record<string, unknown>;
+      if (node.annotation !== undefined) return refusal("invalid_annotation", `${where}.annotation`);
       const shape = nodeShapeRefusal(node, where);
       if (shape !== null) return shape;
     }
@@ -271,8 +386,15 @@ export function validateScene(input: unknown): SceneResult<Scene> {
       if (nodeCount > SCENE_MAX_NODES) return refusal("node_limit", where, { limit: SCENE_MAX_NODES });
       const shared = sharedNodeRefusal(input.nodes[index], where, ids);
       if (shared !== null) return shared;
-      const shape = nodeShapeRefusal(input.nodes[index] as Record<string, unknown>, where);
+      const node = input.nodes[index] as Record<string, unknown>;
+      const shape = nodeShapeRefusal(node, where);
       if (shape !== null) return shape;
+      const page = pageRefusal(node.page, `${where}.page`, pageIds);
+      if (page !== null) return page;
+      if (node.annotation !== undefined) {
+        const annotation = annotationRefusal(node.annotation, `${where}.annotation`, frameIds);
+        if (annotation !== null) return annotation;
+      }
     }
   }
   return { ok: true, value: copyValue(input) as Scene };

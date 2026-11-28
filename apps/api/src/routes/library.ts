@@ -45,6 +45,7 @@ import { resolveSceneArtboards } from "../viewer/artboards.ts";
 import { artboardDepsOf } from "./artboard-sources.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
+import { scenePageContent } from "@artiflow/domain/scene-pages";
 import { DEFAULT_ARTBOARD_VIEWPORT, parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
 import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
 import {
@@ -306,6 +307,8 @@ export function createLibraryApp(options: LibraryOptions): Hono {
       const scene = readScene(new TextDecoder().decode(read.value.bytes));
       if (!scene.ok) return c.json({ error: "artifact_unavailable" }, 500);
       const plan = planSceneView(scene.value, parseSceneLink(search));
+      if (plan.kind === "canvas" && scenePageContent(scene.value, plan.page).missing)
+        return c.json({ error: "not_found" }, 404);
       const origin = originOf(c.req.url);
       const images: SceneImages | undefined =
         origin === null
@@ -323,6 +326,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         images,
         threads: commentThreads(model.comments),
         kind: row.kind,
+        pageId: plan.kind === "canvas" ? plan.page : null,
         artboards: await resolveSceneArtboards(
           scene.value,
           viewerId,

@@ -1058,7 +1058,10 @@ test("a scene with no loose nodes keeps every reply scene tools answered before"
     "formatVersion",
     "frameCount",
     "frames",
+    "guides",
     "looseNodeCount",
+    "pageCount",
+    "pages",
     "revisionId",
     "seq",
   ]);
@@ -1348,4 +1351,113 @@ test("scene_apply answers the absolute link that opens the Design", async () => 
     revisionId: PINNED_REVISION,
     mode: "fixed",
   });
+});
+
+test("an agent organizes a design into pages with notes, guides and a locked artboard", async () => {
+  const workspace = canvasWorkspace({
+    text: looseCanvasText([HOME(), frameOf("f2", "Approved", [], 400)], []),
+  });
+  const { callTool } = await connect(workspace.backend);
+  const before = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: before.seq,
+      idempotencyKey: "organize-1",
+      ops: [
+        { op: "add_page", page: { id: "page-explore", name: "Exploration" } },
+        { op: "add_page", page: { id: "page-approved", name: "Approved" } },
+        { op: "update_frame", id: "f1", props: { page: "page-explore" } },
+        { op: "update_frame", id: "f2", props: { page: "page-approved", locked: true } },
+        { op: "add_canvas_node", node: looseNodeOf("group-title", 0, -60) },
+        {
+          op: "update_canvas_node",
+          id: "group-title",
+          props: { page: "page-explore", annotation: { kind: "title", targets: ["f1", "f2"] } },
+        },
+        { op: "update_canvas_node", id: "group-title", props: { text: "Exploration" } },
+      ],
+    }),
+  );
+  assert.equal(applied.applied, 7);
+
+  const outline = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.equal(outline.pageCount, 2);
+  assert.deepEqual(outline.pages, [
+    { id: "page-explore", name: "Exploration", frameCount: 1, noteCount: 1 },
+    { id: "page-approved", name: "Approved", frameCount: 1, noteCount: 0 },
+  ]);
+  assert.deepEqual(outline.guides, null, "no guides until one is declared");
+
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT }));
+  const notes = (read.canvas as ToolPayload).nodes as ToolPayload[];
+  assert.deepEqual(notes[0]?.annotation, { kind: "title", targets: ["f1", "f2"] });
+  assert.equal(notes[0]?.page, "page-explore");
+
+  const locked = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f2" }));
+  assert.equal((locked.frame as ToolPayload).locked, true);
+
+  const guides = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: applied.seq,
+      idempotencyKey: "organize-2",
+      ops: [{ op: "replace_scene", scene: { ...JSON.parse(canvasText([HOME(), frameOf("f2", "Approved", [], 400)])), guides: { kind: "grid", count: 4 } } }],
+    }),
+  );
+  assert.equal(guides.applied, 1);
+  const withGuides = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.deepEqual(withGuides.guides, { kind: "grid", count: 4 });
+});
+
+test("MCP refuses a locked artboard move and keeps the scene unchanged", async () => {
+  const workspace = canvasWorkspace({ text: canvasText([HOME()]) });
+  const { callTool } = await connect(workspace.backend);
+  const locked = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "lock-1",
+      ops: [{ op: "update_frame", id: "f1", props: { locked: true } }],
+    }),
+  );
+  const refusedMove = await callTool("scene_apply", {
+    artifactId: ARTIFACT,
+    baseSeq: locked.seq,
+    idempotencyKey: "lock-2",
+    ops: [{ op: "move_node", id: "n1", x: 9, y: 9 }],
+  });
+  assert.equal(refusedMove.isError, true);
+  const after = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  const node = ((after.frame as ToolPayload).nodes as ToolPayload[])[0] as ToolPayload;
+  assert.deepEqual({ x: node.x, y: node.y }, { x: 0, y: 0 }, "the refused move changed nothing");
+});
+
+test("MCP refuses a replace_scene that touches a locked artboard and accepts an untouched copy", async () => {
+  const lockedFrame = { ...HOME(), locked: true } as Record<string, unknown>;
+  const workspace = canvasWorkspace({ text: canvasText([lockedFrame]) });
+  const { callTool } = await connect(workspace.backend);
+  const replaced = {
+    ...sceneOf([lockedFrame]),
+    frames: [{ ...lockedFrame, x: 177 }],
+  } as unknown as Scene;
+  const refusedReplace = await callTool("scene_apply", {
+    artifactId: ARTIFACT,
+    baseSeq: 0,
+    idempotencyKey: "locked-replace",
+    ops: [{ op: "replace_scene", scene: replaced }],
+  });
+  assert.equal(refusedReplace.isError, true);
+  const after = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  assert.equal((after.frame as ToolPayload).x, 100, "the refused replace changed nothing");
+
+  const identical = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "locked-identical",
+      ops: [{ op: "replace_scene", scene: sceneOf([lockedFrame]) }],
+    }),
+  );
+  assert.equal(identical.applied, 1, "an identical copy leaves the locked artboard untouched");
 });

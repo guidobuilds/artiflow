@@ -3,15 +3,21 @@ import { z } from "zod";
 import { rendersScene } from "@artiflow/domain/kinds";
 import {
   NODE_TYPES,
+  SCENE_ANNOTATION_KINDS,
+  SCENE_GUIDE_KINDS,
   SCENE_MAX_FRAMES,
+  SCENE_MAX_GUIDES,
   SCENE_MAX_NODES,
+  SCENE_MAX_PAGES,
   readScene,
   sceneOutline,
   sceneSubtree,
   type ArtboardSource,
   type Scene,
+  type SceneGuides,
   type SceneNode,
   type SceneOutlineEntry,
+  type ScenePage,
 } from "@artiflow/domain/scene";
 import type { SceneNodeBox, SceneOperation, SceneViolation } from "@artiflow/domain/scene-operations";
 import type { McpBackend, McpDocumentAuthorKind, McpArtboardState } from "./ports.ts";
@@ -29,6 +35,21 @@ const sceneNode = z.looseObject({
   w: z.number(),
   h: z.number(),
 });
+const scenePage = z.looseObject({
+  id: sceneId,
+  name: z.string().min(1).max(200),
+});
+const sceneGuides = z.looseObject({
+  kind: z.enum(SCENE_GUIDE_KINDS),
+  count: z.number().int().min(1).max(SCENE_MAX_GUIDES),
+  gutter: z.number().min(0).optional(),
+  margin: z.number().min(0).optional(),
+  color: z.string().min(1).optional(),
+});
+const sceneAnnotation = z.looseObject({
+  kind: z.enum(SCENE_ANNOTATION_KINDS),
+  targets: z.array(sceneId).optional(),
+});
 const sceneFrame = z.looseObject({
   id: sceneId,
   name: z.string().min(1).max(200),
@@ -37,10 +58,14 @@ const sceneFrame = z.looseObject({
   w: z.number(),
   h: z.number(),
   nodes: z.array(sceneNode).max(SCENE_MAX_NODES),
+  page: sceneId.optional(),
+  locked: z.boolean().optional(),
 });
 const sceneDocument = z.looseObject({
   formatVersion: z.number().int().min(1),
   frames: z.array(sceneFrame).max(SCENE_MAX_FRAMES),
+  pages: z.array(scenePage).max(SCENE_MAX_PAGES).optional(),
+  guides: sceneGuides.optional(),
 });
 const sceneFramePatch = z.looseObject({
   name: z.string().min(1).max(200).optional(),
@@ -48,6 +73,8 @@ const sceneFramePatch = z.looseObject({
   y: z.number().optional(),
   w: z.number().optional(),
   h: z.number().optional(),
+  page: sceneId.nullable().optional(),
+  locked: z.boolean().optional(),
 });
 const sceneNodePatch = z.looseObject({
   x: z.number().optional(),
@@ -63,7 +90,11 @@ const sceneNodePatch = z.looseObject({
   stroke: z.string().optional(),
   strokeWidth: z.number().optional(),
   style: z.record(z.string(), z.unknown()).optional(),
+  page: sceneId.nullable().optional(),
+  annotation: sceneAnnotation.nullable().optional(),
 });
+
+const scenePagePatch = z.looseObject({ name: z.string().min(1).max(200).optional() });
 
 export const sceneOp = z.discriminatedUnion("op", [
   z.object({ op: z.literal("add_frame"), frame: sceneFrame }),
@@ -93,6 +124,10 @@ export const sceneOp = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("reorder_canvas_node"), id: sceneId, index: z.number().int().min(0) }),
   z.object({ op: z.literal("remove_canvas_node"), id: sceneId }),
+  z.object({ op: z.literal("add_page"), page: scenePage }),
+  z.object({ op: z.literal("update_page"), id: sceneId, props: scenePagePatch }),
+  z.object({ op: z.literal("remove_page"), id: sceneId }),
+  z.object({ op: z.literal("reorder_page"), id: sceneId, index: z.number().int().min(0) }),
   z.object({ op: z.literal("replace_scene"), scene: sceneDocument }),
 ]);
 
@@ -218,6 +253,13 @@ export const sceneNodeCapRefusal = (
   requestedNodes,
 });
 
+export type ScenePageOutlineEntry = {
+  id: string;
+  name: string;
+  frameCount: number;
+  noteCount: number;
+};
+
 export type SceneOutlineValue = {
   artifactId: string;
   revisionId: string;
@@ -226,6 +268,9 @@ export type SceneOutlineValue = {
   frameCount: number;
   looseNodeCount: number;
   frames: SceneOutlineEntry[];
+  pageCount: number;
+  pages: ScenePageOutlineEntry[];
+  guides: SceneGuides | null;
 };
 
 export type SceneOutlineRequest = { artifactId: string; ownerId: string };
@@ -238,6 +283,9 @@ export async function sceneOutlineOf(
   if (!loaded.ok) return loaded;
   const { revisionId, seq, scene } = loaded.value;
   const frames = sceneOutline(scene);
+  const pages: ScenePage[] = Array.isArray(scene.pages) ? scene.pages : [];
+  const notes = Array.isArray(scene.nodes) ? scene.nodes : [];
+  const home = pages[0]?.id;
   return {
     ok: true,
     value: {
@@ -246,8 +294,16 @@ export async function sceneOutlineOf(
       seq,
       formatVersion: scene.formatVersion,
       frameCount: frames.length,
-      looseNodeCount: Array.isArray(scene.nodes) ? scene.nodes.length : 0,
+      looseNodeCount: notes.length,
       frames,
+      pageCount: pages.length,
+      pages: pages.map((page) => ({
+        id: page.id,
+        name: page.name,
+        frameCount: scene.frames.filter((frame) => (frame.page ?? home) === page.id).length,
+        noteCount: notes.filter((note) => (note.page ?? home) === page.id).length,
+      })),
+      guides: scene.guides ?? null,
     },
   };
 }
@@ -264,6 +320,8 @@ export type SceneFrameRead = {
   nodes: SceneNode[];
   source?: ArtboardSource;
   sourceState?: McpArtboardState;
+  page?: string;
+  locked?: boolean;
 };
 
 export type SceneReadValue =
@@ -351,6 +409,8 @@ export async function sceneReadOf(
     nodes,
     ...(frame.source === undefined ? {} : { source: frame.source }),
     ...(artboardState === undefined ? {} : { sourceState: artboardState }),
+    ...(frame.page === undefined ? {} : { page: frame.page }),
+    ...(frame.locked === undefined ? {} : { locked: frame.locked }),
   };
   const observedBytes = new TextEncoder().encode(JSON.stringify(projected)).length;
   if (observedBytes > MAX_SCENE_READ_BYTES)

@@ -6,7 +6,11 @@ import { afterEach, test } from "node:test";
 import { openArtifact } from "../apps/dashboard/src/editor-api.ts";
 import {
   addNode,
+  addScenePage,
+  assignFramePage,
+  assignNotePage,
   bringToFront,
+  frameIsLocked,
   fitScale,
   getScene,
   insideBounds,
@@ -19,8 +23,13 @@ import {
   openCanvas,
   rectNode,
   removeNode,
+  removeScenePage,
+  renameScenePage,
   reorderNodeTo,
+  reorderScenePage,
   resizeNode,
+  scenePageContent,
+  setFrameLocked,
   saveScene,
   selectNodesInRect,
   selectionBounds,
@@ -604,12 +613,12 @@ test("the canvas screen paints the canvas-level nodes at the one origin the surf
   const page = canvasPage();
   assert.match(
     page,
-    /const layout = surfaceLayout\(frames, looseNodes\);/,
+    /const layout = surfaceLayout\(frames, visibleNotes\);/,
     "the surface is measured over the canvas level as well",
   );
   assert.match(
     page,
-    /const hasSurface = frames\.length > 0 \|\| looseNodes\.length > 0;/,
+    /const hasSurface = frames\.length > 0 \|\| visibleNotes\.length > 0;/,
     "one answer for both levels",
   );
 
@@ -1905,7 +1914,7 @@ test("the canvas screen draws the canvas-level nodes above every frame on the on
     "the frame nodes and the canvas-level nodes share one markup builder",
   );
   assert.equal(
-    page.indexOf("{entry.nodes.map(") < page.indexOf("{looseNodes.map("),
+    page.indexOf("{entry.nodes.map(") < page.indexOf("{visibleNotes.map("),
     true,
     "the canvas-level nodes render after every frame, so they float above the artboards",
   );
@@ -1939,7 +1948,7 @@ test("the canvas screen draws the canvas-level nodes above every frame on the on
   );
   assert.match(
     page,
-    /selectNodesInRect\(looseNodes, \{\s*x: rect\.x \+ offset\.x,/,
+    /selectNodesInRect\(visibleNotes, \{\s*x: rect\.x \+ offset\.x,/,
     "the marquee takes the canvas-level nodes it touches in their own coordinates",
   );
   assert.match(page, /selectNodesInRect\(frame, /, "and the nodes of the active frame, in its own coordinates");
@@ -1953,4 +1962,72 @@ test("the canvas screen draws the canvas-level nodes above every frame on the on
     /\.canvas-surface > \.canvas-node \{[^}]*z-index: 1;/,
     "a canvas-level node paints over every frame",
   );
+});
+
+const organizeScene = (): Scene => ({
+  formatVersion: 1,
+  frames: [
+    {
+      id: "f1",
+      name: "A",
+      x: 0,
+      y: 0,
+      w: 390,
+      h: 640,
+      nodes: [{ id: "n1", type: "rect", x: 10, y: 10, w: 50, h: 50, fill: "#eeeeee" }],
+    },
+    { id: "f2", name: "B", x: 500, y: 0, w: 390, h: 640, nodes: [] },
+  ],
+  nodes: [{ id: "note-1", type: "rect", x: 0, y: 700, w: 200, h: 120, fill: "#fff2c2" }],
+});
+
+test("a locked artboard ignores the moves, resizes and removals the editor asks for", () => {
+  const scene = organizeScene();
+  const locked = setFrameLocked(scene, "f1", true);
+  assert.equal(frameIsLocked(locked.frames[0] ?? null), true);
+  assert.equal(moveFrame(locked, [], "f1", 40, 40), locked, "dragging a locked artboard changes nothing");
+  assert.equal(moveNode(locked, "n1", 10, 10), locked, "dragging its content changes nothing");
+  assert.equal(moveNodes(locked, ["n1"], 10, 10), locked, "nudging its content changes nothing");
+  assert.equal(resizeNode(locked, "n1", 300, 300), locked, "resizing its content changes nothing");
+  assert.equal(removeNode(locked, "n1"), locked, "deleting its content changes nothing");
+  assert.notEqual(moveNode(locked, "note-1", 10, 10), locked, "a canvas note stays movable");
+
+  const unlocked = setFrameLocked(locked, "f1", false);
+  assert.equal(frameIsLocked(unlocked.frames[0] ?? null), false);
+  const moved = moveFrame(unlocked, [], "f1", 40, 40);
+  assert.equal(moved.frames[0]?.x, 40, "unlocking restores moving the artboard");
+  assert.equal(removeNode(unlocked, "n1").frames[0]?.nodes.length, 0, "unlocking restores deleting its content");
+});
+
+test("design pages group artboards and notes without touching their geometry", () => {
+  const scene = organizeScene();
+  const twoPages = addScenePage(
+    addScenePage(scene, { id: "page-explore", name: "Exploration" }),
+    { id: "page-approved", name: "Approved" },
+  );
+  assert.deepEqual(
+    twoPages.pages?.map((page) => page.name),
+    ["Exploration", "Approved"],
+  );
+  const assigned = assignNotePage(assignFramePage(twoPages, "f1", "page-approved"), "note-1", "page-approved");
+  assert.deepEqual(
+    scenePageContent(assigned, "page-approved").frames.map((frame) => frame.id),
+    ["f1"],
+  );
+  assert.deepEqual(
+    scenePageContent(assigned, "page-approved").notes.map((node) => node.id),
+    ["note-1"],
+  );
+  const before = scene.frames[0] as SceneFrame;
+  const after = assigned.frames[0] as SceneFrame;
+  assert.deepEqual({ x: after.x, y: after.y, w: after.w, h: after.h }, { x: before.x, y: before.y, w: before.w, h: before.h });
+
+  const renamed = renameScenePage(assigned, "page-approved", "Approved v2");
+  assert.equal(renamed.pages?.[1]?.name, "Approved v2");
+  const reordered = reorderScenePage(renamed, "page-approved", 0);
+  assert.deepEqual(
+    reordered.pages?.map((page) => page.id),
+    ["page-approved", "page-explore"],
+  );
+  assert.equal(removeScenePage(reordered, "page-approved"), reordered, "a page that holds content is never removed");
 });

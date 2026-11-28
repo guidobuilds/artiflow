@@ -496,10 +496,10 @@ test("a deck draws a slide-anchored pin and lists a thread with no node", () => 
 });
 
 const CANVAS_GOLDEN = {
-  first: "8d81b5a2ab3a217d3da84d2a2fd2648d60933e2ab75f772faefc3a8e97bca8e9",
-  second: "3725fd34b5af9630a529688a635d0edcd5f943ed11a76fac4f7b525ce5312da3",
-  pinned: "13ccec8676852d527ab4aff19ce9ac6961f8e8c5d79ba75144229c84bc88b221",
-  empty: "6c418432ecc9c4f6d90fa4eee443c640b5ae11545415985105d902d2672a3f2e",
+  first: "f53457d449a5411cc197a30c1769647028eaa897b4645614068045d18159aa5f",
+  second: "ebf1e97312ab54d8a023cef83b8c5b119f509f6b96db7ce4c0db1d0637989aa9",
+  pinned: "528d2163a51220d4a241649a11a1047641b8bf7c733f82cd214ff7223793e69f",
+  empty: "95eb3c8540b197dd109360920d2cc966ae58d947e31144903a65099d4170ad72",
 };
 
 const canvasScene = scene(

@@ -352,6 +352,53 @@ published vN»). El visor **no** avisa de cambios sin publicar: mostrar ese avis
 borrador en cada visita y el único lector que puede actuar sobre él es quien ya tiene el canvas
 abierto con el chip. No se inventa un borrador en el visor ni se presenta un borrador como publicado.
 
+### 2.12 Páginas, notas, guías y bloqueo
+
+Un Diseño grande necesita orden sin tocar la geometría ni el prototipo. Cuatro piezas opcionales del
+scene lo resuelven, y un documento que no las declara se comporta exactamente como antes:
+
+- **Páginas de diseño.** `scene.pages` es una lista ordenada de `{id, name}` (hasta 40). Un frame
+  declara `page` y un nodo suelto declara `page`; los ids comparten el espacio del scene, así que una
+  página nunca reutiliza el id de un frame o de un nodo. El contenido sin `page` pertenece a la
+  primera página declarada, de modo que agregar páginas a un Diseño existente no esconde nada. Una
+  página de diseño es una sección del mismo Diseño, no una página HTML autónoma. En el visor, el
+  enlace acepta `?page=<id>`, la vista general dibuja solo esa página y ofrece un conmutador; sin
+  `pages`, se ve el lienzo único de siempre. Una página pedida que no existe no cae a la primera:
+  el visor responde 404 y, si el documento se renderiza igual, muestra «This design page is not
+  available» sin dibujar frames ni notas de otra página. `remove_page` rechaza con `page_not_empty`
+  una página que todavía tiene frames o notas, incluida la primera mientras su contenido siga sin
+  `page` explícito: re-alojar ese contenido implícito exige nombrarlo antes.
+- **Notas y títulos de conjunto.** Un nodo del nivel lienzo declara `annotation`: `kind` es `title` o
+  `note`, y `targets` nombra los frames que explica. Un `title` siempre apunta a dos o más
+  artboards; una `note` puede apuntar a cualquiera, incluso a ninguno. Una anotación nunca vive
+  dentro de un frame y nunca aparece en Focus ni en Play: es material de trabajo, no del prototipo.
+  Borrar un frame que un título explica se rechaza con `invalid_annotation` hasta que el título se
+  reapunte a otros frames; el motor no poda los targets en silencio. Hoy el canvas no ofrece
+  controles para crear o editar anotaciones: se crean y editan por MCP con `add_canvas_node` y
+  `update_canvas_node`, y la persona solo las mueve con el gesto normal del lienzo.
+- **Guías.** `scene.guides` declara `kind` (`columns`, `rows` o `grid`), `count` (1–24), `gutter`,
+  `margin` y `color` opcionales. Las guías son un overlay que el visor dibuja encima de la superficie
+  y que se muestra u oculta; no cambian la geometría de ningún nodo y no salen en Focus, Play ni en
+  una exportación futura.
+- **Bloqueo.** Un frame declara `locked: true` para impedir que se mueva o se borre por error.
+  El motor de operaciones compara el estado final de cada frame bloqueado con el de la escena base:
+  si cambió su posición, tamaño, nombre, `source` o la forma de sus nodos (ids, tipos y geometría, o
+  su orden), o si desapareció, rechaza **el lote completo** con `frame_locked` y su `frameId`, sin
+  escribir. La regla vale para cualquier lote —incluido `replace_scene`— y por lo tanto también para
+  el guardado del canvas y para las rutas HTTP y MCP que usan el mismo motor. El texto, el color y el
+  estilo de los nodos siguen editables, y asignar el frame a otra página no es un cambio protegido.
+  Desbloquear es explícito: `update_frame` con `locked: false` se acepta, pero mover o borrar exige
+  un lote posterior, porque un mismo lote que desbloquea y mueve se rechaza (`frame_locked`). Un
+  `replace_scene` que copia el documento sin tocar el frame bloqueado se acepta.
+
+Las cuatro piezas viajan en el modelo de escena: las operaciones `add_page`, `update_page`,
+`remove_page` y `reorder_page` administran páginas, los patches de frame y de nodo suelto llevan
+`page`, `annotation` y `locked`, y `scene_outline` informa `pageCount`, `pages` y `guides`. Un
+cliente que no conoce estos campos sigue leyendo el documento: son opcionales, se conservan los
+campos desconocidos y la validación rechaza con un motivo nombrado (`page_limit`, `unknown_page`,
+`invalid_annotation`, `invalid_guides`, `frame_locked`, `page_not_empty`) en vez de fallar en
+silencio.
+
 ## 3. Modelo actual y arquitectura actual
 
 ### 3.1 DER actual
