@@ -6,12 +6,17 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button.tsx";
 import { Icon, IconAction } from "@/components/ui/icon.tsx";
+import { Kbd } from "@/components/ui/kbd.tsx";
 import { Logo } from "@/components/ui/logo.tsx";
+import { Menu, MenuHead, MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { TextLink } from "@/components/ui/text-link.tsx";
-import { TooltipProvider } from "@/components/ui/tooltip.tsx";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip.tsx";
+import DeleteModal from "./DeleteModal.tsx";
+import ShareModal from "./ShareModal.tsx";
+import { invalidateLibrary, libraryOwnedQuery } from "./query/library.ts";
 import { canonicalScene, type Scene, type SceneFrame, type SceneNode, type TextNode } from "@artiflow/domain/scene";
 import { getArtifactDetail } from "./editor-api.ts";
 import { queryKeys } from "./query/keys.ts";
@@ -96,6 +101,7 @@ const MARQUEE_THRESHOLD = 4;
 const DRAG_THRESHOLD = 2;
 const LAYER_THRESHOLD = 4;
 const WHEEL_ZOOM_STEP = 400;
+const FLOATING_INSET = 56;
 
 export const HISTORY_LIMIT = 50;
 
@@ -204,13 +210,19 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const [fitted, setFitted] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
-  const [layersOpen, setLayersOpen] = useState(false);
+  const [framesOpen, setFramesOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [panel, setPanel] = useState<"share" | "delete" | null>(null);
+  const client = useQueryClient();
   const detail = useQuery({
     queryKey: queryKeys.artifact.detail(initial.artifactId),
     queryFn: () => getArtifactDetail(initial.artifactId),
   });
+  const library = useQuery({ ...libraryOwnedQuery, refetchInterval: false });
   const revisionNumber =
     detail.data?.ok && detail.data.value.revision !== null ? detail.data.value.revision.revisionNumber : null;
+  const documentTitle = (detail.data?.ok ? detail.data.value.title : null) ?? "Untitled canvas";
+  const owned = library.data?.ok === true && library.data.value.some((entry) => entry.id === initial.artifactId);
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const frameDrag = useRef<FrameDrag | null>(null);
@@ -262,7 +274,10 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const frame: SceneFrame | null = frames.find((entry) => entry.id === activeFrame) ?? frames[0] ?? null;
   const layout = surfaceLayout(frames, looseNodes);
   const hasSurface = frames.length > 0 || looseNodes.length > 0;
-  const fitZoom = fitScale({ w: layout.width, h: layout.height }, viewport);
+  const fitZoom = fitScale(
+    { w: layout.width, h: layout.height },
+    { w: viewport.w, h: Math.max(0, viewport.h - FLOATING_INSET * 2) },
+  );
   const scale = hasSurface ? (fitted ? fitZoom : zoom) : 1;
   const fitPan = {
     x: Math.round((viewport.w - layout.width * fitZoom) / 2),
@@ -492,7 +507,13 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
         setSelected([]);
         return;
       }
+      if (event.key === "?") {
+        event.preventDefault();
+        setHelpOpen((open) => !open);
+        return;
+      }
       if (event.key === "Escape") {
+        setHelpOpen(false);
         endTextEdit();
         marqueeStart.current = null;
         marqueeDragged.current = false;
@@ -575,8 +596,10 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     return pending.count - 1 - row;
   };
   const startLayerDrag = (event: ReactPointerEvent<HTMLElement>, id: string) => {
-    if (readOnly || event.button !== 0 || frame === null) return;
-    const rows = layerRows(frame);
+    if (readOnly || event.button !== 0) return;
+    const container = locateNode(scene, id)?.frame;
+    if (container === undefined) return;
+    const rows = layerRows(container ?? { nodes: looseNodes });
     const index = rows.findIndex((row) => row.id === id);
     if (index < 0) return;
     event.stopPropagation();
@@ -851,7 +874,48 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const retry = () => session.current?.retry();
   const zoomLevel = Math.round(scale * 100);
   const layerRowList = frame === null ? [] : layerRows(frame);
+  const looseRowList = layerRows({ nodes: looseNodes });
   const inspectorOpen = selectedNode?.type === "text";
+  const frameIndex = frame === null ? -1 : frames.findIndex((entry) => entry.id === frame.id);
+  const nodeTypeOf = (id: string): SceneNode["type"] | null => locateNode(scene, id)?.node.type ?? null;
+  const viewerHref = `/artifact/${encodeURIComponent(initial.artifactId)}`;
+
+  const layerRow = (row: { id: string; label: string }) => {
+    const type = nodeTypeOf(row.id);
+    return (
+      <div
+        key={row.id}
+        role="button"
+        tabIndex={0}
+        aria-selected={isSelected(row.id)}
+        className={`canvas-layer-row${isSelected(row.id) ? " canvas-layer-row-selected" : ""}`}
+        onPointerDown={(event) => startLayerDrag(event, row.id)}
+        onPointerMove={onLayerDragMove}
+        onPointerUp={endLayerDrag}
+        onPointerCancel={cancelLayerDrag}
+        onClick={(event) => {
+          if (layerDragged.current) return;
+          if (event.shiftKey) {
+            toggle(row.id);
+            return;
+          }
+          setSelected([row.id]);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          if (event.shiftKey) {
+            toggle(row.id);
+            return;
+          }
+          setSelected([row.id]);
+        }}
+      >
+        <Icon name={type === "text" ? "text" : type === "image" ? "image" : "rect"} className="size-3.5" />
+        <span>{row.label}</span>
+      </div>
+    );
+  };
 
   const handles = (node: SceneNode) =>
     selectedNode?.id === node.id ? (
@@ -927,48 +991,63 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
 
   return (
     <section aria-labelledby="editor-title" className="document-editor canvas-editor">
-      <header className="editor-topbar">
-        <a className="editor-topbar-back" href="/library" aria-label="Back to library">
-          <Icon name="left" />
-        </a>
-        <div className="editor-topbar-brand">
-          <Logo withWordmark={false} aria-hidden="true" />
-          <span>artiflow</span>
-        </div>
-        <div className="editor-topbar-title">
-          <h1 id="editor-title">{frame?.name ?? "Untitled canvas"}</h1>
-          {revisionNumber === null ? null : <span className="editor-topbar-version">v{revisionNumber}</span>}
-        </div>
-        <span role="status" aria-live="polite" className="editor-save-state" data-state={state.status}>
-          <span aria-hidden="true">•</span>
+      <header className="canvas-topbar">
+        <Tooltip disableHoverableContent>
+          <TooltipTrigger asChild>
+            <a className="canvas-topbar-home" href="/library" aria-label="Back to library">
+              <Logo withWordmark={false} aria-hidden="true" />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent>Back to library</TooltipContent>
+        </Tooltip>
+        <h1 className="canvas-topbar-title">
+          <Menu
+            label="Document"
+            width={260}
+            trigger={
+              <button type="button" className="canvas-topbar-doc">
+                <span id="editor-title">{documentTitle}</span>
+                <Icon name="chev" className="size-3.5" />
+              </button>
+            }
+          >
+            <MenuHead>{revisionNumber === null ? "Unpublished" : `Version ${revisionNumber}`}</MenuHead>
+            {owned ? (
+              <MenuItem icon="link" onClick={() => setPanel("share")}>
+                Share…
+              </MenuItem>
+            ) : null}
+            <MenuItem icon="ext" onClick={() => window.location.assign(viewerHref)}>
+              Open in viewer
+            </MenuItem>
+            <MenuItem
+              icon="refresh"
+              disabled={busy}
+              onClick={() => {
+                void reload();
+              }}
+            >
+              Reload from server
+            </MenuItem>
+            {owned ? (
+              <>
+                <MenuSeparator />
+                <MenuItem icon="trash" danger onClick={() => setPanel("delete")}>
+                  Delete…
+                </MenuItem>
+              </>
+            ) : null}
+          </Menu>
+        </h1>
+        <span role="status" aria-live="polite" className="canvas-save-state" data-state={state.status}>
+          <span aria-hidden="true" className="canvas-save-dot" />
           {labels[state.status]}
         </span>
-        <nav aria-label="Canvas actions" className="editor-topbar-actions">
-          <Button
-            size="sm"
-            variant="ghost"
-            aria-label="Toggle layers"
-            aria-pressed={layersOpen}
-            onClick={() => setLayersOpen((open) => !open)}
-          >
-            <Icon name="list" className="size-3.5" />
-            Layers
-          </Button>
-          <Button size="sm" disabled={readOnly} onClick={() => add("text")}>
-            <Icon name="plus" className="size-3.5" />
-            Add text
-          </Button>
-          <Button size="sm" disabled={readOnly} onClick={() => add("rect")}>
-            <Icon name="plus" className="size-3.5" />
-            Add rectangle
-          </Button>
-          <IconAction
-            icon="trash"
-            label="Delete selection"
-            disabled={readOnly || selected.length === 0}
-            onClick={removeSelected}
-          />
-        </nav>
+        {owned ? (
+          <button type="button" className="canvas-topbar-share" onClick={() => setPanel("share")}>
+            Share
+          </button>
+        ) : null}
       </header>
       {state.status === "conflict" ? (
         <div role="alert" className="editor-notice">
@@ -1009,9 +1088,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
           />
         </div>
       ) : null}
-      <div
-        className={`canvas-workspace${inspectorOpen ? " canvas-inspector-open" : ""}${layersOpen ? " canvas-layers-open" : ""}`}
-      >
+      <div className={`canvas-workspace${inspectorOpen ? " canvas-inspector-open" : ""}`}>
         <div className="canvas-stage-wrap" ref={stage}>
           <div
             className="canvas-stage"
@@ -1058,45 +1135,125 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
               style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }}
             />
           )}
-          {selected.length > 1 ? (
-            <div role="group" aria-label="Selection actions" className="canvas-selection-bar">
-              <span aria-live="polite">{selected.length} selected</span>
-              <Button
-                size="sm"
-                aria-label="Bring selection to front"
-                disabled={readOnly}
-                onClick={bringSelectedToFront}
-              >
-                Front
-              </Button>
-              <Button size="sm" aria-label="Send selection to back" disabled={readOnly} onClick={sendSelectedToBack}>
-                Back
-              </Button>
-              <Button
-                size="sm"
-                variant="danger-ghost"
-                aria-label="Delete selection"
-                disabled={readOnly}
-                onClick={removeSelected}
-              >
-                Delete
-              </Button>
-            </div>
-          ) : null}
+          <nav aria-label="Frames" className="canvas-frames-panel" data-open={framesOpen}>
+            <button
+              type="button"
+              className="canvas-frames-toggle"
+              aria-expanded={framesOpen}
+              aria-label={
+                frame === null
+                  ? "Frames and layers"
+                  : `Frames and layers: ${frame.name}, ${frameIndex + 1} of ${frames.length}`
+              }
+              onClick={() => setFramesOpen((open) => !open)}
+            >
+              <Icon name="layers" className="size-3.5" />
+              <span className="canvas-frames-current">{framesOpen ? "Frames" : (frame?.name ?? "No frames")}</span>
+              <span className="canvas-frames-count">
+                {framesOpen || frame === null ? frames.length : `${frameIndex + 1}/${frames.length}`}
+              </span>
+              <Icon name="chev" className="canvas-frames-chev size-3.5" />
+            </button>
+            {framesOpen ? (
+              <div className="canvas-frames-body">
+                <ol className="canvas-frames-list">
+                  {frames.map((entry, index) => {
+                    const current = entry.id === frame?.id;
+                    return (
+                      <li key={entry.id}>
+                        <button
+                          type="button"
+                          className="canvas-frame-row"
+                          data-target={entry.id}
+                          aria-current={current ? "true" : undefined}
+                          onClick={() => showFrame(entry.id)}
+                        >
+                          <span className="canvas-frame-index">{index + 1}</span>
+                          <span className="canvas-frame-name">{entry.name}</span>
+                          <span className="canvas-frame-size">
+                            {entry.w}×{entry.h}
+                          </span>
+                        </button>
+                        {current ? (
+                          <div role="group" aria-label="Layers" className="canvas-layers-list">
+                            {layerRowList.length === 0 ? (
+                              <p className="canvas-layers-empty">This frame has no nodes yet.</p>
+                            ) : (
+                              layerRowList.map(layerRow)
+                            )}
+                          </div>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ol>
+                {looseRowList.length === 0 ? null : (
+                  <div role="group" aria-label="Canvas layers" className="canvas-layers-list canvas-layers-loose">
+                    <p className="canvas-layers-heading">Canvas</p>
+                    {looseRowList.map(layerRow)}
+                  </div>
+                )}
+                <p className="canvas-frames-hint">Drag to reorder · Alt+↑/↓ moves the selection</p>
+              </div>
+            ) : null}
+          </nav>
+          <div role="toolbar" aria-label="Edit" className="canvas-pill">
+            <IconAction
+              icon="text"
+              label="Add text"
+              disabled={readOnly || frame === null}
+              onClick={() => add("text")}
+            />
+            <IconAction
+              icon="rect"
+              label="Add rectangle"
+              disabled={readOnly || frame === null}
+              onClick={() => add("rect")}
+            />
+            <span aria-hidden="true" className="canvas-pill-separator" />
+            {selected.length > 1 ? (
+              <>
+                <span aria-live="polite" className="canvas-pill-count">
+                  {selected.length} selected
+                </span>
+                <IconAction
+                  icon="front"
+                  label="Bring selection to front"
+                  disabled={readOnly}
+                  onClick={bringSelectedToFront}
+                />
+                <IconAction
+                  icon="back"
+                  label="Send selection to back"
+                  disabled={readOnly}
+                  onClick={sendSelectedToBack}
+                />
+              </>
+            ) : null}
+            <IconAction
+              icon="trash"
+              label="Delete selection"
+              className="canvas-pill-danger"
+              disabled={readOnly || selected.length === 0}
+              onClick={removeSelected}
+            />
+          </div>
           <div role="group" aria-label="Canvas zoom" className="canvas-zoom">
             <IconAction icon="min" label="Zoom out" onClick={() => zoomAt(viewport.w / 2, viewport.h / 2, 0.8)} />
             <output aria-label="Zoom level">{zoomLevel}%</output>
             <IconAction icon="plus" label="Zoom in" onClick={() => zoomAt(viewport.w / 2, viewport.h / 2, 1.25)} />
-            <Button
-              size="sm"
-              variant="ghost"
-              aria-label="Fit surface"
-              aria-pressed={fitted}
-              onClick={() => setFitted(true)}
-            >
-              Fit
-            </Button>
+            <IconAction icon="max" label="Fit surface" aria-pressed={fitted} onClick={() => setFitted(true)} />
           </div>
+          {helpOpen ? <ShortcutsPanel onClose={() => setHelpOpen(false)} /> : null}
+          <button
+            type="button"
+            className="canvas-help"
+            aria-label="Keyboard shortcuts"
+            aria-expanded={helpOpen}
+            onClick={() => setHelpOpen((open) => !open)}
+          >
+            ?
+          </button>
         </div>
         {selectedNode?.type === "text" ? (
           <TextInspector
@@ -1110,63 +1267,72 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
             onRemove={removeSelected}
           />
         ) : null}
-        {layersOpen ? (
-          <aside aria-label="Layers" className="canvas-layers">
-            <h2 className="caps mb-3">Layers</h2>
-            {layerRowList.length === 0 ? (
-              <p className="canvas-layers-empty">This frame has no nodes yet.</p>
-            ) : (
-              <div className="canvas-layers-list">
-                {layerRowList.map((row) => (
-                  <div
-                    key={row.id}
-                    role="button"
-                    tabIndex={0}
-                    aria-selected={isSelected(row.id)}
-                    className={`canvas-layer-row${isSelected(row.id) ? " canvas-layer-row-selected" : ""}`}
-                    onPointerDown={(event) => startLayerDrag(event, row.id)}
-                    onPointerMove={onLayerDragMove}
-                    onPointerUp={endLayerDrag}
-                    onPointerCancel={cancelLayerDrag}
-                    onClick={(event) => {
-                      if (layerDragged.current) return;
-                      if (event.shiftKey) {
-                        toggle(row.id);
-                        return;
-                      }
-                      setSelected([row.id]);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return;
-                      event.preventDefault();
-                      if (event.shiftKey) {
-                        toggle(row.id);
-                        return;
-                      }
-                      setSelected([row.id]);
-                    }}
-                  >
-                    {row.label}
-                  </div>
-                ))}
-              </div>
-            )}
-          </aside>
-        ) : null}
       </div>
-      <nav className="canvas-frames" aria-label="Frames">
-        {frames.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            data-target={entry.id}
-            aria-current={entry.id === frame?.id ? "true" : undefined}
-            onClick={() => showFrame(entry.id)}
-          >
-            {entry.name}
-          </button>
-        ))}
-      </nav>
+      {panel === "share" ? (
+        <ShareModal artifactId={initial.artifactId} title={documentTitle} onClose={() => setPanel(null)} />
+      ) : null}
+      {panel === "delete" ? (
+        <DeleteModal
+          artifact={{ id: initial.artifactId, title: documentTitle, kind: "canvas" }}
+          onDeleted={() => {
+            void invalidateLibrary(client);
+            window.location.assign("/library");
+          }}
+          onClose={() => setPanel(null)}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+const SHORTCUTS: { group: string; rows: [string, string][] }[] = [
+  {
+    group: "Edit",
+    rows: [
+      ["Undo", "Ctrl/⌘ Z"],
+      ["Redo", "Ctrl/⌘ ⇧ Z"],
+      ["Delete selection", "Del / ⌫"],
+      ["Deselect", "Esc"],
+      ["Move layer up / down", "Alt ↑ / Alt ↓"],
+      ["Add to selection", "⇧ Click"],
+    ],
+  },
+  {
+    group: "Navigate",
+    rows: [
+      ["Previous / next frame", "← / →"],
+      ["Previous / next frame", "PgUp / PgDn"],
+      ["Pan", "Wheel · ⇧ Wheel"],
+      ["Pan by dragging", "Space + drag"],
+      ["Pan by dragging", "Middle button"],
+      ["Zoom", "Ctrl/⌘ + Wheel"],
+      ["Show shortcuts", "?"],
+    ],
+  },
+];
+
+function ShortcutsPanel({ onClose }: { onClose: () => void }) {
+  return (
+    <section role="dialog" aria-label="Keyboard shortcuts" className="canvas-shortcuts">
+      <div className="canvas-shortcuts-head">
+        <h2>Keyboard shortcuts</h2>
+        <IconAction icon="x" label="Close shortcuts" onClick={onClose} />
+      </div>
+      {SHORTCUTS.map((section) => (
+        <div key={section.group} className="canvas-shortcuts-group">
+          <h3 className="caps">{section.group}</h3>
+          <dl>
+            {section.rows.map(([label, keys]) => (
+              <div key={`${label}-${keys}`}>
+                <dt>{label}</dt>
+                <dd>
+                  <Kbd>{keys}</Kbd>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
     </section>
   );
 }

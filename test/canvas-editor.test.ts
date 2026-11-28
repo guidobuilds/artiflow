@@ -1203,9 +1203,9 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /const startGroupDrag =/);
   assert.match(page, /bringToFront\(/);
   assert.match(page, /sendToBack\(/);
-  assert.match(page, /aria-label="Bring selection to front"/);
-  assert.match(page, /aria-label="Send selection to back"/);
-  assert.match(page, /aria-label="Delete selection"/);
+  assert.match(page, /label="Bring selection to front"/);
+  assert.match(page, /label="Send selection to back"/);
+  assert.match(page, /label="Delete selection"/);
   assert.match(page, /canvas-marquee/);
   assert.match(page, /event\.shiftKey/);
   assert.match(page, /reorderNodeTo\(/);
@@ -1218,32 +1218,16 @@ test("the canvas screen wires every required gesture to the scene writer", () =>
   assert.match(page, /onWheel/);
   assert.match(page, /event\.ctrlKey \|\| event\.metaKey/);
   assert.match(page, /wheelPan\(/);
-  assert.match(page, /aria-label="Fit surface"/);
+  assert.match(page, /label="Fit surface"/);
   assert.match(page, /aria-label="Layers"/);
-  assert.match(page, /aria-label="Toggle layers"/);
+  assert.match(page, /aria-expanded=\{framesOpen\}/);
   assert.match(page, /event\.altKey/);
   assert.match(page, /event\.key === "ArrowUp"/);
   assert.match(page, /event\.key === "ArrowDown"/);
   const css = source("../apps/dashboard/src/styles/globals.css");
-  assert.match(css, /\.canvas-layers\b/);
-  assert.match(css, /\.canvas-workspace\.canvas-layers-open/);
-  assert.match(css, /grid-template-columns: minmax\(0, 1fr\) 280px 240px/);
+  assert.match(css, /\.canvas-layer-row\b/);
+  assert.match(css, /\.canvas-workspace\.canvas-inspector-open \{\s*grid-template-columns: minmax\(0, 1fr\) 280px;/);
   assert.match(css, /\.canvas-marquee\b/);
-  assert.match(
-    css,
-    /\.canvas-selection-bar \{[^}]*pointer-events: none;/,
-    "the floating selection bar never swallows a press meant for the canvas under it",
-  );
-  assert.match(
-    css,
-    /\.canvas-zoom \{[^}]*pointer-events: none;/,
-    "the floating zoom control never swallows a press meant for the canvas under it",
-  );
-  assert.match(
-    css,
-    /\.canvas-selection-bar > button,\s*\n\.canvas-zoom > button \{\s*\n  pointer-events: auto;/,
-    "the controls inside the floating strips stay clickable",
-  );
   assert.doesNotMatch(page, /dangerouslySetInnerHTML/);
   assert.doesNotMatch(page, /replace_scene|add_frame|move_node|update_node/);
   const conflict = /Someone saved a newer version\.[^<]*/.exec(markdown)?.[0];
@@ -1470,6 +1454,55 @@ test("a shift click on the canvas adds to the selection instead of starting a na
   const inspector = /\.canvas-inspector \{[^}]*\}/.exec(css)?.[0];
   assert.ok(inspector, "the inspector keeps its rule");
   assert.doesNotMatch(inspector, /user-select: none/, "the text in the inspector stays selectable");
+});
+
+test("the canvas chrome is one 40px bar, a frames chip, an edit pill, the zoom corner and a shortcuts button", () => {
+  const page = canvasPage();
+  const css = source("../apps/dashboard/src/styles/globals.css");
+
+  const topbar = between(page, '<header className="canvas-topbar">', "</header>");
+  assert.match(topbar, /aria-label="Back to library"/, "the artiflow mark goes back to the library");
+  assert.match(topbar, /<Logo withWordmark=\{false\}/, "the bar shows the mark without the wordmark");
+  assert.match(topbar, /<span id="editor-title">\{documentTitle\}<\/span>/, "the title is the document, not a frame");
+  assert.doesNotMatch(topbar, /frame\?\.name/, "the active frame no longer names the editor");
+  assert.match(topbar, /<Menu\s/, "the title opens the document menu");
+  for (const item of ["Share…", "Open in viewer", "Reload from server", "Delete…"])
+    assert.equal(topbar.includes(item), true, `the document menu offers ${item}`);
+  assert.match(topbar, /Version \$\{revisionNumber\}/, "the version lives in the menu head");
+  assert.doesNotMatch(topbar, /Add text|Add rectangle|Delete selection|Layers/, "editing actions left the bar");
+  assert.match(
+    page,
+    /\{owned \? \(\s*<button type="button" className="canvas-topbar-share"/,
+    "only the owner sees Share",
+  );
+  assert.match(page, /<ShareModal artifactId=\{initial\.artifactId\}/, "Share reuses the library modal");
+  assert.match(page, /<DeleteModal\s/, "Delete reuses the library modal");
+  assert.match(css, /\.canvas-topbar \{[^}]*height: 40px;/, "the bar is 40px tall");
+
+  assert.doesNotMatch(page, /className="canvas-frames"/, "the frames row under the canvas is gone");
+  assert.doesNotMatch(page, /layersOpen/, "layers no longer have a column of their own");
+  const panel = between(page, '<nav aria-label="Frames"', "</nav>");
+  assert.match(panel, /onClick=\{\(\) => showFrame\(entry\.id\)\}/, "a frame row switches the active frame");
+  assert.match(panel, /aria-label="Layers"/, "the active frame lists its layers inside the chip");
+  assert.match(panel, /looseRowList\.map\(layerRow\)/, "the canvas-level nodes get their own group");
+  assert.match(css, /\.canvas-frames-panel \{[^}]*top: 12px;[^}]*left: 12px;/, "the chip floats top left");
+
+  const pill = between(page, 'role="toolbar" aria-label="Edit"', "</div>");
+  assert.match(pill, /label="Add text"/);
+  assert.match(pill, /label="Add rectangle"/);
+  assert.match(pill, /\{selected\.length > 1 \? \(/, "front, back and the count join the pill for a group");
+  assert.match(pill, /disabled=\{readOnly \|\| selected\.length === 0\}/, "delete waits for a selection");
+  assert.match(css, /\.canvas-zoom \{[^}]*right: 16px;[^}]*bottom: 20px;/, "the zoom sits bottom right");
+
+  assert.match(page, /event\.key === "\?"/, "the ? key toggles the shortcuts");
+  assert.match(page, /aria-label="Keyboard shortcuts"/);
+  for (const keys of ["Ctrl/⌘ Z", "Ctrl/⌘ ⇧ Z", "Del / ⌫", "Esc", "Alt ↑ / Alt ↓", "PgUp / PgDn", "Space + drag"])
+    assert.equal(page.includes(`"${keys}"`), true, `the shortcuts list ${keys}`);
+  assert.match(
+    page,
+    /fitScale\(\s*\{ w: layout\.width, h: layout\.height \},\s*\{ w: viewport\.w, h: Math\.max\(0, viewport\.h - FLOATING_INSET \* 2\) \},/,
+    "fit leaves room for the floating chip and pill",
+  );
 });
 
 test("the canvas route is gated by the registry and leaves the markdown route untouched", () => {

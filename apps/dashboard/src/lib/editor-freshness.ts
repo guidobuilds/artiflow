@@ -11,7 +11,7 @@ import {
 
 export type DetailRevision = { id: string; revisionNumber: number; sha256: string; sizeBytes: number };
 
-export type DetailWire = { id: string; revision: DetailRevision | null };
+export type DetailWire = { id: string; title?: string | null; revision: DetailRevision | null };
 
 export type RemoteText = { text: string; metadata: ArtifactMetadata; seq?: number };
 

@@ -74,7 +74,8 @@ export const listRevisions = (id: string) =>
 export const getArtifactDetail = (id: string) =>
   manageRequest<DetailWire>(path(id), "GET", (body) => {
     if (!record(body) || typeof body.id !== "string" || body.id === "") return null;
-    if (body.revision === null) return { id: body.id, revision: null };
+    const title = typeof body.title === "string" && body.title !== "" ? body.title : null;
+    if (body.revision === null) return { id: body.id, title, revision: null };
     const revision = record(body.revision) ? body.revision : null;
     return revision &&
       typeof revision.id === "string" &&
@@ -85,6 +86,7 @@ export const getArtifactDetail = (id: string) =>
       typeof revision.sizeBytes === "number"
       ? {
           id: body.id,
+          title,
           revision: {
             id: revision.id,
             revisionNumber: revision.revisionNumber,
