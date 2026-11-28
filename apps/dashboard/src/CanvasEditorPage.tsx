@@ -1045,6 +1045,23 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
           <span aria-hidden="true" className="canvas-save-dot" />
           {labels[state.status]}
         </span>
+        {detail.data === undefined ? null : (
+          <span
+            className="text-[12px] text-fg-subtle"
+            data-publication={state.seq > state.publishedSeq ? "unpublished" : "published"}
+            title={
+              state.seq > state.publishedSeq
+                ? "The viewer keeps showing the published version until this draft is published."
+                : "The viewer shows this version."
+            }
+          >
+            {revisionNumber === null
+              ? "Not published yet"
+              : state.seq > state.publishedSeq
+                ? `Unpublished changes · published v${revisionNumber}`
+                : `Published · v${revisionNumber}`}
+          </span>
+        )}
         {owned ? (
           <button type="button" className="canvas-topbar-share" onClick={() => setPanel("share")}>
             Share

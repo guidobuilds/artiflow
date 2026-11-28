@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import "@/styles/globals.css";
 
 import { renameArtifact, renameNotice, renameState } from "@/artifact-api.ts";
+import { restoreRevision } from "@/auth-client.ts";
 import DeleteModal from "@/DeleteModal.tsx";
 import ShareModal from "@/ShareModal.tsx";
 import { Button, ButtonGroup } from "@/components/ui/button.tsx";
@@ -175,6 +176,53 @@ function ViewerActions({ config }: { config: Config }) {
   );
 }
 
+type RestoreConfig = { artifactId: string; revisionId: string; expectedRevisionId: string };
+
+function RestoreButton({ config }: { config: RestoreConfig }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const restore = () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    void restoreRevision(config.artifactId, config.revisionId, config.expectedRevisionId).then((result) => {
+      setBusy(false);
+      if (result.ok) {
+        setError(null);
+        window.location.assign(`/artifact/${encodeURIComponent(config.artifactId)}`);
+        return;
+      }
+      setError(result.error);
+      if (result.code === "concurrent_edit")
+        window.setTimeout(() => window.location.assign(`/artifact/${encodeURIComponent(config.artifactId)}`), 800);
+    });
+  };
+  return (
+    <span className="inline-flex flex-col items-start gap-0.5">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={restore}
+        className="cursor-pointer rounded border border-line-strong px-1.5 py-0.5 text-[11px] text-fg disabled:opacity-50"
+      >
+        {busy ? "Restoring…" : "Restore"}
+      </button>
+      {error === null ? null : (
+        <span aria-live="assertive" className="text-[11px] text-danger-text">
+          {error}
+        </span>
+      )}
+    </span>
+  );
+}
+
+const restoreConfigOf = (host: HTMLElement): RestoreConfig | null => {
+  const { artifactId, revisionId, expectedRevisionId } = host.dataset;
+  if (artifactId === undefined || revisionId === undefined || expectedRevisionId === undefined) return null;
+  if (artifactId === "" || revisionId === "" || expectedRevisionId === "") return null;
+  return { artifactId, revisionId, expectedRevisionId };
+};
+
 const readConfig = (): Config | null => {
   const node = document.getElementById("viewer-management-data");
   if (node === null) return null;
@@ -200,4 +248,21 @@ const mount = (): void => {
   );
 };
 
-if (typeof document !== "undefined") mount();
+const mountRestore = (): void => {
+  for (const host of document.querySelectorAll<HTMLElement>('[data-island="restore"]')) {
+    const config = restoreConfigOf(host);
+    if (config === null) continue;
+    createRoot(host).render(
+      <QueryProvider>
+        <ToastProvider>
+          <RestoreButton config={config} />
+        </ToastProvider>
+      </QueryProvider>,
+    );
+  }
+};
+
+if (typeof document !== "undefined") {
+  mount();
+  mountRestore();
+}
