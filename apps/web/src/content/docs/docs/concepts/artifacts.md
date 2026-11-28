@@ -21,14 +21,16 @@ stable id, and an ordered list of **revisions**.
 
 ## Kinds available today
 
-| Kind             | What you get                                                                                                                                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `html` (default) | One self-contained page. Inline CSS and JavaScript run inside a sandboxed frame; comments anchor to an element or a point.                         |
-| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well.                                      |
-| `canvas`         | A versioned JSON scene of frames and nodes, rendered as a navigable document and editable in the dashboard. See [Canvas](/docs/artifacts/canvas/). |
-| `deck`           | The same scene format, with slides in order and a presentation view. See [Deck](/docs/artifacts/deck/).                                            |
+| Kind             | What you get                                                                                                                                                              |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `html` (default) | A **Page**: one self-contained page. Inline CSS and JavaScript run inside a sandboxed frame; comments anchor to an element or a point.                                    |
+| `markdown`       | UTF-8 text rendered by the viewer, editable in the dashboard, line-editable and commentable over MCP as well.                                                             |
+| `canvas`         | A **Design**: a versioned JSON scene of frames and nodes, opened in its own canvas space and editable in the dashboard. See [Canvas](/docs/artifacts/canvas/).            |
+| `deck`           | The same scene format, with slides in order and a presentation view. See [Deck](/docs/artifacts/deck/).                                                                   |
 
-Canvas and deck comments anchor to a node. See [Canvas](/docs/artifacts/canvas/) and [Deck](/docs/artifacts/deck/).
+A Page and a Design are the two creation outputs: the request or the person chooses one, and both
+open through the same viewer route. Canvas and deck comments anchor to a node. See
+[Canvas](/docs/artifacts/canvas/) and [Deck](/docs/artifacts/deck/).
 
 ## Limits
 

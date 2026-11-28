@@ -55,8 +55,8 @@ export const KIND_CAPABILITIES: Record<ArtifactKind, KindCapabilities> = {
     extensions: [".md", ".markdown"],
   },
   canvas: {
-    label: "Canvas",
-    plural: "Canvases",
+    label: "Design",
+    plural: "Designs",
     icon: "canvas",
     viewer: "scene",
     anchors: ["board-point"],

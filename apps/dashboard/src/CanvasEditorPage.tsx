@@ -221,7 +221,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
   const library = useQuery({ ...libraryOwnedQuery, refetchInterval: false });
   const revisionNumber =
     detail.data?.ok && detail.data.value.revision !== null ? detail.data.value.revision.revisionNumber : null;
-  const documentTitle = (detail.data?.ok ? detail.data.value.title : null) ?? "Untitled canvas";
+  const documentTitle = (detail.data?.ok ? detail.data.value.title : null) ?? "Untitled design";
   const owned = library.data?.ok === true && library.data.value.some((entry) => entry.id === initial.artifactId);
   const stage = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
