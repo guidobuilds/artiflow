@@ -7,7 +7,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { Hono } from "hono";
 
 import { SCENE_FORMAT_VERSION, canonicalScene, type Scene } from "@artiflow/domain/scene";
-import { MAX_SCENE_READ_NODES } from "@artiflow/mcp-server/constants";
+import { MAX_SCENE_READ_BYTES, MAX_SCENE_READ_NODES } from "@artiflow/mcp-server/constants";
 
 import type { Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import {
@@ -575,4 +575,83 @@ test("a malformed apply body is invalid_request and a malformed id is not_found"
   const missing = await call(app, "GET", "/api/artifacts/not-a-uuid/scene/outline");
   assert.equal(missing.status, 404);
   assert.deepEqual(await json(missing), { error: "not_found" });
+});
+
+function canvasWith(scene: Scene): World {
+  const world = seed();
+  const bytes = new TextEncoder().encode(canonicalScene(scene));
+  world.objects.set(CANVAS_KEY, bytes);
+  for (const revision of world.revisions) {
+    if (revision.storageKey !== CANVAS_KEY) continue;
+    revision.sizeBytes = bytes.length;
+    revision.sha256 = digestOf(bytes);
+  }
+  const artifact = world.artifacts.get(CANVAS);
+  if (artifact !== undefined) artifact.observedSizeBytes = bytes.length;
+  return world;
+}
+
+const HEAVY = "frame-heavy";
+
+const heavyScene = (): Scene => ({
+  formatVersion: SCENE_FORMAT_VERSION,
+  frames: [
+    {
+      id: HEAVY,
+      name: "Heavy",
+      x: 0,
+      y: 0,
+      w: 400,
+      h: 300,
+      nodes: Array.from({ length: 80 }, (_, index) => ({
+        id: `heavy-${index + 1}`,
+        type: "text" as const,
+        x: 0,
+        y: index,
+        w: 10,
+        h: 10,
+        text: "x".repeat(1200),
+      })),
+    },
+  ],
+});
+
+test("a read window wider than the byte cap is too_large and 413", async () => {
+  const response = await call(
+    appOf(canvasWith(heavyScene())),
+    "GET",
+    `/api/artifacts/${CANVAS}/scene/read?frameId=${HEAVY}`,
+  );
+  const body = await json(response);
+  assert.equal(response.status, 413, JSON.stringify(body));
+  assert.equal(body.error, "too_large");
+  assert.equal(body.message, "read_window_exceeds_the_byte_cap");
+  assert.equal(body.maxBytes, MAX_SCENE_READ_BYTES);
+  assert.ok(typeof body.observedBytes === "number" && body.observedBytes > MAX_SCENE_READ_BYTES);
+});
+
+test("a deleted canvas refuses its outline and its frames with gone and writes nothing", async () => {
+  const world = seed();
+  const artifact = world.artifacts.get(CANVAS);
+  if (artifact !== undefined) artifact.deletedAt = NOW;
+  const app = appOf(world);
+  for (const path of [`/api/artifacts/${CANVAS}/scene/outline`, `/api/artifacts/${CANVAS}/scene/read`]) {
+    const response = await call(app, "GET", path);
+    const body = await json(response);
+    assert.equal(response.status, 404, path);
+    assert.equal(body.error, "gone", path);
+    assert.equal(body.message, "artifact_deleted", path);
+  }
+  assert.equal(world.drafts.size, 0, "no draft was opened for a deleted artifact");
+});
+
+test("a batch of canvas-level operations applies and reports no frame box", async () => {
+  const response = await call(appOf(seed()), "POST", `/api/artifacts/${CANVAS}/scene/apply`, {
+    principal: WRITE_PRINCIPAL,
+    body: applyOf([{ op: "move_canvas_node", id: LOOSE, x: 1, y: 1 }]),
+  });
+  const body = await json(response);
+  assert.equal(response.status, 200, JSON.stringify(body));
+  assert.equal(body.applied, 1);
+  assert.deepEqual(body.boxes, [], "a loose canvas node belongs to no frame box");
 });

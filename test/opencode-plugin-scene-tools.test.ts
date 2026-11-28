@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Associations, type AssociationEvent } from "@artiflow/plugin-core/associations";
 import { ArtifactRefusal, createArtifactApi, type ArtifactApi, type Refusal } from "@artiflow/plugin-core/core";
@@ -281,4 +282,14 @@ test("the scene descriptions carry the operating rules the model must follow", (
   assert.match(applyDefinition.description, /scene_outline/);
   assert.match(applyDefinition.description, /never blind-retry/);
   assert.match(applyDefinition.description, /violations/);
+});
+
+test("the shared scene core carries no MCP transport into the plugin bundle", async () => {
+  const source = await readFile(new URL("../packages/mcp-server/src/scene-tools.ts", import.meta.url), "utf8");
+  const specifiers = [...source.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1] ?? "");
+  assert.ok(specifiers.length > 0, "the module has imports to inspect");
+  for (const specifier of specifiers) {
+    assert.ok(!specifier.startsWith("@modelcontextprotocol/"), `${specifier} would bundle the MCP SDK`);
+    assert.notEqual(specifier, "./server.ts", "the shared core must not import the registrations");
+  }
 });

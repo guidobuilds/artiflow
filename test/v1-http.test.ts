@@ -97,6 +97,19 @@ test("the scope table maps every phase-1 read to artifacts:read and nothing else
   );
   assert.equal(requiredScope("GET", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/apply"), null);
   assert.equal(requiredScope("DELETE", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/apply"), null);
+  assert.equal(requiredScope("HEAD", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/apply"), null);
+  assert.equal(requiredScope("PUT", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/read"), null);
+  assert.equal(requiredScope("POST", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/outline"), null);
+});
+
+test("the scene tools live behind the bearer surface and not on the cookie one", async () => {
+  const app = createApiApp(stubDeps());
+  for (const suffix of ["outline", "read", "apply"]) {
+    const response = await app.fetch(
+      new Request(`http://127.0.0.1:5173/api/artifacts/11111111-1111-4111-8111-111111111111/scene/${suffix}`),
+    );
+    assert.equal(response.status, 405, `the dashboard surface has no scene/${suffix} route`);
+  }
 });
 
 test("a stripped principal and no bearer are refused; the challenge targets the api/v1 document", async () => {
