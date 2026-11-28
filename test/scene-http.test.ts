@@ -705,3 +705,91 @@ test("the wire contract names the scene envelope and refuses a body without one"
   assert.equal(saveSceneRequestSchema.safeParse({ scene: DRAFTED, expectedSeq: -1 }).success, false);
   assert.equal(saveSceneRequestSchema.safeParse({ scene: DRAFTED, expectedSeq: 1.5 }).success, false);
 });
+
+const SOURCE_ID = randomUUID();
+const PINNED_REVISION = randomUUID();
+const LATEST_REVISION = randomUUID();
+
+const artboardScene = (pinned: string): Scene =>
+  ({
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [
+      {
+        id: "art-a",
+        name: "Proposal A",
+        x: 0,
+        y: 0,
+        w: 390,
+        h: 640,
+        nodes: [],
+        source: { artifactId: SOURCE_ID, revisionId: pinned, mode: "fluid" },
+      },
+      {
+        id: "art-b",
+        name: "Proposal B",
+        x: 430,
+        y: 0,
+        w: 390,
+        h: 640,
+        nodes: [],
+        source: { artifactId: SOURCE_ID, revisionId: PINNED_REVISION, mode: "fixed" },
+      },
+    ],
+  }) as unknown as Scene;
+
+const sourceRow = (revisionId: string): Record<string, unknown> => ({
+  artifactId: SOURCE_ID,
+  kind: "html",
+  deletedAt: null,
+  revisionId,
+  revisionNumber: 4,
+  sizeBytes: 40,
+  storageKey: "revisions/source",
+  sha256: "a".repeat(64),
+});
+
+const refresh = (world: World, frameId: string, extraRows: unknown[][]) =>
+  appOf(world, { database: world.database([[world.artifact], ...extraRows]) }).request(
+    `/api/artifacts/${CANVAS_ID}/frames/${frameId}/source/refresh`,
+    { method: "POST", headers, body: JSON.stringify({}) },
+  );
+
+test("a refresh pins the latest revision of one artboard and leaves the other proposals intact", async () => {
+  const world = routeWorld({ draft: { seq: 1, scene: artboardScene(PINNED_REVISION) } });
+  const response = await refresh(world, "art-a", [[sourceRow(LATEST_REVISION)]]);
+  assert.equal(response.status, 200);
+  const body = await bodyOf(response);
+  assert.deepEqual(
+    [body.updated, body.sourceRevisionId, body.sourceRevisionNumber, body.frameId],
+    [true, LATEST_REVISION, 4, "art-a"],
+    "the explicit action reports the revision it pinned",
+  );
+  const scene = world.draftScene();
+  assert.deepEqual(scene?.frames.map((frame) => frame.source?.revisionId), [LATEST_REVISION, PINNED_REVISION]);
+  assert.equal(scene?.frames[1]?.source?.mode, "fixed", "the other proposal keeps its own pin and mode");
+});
+
+test("a refresh of an artboard already on the latest revision writes nothing", async () => {
+  const world = routeWorld({ draft: { seq: 1, scene: artboardScene(LATEST_REVISION) } });
+  const response = await refresh(world, "art-a", [[sourceRow(LATEST_REVISION)]]);
+  assert.equal(response.status, 200);
+  const body = await bodyOf(response);
+  assert.deepEqual([body.updated, body.sourceRevisionId], [false, LATEST_REVISION]);
+  assert.equal(world.operations.length, 0, "no operation row is appended");
+});
+
+test("a refresh without access to the source refuses and changes nothing", async () => {
+  const world = routeWorld({ draft: { seq: 1, scene: artboardScene(PINNED_REVISION) } });
+  const response = await refresh(world, "art-a", [[]]);
+  assert.equal(response.status, 403);
+  assert.deepEqual(await bodyOf(response), { error: "source_unavailable" });
+  assert.equal(world.operations.length, 0, "a refused refresh writes no operation");
+  assert.deepEqual(world.draftScene()?.frames[0]?.source?.revisionId, PINNED_REVISION);
+});
+
+test("a refresh on a frame that is not an artboard refuses by name", async () => {
+  const world = routeWorld({ draft: { seq: 1, scene: DRAFTED } });
+  const response = await refresh(world, "f1", []);
+  assert.equal(response.status, 409);
+  assert.deepEqual(await bodyOf(response), { error: "not_an_artboard" });
+});

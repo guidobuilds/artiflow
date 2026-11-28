@@ -20,8 +20,11 @@ import {
   applyOperationsAndFreeze,
   drizzleDocumentStore,
   openDraft,
+  publish,
   type DocumentErrorKind,
 } from "../domain/documents/service.ts";
+import { currentSourceRevisionOf } from "./artboard-sources.ts";
+import { refreshArtboardPlan } from "../viewer/artboards.ts";
 
 const requireScene = (c: Context, row: DocRow): Response | null =>
   rendersScene(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
@@ -139,6 +142,80 @@ export function createSceneApp(options: EditingOptions) {
           ? applied.value.revisionId
           : (row.revisionId as string),
     } satisfies SavedScene);
+  });
+
+  app.post("/api/artifacts/:id/frames/:frameId/source/refresh", async (c) => {
+    const rejected = guard(c);
+    if (rejected) return rejected;
+    const gate = await docGate(c);
+    if (gate instanceof Response) return gate;
+    const row = gate.row;
+    const wrongKind = requireScene(c, row);
+    if (wrongKind) return wrongKind;
+    const noCurrent = requireCurrent(c, row);
+    if (noCurrent) return noCurrent;
+    const notEditor = requireEditor(c, row);
+    if (notEditor) return notEditor;
+    const opened = await openDraft({ store, storage, artifactId: row.id });
+    if (!opened.ok) return unavailable(c, opened.kind);
+    const current = opened.value;
+    if (current.scene === null) return c.json({ error: "artifact_unavailable" }, 500);
+    const frameId = c.req.param("frameId") ?? "";
+    const frame = current.scene.frames.find((entry) => entry.id === frameId);
+    if (frame === undefined) return c.json({ error: "unknown_frame" }, 404);
+    const source = frame.source;
+    if (source === undefined) return c.json({ error: "not_an_artboard" }, 409);
+    const latest = await currentSourceRevisionOf(db, gate.userId, source.artifactId);
+    if (latest === null) return c.json({ error: "source_unavailable" }, 403);
+    if (latest.kind !== "html") return c.json({ error: "source_not_html" }, 409);
+    const plan = refreshArtboardPlan({
+      draft: current.scene,
+      frameId,
+      currentRevisionId: latest.revisionId,
+      currentRevisionNumber: latest.revisionNumber,
+    });
+    if (plan.kind === "refused") return c.json({ error: plan.error }, plan.error === "unknown_frame" ? 404 : 409);
+    if (plan.kind === "noop")
+      return c.json({
+        artifactId: row.id,
+        frameId,
+        updated: false,
+        sourceArtifactId: source.artifactId,
+        sourceRevisionId: plan.revisionId,
+        sourceRevisionNumber: plan.revisionNumber,
+        designRevisionId: row.revisionId as string,
+      });
+    const applied = await applyOperationsAndFreeze({
+      store,
+      storage,
+      artifactId: row.id,
+      authorKind: "person",
+      authorId: gate.userId,
+      baseSeq: current.seq,
+      idempotencyKey: randomUUID(),
+      ops: [plan.op],
+    });
+    if (!applied.ok) {
+      if (applied.kind === "concurrent_edit")
+        return c.json({ error: "concurrent_edit", currentSeq: applied.currentSeq, currentRevisionId: row.revisionId }, 409);
+      if (applied.kind === "not_found") return c.json({ error: "not_found" }, 404);
+      return c.json({ error: "operation_rejected", kind: applied.kind, reason: applied.reason }, 409);
+    }
+    let designRevisionId = applied.value.published ? applied.value.revisionId : null;
+    if (!applied.value.published) {
+      const frozen = await publish({ store, storage, artifactId: row.id });
+      if (frozen.ok && frozen.value.revisionId !== null) designRevisionId = frozen.value.revisionId;
+    }
+    return c.json({
+      artifactId: row.id,
+      frameId,
+      updated: true,
+      sourceArtifactId: source.artifactId,
+      sourceRevisionId: latest.revisionId,
+      sourceRevisionNumber: latest.revisionNumber,
+      designRevisionId: designRevisionId ?? (row.revisionId as string),
+      seq: applied.value.seq,
+    });
   });
 
   return app;

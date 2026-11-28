@@ -367,10 +367,13 @@ export type SceneViewInput = {
   readonly images?: SceneImages | undefined;
   readonly threads?: readonly { id: string; anchor?: unknown }[];
   readonly kind?: string;
+  readonly artboards?: SceneArtboards | undefined;
 };
 
 export const sceneView = (model: ViewerModel, input: SceneViewInput): ArtifactPage =>
   artifactView(model, {
-    srcdoc: escapeAttribute(renderSceneDocument(input.scene, input.frameId, input.images, input.threads, input.kind)),
+    srcdoc: escapeAttribute(
+      renderSceneDocument(input.scene, input.frameId, input.images, input.threads, input.kind, input.artboards ?? {}),
+    ),
     images: input.images?.origin,
   });
