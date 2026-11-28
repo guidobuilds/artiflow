@@ -24,7 +24,8 @@
     "./scene-overrides": "./src/scene-overrides.ts",
     "./design-bridge": "./src/design-bridge.ts",
     "./design-request": "./src/design-request.ts",
-    "./artifact-link": "./src/artifact-link.ts"
+    "./artifact-link": "./src/artifact-link.ts",
+    "./examples": "./src/examples.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit"

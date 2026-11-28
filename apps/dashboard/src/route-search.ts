@@ -1,11 +1,14 @@
 import type { AdminRole, AdminUserFilter, AdminUserMethod, AdminUserStatus } from "./admin-users-client.ts";
+import { ARTIFACT_KINDS, type ArtifactKind } from "@artiflow/domain/kinds";
 
 export type LibraryFilter = "all" | "mine" | "shared";
-export type LibrarySearch = { filter: LibraryFilter };
+export type LibraryKindFilter = "all" | ArtifactKind;
+export type LibrarySearch = { filter: LibraryFilter; kind: LibraryKindFilter };
 export type LibrarySearchParams = Partial<LibrarySearch>;
 export type AdminUsersSearchParams = Partial<AdminUserFilter>;
 
 export const LIBRARY_FILTERS = ["all", "mine", "shared"] as const satisfies readonly LibraryFilter[];
+export const LIBRARY_KINDS = ["all", ...ARTIFACT_KINDS] as const satisfies readonly LibraryKindFilter[];
 export const ADMIN_ROLES = ["member", "administrator"] as const satisfies readonly AdminRole[];
 export const ADMIN_STATUSES = ["active", "deactivated"] as const satisfies readonly AdminUserStatus[];
 export const ADMIN_METHODS = [
@@ -32,7 +35,10 @@ function pageOf(value: unknown): number {
 }
 
 export function parseLibrarySearch(search: Record<string, unknown>): LibrarySearch {
-  return { filter: memberOf(LIBRARY_FILTERS, search.filter) ?? "all" };
+  return {
+    filter: memberOf(LIBRARY_FILTERS, search.filter) ?? "all",
+    kind: memberOf(LIBRARY_KINDS, search.kind) ?? "all",
+  };
 }
 
 export function parseAdminUsersSearch(search: Record<string, unknown>): AdminUserFilter {
@@ -45,8 +51,11 @@ export function parseAdminUsersSearch(search: Record<string, unknown>): AdminUse
   };
 }
 
-export function librarySearch(filter: LibraryFilter): LibrarySearchParams {
-  return filter === "all" ? {} : { filter };
+export function librarySearch(filter: LibraryFilter, kind: LibraryKindFilter = "all"): LibrarySearchParams {
+  const search: LibrarySearchParams = {};
+  if (filter !== "all") search.filter = filter;
+  if (kind !== "all") search.kind = kind;
+  return search;
 }
 
 export function adminUsersSearch(filter: AdminUserFilter): AdminUsersSearchParams {

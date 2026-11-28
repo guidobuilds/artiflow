@@ -43,7 +43,7 @@ test("every path the entry dispatched still mounts the same screen", () => {
     assert.ok(router.includes(component), `the ${path} route mounts ${component.slice("component: ".length)}`);
   }
   assert.match(router, /<LibraryPage connect \/>/);
-  assert.match(router, /<LibraryPage filter=\{filter\} \/>/);
+  assert.match(router, /<LibraryPage filter=\{filter\} kind=\{kind\} \/>/);
   assert.match(router, /<AdminUsersPage filter=\{search\} \/>/);
   assert.match(router, /<EditorPage artifactId=\{artifactId\} \/>/);
   assert.match(router, /<CanvasEditorPage artifactId=\{artifactId\} \/>/);

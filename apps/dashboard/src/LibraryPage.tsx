@@ -4,7 +4,9 @@ import { useNavigate } from "@tanstack/react-router";
 
 import { type ArtifactSummary } from "./auth-client.ts";
 import { invalidateLibrary, libraryOwnedQuery, librarySharedQuery, libraryView } from "./query/library.ts";
-import { librarySearch, type LibraryFilter } from "./route-search.ts";
+import { LIBRARY_KINDS, librarySearch, type LibraryFilter, type LibraryKindFilter } from "./route-search.ts";
+import { libraryRowAccess } from "./library-access.ts";
+import ExampleDialog from "./ExampleDialog.tsx";
 import { AppShell, PageHeader } from "@/components/app/app-shell.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -25,15 +27,7 @@ import {
 import { Card, CardGrid, FileTile } from "@/components/ui/card.tsx";
 import { Segmented, SegmentedItem } from "@/components/ui/segmented.tsx";
 import { cn } from "@/lib/utils.ts";
-import {
-  ARTIFACT_KINDS,
-  editsSceneInApp,
-  iconFor,
-  labelFor,
-  pluralFor,
-  type ArtifactKind,
-  type KindIcon,
-} from "@artiflow/domain/kinds";
+import { editsSceneInApp, iconFor, labelFor, pluralFor, type KindIcon } from "@artiflow/domain/kinds";
 import { openArtifact } from "./editor-api.ts";
 import { openCanvas } from "./scene-api.ts";
 import ShareModal from "./ShareModal.tsx";
@@ -43,7 +37,7 @@ import { openConnect, setupPrompt } from "./ConnectDialog.tsx";
 
 type Row = { artifact: ArtifactSummary; owner?: string };
 type Layout = "list" | "grid";
-type Kind = "all" | ArtifactKind;
+type Kind = LibraryKindFilter;
 const DASHBOARD_ICONS: Record<KindIcon, IconName> = {
   page: "html",
   document: "markdown",
@@ -51,10 +45,10 @@ const DASHBOARD_ICONS: Record<KindIcon, IconName> = {
   slides: "max",
   unknown: "doc",
 };
-const KINDS: { value: Kind; label: string }[] = [
-  { value: "all", label: "All" },
-  ...ARTIFACT_KINDS.map((kind) => ({ value: kind, label: pluralFor(kind) })),
-];
+const KINDS: { value: Kind; label: string }[] = LIBRARY_KINDS.map((kind) => ({
+  value: kind,
+  label: kind === "all" ? "All" : pluralFor(kind),
+}));
 type Sort = "updated" | "created" | "name";
 const SORTS: { value: Sort; label: string }[] = [
   { value: "updated", label: "Last updated" },
@@ -91,9 +85,11 @@ function groupOf(artifact: ArtifactSummary, today: number): string {
 export default function LibraryPage({
   connect = false,
   filter = "all",
+  kind = "all",
 }: {
   connect?: boolean;
   filter?: LibraryFilter;
+  kind?: Kind;
 }) {
   const { toast } = useToast();
   const client = useQueryClient();
@@ -101,8 +97,8 @@ export default function LibraryPage({
   const owned = useQuery(libraryOwnedQuery);
   const sharedQuery = useQuery(librarySharedQuery);
   const view = libraryView(owned.data, sharedQuery.data);
-  const [kind, setKind] = useState<Kind>("all");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [exampleOpen, setExampleOpen] = useState(false);
   const [selectedHref, setSelectedHref] = useState<string | null>(null);
   const collection = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<{ artifact: ArtifactSummary; panel: "share" | "delete" } | null>(null);
@@ -133,7 +129,10 @@ export default function LibraryPage({
     void invalidateLibrary(client);
   };
   const selectFilter = (next: LibraryFilter) => {
-    void navigate({ to: "/", search: librarySearch(next) });
+    void navigate({ to: "/", search: librarySearch(next, kind) });
+  };
+  const selectKind = (next: Kind) => {
+    void navigate({ to: "/", search: librarySearch(filter, next) });
   };
   const artifacts = (view.kind === "ready" ? view.artifacts : []).filter((artifact) => !removed.includes(artifact.id));
   const sharedRows = (view.kind === "ready" || view.kind === "error" ? view.shared : []).filter(
@@ -259,42 +258,45 @@ export default function LibraryPage({
     }
   };
   const isEmpty = view.kind === "ready" && allRows.length === 0;
-  const actions = (artifact: ArtifactSummary, owner?: string) => (
-    <RowActions onClick={(event) => event.stopPropagation()}>
-      <Menu
-        align="end"
-        label={`Manage ${artifact.title}`}
-        trigger={
-          <button
-            type="button"
-            aria-label={`More actions for ${artifact.title}`}
-            className="grid size-8 cursor-pointer place-items-center rounded-sm text-fg-muted transition-colors duration-120 hover:bg-hover hover:text-fg"
-          >
-            <Icon name="more" />
-          </button>
-        }
-      >
-        <MenuItem icon="ext" onClick={() => open(artifact)}>
-          Open
-        </MenuItem>
-        {owner !== undefined ? (
-          <MenuItem icon="users" disabled>
-            Shared by {owner}
+  const actions = (artifact: ArtifactSummary, owner?: string) => {
+    const access = libraryRowAccess({ kind: artifact.kind, owner });
+    return (
+      <RowActions onClick={(event) => event.stopPropagation()}>
+        <Menu
+          align="end"
+          label={`Manage ${artifact.title}`}
+          trigger={
+            <button
+              type="button"
+              aria-label={`More actions for ${artifact.title}`}
+              className="grid size-8 cursor-pointer place-items-center rounded-sm text-fg-muted transition-colors duration-120 hover:bg-hover hover:text-fg"
+            >
+              <Icon name="more" />
+            </button>
+          }
+        >
+          <MenuItem icon="ext" onClick={() => open(artifact)}>
+            Open
           </MenuItem>
-        ) : (
-          <>
-            <MenuItem icon="users" onClick={() => setActive({ artifact, panel: "share" })}>
-              Share…
+          {!access.canShare || !access.canDelete ? (
+            <MenuItem icon="users" disabled>
+              Shared by {access.ownerLabel}
             </MenuItem>
-            <MenuSeparator />
-            <MenuItem icon="trash" danger onClick={() => setActive({ artifact, panel: "delete" })}>
-              Delete…
-            </MenuItem>
-          </>
-        )}
-      </Menu>
-    </RowActions>
-  );
+          ) : (
+            <>
+              <MenuItem icon="users" onClick={() => setActive({ artifact, panel: "share" })}>
+                Share…
+              </MenuItem>
+              <MenuSeparator />
+              <MenuItem icon="trash" danger onClick={() => setActive({ artifact, panel: "delete" })}>
+                Delete…
+              </MenuItem>
+            </>
+          )}
+        </Menu>
+      </RowActions>
+    );
+  };
 
   return (
     <AppShell
@@ -316,11 +318,14 @@ export default function LibraryPage({
           headingRef={heading}
           title="Library"
           action={
-            isEmpty ? undefined : (
-              <Button variant="primary" onClick={() => void copySetup()}>
-                Copy agent setup prompt
-              </Button>
-            )
+            <div className="flex flex-wrap items-center gap-2">
+              <Button onClick={() => setExampleOpen(true)}>Start from an example</Button>
+              {isEmpty ? undefined : (
+                <Button variant="primary" onClick={() => void copySetup()}>
+                  Copy agent setup prompt
+                </Button>
+              )}
+            </div>
           }
         />
         {isEmpty ? null : (
@@ -331,7 +336,7 @@ export default function LibraryPage({
                   key={option.value}
                   type="button"
                   aria-pressed={kind === option.value}
-                  onClick={() => setKind(option.value)}
+                  onClick={() => selectKind(option.value)}
                   className={cn(
                     "h-8 cursor-pointer rounded-full border px-3 text-[13.5px] transition-colors duration-120",
                     kind === option.value
@@ -418,6 +423,7 @@ export default function LibraryPage({
                   Copy prompt
                 </Button>
                 <Button onClick={openConnect}>Set up step by step</Button>
+                <Button onClick={() => setExampleOpen(true)}>Start from an example</Button>
               </div>
             </div>
           </section>
@@ -529,6 +535,7 @@ export default function LibraryPage({
           onSelectFilter={selectFilter}
         />
       ) : null}
+      {exampleOpen ? <ExampleDialog onClose={() => setExampleOpen(false)} /> : null}
       {active?.panel === "share" ? (
         <ShareModal artifactId={active.artifact.id} title={active.artifact.title} onClose={() => setActive(null)} />
       ) : null}

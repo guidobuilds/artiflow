@@ -19,16 +19,16 @@ const ADMIN_USERS = `${SRC}/AdminUsersPage.tsx`;
 const read = (path: string): string => readFileSync(new URL(path, import.meta.url), "utf8");
 
 test("an absent or unknown library filter normalizes to the default and a named filter round-trips", () => {
-  assert.deepEqual(parseLibrarySearch({}), { filter: "all" });
-  assert.deepEqual(parseLibrarySearch({ filter: "mine" }), { filter: "mine" });
-  assert.deepEqual(parseLibrarySearch({ filter: "shared" }), { filter: "shared" });
+  assert.deepEqual(parseLibrarySearch({}), { filter: "all", kind: "all" });
+  assert.deepEqual(parseLibrarySearch({ filter: "mine" }), { filter: "mine", kind: "all" });
+  assert.deepEqual(parseLibrarySearch({ filter: "shared" }), { filter: "shared", kind: "all" });
   for (const filter of ["all", "mine", "shared"] as const) {
-    assert.deepEqual(parseLibrarySearch(librarySearch(filter)), { filter }, filter);
+    assert.deepEqual(parseLibrarySearch(librarySearch(filter)), { filter, kind: "all" }, filter);
   }
   for (const bogus of ["everything", "", "MINE", 3, null, true, ["mine"]]) {
-    assert.deepEqual(parseLibrarySearch({ filter: bogus }), { filter: "all" }, JSON.stringify(bogus));
+    assert.deepEqual(parseLibrarySearch({ filter: bogus }), { filter: "all", kind: "all" }, JSON.stringify(bogus));
   }
-  assert.deepEqual(parseLibrarySearch({ filter: undefined }), { filter: "all" });
+  assert.deepEqual(parseLibrarySearch({ filter: undefined }), { filter: "all", kind: "all" });
 });
 
 test("the directory page is a positive integer and anything else falls back to the first page", () => {
@@ -108,10 +108,10 @@ test("the routes derive their filters from validateSearch", () => {
   assert.match(router, /path: "\/",\s*validateSearch: validateLibrarySearch,/);
   assert.match(router, /path: "\/library",\s*validateSearch: validateLibrarySearch,/);
   assert.match(router, /path: "\/admin\/users",\s*validateSearch: validateAdminUsersSearch,/);
-  assert.match(router, /const \{ filter \} = indexRoute\.useSearch\(\);/);
-  assert.match(router, /const \{ filter \} = libraryRoute\.useSearch\(\);/);
+  assert.match(router, /const \{ filter, kind \} = indexRoute\.useSearch\(\);/);
+  assert.match(router, /const \{ filter, kind \} = libraryRoute\.useSearch\(\);/);
   assert.match(router, /const search = adminUsersRoute\.useSearch\(\);/);
-  assert.match(router, /<LibraryPage filter=\{filter\} \/>/);
+  assert.match(router, /<LibraryPage filter=\{filter\} kind=\{kind\} \/>/);
   assert.match(router, /<AdminUsersPage filter=\{search\} \/>/);
 });
 
@@ -135,6 +135,7 @@ test("the library reads the route filter and navigates when the filter changes",
   assert.doesNotMatch(library, /useState<LibraryFilter>/);
   assert.match(library, /filter = "all"/);
   assert.match(library, /const navigate = useNavigate\(\);/);
-  assert.match(library, /void navigate\(\{ to: "\/", search: librarySearch\(next\) \}\);/);
+  assert.match(library, /void navigate\(\{ to: "\/", search: librarySearch\(next, kind\) \}\);/);
+  assert.match(library, /void navigate\(\{ to: "\/", search: librarySearch\(filter, next\) \}\);/);
   assert.match(library, /onFilter=\{selectFilter\}/);
 });

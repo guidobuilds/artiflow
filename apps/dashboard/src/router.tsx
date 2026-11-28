@@ -87,13 +87,13 @@ function ConnectRoute() {
 }
 
 function IndexRoute() {
-  const { filter } = indexRoute.useSearch();
-  return <LibraryPage filter={filter} />;
+  const { filter, kind } = indexRoute.useSearch();
+  return <LibraryPage filter={filter} kind={kind} />;
 }
 
 function LibraryRoute() {
-  const { filter } = libraryRoute.useSearch();
-  return <LibraryPage filter={filter} />;
+  const { filter, kind } = libraryRoute.useSearch();
+  return <LibraryPage filter={filter} kind={kind} />;
 }
 
 function AdminUsersRoute() {
