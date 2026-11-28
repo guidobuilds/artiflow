@@ -250,7 +250,12 @@ Edit after publishing with one atomic batch instead of republishing:
   inside a frame.
 - align with `guides` (`columns`, `rows` or `grid` with `count`, `gutter`, `margin`, `color`) and
   protect an approved artboard with `update_frame` `locked: true`: its words and colours stay
-  editable, and moving or removing it refuses with `frame_locked`.
+  editable while moving, renaming or removing it —or moving or removing its nodes— refuses the whole
+  batch with `frame_locked`, including through `replace_scene`. Unlock with `locked: false` in one
+  batch and move or remove it in the next one.
+- retarget a group title before removing an artboard it explains: the batch refuses with
+  `invalid_annotation`, and `remove_page` refuses with `page_not_empty` while the page still holds
+  frames, notes or the first page's implicit content.
 - the reply carries the absolute box of every touched node plus the validation verdict: read it
   instead of assuming the result.
 - a stale `baseSeq` refuses with the current sequence, and replaying the same key applies once.

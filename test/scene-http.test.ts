@@ -397,6 +397,39 @@ test("a PUT with the right sequence applies and answers the new sequence", async
   assert.equal(world.operations.length, 1, "a save that changes nothing appends no row");
 });
 
+const lockedScene = (x: number, locked = true): Scene =>
+  ({
+    formatVersion: SCENE_FORMAT_VERSION,
+    frames: [{ id: "f1", name: "Home", x, y: 20, w: 300, h: 200, nodes: [rect("n1", 10, 10)], locked }],
+  }) as unknown as Scene;
+
+test("a canvas save that moves or deletes a locked artboard is refused with frame_locked and writes nothing", async () => {
+  const locked = lockedScene(40);
+  const world = routeWorld({ draft: { seq: 0, scene: locked } });
+  const refused = [
+    lockedScene(140),
+    { formatVersion: SCENE_FORMAT_VERSION, frames: [] } as unknown as Scene,
+  ];
+  for (const scene of refused) {
+    const response = await save(world, { scene, expectedSeq: 0 });
+    assert.equal(response.status, 409);
+    const body = await bodyOf(response);
+    assert.equal(body.error, "operation_rejected");
+    assert.equal(body.reason, "frame_locked");
+    assert.deepEqual(world.draftScene(), locked, "a refused save leaves the draft untouched");
+    assert.equal(
+      world.operations.filter((row) => row.result === "applied").length,
+      0,
+      "a refused save applies no operation",
+    );
+  }
+  const released = await save(world, { scene: lockedScene(40, false), expectedSeq: 0 });
+  assert.equal(released.status, 200, "unlocking the artboard is accepted on its own");
+  const moved = await save(world, { scene: lockedScene(140, false), expectedSeq: 1 });
+  assert.equal(moved.status, 200, "moving it after unlocking is accepted");
+  assert.equal((world.draftScene()?.frames[0] as { x?: number } | undefined)?.x, 140);
+});
+
 test("a PUT that changes one node's position appends one move and no snapshot", async () => {
   const world = routeWorld();
   const response = await save(world, { scene: DRAGGED, expectedSeq: 0 });

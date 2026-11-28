@@ -1432,3 +1432,32 @@ test("MCP refuses a locked artboard move and keeps the scene unchanged", async (
   const node = ((after.frame as ToolPayload).nodes as ToolPayload[])[0] as ToolPayload;
   assert.deepEqual({ x: node.x, y: node.y }, { x: 0, y: 0 }, "the refused move changed nothing");
 });
+
+test("MCP refuses a replace_scene that touches a locked artboard and accepts an untouched copy", async () => {
+  const lockedFrame = { ...HOME(), locked: true } as Record<string, unknown>;
+  const workspace = canvasWorkspace({ text: canvasText([lockedFrame]) });
+  const { callTool } = await connect(workspace.backend);
+  const replaced = {
+    ...sceneOf([lockedFrame]),
+    frames: [{ ...lockedFrame, x: 177 }],
+  } as unknown as Scene;
+  const refusedReplace = await callTool("scene_apply", {
+    artifactId: ARTIFACT,
+    baseSeq: 0,
+    idempotencyKey: "locked-replace",
+    ops: [{ op: "replace_scene", scene: replaced }],
+  });
+  assert.equal(refusedReplace.isError, true);
+  const after = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  assert.equal((after.frame as ToolPayload).x, 100, "the refused replace changed nothing");
+
+  const identical = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "locked-identical",
+      ops: [{ op: "replace_scene", scene: sceneOf([lockedFrame]) }],
+    }),
+  );
+  assert.equal(identical.applied, 1, "an identical copy leaves the locked artboard untouched");
+});

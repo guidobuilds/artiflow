@@ -753,14 +753,23 @@ A Design also organizes its artboards into **pages** and carries workspace annot
 reach the prototype:
 
 - A frame takes an optional `page`, the id of a declared `pages` entry, and an optional `locked`.
-  While `locked` is true, moving or removing the frame, or moving or removing one of its nodes,
-  refuses with `frame_locked`; text, fill and style updates stay allowed, and `locked: false`
-  restores both actions. Content with no `page` belongs to the first declared page, so a design
-  without `pages` behaves as a single surface.
+  While `locked` is true, the engine compares every locked frame of the base scene with the final
+  one: a changed position, size, name, `source`, node set or node geometry (or a missing frame)
+  refuses **the whole batch** with `frame_locked` and its `frameId`, writes nothing, and applies to
+  any batch including `replace_scene`, the canvas save and every HTTP or MCP path that uses the
+  engine. Text, fill and style updates stay allowed, and assigning the frame to another page is not
+  a protected change. Unlocking is explicit: `update_frame` with `locked: false` is accepted, but
+  moving or removing the frame or its nodes needs a later batch — the same batch that unlocks and
+  moves is refused. A `replace_scene` that copies the document without touching the locked frame is
+  accepted. Content with no `page` belongs to the first declared page, so a design without `pages`
+  behaves as a single surface, and `remove_page` refuses with `page_not_empty` while the first page
+  still holds that implicit content.
 - A canvas-level node takes an optional `page` and an optional `annotation`: `kind` is `title` or
   `note`, and `targets` lists the frame ids the annotation explains. A `title` always targets at
   least two artboards; a `note` may target any number, including none. Annotations are hidden in
-  Focus and Play, and they are never allowed inside a frame.
+  Focus and Play, and they are never allowed inside a frame. Removing a frame a title explains
+  refuses with `invalid_annotation` until the title is retargeted, so the batch never prunes targets
+  silently.
 - The scene takes an optional `guides` spec: `kind` (`columns`, `rows` or `grid`), `count` (1–24),
   optional `gutter`, `margin` and `color`. Guides are an overlay for the viewer only; they never
   change node geometry and never appear in Focus, Play or an export.

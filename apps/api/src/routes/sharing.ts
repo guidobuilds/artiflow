@@ -28,6 +28,7 @@ import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.t
 import { renderViewOf, sceneView } from "../viewer/views/scene.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
+import { scenePageContent } from "@artiflow/domain/scene-pages";
 import { parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
 import { rendersInlineMarkdown, rendersScene, viewerFor } from "@artiflow/domain/kinds";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
@@ -587,6 +588,8 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
         banner,
       });
       const plan = planSceneView(scene.value, parseSceneLink(new URL(c.req.url).searchParams));
+      if (plan.kind === "canvas" && scenePageContent(scene.value, plan.page).missing)
+        return c.json({ error: "not_found" }, 404);
       const page = sceneView(model, {
         scene: scene.value,
         frameId: plan.frameId ?? undefined,

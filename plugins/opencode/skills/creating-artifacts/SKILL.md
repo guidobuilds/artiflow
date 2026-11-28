@@ -166,8 +166,12 @@ then batch, then re-read:
   canvas-level annotation (`annotation: {kind: "title", targets: [a, b]}` for a
   title over at least two artboards, `{kind: "note"}` for a sticky), align with
   `guides` and protect an approved artboard with `update_frame` `locked: true`:
-  its words and colours stay editable while moving or removing it refuses with
-  `frame_locked`. Annotations and guides never appear in Focus or Play.
+  its words and colours stay editable while moving, renaming or removing it —or
+  its nodes— refuses the whole batch with `frame_locked`, `replace_scene`
+  included. Unlock with `locked: false` in one batch and move it in the next.
+  Retarget a group title before removing an artboard it explains
+  (`invalid_annotation`), and expect `page_not_empty` from `remove_page` while a
+  page still holds content. Annotations and guides never appear in Focus or Play.
 
 Editing discipline: read before every batch, pass the `seq` you read as `baseSeq`,
 and reuse one `idempotencyKey` when you retry a batch you are not sure arrived —

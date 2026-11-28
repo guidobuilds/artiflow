@@ -6,10 +6,24 @@ export type ScenePageContent = {
   page: ScenePage | null;
   frames: SceneFrame[];
   notes: SceneCanvasNode[];
+  missing: boolean;
 };
+
+export type ScenePageSelection = { page: ScenePage | null; missing: boolean };
 
 export const scenePages = (scene: Pick<Scene, "pages">): ScenePage[] =>
   Array.isArray(scene.pages) ? scene.pages : [];
+
+export const requestedScenePage = (
+  scene: Pick<Scene, "pages">,
+  requested?: string | null,
+): ScenePageSelection => {
+  const pages = scenePages(scene);
+  if (pages.length === 0) return { page: null, missing: false };
+  if (requested === undefined || requested === null) return { page: pages[0] ?? null, missing: false };
+  const found = pages.find((page) => page.id === requested);
+  return found === undefined ? { page: null, missing: true } : { page: found, missing: false };
+};
 
 export const scenePageOf = (scene: Pick<Scene, "pages">, requested?: string | null): ScenePage | null => {
   const pages = scenePages(scene);
@@ -29,14 +43,17 @@ export const scenePageContent = (
 ): ScenePageContent => {
   const pages = scenePages(scene);
   const notes = Array.isArray(scene.nodes) ? scene.nodes : [];
-  if (pages.length === 0) return { page: null, frames: [...scene.frames], notes: [...notes] };
-  const page = scenePageOf(scene, requested);
-  if (page === null) return { page: null, frames: [...scene.frames], notes: [...notes] };
+  if (pages.length === 0) return { page: null, frames: [...scene.frames], notes: [...notes], missing: false };
+  const selection = requestedScenePage(scene, requested);
+  if (selection.missing) return { page: null, frames: [], notes: [], missing: true };
+  const page = selection.page;
+  if (page === null) return { page: null, frames: [...scene.frames], notes: [...notes], missing: false };
   const home = firstPageId(scene);
   return {
     page,
     frames: scene.frames.filter((frame) => (frame.page ?? home) === page.id),
     notes: notes.filter((node) => (node.page ?? home) === page.id),
+    missing: false,
   };
 };
 
@@ -115,6 +132,9 @@ export const pageHasContent = (scene: Pick<Scene, "frames" | "nodes">, id: strin
 
 export function removeScenePage(scene: Scene, id: string): Scene {
   if (pageHasContent(scene, id)) return scene;
+  const implicit = scenePages(scene)[0]?.id === id;
+  if (implicit && (scene.frames.some((frame) => frame.page === undefined) || (scene.nodes ?? []).some((node) => node.page === undefined)))
+    return scene;
   const pages = scenePages(scene);
   if (!pages.some((page) => page.id === id)) return scene;
   return pagesWith(

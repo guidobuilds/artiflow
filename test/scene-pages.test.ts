@@ -219,9 +219,13 @@ test("a locked artboard refuses moves and removals while its words stay editable
   const editWords = applySceneOperations(scene, [
     { op: "update_node", id: "c1", props: { text: "Approved v2" } },
     { op: "update_node", id: "c1", props: { fill: "#e8f0ff" } },
-    { op: "update_frame", id: "c", props: { name: "Approved B" } },
+    { op: "update_node", id: "c1", props: { style: { fontSize: 18, color: "#112233" } } },
   ]);
   assert.equal(editWords.ok, true, "words and colours stay editable while the artboard is locked");
+
+  const rename = applySceneOperations(scene, [{ op: "update_frame", id: "c", props: { name: "Approved B" } }]);
+  assert.equal(rename.ok, false, "renaming the locked artboard is a structural change");
+  if (!rename.ok) assert.equal(rename.reason, "frame_locked");
 
   const removeNode = applySceneOperations(scene, [{ op: "remove_node", id: "c1" }]);
   assert.equal(removeNode.ok, false);
@@ -311,4 +315,143 @@ test("the operation diff carries pages, notes and lock back into the scene", () 
   assert.ok(operations.some((operation) => operation.op === "update_canvas_node"), "the diff moves the notes");
   const replay = apply(previous, operations);
   assert.equal(canonicalScene(replay), canonicalScene(next), "replaying the diff rebuilds the same document");
+});
+
+const plain = (): Scene => ({
+  formatVersion: SCENE_FORMAT_VERSION,
+  frames: [
+    { id: "a", name: "A", x: 0, y: 0, w: 390, h: 640, nodes: [{ id: "a1", type: "text", x: 0, y: 0, w: 100, h: 20, text: "A" }] },
+    { id: "b", name: "B", x: 500, y: 0, w: 390, h: 640, nodes: [] },
+  ],
+  nodes: [],
+}) as unknown as Scene;
+
+const lockedPlain = (): Scene => apply(plain(), [{ op: "update_frame", id: "a", props: { locked: true } }]);
+
+const withFrame = (scene: Scene, id: string, patch: Record<string, unknown>): Scene => ({
+  ...scene,
+  frames: scene.frames.map((frame) => (frame.id === id ? { ...frame, ...patch } : frame)),
+});
+
+test("a locked artboard cannot be moved, emptied or removed through replace_scene", () => {
+  const locked = lockedPlain();
+  const moved = applySceneOperations(locked, [
+    { op: "replace_scene", scene: withFrame(locked, "a", { x: 40 }) },
+  ]);
+  assert.equal(moved.ok, false);
+  if (!moved.ok) {
+    assert.equal(moved.reason, "frame_locked");
+    assert.equal(moved.detail.id, "a");
+    assert.equal(moved.opIndex, 0, "the batch names the operation that broke the lock");
+  }
+
+  const emptied = applySceneOperations(locked, [
+    {
+      op: "replace_scene",
+      scene: withFrame(locked, "a", { nodes: [{ id: "a1", type: "text", x: 90, y: 0, w: 100, h: 20, text: "A" }] }),
+    },
+  ]);
+  assert.equal(emptied.ok, false);
+  if (!emptied.ok) assert.equal(emptied.reason, "frame_locked");
+
+  const removed = applySceneOperations(locked, [
+    { op: "replace_scene", scene: { ...locked, frames: locked.frames.filter((frame) => frame.id !== "a") } },
+  ]);
+  assert.equal(removed.ok, false);
+  if (!removed.ok) assert.equal(removed.reason, "frame_locked");
+
+  const identical = applySceneOperations(locked, [
+    { op: "replace_scene", scene: JSON.parse(JSON.stringify(locked)) as Scene },
+  ]);
+  assert.equal(identical.ok, true, "a replace that leaves the locked artboard untouched is allowed");
+  if (identical.ok) assert.deepEqual(identical.value.scene, locked);
+
+  const scrambled = {
+    frames: locked.frames.map((frame) => ({
+      locked: frame.locked,
+      nodes: frame.nodes,
+      h: frame.h,
+      w: frame.w,
+      y: frame.y,
+      x: frame.x,
+      name: frame.name,
+      id: frame.id,
+    })),
+    formatVersion: SCENE_FORMAT_VERSION,
+  } as unknown as Scene;
+  const reordered = applySceneOperations(locked, [{ op: "replace_scene", scene: scrambled }]);
+  assert.equal(reordered.ok, true, "the comparison ignores key order");
+});
+
+test("unlocking is explicit and a move needs a later batch", () => {
+  const locked = lockedPlain();
+  const released = apply(locked, [{ op: "update_frame", id: "a", props: { locked: false } }]);
+  assert.equal(released.frames[0]?.locked, false);
+  const moved = applySceneOperations(released, [{ op: "update_frame", id: "a", props: { x: 40 } }]);
+  assert.equal(moved.ok, true, "unlocking in its own batch restores moving");
+  const removed = applySceneOperations(released, [{ op: "remove_frame", id: "a" }]);
+  assert.equal(removed.ok, true, "unlocking in its own batch restores removing");
+
+  for (const operations of [
+    [
+      { op: "update_frame", id: "a", props: { locked: false } },
+      { op: "update_frame", id: "a", props: { x: 40 } },
+    ],
+    [
+      { op: "update_frame", id: "a", props: { locked: false } },
+      { op: "remove_frame", id: "a" },
+    ],
+  ] as SceneOperation[][]) {
+    const outcome = applySceneOperations(locked, operations);
+    assert.equal(outcome.ok, false, "unlock and move in one batch stay refused");
+    if (!outcome.ok) assert.equal(outcome.reason, "frame_locked");
+  }
+});
+
+test("the first page keeps its implicit content until that content names a page", () => {
+  const twoPages = apply(plain(), [
+    { op: "add_page", page: { id: "page-1", name: "One" } },
+    { op: "add_page", page: { id: "page-2", name: "Two" } },
+  ]);
+  const refused = applySceneOperations(twoPages, [{ op: "remove_page", id: "page-1" }]);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) assert.equal(refused.reason, "page_not_empty");
+
+  const named = apply(twoPages, [
+    { op: "update_frame", id: "a", props: { page: "page-1" } },
+    { op: "update_frame", id: "b", props: { page: "page-1" } },
+  ]);
+  const accepted = applySceneOperations(named, [{ op: "remove_page", id: "page-2" }]);
+  assert.equal(accepted.ok, true, "an empty page with no implicit content can still be removed");
+});
+
+test("removing an artboard a group title explains is refused, not silently pruned", () => {
+  const scene = paged();
+  const outcome = applySceneOperations(scene, [{ op: "remove_frame", id: "a" }]);
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.reason, "invalid_annotation");
+    assert.equal(outcome.detail.path, "nodes[0].annotation.targets");
+  }
+  const repaired = applySceneOperations(scene, [
+    { op: "update_canvas_node", id: "label-explore", props: { annotation: { kind: "title", targets: ["b", "c"] } } },
+    { op: "remove_frame", id: "a" },
+  ]);
+  assert.equal(repaired.ok, true, "retargeting the title first lets the artboard go");
+});
+
+test("an unknown page link shows no frames from another page", () => {
+  const scene = paged();
+  assert.equal(scenePageContent(scene, "ghost").missing, true);
+  assert.deepEqual(scenePageContent(scene, "ghost").frames, []);
+  assert.deepEqual(scenePageContent(scene, "ghost").notes, []);
+
+  const ghost = render(scene, "ghost");
+  assert.equal(ghost.includes('data-frame-id="'), false, "no artboard of the first page leaks into the ghost page");
+  assert.equal(ghost.includes('data-annotation="'), false, "no note of the first page leaks into the ghost page");
+  assert.ok(ghost.includes("This design page is not available."), "the viewer says the page is not available");
+  assert.ok(ghost.includes('href="?page=page-explore"'), "the switcher still offers the real pages");
+  assert.equal(/<a[^>]*aria-current="page"/.test(ghost), false, "no page is marked current");
+
+  assert.equal(render(scene, null).includes('data-frame-id="a"'), true, "no page parameter still opens the first page");
 });

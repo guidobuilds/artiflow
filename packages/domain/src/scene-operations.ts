@@ -172,7 +172,60 @@ const pageOf = (scene: Scene, id: unknown): ScenePage | undefined => pagesOf(sce
 const pageHasContent = (scene: Scene, id: string): boolean =>
   scene.frames.some((frame) => frame.page === id) || canvasNodesOf(scene).some((node) => node.page === id);
 
+const pageHoldsImplicitContent = (scene: Scene, id: string): boolean =>
+  pagesOf(scene)[0]?.id === id &&
+  (scene.frames.some((frame) => frame.page === undefined) ||
+    canvasNodesOf(scene).some((node) => node.page === undefined));
+
 const touchesGeometry = (record: Record<string, unknown>): boolean => GEOMETRY_KEYS.some((key) => key in record);
+
+const sortedValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(sortedValue);
+  if (!isRecord(value)) return value;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(value).sort()) sorted[key] = sortedValue(value[key]);
+  return sorted;
+};
+
+const lockedFrameShape = (frame: SceneFrame): Record<string, unknown> => ({
+  id: frame.id,
+  name: frame.name,
+  x: frame.x,
+  y: frame.y,
+  w: frame.w,
+  h: frame.h,
+  source: frame.source ?? null,
+  nodes: frame.nodes.map((node) => ({ id: node.id, type: node.type, x: node.x, y: node.y, w: node.w, h: node.h })),
+});
+
+const frameBody = (frame: SceneFrame): string => JSON.stringify(sortedValue(lockedFrameShape(frame)));
+
+const lockedFrameViolation = (
+  locked: readonly SceneFrame[],
+  after: Scene,
+): { frameId: string; frame: SceneFrame } | null => {
+  for (const frame of locked) {
+    const current = after.frames.find((entry) => entry.id === frame.id);
+    if (current === undefined || frameBody(frame) !== frameBody(current)) return { frameId: frame.id, frame };
+  }
+  return null;
+};
+
+const frameOperationIndex = (
+  operations: readonly SceneOperation[],
+  frameId: string,
+  nodeIds: ReadonlySet<string>,
+): number => {
+  const index = operations.findIndex((operation) => {
+    if (operation.op === "replace_scene") return true;
+    const record = operation as unknown as Record<string, unknown>;
+    const frame = record.frame;
+    if (record.op === "add_frame") return isRecord(frame) && frame.id === frameId;
+    if (typeof record.id === "string" && (record.id === frameId || nodeIds.has(record.id))) return true;
+    return record.frameId === frameId;
+  });
+  return index < 0 ? operations.length - 1 : index;
+};
 
 function addFrame(draft: Scene, raw: Record<string, unknown>): Step {
   const frame = raw.frame;
@@ -396,7 +449,8 @@ function removePage(draft: Scene, raw: Record<string, unknown>): Step {
   const position = pagesOf(draft).findIndex((page) => page.id === raw.id);
   if (position < 0) return stepRefusal("unknown_page", { id: identifier(raw.id) });
   const id = pagesOf(draft)[position]?.id as string;
-  if (pageHasContent(draft, id)) return stepRefusal("page_not_empty", { id });
+  if (pageHasContent(draft, id) || pageHoldsImplicitContent(draft, id))
+    return stepRefusal("page_not_empty", { id });
   draft.pages?.splice(position, 1);
   if (draft.pages !== undefined && draft.pages.length === 0) delete draft.pages;
   return { ok: true, touched: [] };
@@ -731,6 +785,7 @@ export function applySceneOperations(scene: Scene, operations: readonly SceneOpe
   const start = validateScene(scene);
   if (!start.ok) return refusal(start.reason, -1, { ...start.detail, path: start.path });
   const draft = start.value;
+  const lockedBefore = draft.frames.filter((frame) => frame.locked === true).map((frame) => clone(frame));
   const touched = new Set<string>();
   for (const [index, operation] of operations.entries()) {
     const step = applyStep(draft, operation);
@@ -741,6 +796,17 @@ export function applySceneOperations(scene: Scene, operations: readonly SceneOpe
   }
   const result = validateScene(draft);
   if (!result.ok) return refusal(result.reason, operations.length - 1, { ...result.detail, path: result.path });
+  const locked = lockedFrameViolation(lockedBefore, result.value);
+  if (locked !== null) {
+    const after = result.value.frames.find((frame) => frame.id === locked.frameId);
+    const nodeIds = new Set([
+      ...locked.frame.nodes.map((node) => node.id),
+      ...(after?.nodes ?? []).map((node) => node.id),
+    ]);
+    return refusal("frame_locked", frameOperationIndex(operations, locked.frameId, nodeIds), {
+      id: locked.frameId,
+    });
+  }
   return {
     ok: true,
     value: {

@@ -487,9 +487,11 @@ export function renderSceneDocument(
     scene.frames.some((frame) => frame.locked === true) ||
     (scene.nodes ?? []).some((node) => node.annotation !== undefined);
   const pageContent = scenePageContent(scene, pageId ?? null);
-  const paged = !framed && pages.length > 0;
-  const pageFrames = paged ? pageContent.frames : scene.frames;
-  const pageNotes = paged ? pageContent.notes : (scene.nodes ?? []);
+  const pageMissing = !framed && pageContent.missing;
+  const showPageNav = !framed && pages.length > 0;
+  const paged = showPageNav && !pageMissing;
+  const pageFrames = showPageNav ? pageContent.frames : scene.frames;
+  const pageNotes = showPageNav ? pageContent.notes : (scene.nodes ?? []);
   const activePage = paged ? pageContent.page : null;
   const renderView: SceneRenderView = framed ? view : CANVAS_RENDER_VIEW;
   const origin = images === undefined ? null : originOf(images.origin);
@@ -573,7 +575,7 @@ export function renderSceneDocument(
       ? []
       : guideLines(scene.guides, { w: surface.width, h: surface.height });
   const pagesOf = (): string => {
-    if (!paged || pages.length === 0) return "";
+    if (!showPageNav || pages.length === 0) return "";
     return `<nav class="scene-pages" id="scene-pages" aria-label="Design pages">${pages
       .map(
         (page) =>
@@ -613,7 +615,7 @@ ${surfaceOf()}
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Slides" hidden></nav>`
         : `<div class="scene-stage" id="stage">
-<p class="scene-empty">This design has no frames yet.</p>
+<p class="scene-empty">${pageMissing ? "This design page is not available." : "This design has no frames yet."}</p>
 </div>
 ${pagesOf()}<nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
       : slides
