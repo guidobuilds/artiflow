@@ -1,9 +1,10 @@
 import { ARTIFACT_KINDS } from "@artiflow/domain/kinds";
+import { sceneApplyInputSchema, sceneOutlineInputSchema, sceneReadInputSchema } from "@artiflow/plugin-core/tools";
 
 export interface ToolDefinition {
   name: string;
   description: string;
-  properties: Record<string, { type: string }>;
+  properties: Record<string, unknown>;
   required: string[];
 }
 
@@ -92,5 +93,26 @@ export const toolDefinitions: ToolDefinition[] = [
       "Inline `write` for small payloads; write large HTML/markdown to a file with normal file tools first, then call write_file — tool arguments cannot carry very large payloads (model output-token limit). Reads a local UTF-8 file; relative paths resolve against process.cwd(). .md/.markdown default to markdown, otherwise html; kind overrides. artifactId is only used together with expectedRevisionId, which must be the current revision. File-not-found and invalid-UTF-8 errors do not submit a write.",
     properties: { path: string, kind: writeKind, title: string, artifactId: string, expectedRevisionId: string },
     required: ["path"],
+  },
+  {
+    name: "scene_outline",
+    description:
+      "Frame index of one owned canvas artifact: frame ids, names, geometry and node counts, plus the loose canvas-level node count. Read-only; it creates no revision and no scene state.",
+    properties: sceneOutlineInputSchema.properties,
+    required: sceneOutlineInputSchema.required,
+  },
+  {
+    name: "scene_read",
+    description:
+      "Read one frame of an owned canvas by frameId, or the canvas-level nodes when no frame is given; optional nodeIds narrows the reply to those nodes. Read-only; it creates no revision. A window over the read caps refuses with too_large; an id the scene does not hold refuses with unknown_frame or unknown_node.",
+    properties: sceneReadInputSchema.properties,
+    required: sceneReadInputSchema.required,
+  },
+  {
+    name: "scene_apply",
+    description:
+      "One atomic batch of canvas operations against baseSeq: add/update/move/reorder/remove frames, nodes and canvas nodes, or replace_scene. idempotencyKey makes a retried batch replay instead of applying twice. A stale baseSeq refuses with concurrent_edit carrying currentSeq — re-read with scene_outline or scene_read and retry once with that fresh sequence, never blind-retry. The reply carries the new sequence with the computed boxes and violations.",
+    properties: sceneApplyInputSchema.properties,
+    required: sceneApplyInputSchema.required,
   },
 ];
