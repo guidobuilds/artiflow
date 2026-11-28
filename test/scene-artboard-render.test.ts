@@ -322,6 +322,19 @@ test("a doctype that is not the first token does not push the policy after execu
   assert.ok(page.indexOf("content-security-policy") < page.indexOf("<script>"));
 });
 
+test("whitespace HTML does not recognize never moves the policy behind a doctype", () => {
+  const source = '<!doctype html><html><head><title>t</title></head><body><h1>x</h1></body></html>';
+  for (const prefix of ["\u00A0", "\u000B", "\u3000", "\u2003", "\u202F", "\u205F"]) {
+    const page = withDocumentPolicy(`${prefix}${source}`);
+    assert.equal(page.startsWith(POLICY_ELEMENT), true, `${JSON.stringify(prefix)} keeps the policy first`);
+    assert.ok(
+      page.indexOf("content-security-policy") < page.indexOf("<!doctype html>"),
+      `${JSON.stringify(prefix)} cannot hide the doctype from the parser behind the policy`,
+    );
+    assert.equal(metaCount(page), 1);
+  }
+});
+
 test("the policy is injected exactly once into a document that does not carry it", () => {
   const page = withDocumentPolicy("<h1>x</h1>");
   assert.equal(metaCount(page), 1);

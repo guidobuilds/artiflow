@@ -41,11 +41,12 @@ export const DOCUMENT_HEADERS = { ...VIEWER_HEADERS, "content-security-policy": 
 
 const DOCUMENT_POLICY_META = `<meta http-equiv="content-security-policy" content="${escapeAttribute(DOCUMENT_CSP)}">`;
 const LEADING_DOCTYPE = /^<!doctype[^>]*>/i;
+const HTML_LEADING_SPACE = /^[ \t\n\f\r]*/;
 
 export function withDocumentPolicy(html: string): string {
   const bom = html.startsWith("\uFEFF") ? "\uFEFF" : "";
   const body = bom === "" ? html : html.slice(1);
-  const leading = /^\s*/.exec(body)?.[0] ?? "";
+  const leading = HTML_LEADING_SPACE.exec(body)?.[0] ?? "";
   const doctype = LEADING_DOCTYPE.exec(body.slice(leading.length));
   if (doctype !== null) {
     const at = leading.length + doctype[0].length;
