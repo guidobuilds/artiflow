@@ -135,7 +135,12 @@ test("a created link token is shown once and is gone after dismissal", async () 
   const created = await createLink("art-1");
   assert.deepEqual(created, {
     ok: true,
-    value: { linkId: "link-1", url: "http://127.0.0.1:5173/share/tok-abc", token: "tok-abc" },
+    value: {
+      linkId: "link-1",
+      url: "http://127.0.0.1:5173/share/tok-abc",
+      token: "tok-abc",
+      pinnedRevisionNumber: null,
+    },
   });
   const shown = created.ok ? tokenNotice(revealToken(created.value)) : null;
   assert.equal(shown?.url, "http://127.0.0.1:5173/share/tok-abc");
@@ -152,8 +157,22 @@ test("the link list shows live and revoked rows without any token", async () => 
   const result = await listLinks("art-1");
   const rows = result.ok ? result.value : [];
   assert.deepEqual(rows, [
-    { id: "link-1", createdLabel: "2026-10-19", revokedLabel: null, showComments: false },
-    { id: "link-2", createdLabel: "2026-10-19", revokedLabel: "2026-10-20", showComments: false },
+    {
+      id: "link-1",
+      createdLabel: "2026-10-19",
+      revokedLabel: null,
+      showComments: false,
+      pinnedRevisionId: null,
+      pinnedRevisionNumber: null,
+    },
+    {
+      id: "link-2",
+      createdLabel: "2026-10-19",
+      revokedLabel: "2026-10-20",
+      showComments: false,
+      pinnedRevisionId: null,
+      pinnedRevisionNumber: null,
+    },
   ]);
   assert.equal(JSON.stringify(rows).includes("tok"), false);
 });

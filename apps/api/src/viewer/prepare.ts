@@ -25,6 +25,7 @@ import { htmlBridgeScript } from "./html-bridge-script.ts";
 import {
   refreshPlan,
   type DesignRequestShellConfig,
+  type ViewerBanner,
   type ViewerActions,
   type ViewerAudience,
   type ViewerChrome,
@@ -32,6 +33,7 @@ import {
   type ViewerManagementPlan,
   type ViewerModel,
   type ViewerRefresh,
+  type ViewerVersions,
 } from "./model.ts";
 
 export type ViewerArtifactRow = {
@@ -59,6 +61,9 @@ export type ViewerPreparation = {
   readonly embed: boolean;
   readonly source: string | null;
   readonly publishedScene?: () => Promise<Scene | null>;
+  readonly pinned?: boolean;
+  readonly banner?: ViewerBanner | undefined;
+  readonly versions?: ViewerVersions | undefined;
 };
 
 const DENIED: ViewerActions = { comment: false, resolve: false, deleteOwn: false, deleteAny: false };
@@ -196,6 +201,7 @@ async function sessionCommentsPlan(
 
 async function publicCommentsPlan(input: ViewerPreparation, request: PublicRequest): Promise<ViewerCommentsPlan> {
   const { artifact, source } = input;
+  if (input.pinned === true) return { kind: "none" };
   if (!request.showComments || viewerFor(artifact.kind) === "scene") return { kind: "none" };
   const { id: artifactId, sha256 } = artifact;
   const { token } = request;
@@ -219,6 +225,7 @@ const refreshOf = (input: ViewerPreparation, commentsShown: boolean): ViewerRefr
   const { artifact, request } = input;
   const revisionNumber = artifact.revisionNumber;
   const sha256 = artifact.sha256;
+  if (input.pinned === true) return { plan: { kind: "none" }, revisionNumber, sha256 };
   return request.kind === "public"
     ? { plan: refreshPlan(`/share/${request.token}?meta=1`), revisionNumber, sha256, comments: commentsShown }
     : { plan: refreshPlan(`/api/artifacts/${artifact.id}`), revisionNumber, sha256 };
@@ -226,7 +233,7 @@ const refreshOf = (input: ViewerPreparation, commentsShown: boolean): ViewerRefr
 
 const designRequestOf = (input: ViewerPreparation, canComment: boolean): DesignRequestShellConfig | undefined => {
   const { artifact, request, embed } = input;
-  if (embed || request.kind === "public" || artifact.kind !== "canvas") return undefined;
+  if (embed || input.pinned === true || request.kind === "public" || artifact.kind !== "canvas") return undefined;
   if (artifact.revisionId === null || artifact.revisionId === "") return undefined;
   return {
     nonce: designRequestNonce(artifact.id, artifact.sha256),
@@ -268,6 +275,8 @@ const modelOf = (
     comments,
     refresh: refreshOf(input, commentsShown),
     ...(designRequest === undefined ? {} : { designRequest }),
+    ...(input.banner === undefined ? {} : { banner: input.banner }),
+    ...(input.versions === undefined ? {} : { versions: input.versions }),
   };
 };
 
@@ -275,7 +284,8 @@ async function prepareSession(input: ViewerPreparation, request: SessionRequest)
   const session = await sessionLoad(input.db, request.viewerId, input.artifact, !input.embed);
   const access = input.artifact.ownerId === request.viewerId ? "owner" : session.access;
   const management = managementOf(input, request, access);
-  const comments = input.embed ? { kind: "none" as const } : await sessionCommentsPlan(input, request, session.loaded);
+  const comments =
+    input.embed || input.pinned === true ? { kind: "none" as const } : await sessionCommentsPlan(input, request, session.loaded);
   return modelOf(
     input,
     access,

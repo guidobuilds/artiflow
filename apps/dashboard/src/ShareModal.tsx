@@ -7,6 +7,7 @@ import {
   createShare,
   dismissToken,
   listLinks,
+  listRevisions,
   listShares,
   revealToken,
   revokeLink,
@@ -45,6 +46,12 @@ export default function ShareModal({
     queryFn: () => listShares(artifactId),
   });
   const linkQuery = useQuery({ queryKey: queryKeys.artifact.links(artifactId), queryFn: () => listLinks(artifactId) });
+  const revisionQuery = useQuery({
+    queryKey: queryKeys.artifact.revisions(artifactId),
+    queryFn: () => listRevisions(artifactId),
+  });
+  const revisions = revisionQuery.data?.ok === true ? revisionQuery.data.value : [];
+  const [pin, setPin] = useState<string | null>(null);
   const shares = shareRows(shareQuery.data);
   const links = shareRows(linkQuery.data);
   const [email, setEmail] = useState("");
@@ -88,7 +95,7 @@ export default function ShareModal({
   const turnOn = () => {
     setBusy("link");
     setError(null);
-    void createLink(artifactId).then((result) => {
+    void createLink(artifactId, pin).then((result) => {
       setBusy(null);
       if (!result.ok) {
         setError(result.error);
@@ -243,6 +250,45 @@ export default function ShareModal({
           {links.kind === "ready" && !publicOn ? (
             <div className="grid justify-items-start gap-2.5">
               <p className="text-[13px] text-fg-muted">Only the people above can open it.</p>
+              {revisions.length > 0 ? (
+                <fieldset className="grid gap-1.5">
+                  <legend className="pb-1 text-[12.5px] text-fg-subtle">What the link shows</legend>
+                  <label className="flex min-h-9 items-center gap-2.5 text-[13px] text-fg">
+                    <input
+                      type="radio"
+                      name="link-scope"
+                      className="size-4"
+                      checked={pin === null}
+                      onChange={() => setPin(null)}
+                    />
+                    Follow the latest publication
+                  </label>
+                  <label className="flex min-h-9 items-center gap-2.5 text-[13px] text-fg">
+                    <input
+                      type="radio"
+                      name="link-scope"
+                      className="size-4"
+                      checked={pin !== null}
+                      onChange={() => setPin(revisions[0]?.id ?? null)}
+                    />
+                    Stay on one version
+                  </label>
+                  {pin !== null ? (
+                    <select
+                      aria-label="Version the link stays on"
+                      className="h-9 rounded-md border border-line bg-surface px-2 text-[13px] text-fg"
+                      value={pin}
+                      onChange={(event) => setPin(event.target.value)}
+                    >
+                      {revisions.map((revision) => (
+                        <option key={revision.id} value={revision.id}>
+                          Version {revision.number} · {revision.createdLabel}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                </fieldset>
+              ) : null}
               <Button size="sm" onClick={turnOn} disabled={busy === "link"}>
                 <Icon name="link" className="size-3.5" />
                 {busy === "link" ? "Creating…" : "Create public link"}
@@ -257,6 +303,14 @@ export default function ShareModal({
             >
               <span className="truncate">{window.location.origin}/share/•••••••••••••••</span>
             </div>
+          ) : null}
+
+          {publicOn && activeLink ? (
+            <p className="text-[12.5px] text-fg-subtle">
+              {activeLink.pinnedRevisionNumber === null
+                ? "This link follows the latest publication."
+                : `This link stays on version ${activeLink.pinnedRevisionNumber}; newer publications do not change it.`}
+            </p>
           ) : null}
 
           {publicOn && activeLink ? (

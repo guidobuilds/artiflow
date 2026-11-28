@@ -7,6 +7,7 @@ export type BarProps = {
   readonly meta?: ViewerMeta | undefined;
   readonly control?: string | undefined;
   readonly management?: boolean | undefined;
+  readonly versions?: string | undefined;
 };
 
 const backCell = (backHref: string | undefined): string =>
@@ -24,6 +25,9 @@ const managementCell = (management: boolean | undefined): string =>
     ? `<span data-island="actions"><button type="button" data-control="menu" aria-haspopup="menu" aria-expanded="false">Actions</button></span>`
     : "";
 
+const versionsCell = (versions: string | undefined): string =>
+  versions === undefined || versions === "" ? "" : `<div class="vbar-cell">${versions}</div>\n`;
+
 const controlCell = (management: boolean | undefined, control: string | undefined): string =>
   control === undefined && management !== true
     ? ""
@@ -34,4 +38,4 @@ export const artifactBar = (props: BarProps): string =>
     ? ""
     : `<header class="vbar">
 ${backCell(props.backHref)}<div class="vbar-cell vbar-brand">${LOGO_MARK}<span>artiflow</span></div>
-${titleCell(props.meta)}${controlCell(props.management, props.control)}</header>`;
+${titleCell(props.meta)}${versionsCell(props.versions)}${controlCell(props.management, props.control)}</header>`;

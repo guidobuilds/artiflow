@@ -131,6 +131,7 @@ test("the artifact tables expose exactly the approved columns", () => {
       ["revokedAt", false],
       ["rotatedFromId", false],
       ["showComments", true],
+      ["pinnedRevisionId", false],
       ["createdAt", true],
     ],
     artifactComments: [
@@ -640,7 +641,7 @@ test("the 0020 migration adds the operation log, the draft, the asset tables and
   const journal = JSON.parse(readFileSync(new URL("meta/_journal.json", drizzleDir), "utf8")) as {
     entries: { idx: number; tag: string }[];
   };
-  assert.equal(journal.entries.length, 22, "the journal chains every migration, the branch's included");
+  assert.equal(journal.entries.length, 23, "the journal chains every migration, the branch's included");
   assert.deepEqual(
     journal.entries.map((entry) => entry.idx),
     journal.entries.map((_, index) => index),
@@ -648,7 +649,7 @@ test("the 0020 migration adds the operation log, the draft, the asset tables and
   );
   assert.deepEqual(
     [journal.entries.at(-1)?.idx, journal.entries.at(-1)?.tag],
-    [21, "0021_artboard_anchor"],
+    [22, "0022_pinned_share_revision"],
     "the new migration is the last entry",
   );
   assert.deepEqual(
@@ -684,6 +685,25 @@ test("the 0020 migration adds the operation log, the draft, the asset tables and
     "updatedByUserId",
     "updatedAt",
   ]);
+});
+
+test("the pinned-revision migration only adds one nullable column and its constraint", () => {
+  const migration = readFileSync(new URL("0022_pinned_share_revision.sql", drizzleDir), "utf8");
+  assert.deepEqual(statementsOf(migration), [
+    `ALTER TABLE "artifactPublicLinks" ADD COLUMN "pinnedRevisionId" text;`,
+    `ALTER TABLE "artifactPublicLinks" ADD CONSTRAINT "artifactPublicLinks_pinnedRevisionId_artifactRevisions_id_fk" FOREIGN KEY ("pinnedRevisionId") REFERENCES "public"."artifactRevisions"("id") ON DELETE cascade ON UPDATE no action;`,
+  ]);
+  assert.equal(
+    /^(DROP|DELETE|UPDATE|INSERT|TRUNCATE)\b/i.test(migration),
+    false,
+    "no stored row is rewritten or lost",
+  );
+  const links = columnsOf("artifactPublicLinks");
+  assert.equal(links.get("pinnedRevisionId")?.notNull, false, "an unpinned link keeps following the latest publication");
+  const foreignKeys = getTableConfig(tables.artifactPublicLinks as PgTable).foreignKeys;
+  const pinned = foreignKeys.find((key) => key.getName() === "artifactPublicLinks_pinnedRevisionId_artifactRevisions_id_fk");
+  assert.ok(pinned, "the pin is a foreign key, never a free-form id");
+  assert.equal(pinned.onDelete, "cascade");
 });
 
 test("the 0020 migration widens the stored kind to the four rows in one statement", () => {

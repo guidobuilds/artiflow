@@ -16,10 +16,12 @@ import {
 import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
 import { user } from "../adapters/postgres/db/schema.ts";
 import { listComments } from "../adapters/postgres/comments-repo.ts";
+import { revisionRow } from "../domain/revisions.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import { originOf } from "../viewer/artifact.ts";
 import { NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
 import { commentThreads } from "../viewer/model.ts";
+import { pinnedLinkBanner } from "../viewer/revisions.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
 import { htmlView } from "../viewer/views/html.ts";
 import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.ts";
@@ -99,8 +101,12 @@ async function listLinks(db: AppDb, artifactId: string) {
       createdAt: artifactPublicLinks.createdAt,
       revokedAt: artifactPublicLinks.revokedAt,
       showComments: artifactPublicLinks.showComments,
+      pinnedRevisionId: artifactPublicLinks.pinnedRevisionId,
+      pinnedRevisionNumber: artifactRevisions.revision,
+      pinnedPublishedAt: artifactRevisions.createdAt,
     })
     .from(artifactPublicLinks)
+    .leftJoin(artifactRevisions, eq(artifactRevisions.id, artifactPublicLinks.pinnedRevisionId))
     .where(eq(artifactPublicLinks.artifactId, artifactId))
     .orderBy(asc(artifactPublicLinks.createdAt), asc(artifactPublicLinks.id))
     .limit(200);
@@ -112,13 +118,18 @@ async function insertLink(
   tokenHash: string,
   rotatedFromId: string | null,
   showComments = false,
+  pinnedRevisionId: string | null = null,
 ) {
   return (
-    await db.insert(artifactPublicLinks).values({ artifactId, tokenHash, rotatedFromId, showComments }).returning({
-      id: artifactPublicLinks.id,
-      createdAt: artifactPublicLinks.createdAt,
-      showComments: artifactPublicLinks.showComments,
-    })
+    await db
+      .insert(artifactPublicLinks)
+      .values({ artifactId, tokenHash, rotatedFromId, showComments, pinnedRevisionId })
+      .returning({
+        id: artifactPublicLinks.id,
+        createdAt: artifactPublicLinks.createdAt,
+        showComments: artifactPublicLinks.showComments,
+        pinnedRevisionId: artifactPublicLinks.pinnedRevisionId,
+      })
   )[0];
 }
 
@@ -129,6 +140,7 @@ async function linkState(db: AppDb | AppTx, linkId: string, artifactId: string) 
         id: artifactPublicLinks.id,
         revokedAt: artifactPublicLinks.revokedAt,
         showComments: artifactPublicLinks.showComments,
+        pinnedRevisionId: artifactPublicLinks.pinnedRevisionId,
       })
       .from(artifactPublicLinks)
       .where(and(eq(artifactPublicLinks.id, linkId), eq(artifactPublicLinks.artifactId, artifactId)))
@@ -159,9 +171,22 @@ async function rotateLink(db: AppDb, linkId: string, artifactId: string) {
       if (!current) throw new RollbackLink("not_found");
       if (current.revokedAt !== null) throw new RollbackLink("already_revoked");
       const { token, tokenHash } = generateLinkToken();
-      const inserted = await insertLink(tx, artifactId, tokenHash, current.id, current.showComments);
+      const inserted = await insertLink(
+        tx,
+        artifactId,
+        tokenHash,
+        current.id,
+        current.showComments,
+        current.pinnedRevisionId,
+      );
       await revokeLink(tx, current.id, artifactId);
-      return { ok: true as const, id: inserted?.id, token, showComments: inserted?.showComments ?? false };
+      return {
+        ok: true as const,
+        id: inserted?.id,
+        token,
+        showComments: inserted?.showComments ?? false,
+        pinnedRevisionId: inserted?.pinnedRevisionId ?? null,
+      };
     });
   } catch (error) {
     if (error instanceof RollbackLink) return { ok: false as const, error: error.carried };
@@ -178,6 +203,7 @@ async function publicArtifact(db: AppDb, tokenHash: string) {
         ownerId: artifacts.ownerId,
         title: artifacts.title,
         showComments: artifactPublicLinks.showComments,
+        pinnedRevisionId: artifactPublicLinks.pinnedRevisionId,
         storageKey: artifactRevisions.storageKey,
         sha256: artifactRevisions.sha256,
         revisionNumber: artifactRevisions.revision,
@@ -324,6 +350,9 @@ export function createSharingApp(options: SharingOptions): Hono {
       createdAt: row.createdAt.toISOString(),
       revokedAt: row.revokedAt === null ? null : row.revokedAt.toISOString(),
       showComments: row.showComments,
+      pinnedRevisionId: row.pinnedRevisionId ?? null,
+      pinnedRevisionNumber: row.pinnedRevisionNumber ?? null,
+      pinnedPublishedAt: row.pinnedPublishedAt === null ? null : row.pinnedPublishedAt.toISOString(),
     }));
     return c.json({ links } satisfies LinkListResponse);
   });
@@ -363,14 +392,26 @@ export function createSharingApp(options: SharingOptions): Hono {
     const ownerId = readPrincipal(c.req.raw.headers)?.userId ?? (await sessionUserId(auth, c.req.raw.headers));
     if (!ownerId) return c.json({ error: "unauthorized" }, 401);
     if (!(await ownedArtifactId(db, c.req.param("id"), ownerId))) return c.json({ error: "not_found" }, 404);
+    const artifactId = c.req.param("id");
+    const body = (await c.req.json().catch(() => null)) as { pinnedRevisionId?: unknown } | null;
+    const wanted = body?.pinnedRevisionId;
+    let pinned: { id: string; revisionNumber: number } | null = null;
+    if (wanted !== undefined && wanted !== null) {
+      if (typeof wanted !== "string" || !UUID_RE.test(wanted)) return c.json({ error: "invalid_revision_id" }, 400);
+      const found = await revisionRow(db, artifactId, wanted);
+      if (found === undefined) return c.json({ error: "revision_not_found" }, 404);
+      pinned = { id: found.id, revisionNumber: found.revisionNumber };
+    }
     const { token, tokenHash } = generateLinkToken();
-    const created = await insertLink(db, c.req.param("id"), tokenHash, null);
+    const created = await insertLink(db, artifactId, tokenHash, null, false, pinned?.id ?? null);
     return c.json(
       {
         id: created?.id,
         url: shareUrl(token),
         token,
         showComments: created?.showComments ?? false,
+        pinnedRevisionId: pinned?.id ?? null,
+        pinnedRevisionNumber: pinned?.revisionNumber ?? null,
       } satisfies LinkReveal,
       201,
     );
@@ -393,6 +434,7 @@ export function createSharingApp(options: SharingOptions): Hono {
         url: shareUrl(rotated.token),
         token: rotated.token,
         showComments: rotated.showComments,
+        pinnedRevisionId: rotated.pinnedRevisionId,
       } satisfies LinkReveal,
       201,
     );
@@ -431,7 +473,8 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     const token = c.req.param("token");
     if (!LINK_TOKEN_RE.test(token)) return c.json({ error: "not_found" }, 404, publicHeaders);
     const row = await publicArtifact(db, hashLinkToken(token));
-    if (!row || !row.showComments || viewerFor(row.kind) === "scene")
+    const pinned = typeof row?.pinnedRevisionId === "string" && row.pinnedRevisionId !== "";
+    if (!row || pinned || !row.showComments || viewerFor(row.kind) === "scene")
       return c.json({ error: "not_found" }, 404, publicHeaders);
     const rows = await listComments(db, row.artifactId, true);
     const serialize = (comment: (typeof rows)[number]) => ({
@@ -465,35 +508,56 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
     if (meta.length > 1 || (meta.length === 1 && meta[0] !== "1"))
       return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
     const row = await publicArtifact(db, hashLinkToken(token));
-    if (!row?.storageKey || !row.sha256 || row.revisionNumber === null || row.sizeBytes === null)
+    if (!row) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const pinnedRevisionId =
+      typeof row.pinnedRevisionId === "string" && row.pinnedRevisionId !== "" ? row.pinnedRevisionId : null;
+    const pinned = pinnedRevisionId === null ? undefined : await revisionRow(db, row.artifactId, pinnedRevisionId);
+    if (pinnedRevisionId !== null && pinned === undefined) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    const storageKey = pinned === undefined ? row.storageKey : pinned.storageKey;
+    const sha256 = pinned === undefined ? row.sha256 : pinned.sha256;
+    const revisionNumber = pinned === undefined ? row.revisionNumber : pinned.revisionNumber;
+    const sizeBytes = pinned === undefined ? row.sizeBytes : pinned.sizeBytes;
+    if (!storageKey || !sha256 || revisionNumber === null || sizeBytes === null)
       return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-    const commentsShown = row.showComments && !rendersScene(row.kind);
+    const isPinned = pinned !== undefined;
+    const commentsShown = !isPinned && row.showComments && !rendersScene(row.kind);
+    const banner =
+      pinned === undefined ? undefined : pinnedLinkBanner({ number: revisionNumber, publishedAt: pinned.createdAt });
     if (meta.length === 1)
       return c.json(
         {
-          revisionNumber: row.revisionNumber,
-          sha256: row.sha256,
-          sizeBytes: row.sizeBytes,
+          revisionNumber,
+          sha256,
+          sizeBytes,
           kind: row.kind,
           comments: commentsShown,
+          ...(isPinned ? { pinned: true } : {}),
         },
         200,
         { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex" },
       );
-    const read = await getRevisionBytes({ storage, storageKey: row.storageKey, sha256: row.sha256, maxBytes });
+    const read = await getRevisionBytes({ storage, storageKey, sha256, maxBytes });
     if (!read.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
     const artifact = {
       ...row,
       id: row.artifactId,
       revisionId: null,
-      revisionNumber: row.revisionNumber,
-      sha256: row.sha256,
+      revisionNumber,
+      sha256,
     };
     const request = { kind: "public", token, showComments: row.showComments } as const;
     if (rendersInlineMarkdown(row.kind)) {
       const decoded = decodeMarkdownText(read.value.bytes);
       if (!decoded.ok) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
-      const model = await prepareViewer({ db, artifact, request, embed: false, source: decoded.text });
+      const model = await prepareViewer({
+        db,
+        artifact,
+        request,
+        embed: false,
+        source: decoded.text,
+        pinned: isPinned,
+        banner,
+      });
       const page = markdownView(model, renderMarkdownFragment(decoded.text));
       return c.html(page.html, 200, {
         ...page.headers,
@@ -513,7 +577,15 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
               digests: await sceneAssetDigests(db, row.artifactId, scene.value),
               token,
             };
-      const model = await prepareViewer({ db, artifact, request, embed: false, source: null });
+      const model = await prepareViewer({
+        db,
+        artifact,
+        request,
+        embed: false,
+        source: null,
+        pinned: isPinned,
+        banner,
+      });
       const plan = planSceneView(scene.value, parseSceneLink(new URL(c.req.url).searchParams));
       const page = sceneView(model, {
         scene: scene.value,
@@ -528,7 +600,15 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
         "x-robots-tag": "noindex",
       });
     }
-    const model = await prepareViewer({ db, artifact, request, embed: false, source: null });
+    const model = await prepareViewer({
+      db,
+      artifact,
+      request,
+      embed: false,
+      source: null,
+      pinned: isPinned,
+      banner,
+    });
     const page = htmlView(model, new TextDecoder().decode(read.value.bytes));
     return c.html(page.html, 200, {
       ...page.headers,

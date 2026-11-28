@@ -1,13 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { Hono, type Context } from "hono";
-import { and, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import type { AppDb, Database } from "../adapters/postgres/db/client.ts";
 
 import { getRevisionBytes, putRevisionBytes, newRevisionStorageKey } from "../adapters/storage/s3.ts";
 import { setRevisionCas, type RevisionInput } from "../domain/commits.ts";
-import { editsDocumentInApp } from "@artiflow/domain/kinds";
+import { revisionHistory, revisionRow } from "../domain/revisions.ts";
+import { editsDocumentInApp, rendersScene } from "@artiflow/domain/kinds";
+import { readScene, type Scene } from "@artiflow/domain/scene";
 import { diffDocumentOperations } from "@artiflow/domain/document-operations";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { isJsonContentType, isUuid } from "../http/index.ts";
@@ -42,7 +44,6 @@ export type EditingOptions = {
   documentStore?: DocumentStore;
 };
 
-const HISTORY_LIMIT = 200;
 export const maxBytes = (cap?: number): number => Math.min(cap ?? MAX_ARTIFACT_BYTES, MAX_ARTIFACT_BYTES);
 
 export type DocRow = {
@@ -97,28 +98,7 @@ async function revisionCount(db: AppDb, artifactId: string): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
-async function revisionHistory(db: AppDb, artifactId: string) {
-  return db
-    .select({
-      id: artifactRevisions.id,
-      revisionNumber: artifactRevisions.revision,
-      sizeBytes: artifactRevisions.sizeBytes,
-      createdAt: artifactRevisions.createdAt,
-    })
-    .from(artifactRevisions)
-    .where(eq(artifactRevisions.artifactId, artifactId))
-    .orderBy(desc(artifactRevisions.revision))
-    .limit(HISTORY_LIMIT);
-}
 
-async function pinnedRevision(db: AppDb, revisionId: string, artifactId: string) {
-  return (
-    await db
-      .select({ storageKey: artifactRevisions.storageKey, sha256: artifactRevisions.sha256 })
-      .from(artifactRevisions)
-      .where(and(eq(artifactRevisions.id, revisionId), eq(artifactRevisions.artifactId, artifactId)))
-  )[0];
-}
 
 export type DocGate = { userId: string; row: DocRow };
 
@@ -181,6 +161,16 @@ export function createEditingApp(options: EditingOptions) {
   const docGate = (c: Context): Promise<DocGate | Response> => docGateFor(c, db, sessionUserId);
   const requireMarkdown = (c: Context, row: DocRow): Response | null =>
     editsDocumentInApp(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
+  const requireRestorable = (c: Context, row: DocRow): Response | null =>
+    editsDocumentInApp(row.kind) || rendersScene(row.kind) ? null : c.json({ error: "wrong_kind" }, 409);
+  const revisionContent = (kind: string, bytes: Uint8Array): { text: string } | { scene: Scene } | null => {
+    if (rendersScene(kind)) {
+      const parsed = readScene(new TextDecoder().decode(bytes));
+      return parsed.ok ? { scene: parsed.value } : null;
+    }
+    const decoded = decodeMarkdownText(bytes);
+    return decoded.ok ? { text: decoded.text } : null;
+  };
 
   app.get("/api/artifacts/:id/document", async (c) => {
     const gate = await docGate(c);
@@ -389,7 +379,7 @@ export function createEditingApp(options: EditingOptions) {
     const gate = await docGate(c);
     if (gate instanceof Response) return gate;
     const { userId, row } = gate;
-    const wrongKind = requireMarkdown(c, row);
+    const wrongKind = requireRestorable(c, row);
     if (wrongKind) return wrongKind;
     const noCurrent = requireCurrent(c, row);
     if (noCurrent) return noCurrent;
@@ -411,7 +401,7 @@ export function createEditingApp(options: EditingOptions) {
         409,
       );
     }
-    const pinned = await pinnedRevision(db, revisionId, row.id);
+    const pinned = await revisionRow(db, row.id, revisionId);
     if (!pinned?.sha256) return c.json({ error: "revision_not_found" }, 404);
     const read = await getRevisionBytes({
       storage,
@@ -420,8 +410,8 @@ export function createEditingApp(options: EditingOptions) {
       maxBytes: cap,
     });
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
-    const restored = decodeMarkdownText(read.value.bytes);
-    if (!restored.ok) return c.json({ error: "artifact_unavailable" }, 500);
+    const content = revisionContent(row.kind, read.value.bytes);
+    if (content === null) return c.json({ error: "artifact_unavailable" }, 500);
     const rewound = await restoreDocument({
       store: documents,
       storage,
@@ -429,7 +419,7 @@ export function createEditingApp(options: EditingOptions) {
       authorKind: "person",
       authorId: userId,
       idempotencyKey: randomUUID(),
-      text: restored.text,
+      ...content,
     });
     if (!rewound.ok) {
       if (rewound.kind === "concurrent_edit")

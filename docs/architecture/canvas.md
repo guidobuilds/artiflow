@@ -212,7 +212,8 @@ Decisiones que sostienen la entrega:
   contenido del origen.
 - **El contenido se sirve inline, sellado y sin ampliar accesos.** `views/scene.ts` compone un
   `iframe` sandbox con `data:` (límite `ARTBOARD_MAX_INLINE_BYTES`, 1 MiB) resuelto del lado del
-  servidor; no hay endpoint nuevo que permita leer revisiones históricas arbitrarias. Un documento
+  servidor; leer una revisión histórica del propio Diseño es una ruta aparte (sección 2.11) que
+  revalida el acceso al Diseño y nunca entrega bytes de un origen ajeno. Un documento
   `data:` no hereda la CSP del padre, así que `withDocumentPolicy` (misma `DOCUMENT_CSP` que usa la
   página HTML autónoma) inyecta el `<meta http-equiv="content-security-policy">` después del doctype
   y dentro del `<head>` cuando existe, tolerando BOM y espacios. Sin red, sin frames y sin eval: una
@@ -284,8 +285,8 @@ almacenamiento de estado por pantalla ni backend nuevo.
 **Permisos y límites.** El enlace de Play no reemplaza la revalidación de acceso al origen: un lector
 sin permiso ve «This proposal is not available to you.» también en Play, y el contenedor no entrega
 estado a un artboard no disponible. Quedan fuera de Play: comentarios y pedidos de cambio,
-comparación de revisiones, compartir una versión fija, edición directa, páginas internas y
-componentes.
+edición directa, páginas internas y componentes. Comparar revisiones y compartir una versión fija
+viven en el visor (Canvas y Focus), no en Play.
 
 ### 2.10 Pedir un cambio desde un artboard vivo
 
@@ -309,6 +310,47 @@ disponible** y un guardado fallido se informa como error, nunca como publicado. 
 «publicado» exigiría evidencia de la edición del agente y del estado de publicación de la última
 revisión, y no se promete hasta que exista. Comentar no concede editar ni publicar, y quien no puede
 leer el source ve el estado no disponible, sin referencia.
+
+### 2.11 Revisar, comparar, volver y compartir una versión
+
+Un Diseño acumula revisiones inmutables; la persona necesita poder recorrerlas sin tocar la actual.
+
+- **Abrir una revisión.** `GET /artifact/:id?revision=<revisionId>` resuelve la revisión contra el
+  artifact *y* contra el acceso vigente (`readableArtifactPredicate`). Una revisión inexistente, de
+  otro artifact o de un Diseño que ya no se puede leer responde 404: nunca se cae a la última
+  publicación. La página se sella con el número y la fecha de esa revisión, avisa cuál es la última y
+  no monta el sondeo de refresco, así que no cambia si alguien publica mientras se lee. **Una
+  revisión pedida es siempre una revisión fijada**, incluso cuando el id pedido es el de la
+  publicación actual: esa URL no sondea ni cambia cuando aparece otra publicación.
+- **Elegir cuál mirar.** El visor ofrece las últimas 25 revisiones (y dice cuántas quedan atrás) con
+  enlace a cada una y a la comparación contra la actual. La lista la sirve el mismo historial que ya
+  usa `GET /api/artifacts/:id/revisions`.
+- **Comparar.** `GET /artifact/:id/compare?from=<A>&to=<B>&frame=<artboard>` dibuja el mismo artboard
+  de A y de B lado a lado, cada lado rotulado con su letra, su número de revisión y su fecha. No hay
+  diff de texto: se comparan los artboards vivos. Si el frame no existe en ambas revisiones, 404.
+- **Volver.** `POST /api/artifacts/:id/revisions/:revisionId/restore` reutiliza `restoreDocument`:
+  escribe una operación `replace_scene` (o `replace_document`) y un snapshot **nuevo**, con el
+  historial intacto. Exige `expectedRevisionId`; si la revisión publicada cambió, responde 409 con
+  `currentRevisionId` y `currentSeq` y no escribe nada. También rechaza (`restore_pending_changes`)
+  cuando el borrador tiene cambios sin publicar, porque el restore los descartaría.
+- **Compartir fijo o al día.** `artifactPublicLinks.pinnedRevisionId` (nullable) decide qué muestra
+  un enlace público. Sin pin, el enlace sigue la última publicación. Con pin, `/share/:token` sirve
+  esa revisión incluso después de publicar otra, la anuncia como «Pinned to version N» y no cae a la
+  última si el pin deja de resolver (404). Revocar el enlace lo corta; el pin no concede permisos
+  nuevos porque el enlace solo muestra el artifact que ya autorizaba. Dos límites, explícitos:
+  un enlace fijado **no monta comentarios** (la opción `showComments` solo aplica a los enlaces que
+  siguen la última publicación, y `/share/:token/comments` responde 404 para un enlace fijado);
+  y el alcance de un enlace **no se edita**: `PATCH` solo cambia `showComments`, así que cambiar de
+  «última» a «fija» (o al revés) exige crear otro enlace, y rotar conserva `pinnedRevisionId`, de
+  modo que un enlace fijado rotado sigue fijado.
+
+**Borrador y publicado.** El Diseño sí tiene un borrador real (`documentDrafts.seq` frente a
+`artifacts.publishedSeq`): es lo que el canvas edita y publica. Esa distinción vive en dos lugares y
+en ninguno más: la etiqueta de publicación del visor (número y fecha de la versión que se está
+mirando, y si es la última) y el chip del canvas («Published · vN» o «Unpublished changes ·
+published vN»). El visor **no** avisa de cambios sin publicar: mostrar ese aviso exigiría leer el
+borrador en cada visita y el único lector que puede actuar sobre él es quien ya tiene el canvas
+abierto con el chip. No se inventa un borrador en el visor ni se presenta un borrador como publicado.
 
 ## 3. Modelo actual y arquitectura actual
 

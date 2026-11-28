@@ -431,8 +431,10 @@ export type PublicLinkRow = {
   createdLabel: string;
   revokedLabel: string | null;
   showComments: boolean;
+  pinnedRevisionId: string | null;
+  pinnedRevisionNumber: number | null;
 };
-export type RevealedLink = { linkId: string; url: string; token: string };
+export type RevealedLink = { linkId: string; url: string; token: string; pinnedRevisionNumber: number | null };
 export type ManageResult<T> =
   { ok: true; value: T } | { ok: false; error: string; code: string; signInRequired: boolean };
 type Failure = Extract<ManageResult<never>, { ok: false }>;
@@ -514,6 +516,8 @@ function toLinkRow(value: unknown): PublicLinkRow | null {
     createdLabel: dayLabel(value.createdAt),
     revokedLabel: typeof value.revokedAt === "string" ? dayLabel(value.revokedAt) : null,
     showComments: value.showComments === true,
+    pinnedRevisionId: typeof value.pinnedRevisionId === "string" ? value.pinnedRevisionId : null,
+    pinnedRevisionNumber: typeof value.pinnedRevisionNumber === "number" ? value.pinnedRevisionNumber : null,
   };
 }
 export function parseShareList(body: unknown): ShareGrant[] | null {
@@ -530,7 +534,14 @@ export function parseReveal(body: unknown): RevealedLink | null {
   if (!isRecord(body) || typeof body.id !== "string" || body.id === "") return null;
   const { url, token } = body;
   if (typeof url !== "string" || !(url.startsWith("/") || /^https?:\/\//.test(url))) return null;
-  return typeof token === "string" && token !== "" ? { linkId: body.id, url, token } : null;
+  return typeof token === "string" && token !== ""
+    ? {
+        linkId: body.id,
+        url,
+        token,
+        pinnedRevisionNumber: typeof body.pinnedRevisionNumber === "number" ? body.pinnedRevisionNumber : null,
+      }
+    : null;
 }
 const confirmed = (body: unknown): "confirmed" | null => (isRecord(body) && body.ok === true ? "confirmed" : null);
 
@@ -540,7 +551,8 @@ export const revokeShare = (artifactId: string, shareId: string) =>
   manageRequest(`${pathOf(artifactId, "/shares")}/${encodeURIComponent(shareId)}`, "DELETE", confirmed);
 export const revokeLink = (artifactId: string, linkId: string) =>
   manageRequest(`${pathOf(artifactId, "/links")}/${encodeURIComponent(linkId)}`, "DELETE", confirmed);
-export const createLink = (artifactId: string) => manageRequest(pathOf(artifactId, "/links"), "POST", parseReveal);
+export const createLink = (artifactId: string, pinnedRevisionId: string | null = null) =>
+  manageRequest(pathOf(artifactId, "/links"), "POST", parseReveal, { pinnedRevisionId });
 export const setLinkShowComments = (artifactId: string, linkId: string, showComments: boolean) =>
   manageRequest(
     `${pathOf(artifactId, "/links")}/${encodeURIComponent(linkId)}`,
@@ -589,6 +601,50 @@ export function tokenNotice(state: TokenReveal): { url: string; warning: string 
         warning: "This URL is shown once and is never stored. After you dismiss it, rotate the link to get a new one.",
       }
     : null;
+}
+
+export type RevisionOption = { id: string; number: number; createdLabel: string };
+
+const toRevisionOption = (value: unknown): RevisionOption | null =>
+  isRecord(value) && typeof value.id === "string" && value.id !== "" && typeof value.revisionNumber === "number"
+    ? { id: value.id, number: value.revisionNumber, createdLabel: dayLabel(value.createdAt) }
+    : null;
+
+export function parseRevisionList(body: unknown): RevisionOption[] | null {
+  if (!isRecord(body) || !Array.isArray(body.revisions)) return null;
+  const rows = body.revisions.map(toRevisionOption);
+  return rows.every((row) => row !== null) ? rows : null;
+}
+
+export const listRevisions = (artifactId: string) =>
+  manageRequest(pathOf(artifactId, "/revisions"), "GET", parseRevisionList);
+
+export type RestoredRevision = { revisionId: string; revisionNumber: number };
+
+export const RESTORE_CONFLICT =
+  "Someone published while you were deciding, so this restore was refused. You are being taken to the version that is current now.";
+export const RESTORE_PENDING =
+  "This design has unpublished draft changes, so a restore would discard them. Publish or reset the draft first.";
+
+export async function restoreRevision(
+  artifactId: string,
+  revisionId: string,
+  expectedRevisionId: string,
+): Promise<ManageResult<RestoredRevision>> {
+  const result = await manageRequest(
+    `${pathOf(artifactId, "/revisions")}/${encodeURIComponent(revisionId)}/restore`,
+    "POST",
+    (body) =>
+      isRecord(body) && typeof body.revisionId === "string" && typeof body.revisionNumber === "number"
+        ? { revisionId: body.revisionId, revisionNumber: body.revisionNumber }
+        : null,
+    { expectedRevisionId },
+  );
+  if (result.ok) return result;
+  if (result.code === "restore_pending_changes") return { ...result, error: RESTORE_PENDING };
+  if (result.code === "concurrent_edit") return { ...result, error: RESTORE_CONFLICT };
+  if (result.code === "revision_not_found") return { ...result, error: "That version is not in this artifact's history." };
+  return result;
 }
 
 export type InvitationPreview = { email: string };
