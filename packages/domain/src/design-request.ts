@@ -172,34 +172,23 @@ export function designRequestReference(raw: unknown): DesignRequestReference {
   return { ok: true, text };
 }
 
-export type DesignRequestStatus = "pending" | "draft" | "published" | "not_applied";
+export type DesignRequestStatus = "pending" | "target_changed";
 
 export type DesignRequestStatusEvidence = {
-  readonly targetAvailable: boolean;
   readonly anchoredRevisionId: string;
   readonly currentSourceRevisionId: string | null;
-  readonly designHasDraft: boolean;
-  readonly appliedRevisionId: string | null;
 };
 
 export const designRequestTargetMoved = (evidence: DesignRequestStatusEvidence): boolean =>
   evidence.currentSourceRevisionId === null || evidence.currentSourceRevisionId !== evidence.anchoredRevisionId;
 
 export function designRequestStatus(evidence: DesignRequestStatusEvidence): DesignRequestStatus {
-  if (!evidence.targetAvailable) return "not_applied";
-  if (designRequestTargetMoved(evidence)) return "not_applied";
-  if (evidence.appliedRevisionId !== null) {
-    return evidence.appliedRevisionId === evidence.currentSourceRevisionId ? "published" : "not_applied";
-  }
-  if (evidence.designHasDraft) return "draft";
-  return "pending";
+  return designRequestTargetMoved(evidence) ? "target_changed" : "pending";
 }
 
 const STATUS_LABELS: Record<DesignRequestStatus, string> = {
   pending: "Pending",
-  draft: "Draft",
-  published: "Published",
-  not_applied: "Not applied",
+  target_changed: "Target changed",
 };
 
 export const designRequestStatusLabel = (status: DesignRequestStatus): string => STATUS_LABELS[status];

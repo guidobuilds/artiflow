@@ -130,6 +130,12 @@ test("each live artboard carries its own selection bridge and only its own pins"
   assert.equal(first.includes("thread-b"), false, "frame A does not draw the other artboard's request");
   assert.ok(second.includes("thread-b"));
   assert.equal(second.includes("thread-a"), false);
+  assert.equal(
+    first.slice(0, first.indexOf(">")).includes("data-nonce"),
+    false,
+    "the injected tag does not hand the nonce to the artboard markup",
+  );
+  assert.ok(first.includes("design-nonce:frame-a"), "the bridge keeps its nonce inside the script body");
   assert.ok(first.includes("Start free"), "the artifact HTML is still served as it was");
   assert.ok(first.includes("content-security-policy"), "the sealed policy still travels with the page");
   assert.ok(first.includes("default-src"), "the policy closes everything by default");
@@ -205,9 +211,9 @@ test("returning to the same artboard keeps the thread anchored to its revision",
     request,
   );
   const card = cardOf(repinned, "thread-a");
-  assert.ok(card.includes('data-status="not_applied"'), "a moved target is reported as not applied");
-  assert.ok(card.includes("Not applied"));
-  assert.equal(card.includes('data-status="published"'), false);
+  assert.ok(card.includes('data-status="target_changed"'), "a moved target is reported plainly");
+  assert.ok(card.includes("Target changed"));
+  assert.equal(card.includes('data-status="published"'), false, "no state the product cannot produce is shown");
 });
 
 test("the shell receives its own request config, never the artifact's", () => {

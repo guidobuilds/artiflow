@@ -1,5 +1,17 @@
-import { BRIDGE_CHANNEL, BRIDGE_VERSION } from "@artiflow/domain/html-bridge";
-import { DESIGN_BRIDGE_CHANNEL, DESIGN_BRIDGE_VERSION } from "@artiflow/domain/design-bridge";
+import {
+  BRIDGE_CHANNEL,
+  BRIDGE_VERSION,
+  MAX_SELECTION_HINT,
+  MAX_SELECTION_SELECTOR,
+  MAX_SELECTION_VIEWPORT,
+} from "@artiflow/domain/html-bridge";
+import {
+  DESIGN_BRIDGE_CHANNEL,
+  DESIGN_BRIDGE_VERSION,
+  DESIGN_ID_MAX_LENGTH,
+  DESIGN_REQUEST_ID_MAX_LENGTH,
+} from "@artiflow/domain/design-bridge";
+import { MAX_REQUEST_TEXT } from "@artiflow/domain/design-request";
 
 export const SCENE_REQUEST_STORAGE_KEY = "scene-request-data";
 
@@ -17,6 +29,12 @@ export function designRequestControllerScript(): string {
   const PARENT_VERSION = ${literal(BRIDGE_VERSION)};
   const SHELL_CHANNEL = ${literal(DESIGN_BRIDGE_CHANNEL)};
   const SHELL_VERSION = ${literal(DESIGN_BRIDGE_VERSION)};
+  const SELECTOR_MAX = ${literal(MAX_SELECTION_SELECTOR)};
+  const HINT_MAX = ${literal(MAX_SELECTION_HINT)};
+  const VIEWPORT_MAX = ${literal(MAX_SELECTION_VIEWPORT)};
+  const BODY_MAX = ${literal(MAX_REQUEST_TEXT)};
+  const ID_MAX = ${literal(DESIGN_ID_MAX_LENGTH)};
+  const RESULT_MAX = ${literal(DESIGN_REQUEST_ID_MAX_LENGTH)};
   const frames = [];
   for (const entry of config.frames) {
     if (entry === null || typeof entry !== "object") continue;
@@ -41,7 +59,13 @@ export function designRequestControllerScript(): string {
   let selecting = false;
   let draft = null;
   let saving = false;
+  const sceneView = () => {
+    if (document.body === null || typeof document.body.getAttribute !== "function") return "canvas";
+    return document.body.getAttribute("data-scene-view") || "canvas";
+  };
+  const locked = () => sceneView() === "play";
   const setSelecting = (on) => {
+    if (on === true && locked()) return;
     selecting = on === true;
     if (start !== null) start.setAttribute("aria-pressed", String(selecting));
     if (stage !== null) stage.setAttribute("data-request-selecting", String(selecting));
@@ -78,7 +102,7 @@ export function designRequestControllerScript(): string {
     const input = document.createElement("textarea");
     input.value = draft.body;
     input.rows = 3;
-    input.maxLength = 4000;
+    input.maxLength = BODY_MAX;
     input.setAttribute("data-request-body", "");
     input.addEventListener("input", () => { if (draft !== null) draft.body = input.value; });
     label.append(input);
@@ -116,7 +140,12 @@ export function designRequestControllerScript(): string {
           type: "submit",
           frameId: draft.frameId,
           revisionId: draft.revisionId,
-          selection: { selector: selection.selector, textHint: selection.textHint, point: { x: selection.x, y: selection.y }, viewportWidth: selection.viewportWidth },
+          selection: {
+            selector: selection.selector,
+            textHint: selection.textHint,
+            point: { x: selection.x, y: selection.y },
+            viewportWidth: selection.viewportWidth,
+          },
           body,
         },
         "*",
@@ -133,10 +162,10 @@ export function designRequestControllerScript(): string {
     if (data === null || typeof data !== "object") return null;
     if (data.channel !== PARENT_CHANNEL || data.version !== PARENT_VERSION || data.nonce !== entry.nonce) return null;
     if (data.type !== "select" || !onlyKeys(data, SELECT_KEYS)) return null;
-    if (typeof data.selector !== "string" || data.selector.length > 512) return null;
-    if (typeof data.textHint !== "string" || data.textHint.length > 120) return null;
+    if (typeof data.selector !== "string" || data.selector.length > SELECTOR_MAX) return null;
+    if (typeof data.textHint !== "string" || data.textHint.length > HINT_MAX) return null;
     if (!ratio(data.x) || !ratio(data.y)) return null;
-    if (!Number.isSafeInteger(data.viewportWidth) || data.viewportWidth < 1 || data.viewportWidth > 1000000) return null;
+    if (!Number.isSafeInteger(data.viewportWidth) || data.viewportWidth < 1 || data.viewportWidth > VIEWPORT_MAX) return null;
     if (data.selector.trim() === "" && data.textHint.trim() === "") return null;
     return { selector: data.selector, textHint: data.textHint, x: data.x, y: data.y, viewportWidth: data.viewportWidth };
   };
@@ -145,8 +174,9 @@ export function designRequestControllerScript(): string {
     if (data === null || typeof data !== "object") return null;
     if (data.channel !== SHELL_CHANNEL || data.version !== SHELL_VERSION || data.nonce !== config.nonce) return null;
     if (data.type !== "result" || !onlyKeys(data, RESULT_KEYS)) return null;
-    const requestId = data.requestId === null ? null : typeof data.requestId === "string" ? data.requestId : undefined;
-    const error = data.error === null ? null : typeof data.error === "string" ? data.error : undefined;
+    const requestId =
+      data.requestId === null ? null : typeof data.requestId === "string" && data.requestId.length <= RESULT_MAX ? data.requestId : undefined;
+    const error = data.error === null ? null : typeof data.error === "string" && data.error.length <= RESULT_MAX ? data.error : undefined;
     if (requestId === undefined || error === undefined) return null;
     if ((requestId === null) === (error === null)) return null;
     return { requestId, error };
@@ -167,6 +197,10 @@ export function designRequestControllerScript(): string {
     const entry = frameOf(event.source);
     if (entry === null) return;
     const data = event.data;
+    if (locked()) {
+      send(entry, { type: "mode", on: false });
+      return;
+    }
     if (data !== null && typeof data === "object" && data.type === "pin-click") {
       const card = requests === null ? null : requests.querySelector('[data-request-thread="' + (window.CSS && CSS.escape ? CSS.escape(data.id) : data.id) + '"]');
       if (card !== null) card.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -184,6 +218,14 @@ export function designRequestControllerScript(): string {
     setSelecting(false);
     showDraft();
   });
+  if (typeof MutationObserver === "function" && document.body !== null && typeof document.body.getAttribute === "function") {
+    new MutationObserver(() => {
+      if (!locked()) return;
+      clearDraft();
+      setSelecting(false);
+    }).observe(document.body, { attributes: true, attributeFilter: ["data-scene-view"] });
+  }
+  if (locked()) setSelecting(false);
   if (start !== null) {
     start.addEventListener("click", () => {
       if (selecting) {

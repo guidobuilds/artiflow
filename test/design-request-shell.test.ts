@@ -5,6 +5,8 @@ import vm from "node:vm";
 
 import { DESIGN_BRIDGE_CHANNEL, DESIGN_BRIDGE_VERSION } from "@artiflow/domain/design-bridge";
 
+import { MAX_SELECTION_HINT, MAX_SELECTION_SELECTOR } from "@artiflow/domain/html-bridge";
+import { MAX_REQUEST_TEXT } from "@artiflow/domain/design-request";
 import { designRequestShellScript } from "../apps/api/src/viewer/design-request-shell.ts";
 import { designRequestControllerScript } from "../apps/api/src/viewer/design-request-controller.ts";
 import { selectionBridgeScript } from "../apps/api/src/viewer/selection-bridge-script.ts";
@@ -183,6 +185,31 @@ test("a failed save reports the failure and never a publication", async () => {
   }
 });
 
+test("the shell enforces exactly the domain limits, not a copy of them", async () => {
+  const accepted = [
+    { ...submit, selection: { ...submit.selection, selector: "a".repeat(MAX_SELECTION_SELECTOR), textHint: "" } },
+    { ...submit, selection: { ...submit.selection, selector: "", textHint: "b".repeat(MAX_SELECTION_HINT) } },
+    { ...submit, body: "c".repeat(MAX_REQUEST_TEXT) },
+  ];
+  for (const data of accepted) {
+    const run = harness();
+    run.dispatch(data);
+    await settle();
+    assert.equal(run.calls.length, 1, "the boundary value is accepted");
+  }
+  const refused = [
+    { ...submit, selection: { ...submit.selection, selector: "a".repeat(MAX_SELECTION_SELECTOR + 1), textHint: "" } },
+    { ...submit, selection: { ...submit.selection, selector: "", textHint: "b".repeat(MAX_SELECTION_HINT + 1) } },
+    { ...submit, body: "c".repeat(MAX_REQUEST_TEXT + 1) },
+  ];
+  for (const data of refused) {
+    const run = harness();
+    run.dispatch(data);
+    await settle();
+    assert.equal(run.calls.length, 0, "one character past the boundary is refused");
+  }
+});
+
 test("the scene scripts are parseable and never reach the network or the browser store", () => {
   const scripts = [selectionBridgeScript({ nonce, pins: [], allowSelect: true }), designRequestControllerScript()];
   for (const raw of scripts) {
@@ -200,6 +227,11 @@ test("the selection bridge is generated per frame and only proposes a selection"
     allowSelect: true,
   });
   assert.ok(script.includes(`${nonce}:frame-a`));
+  assert.equal(
+    script.slice(0, script.indexOf(">")).includes("data-nonce"),
+    false,
+    "the tag carries no nonce the artboard markup could echo",
+  );
   assert.ok(script.includes('type: "select"'));
   assert.equal(script.includes('type: "submit"'), false, "the artboard cannot open a request by itself");
   assert.ok(script.includes("event.source !== window.parent"));

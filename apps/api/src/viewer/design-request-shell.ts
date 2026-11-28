@@ -1,4 +1,11 @@
-import { DESIGN_BRIDGE_CHANNEL, DESIGN_BRIDGE_VERSION } from "@artiflow/domain/design-bridge";
+import {
+  DESIGN_BRIDGE_CHANNEL,
+  DESIGN_BRIDGE_VERSION,
+  DESIGN_ID_MAX_LENGTH,
+  DESIGN_REQUEST_ID_MAX_LENGTH,
+} from "@artiflow/domain/design-bridge";
+import { MAX_SELECTION_HINT, MAX_SELECTION_SELECTOR, MAX_SELECTION_VIEWPORT } from "@artiflow/domain/html-bridge";
+import { MAX_REQUEST_TEXT } from "@artiflow/domain/design-request";
 
 export const DESIGN_REQUEST_STORAGE_KEY = "viewer-design-request-data";
 
@@ -8,6 +15,12 @@ export function designRequestShellScript(): string {
   return `(() => {
   const CHANNEL = ${literal(DESIGN_BRIDGE_CHANNEL)};
   const VERSION = ${literal(DESIGN_BRIDGE_VERSION)};
+  const SELECTOR_MAX = ${literal(MAX_SELECTION_SELECTOR)};
+  const HINT_MAX = ${literal(MAX_SELECTION_HINT)};
+  const VIEWPORT_MAX = ${literal(MAX_SELECTION_VIEWPORT)};
+  const BODY_MAX = ${literal(MAX_REQUEST_TEXT)};
+  const FRAME_MAX = ${literal(DESIGN_ID_MAX_LENGTH)};
+  const ERROR_MAX = ${literal(DESIGN_REQUEST_ID_MAX_LENGTH)};
   const node = document.getElementById(${literal(DESIGN_REQUEST_STORAGE_KEY)});
   if (node === null) return;
   let config = null;
@@ -40,11 +53,12 @@ export function designRequestShellScript(): string {
   const selectionOf = (value) => {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
     if (!onlyKeys(value, SELECT_KEYS)) return null;
-    if (typeof value.selector !== "string" || value.selector.length > 512) return null;
-    if (typeof value.textHint !== "string" || value.textHint.length > 120) return null;
+    if (typeof value.selector !== "string" || value.selector.length > SELECTOR_MAX) return null;
+    if (typeof value.textHint !== "string" || value.textHint.length > HINT_MAX) return null;
     if (value.point === null || typeof value.point !== "object" || !onlyKeys(value.point, ["x", "y"])) return null;
     if (!ratio(value.point.x) || !ratio(value.point.y)) return null;
-    if (!Number.isSafeInteger(value.viewportWidth) || value.viewportWidth < 1 || value.viewportWidth > 1000000) return null;
+    if (!Number.isSafeInteger(value.viewportWidth) || value.viewportWidth < 1 || value.viewportWidth > VIEWPORT_MAX)
+      return null;
     if (value.selector.trim() === "" && value.textHint.trim() === "") return null;
     return value;
   };
@@ -53,10 +67,10 @@ export function designRequestShellScript(): string {
     if (data === null || typeof data !== "object") return null;
     if (data.channel !== CHANNEL || data.version !== VERSION || data.nonce !== config.nonce) return null;
     if (data.type !== "submit" || !onlyKeys(data, SUBMIT_KEYS)) return null;
-    const frameId = text(data.frameId, 200);
-    const revisionId = text(data.revisionId, 200);
+    const frameId = text(data.frameId, FRAME_MAX);
+    const revisionId = text(data.revisionId, FRAME_MAX);
     const selection = selectionOf(data.selection);
-    const body = text(data.body, 4000);
+    const body = text(data.body, BODY_MAX);
     if (frameId === null || revisionId === null || selection === null || body === null) return null;
     return { frameId, revisionId, selection, body };
   };
@@ -100,7 +114,7 @@ export function designRequestShellScript(): string {
           : response.status === 403
             ? "You cannot comment on this design."
             : "The request was not saved (" + response.status + ").";
-      reply({ requestId: null, error });
+      reply({ requestId: null, error: error.slice(0, ERROR_MAX) });
     } catch (error) {
       reply({ requestId: null, error: "The request was not saved." });
     } finally {

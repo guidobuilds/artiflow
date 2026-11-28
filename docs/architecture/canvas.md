@@ -302,10 +302,13 @@ instrucción— y no incluye tokens, cookies, DOM ni datos de otros artifacts.
 La solicitud se guarda como comentario raíz con ancla `artboard-point`, atada al frame y a la revisión
 fijada del source; el servidor revalida ambas y que el source sea legible antes de escribir, sin leer
 sus bytes. Al volver al mismo artboard el hilo sigue visible como pin dentro del artboard y como ficha
-en el panel. El estado se deriva siempre de evidencia —pendiente, en borrador, publicado o no
-aplicado—: una revisión que se movió, un source ilegible o un guardado fallido nunca se muestran como
-publicados. Comentar no concede editar ni publicar, y quien no puede leer el source ve el estado no
-disponible, sin referencia.
+en el panel. El estado se deriva siempre de evidencia y solo se muestran los dos que el producto
+puede probar: **pendiente** mientras el target siga fijando la revisión de la solicitud, y **target
+cambiado** cuando el frame pasó a fijar otra revisión; un source ilegible se muestra como **no
+disponible** y un guardado fallido se informa como error, nunca como publicado. «Aplicado» o
+«publicado» exigiría evidencia de la edición del agente y del estado de publicación de la última
+revisión, y no se promete hasta que exista. Comentar no concede editar ni publicar, y quien no puede
+leer el source ve el estado no disponible, sin referencia.
 
 ## 3. Modelo actual y arquitectura actual
 

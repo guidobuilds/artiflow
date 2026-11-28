@@ -407,14 +407,14 @@ body[data-scene-view="play"] .scene-artboard-bar{display:none}
 .scene-request-number{display:grid;place-content:center;min-width:18px;height:18px;border-radius:999px;background:#ff6a2b;color:#170b05;font:600 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace}
 .scene-request-artboard{font-weight:600}
 .scene-request-status{margin-left:auto;padding:1px 6px;border:1px solid #3a3a3a;border-radius:999px;color:#c3c8cd;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
-.scene-request-status[data-status="published"]{border-color:#7fd18b;color:#7fd18b}
-.scene-request-status[data-status="draft"]{border-color:#f2c94c;color:#f2c94c}
-.scene-request-status[data-status="not_applied"],.scene-request-status[data-status="unavailable"]{border-color:#ff6a2b;color:#ff8a55}
+.scene-request-status[data-status="pending"]{border-color:#8f969d;color:#c3c8cd}
+.scene-request-status[data-status="target_changed"],.scene-request-status[data-status="unavailable"]{border-color:#ff6a2b;color:#ff8a55}
 .scene-request-body{margin:0 0 6px;white-space:pre-wrap}
 .scene-request-unavailable{margin:0 0 6px;color:#ff8a55}
 .scene-request-reference{display:block;margin:0 0 6px;color:#8f969d;font-size:11px}
 .scene-request-reference textarea{display:block;width:100%;margin-top:4px;padding:6px;border:1px solid #3a3a3a;border-radius:6px;background:#141414;color:#c3c8cd;font:10px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;resize:vertical}
 .scene-request-show{height:24px;padding:0 8px;border:1px solid #3a3a3a;border-radius:6px;background:#262626;color:#f4f4f2;font:500 11px/1 system-ui;cursor:pointer}
+body[data-scene-view="play"] .scene-request-start,body[data-scene-view="play"] .scene-request-draft,body[data-scene-view="play"] .scene-requests{display:none}
 .scene-play-exit{position:fixed;top:12px;right:12px;z-index:3;height:30px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#f4f4f2;font:500 12px/1 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
 .scene-play-exit:hover{background:#2c2c2c}
 .scene-play-exit:focus-visible{outline:2px solid #ff6a2b;outline-offset:2px}`;
@@ -559,11 +559,8 @@ ${surfaceOf()}
     const available = content !== undefined && content.kind === "ready";
     const sourceRevisionId = frame?.source?.revisionId ?? null;
     const status = designRequestStatus({
-      targetAvailable: available,
       anchoredRevisionId: anchor.revisionId,
       currentSourceRevisionId: sourceRevisionId,
-      designHasDraft: false,
-      appliedRevisionId: null,
     });
     const label = available ? designRequestStatusLabel(status) : "Not available";
     const state = available ? status : "unavailable";

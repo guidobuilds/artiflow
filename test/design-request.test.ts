@@ -115,43 +115,36 @@ test("control characters in the text fields are refused", () => {
 });
 
 const evidence = (overrides: Partial<DesignRequestStatusEvidence> = {}): DesignRequestStatusEvidence => ({
-  targetAvailable: true,
   anchoredRevisionId: "rev-1",
   currentSourceRevisionId: "rev-1",
-  designHasDraft: false,
-  appliedRevisionId: null,
   ...overrides,
 });
 
-test("a fresh request is pending, and a design draft shows draft", () => {
+test("a request whose target still pins its revision is pending", () => {
   assert.equal(designRequestStatus(evidence()), "pending");
-  assert.equal(designRequestStatus(evidence({ designHasDraft: true })), "draft");
-});
-
-test("an unreachable target is never applied", () => {
-  assert.equal(designRequestStatus(evidence({ targetAvailable: false })), "not_applied");
-  assert.equal(designRequestStatus(evidence({ targetAvailable: false, appliedRevisionId: "rev-1" })), "not_applied");
-});
-
-test("a request whose source revision moved is not applied and needs a new target", () => {
-  const moved = evidence({ currentSourceRevisionId: "rev-2" });
-  assert.equal(designRequestStatus(moved), "not_applied");
-  assert.equal(designRequestTargetMoved(moved), true);
   assert.equal(designRequestTargetMoved(evidence()), false);
 });
 
-test("publication is shown only with evidence that names the current revision", () => {
-  assert.equal(designRequestStatus(evidence({ appliedRevisionId: "rev-1" })), "published");
-  assert.equal(designRequestStatus(evidence({ appliedRevisionId: "rev-0" })), "not_applied");
-  assert.equal(
-    designRequestStatus(evidence({ appliedRevisionId: "rev-0", currentSourceRevisionId: "rev-2" })),
-    "not_applied",
+test("a request whose source revision moved needs a new target", () => {
+  const moved = evidence({ currentSourceRevisionId: "rev-2" });
+  assert.equal(designRequestStatus(moved), "target_changed");
+  assert.equal(designRequestTargetMoved(moved), true);
+  assert.equal(designRequestStatus(evidence({ currentSourceRevisionId: null })), "target_changed");
+});
+
+test("the only states the product produces are pending and target changed", () => {
+  assert.deepEqual(
+    [
+      ...new Set([
+        designRequestStatus(evidence()),
+        designRequestStatus(evidence({ currentSourceRevisionId: "rev-2" })),
+      ]),
+    ].sort(),
+    ["pending", "target_changed"],
   );
 });
 
-test("every state has a label a person can read", () => {
+test("every produced state has a label a person can read", () => {
   assert.equal(designRequestStatusLabel("pending"), "Pending");
-  assert.equal(designRequestStatusLabel("draft"), "Draft");
-  assert.equal(designRequestStatusLabel("published"), "Published");
-  assert.equal(designRequestStatusLabel("not_applied"), "Not applied");
+  assert.equal(designRequestStatusLabel("target_changed"), "Target changed");
 });

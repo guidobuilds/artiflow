@@ -14,7 +14,7 @@ export type SelectionBridgeOptions = {
 const literal = (value: unknown): string => JSON.stringify(value).replaceAll("<", "\\u003c");
 
 export function selectionBridgeScript({ nonce, pins, allowSelect }: SelectionBridgeOptions): string {
-  return `<script data-artiflow-selection="${BRIDGE_CHANNEL}" data-nonce="${nonce}">
+  return `<script data-artiflow-selection="${BRIDGE_CHANNEL}">
 (() => {
   const CHANNEL = ${literal(BRIDGE_CHANNEL)};
   const VERSION = ${literal(BRIDGE_VERSION)};
