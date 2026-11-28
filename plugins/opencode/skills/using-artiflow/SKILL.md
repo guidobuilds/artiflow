@@ -1,6 +1,6 @@
 ---
 name: using-artiflow
-description: What Artiflow is and what the OpenCode plugin can and cannot do with it. Load when the user asks about Artiflow's capabilities, how artifacts are managed or shared, auth, or before deciding how to fulfil a request that involves the platform — it maps the native artiflow_write, artiflow_write_file, artiflow_get, artiflow_get_markdown, artiflow_edit_lines, artiflow_list_comments and artiflow_viewer_url capabilities plus everything the plugin deliberately does not offer.
+description: What Artiflow is and what the OpenCode plugin can and cannot do with it. Load when the user asks about Artiflow's capabilities, how artifacts are managed or shared, auth, or before deciding how to fulfil a request that involves the platform — it maps the native artiflow_write, artiflow_write_file, artiflow_get, artiflow_get_markdown, artiflow_edit_lines, artiflow_scene_outline, artiflow_scene_read, artiflow_scene_apply, artiflow_list_comments and artiflow_viewer_url capabilities plus everything the plugin deliberately does not offer.
 ---
 
 # Using Artiflow — the platform and its capabilities
@@ -30,6 +30,21 @@ compare-and-set: writing with `expectedRevisionId` appends a revision to an
 existing artifact. Markdown documents read as numbered lines via
 `artiflow_get_markdown` and edit via `artiflow_edit_lines` — every edit appends a
 revision, one per call.
+
+**Read and edit scenes.** `artiflow_scene_outline` returns a canvas or deck's
+frame index — frame ids, names, node counts and bounds, the loose-node count and
+the scene's `seq`. `artiflow_scene_read` returns one frame with its nodes, or the
+canvas level when no `frameId` is given, narrowed by `nodeIds` on request; past
+200 nodes or 64 KiB it refuses with `too_large` instead of truncating.
+`artiflow_scene_apply` applies one atomic batch of id-addressed operations against
+the `baseSeq` you read, keyed by an `idempotencyKey` so a retried batch replays
+instead of applying twice. A stale `baseSeq` refuses with `concurrent_edit` and
+`currentSeq`: re-read and rebuild the batch, never retry blind. The reply carries
+the absolute box of every node the batch touched inside a frame, plus the scene's
+`violations`, which are the server's own report on the finished scene and not a
+formality; a loose canvas node is in no box, so read the canvas level to see it.
+Two limits: only a canvas is editable in the dashboard, so a deck is authored from
+this surface, and uploading an image is not available here.
 
 **Read comments.** `artiflow_list_comments` returns an owned document's comment
 threads read-only: roots with ordered nested replies, source anchors, quoted text
@@ -96,6 +111,10 @@ different tool — not attempt a call:
   dashboard-only; no tool exists.
 - **No comment-writing tools.** `artiflow_list_comments` is read-only; adding,
   replying and resolving happen in the dashboard.
+- **No image upload.** No tool here stores an image. An `image` scene node carries
+  an `assetId` and no bytes, so it can reference a picture only when a client that
+  can store the picture put it there first; say so instead of writing bytes into a
+  node.
 - **No cross-owner access.** Every tool is scoped to the authenticated owner; a
   foreign id is indistinguishable from a missing one.
 - **No partial or multi-file writes.** An artifact is one HTML document or one
@@ -111,8 +130,10 @@ different tool — not attempt a call:
 ## How to behave
 
 - **Pick the door by intent.** Creating or updating content → the native write
-  tools (`creating-artifacts`). Sharing, links, deletion, browsing the library →
-  tell the user it happens in the dashboard at `/library`.
+  tools (`creating-artifacts`). Reading or editing a canvas or deck → the scene
+  tools: the frame index, then the frame, then one atomic batch. Sharing, links,
+  deletion, browsing the library → tell the user it happens in the dashboard at
+  `/library`.
 - **Respect the grant roles.** A shared-with-me artifact can be viewed by a
   reader, edited (markdown) by an editor, and commented on by a commenter or
   better — and an agent scoped to one owner cannot read it at all unless the

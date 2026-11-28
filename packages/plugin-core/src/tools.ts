@@ -1,7 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Associations } from "./associations.ts";
-import { ArtifactRefusal, type ArtifactApi, type EditLinesInput, type MarkdownInput, type WriteInput } from "./api.ts";
+import {
+  ArtifactRefusal,
+  type ArtifactApi,
+  type EditLinesInput,
+  type MarkdownInput,
+  type SceneApplyInput,
+  type SceneOutlineInput,
+  type SceneReadInput,
+  type WriteInput,
+} from "./api.ts";
 import { fileKind } from "./write-kind.ts";
 
 interface ToolContext {
@@ -58,6 +67,12 @@ function dispatch(name: string, input: unknown, api: ArtifactApi): Promise<unkno
       return api.editLines(input as EditLinesInput);
     case "list_comments":
       return api.listComments(input as { artifactId: string });
+    case "scene_outline":
+      return api.sceneOutline(input as SceneOutlineInput);
+    case "scene_read":
+      return api.sceneRead(input as SceneReadInput);
+    case "scene_apply":
+      return api.sceneApply(input as SceneApplyInput);
     case "write":
       return api.write(input as WriteInput);
     default:
@@ -66,3 +81,4 @@ function dispatch(name: string, input: unknown, api: ArtifactApi): Promise<unkno
 }
 
 export { ARTIFACT_TOOL_NAMES } from "@artiflow/contracts/artifacts";
+export { sceneApplyInputSchema, sceneOutlineInputSchema, sceneReadInputSchema } from "@artiflow/mcp-server/scene-tools";

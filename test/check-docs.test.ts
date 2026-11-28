@@ -99,5 +99,5 @@ test("check-docs rejects a missing --root directory and exits 2", () => {
 test("check-docs passes on the current workspace", () => {
   const result = runChecker(repoRoot);
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
-  assert.match(result.stdout, /4 kinds and 24 tools/);
+  assert.match(result.stdout, /4 kinds and 25 tools/);
 });

@@ -10,6 +10,7 @@
   "exports": {
     "./claims": "./src/claims.ts",
     "./ports": "./src/ports.ts",
+    "./scene-tools": "./src/scene-tools.ts",
     "./server": "./src/server.ts",
     "./constants": "./src/constants.ts"
   },

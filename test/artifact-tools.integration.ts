@@ -47,6 +47,7 @@ const TOOL_NAMES = [
   "artifact_edit_lines",
   "artifact_get",
   "artifact_get_markdown",
+  "artifact_get_scene",
   "artifact_list_comments",
   "artifact_put_chunk",
   "artifact_reply_comment",

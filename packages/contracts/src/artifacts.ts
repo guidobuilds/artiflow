@@ -122,6 +122,7 @@ export const ARTIFACT_TOOL_NAMES = [
   "artifact_get",
   "artifact_update_metadata",
   "artifact_get_markdown",
+  "artifact_get_scene",
   "artifact_edit_lines",
   "artifact_list_comments",
   "artifact_add_comment",
