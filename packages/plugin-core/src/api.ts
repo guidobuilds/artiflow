@@ -17,6 +17,7 @@ import {
 import { commentListResponseSchema, type CommentListResponse } from "@artiflow/contracts/comments";
 import { acceptsTextOperations, capabilitiesFor } from "@artiflow/domain/kinds";
 import { applyLineOps, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
+import type { SceneOperation } from "@artiflow/domain/scene-operations";
 
 export type Refusal = { error: string; message: string; [key: string]: unknown };
 
@@ -49,6 +50,17 @@ export type WriteInput = {
 export type MarkdownInput = { artifactId: string; from?: number; to?: number };
 
 export type EditLinesInput = { artifactId: string; expectedRevisionId: string; ops: LineOp[] };
+
+export type SceneOutlineInput = { artifactId: string };
+
+export type SceneReadInput = { artifactId: string; frameId?: string; nodeIds?: string[] };
+
+export type SceneApplyInput = {
+  artifactId: string;
+  baseSeq: number;
+  idempotencyKey: string;
+  ops: SceneOperation[];
+};
 
 export type ArtifactApi = ReturnType<typeof createArtifactApi>;
 
@@ -134,6 +146,11 @@ export function createArtifactApi(options: ArtifactApiOptions) {
     const live = await send(`/artifacts/${encodeURIComponent(artifactId)}/document`);
     const revisionId = object(live.payload).revisionId;
     return live.ok && typeof revisionId === "string" ? { currentRevisionId: revisionId } : {};
+  };
+
+  const sceneReply = (response: { ok: boolean; status: number; payload: unknown }): Record<string, unknown> => {
+    if (!response.ok) return failure(response.payload, response.status);
+    return object(response.payload);
   };
 
   const kindOf = async (artifactId: string): Promise<string> => {
@@ -245,6 +262,31 @@ export function createArtifactApi(options: ArtifactApiOptions) {
         { artifactId: input.artifactId },
       );
       return { comments: listed.comments };
+    },
+
+    async sceneOutline(input: SceneOutlineInput): Promise<Record<string, unknown>> {
+      return sceneReply(await send(`/artifacts/${encodeURIComponent(input.artifactId)}/scene/outline`));
+    },
+
+    async sceneRead(input: SceneReadInput): Promise<Record<string, unknown>> {
+      const query = [
+        input.frameId === undefined || input.frameId === "" ? "" : `frameId=${encodeURIComponent(input.frameId)}`,
+        input.nodeIds === undefined || input.nodeIds.length === 0
+          ? ""
+          : `nodeIds=${input.nodeIds.map((id) => encodeURIComponent(id)).join(",")}`,
+      ].filter((part) => part.length > 0);
+      const suffix = query.length === 0 ? "" : `?${query.join("&")}`;
+      return sceneReply(await send(`/artifacts/${encodeURIComponent(input.artifactId)}/scene/read${suffix}`));
+    },
+
+    async sceneApply(input: SceneApplyInput): Promise<Record<string, unknown>> {
+      const body = { baseSeq: input.baseSeq, idempotencyKey: input.idempotencyKey, ops: input.ops };
+      return sceneReply(
+        await send(`/artifacts/${encodeURIComponent(input.artifactId)}/scene/apply`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
     },
 
     async write(input: WriteInput): Promise<CreateArtifactResponse | Record<string, unknown>> {

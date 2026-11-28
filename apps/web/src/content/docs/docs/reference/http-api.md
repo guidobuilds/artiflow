@@ -52,6 +52,9 @@ and returns the same headers with an empty body.
 | `PUT`    | `/artifacts/{artifactId}`                                | `artifacts:write` | `200`   |
 | `GET`    | `/artifacts/{artifactId}/revisions`                      | `artifacts:read`  | `200`   |
 | `POST`   | `/artifacts/{artifactId}/revisions/{revisionId}/restore` | `artifacts:write` | `200`   |
+| `GET`    | `/artifacts/{artifactId}/scene/outline`                  | `artifacts:read`  | `200`   |
+| `GET`    | `/artifacts/{artifactId}/scene/read`                     | `artifacts:read`  | `200`   |
+| `POST`   | `/artifacts/{artifactId}/scene/apply`                    | `artifacts:write` | `200`   |
 | `GET`    | `/artifacts/{artifactId}/comments`                       | `artifacts:read`  | `200`   |
 | `POST`   | `/artifacts/{artifactId}/comments`                       | `comments:write`  | `201`   |
 | `POST`   | `/artifacts/{artifactId}/comments/{commentId}/resolve`   | `comments:write`  | `200`   |

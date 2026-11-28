@@ -1,6 +1,6 @@
 ---
 name: creating-artifacts
-description: How to create, update and develop Artiflow artifacts in OpenCode. Load before writing any artifact content — it covers the artifact kinds (html pages, markdown documents, canvases and decks), the viewer's sandbox and CSP, choosing artiflow_write or artiflow_write_file, markdown line editing with artiflow_get_markdown and artiflow_edit_lines, read-only comments, revision updates, limits and typed errors.
+description: How to create, update and develop Artiflow artifacts in OpenCode. Load before writing any artifact content — it covers the artifact kinds (html pages, markdown documents, canvases and decks), the viewer's sandbox and CSP, choosing artiflow_write or artiflow_write_file, markdown line editing with artiflow_get_markdown and artiflow_edit_lines, scene reads and batch apply with artiflow_scene_outline, artiflow_scene_read and artiflow_scene_apply, read-only comments, revision updates, limits and typed errors.
 ---
 
 # Creating Artiflow artifacts in OpenCode
@@ -20,8 +20,10 @@ An Artiflow artifact's kind is chosen when the artifact is created
 
 Content enters the instance through the plugin's native tools: `artiflow_write`
 and `artiflow_write_file` write, `artiflow_get` and `artiflow_get_markdown`
-read, `artiflow_edit_lines` patches a document, `artiflow_list_comments` reads
-comment threads, and `artiflow_viewer_url` returns a link a person can open.
+read, `artiflow_edit_lines` patches a document, `artiflow_scene_outline`,
+`artiflow_scene_read` and `artiflow_scene_apply` read a scene and apply batches
+of scene operations, `artiflow_list_comments` reads comment threads, and
+`artiflow_viewer_url` returns a link a person can open.
 Every tool calls the instance's `/api/v1` API with the OAuth the plugin already
 holds, so nothing has to be connected or configured first. This skill is the
 creation procedure: how to author for the viewer's sandbox (HTML) or as a
@@ -137,9 +139,46 @@ Rules the server enforces, refusing the whole scene when one fails:
   surface yet, so a scene published here shows a labelled placeholder.
 - limits: 200 frames, 2000 nodes, one frame level deep.
 
-Reading the scene back by frame, and editing it by node, are not available from this surface: the
-canvas editor lives in the dashboard, where a person moves, resizes, adds and deletes nodes and posts
-node-anchored comments.
+## Reading and editing a scene
+
+The three scene tools work on a `canvas` or `deck` artifact's current scene. Read,
+then batch, then re-read:
+
+1. **`artiflow_scene_outline`** with the `artifactId` — one entry per frame (`id`,
+   `name`, `nodeCount`, `bbox`), the loose-node count and the scene's `seq`. Read
+   it first: it names the frame ids `artiflow_scene_read` accepts and the sequence
+   a batch has to match. Read-only, so it creates no revision.
+2. **`artiflow_scene_read`** with the `artifactId` and either a `frameId` (that
+   frame with its nodes and its `bbox`) or no `frameId` (the canvas level: the
+   loose nodes that belong to no frame). `nodeIds` narrows either reply. One read
+   returns at most 200 nodes and 64 KiB and refuses with `too_large` instead of
+   truncating — read one frame at a time rather than the whole scene.
+3. **`artiflow_scene_apply`** with the `artifactId`, the `baseSeq` you just read,
+   an `idempotencyKey` you choose, and 1–50 ops applied in order as one atomic
+   batch: `add_frame`, `update_frame`, `remove_frame`, `add_node`, `update_node`,
+   `move_node`, `reorder_node`, `remove_node`, the five canvas-level equivalents
+   (`add_canvas_node` through `remove_canvas_node`) and `replace_scene`. One
+   failed op changes nothing.
+
+Editing discipline: read before every batch, pass the `seq` you read as `baseSeq`,
+and reuse one `idempotencyKey` when you retry a batch you are not sure arrived —
+the same key replays the same `seq` instead of applying twice. A `concurrent_edit`
+refusal carries `currentSeq`: that is someone else's newer scene, so re-read with
+`artiflow_scene_outline` or `artiflow_scene_read` and rebuild the batch against
+it. Never retry blind. The reply carries the absolute box of every node the batch
+touched inside a frame, plus the scene engine's `violations`; a loose canvas node
+is in no box, so read the canvas level to see it. Treat a non-empty `violations`
+as a real defect in the scene you are about to report as done, not as a warning to
+mention in passing.
+
+Ids stay stable because comments anchor to them, so never rename a frame or node
+id to tidy it up. Uploading an image is not available from this surface: an
+`image` node carries an `assetId` and no bytes, so a node can only point at a
+picture another client stored earlier, and a scene that references a missing one
+shows a labelled placeholder. The dashboard still has its own canvas editor,
+where a person moves, resizes, adds and deletes nodes and posts node-anchored
+comments; your batch and their edit are the same scene, which is why every batch
+takes a sequence.
 
 ## Markdown documents — create once, edit by lines
 
@@ -208,6 +247,7 @@ update by guessing an id.
 | Artifact size           | 16 MiB (16 777 216 bytes) **decoded**, embedded assets included                |
 | Inline `artiflow_write` | 1 MiB (1 048 576 bytes) decoded text; larger content goes through a local file |
 | `artiflow_edit_lines`   | 1–50 ops per call                                                              |
+| `artiflow_scene_read`   | 200 nodes and 64 KiB per read; 1–50 ops per `artiflow_scene_apply`             |
 | Title                   | optional, at most 200 characters — set a real, specific name                   |
 | Artifact id             | canonical lowercase UUID (`8-4-4-4-12` hex) when you supply one                |
 
@@ -220,14 +260,18 @@ instance:
 | ---------------------- | ----------------------------------------------------------------------- | --------------------------------------------------------------------- |
 | `insufficient_scope`   | The OAuth grant lacks the required scope                                | Re-authenticate in the panel; never retry with the same token         |
 | `invalid_artifact_id`  | `artifactId` is not a canonical lowercase UUID                          | Reuse the id from the write reply, never a readable name              |
-| `too_large`            | The document exceeds the artifact size cap                              | Split or slim the document — the reply names `maxBytes`               |
+| `too_large`            | The document exceeds its cap, or a scene read exceeds the window        | Slim it, or read one frame at a time; the reply names `maxBytes`      |
 | `not_found`            | Artifact invisible to this owner (foreign, absent, or no such revision) | Stop: do not retry; confirm the id with the user                      |
 | `gone`                 | Artifact was soft-deleted                                               | It stays deleted; tell the user                                       |
-| `wrong_kind`           | The tool only works on markdown and the artifact is HTML                | Use the HTML path; never decode an HTML artifact as a document        |
+| `wrong_kind`           | The tool works on another artifact kind (a document tool on HTML)       | Use the path for the artifact kind; never reinterpret its bytes       |
 | `kind_mismatch`        | An update supplied a `kind` different from the artifact's               | Omit `kind`, or match the artifact's kind                             |
-| `concurrent_edit`      | The document changed since your read (stale revision id)                | Re-read with `artiflow_get_markdown` and re-apply your edit           |
+| `concurrent_edit`      | The document or scene changed since your read (stale id or `baseSeq`)   | Re-read the document or scene, then rebuild the edit or batch         |
 | `concurrent_commit`    | A whole-document update lost the compare-and-set race                   | Re-read with `artiflow_get` and write again from the current revision |
 | `expectation_mismatch` | An op's `expect` lines don't match the document                         | The reply carries the live window; re-anchor your ops to it           |
+| `invalid_operation`    | A scene op was rejected; the batch applied nothing                      | Fix the op at `opIndex`, whose reason the reply names                 |
+| `unknown_frame`        | The scene does not hold that `frameId`                                  | Re-read the frame index with `artiflow_scene_outline`                 |
+| `unknown_node`         | The scene does not hold that node id                                    | Re-read the frame or canvas level before addressing it                |
+| `invalid_scene`        | The stored bytes are not a valid scene                                  | The scene tools cannot edit it; rewrite it with `artiflow_write`      |
 | `validation`           | Input failed schema or encoding checks                                  | Fix the input; nothing was stored                                     |
 
 A refused write stores no artifact row, so a failed attempt costs nothing and
@@ -237,12 +281,14 @@ needs no cleanup call. Never blind-retry a refusal: read the current state first
 
 - **Pick the kind by intent.** Interactive pages, visualizations, dashboards →
   `html`. Prose the user will read, edit and comment on → `markdown`, then edit
-  by line patches instead of re-sending. Author HTML against the sandbox, not
-  around it (check every external reference and storage call before writing);
-  author markdown as clean GFM — raw HTML is escaped and scripts never run.
+  by line patches instead of re-sending. A screen system with frames → a `canvas`
+  or `deck` scene, written once and then read and batch-edited with the scene
+  tools. Author HTML against the sandbox, not around it (check every external
+  reference and storage call before writing); author markdown as clean GFM — raw
+  HTML is escaped and scripts never run.
 - **Keep state yourself.** Record `artifactId`, `revisionId` and
   `revisionNumber` from each write reply in the conversation and give them to the
-  user.
+  user. For a scene, record the `seq` you last read.
 - **Ownership boundaries are absolute.** Only the authenticated owner's artifacts
   are reachable; treat any `not_found` as final.
 - **Say what you did.** After writing, one line with the artifact's title, its

@@ -1,8 +1,9 @@
 # Artiflow for OpenCode
 
-The server entry registers six native Artiflow tools, a viewer-link helper, three
-plugin-scoped skills adapted to those native tools, and the in-product setup
-command `/artiflow-setup`. See the user-facing guide at
+The server entry registers the native Artiflow tools — document reads and writes,
+line edits, comment reads, scene reads, scene batch apply — a viewer-link helper,
+three plugin-scoped skills adapted to those native tools, and the in-product
+setup command `/artiflow-setup`. See the user-facing guide at
 `apps/web/src/content/docs/docs/connect/opencode.md` for the end-user install
 flow; this README documents the package itself. The tools call the instance's
 bearer-only public API (`/api/v1`) with an OAuth token bound to that resource;
@@ -48,6 +49,9 @@ credentials, path prefixes, queries and fragments are rejected.
 | `artiflow_list_comments` | `GET /api/v1/artifacts/:id/comments`: threads with anchors and quotes                                   |
 | `artiflow_write`         | Creates (`POST /api/v1/artifacts`) or updates one artifact (markdown: document save; HTML: byte CAS)    |
 | `artiflow_write_file`    | Reads a local UTF-8 file, then uses the same write path and association recording                       |
+| `artiflow_scene_outline` | `GET /api/v1/artifacts/:id/scene/outline`: frame ids, names, bounds and node counts, read-only          |
+| `artiflow_scene_read`    | `GET /api/v1/artifacts/:id/scene/read`: one frame by `frameId` or the canvas level, caps `too_large`    |
+| `artiflow_scene_apply`   | `POST /api/v1/artifacts/:id/scene/apply`: one batch against `baseSeq`; stale refuses `concurrent_edit`  |
 | `artiflow_viewer_url`    | Returns the configured instance's `/artifact/<id>` URL without network access                           |
 
 Replies are the instance's own JSON payloads as text; refusals are typed objects such as
@@ -60,6 +64,24 @@ replace/insert/delete ops in order as one new revision; a stale pointer returns
 instead of blind-retrying. `artiflow_list_comments` is read-only and creates no
 revision. This plugin exposes no comment-writing tool; another client against
 the instance API can add or reply to comments.
+
+The three scene tools cover `canvas` and `deck` artifacts, and they read and write
+the same scene the dashboard canvas editor does; a deck is authored from this
+surface, since the dashboard edits canvases only. Read the frame index with
+`artiflow_scene_outline` first: it names the frame ids `artiflow_scene_read`
+accepts and the `seq` a batch must match. Read before editing — one frame, or the
+canvas level when no `frameId` is given — because a read returns at most 200 nodes
+and 64 KiB and refuses with `too_large` instead of truncating.
+`artiflow_scene_apply` applies one atomic batch of add/update/move/reorder/remove
+operations against the `baseSeq` you read, keyed by an `idempotencyKey`, so a
+retried batch replays its `seq` instead of applying twice. A stale `baseSeq`
+refuses with `concurrent_edit` and `currentSeq`: re-read with
+`artiflow_scene_outline` or `artiflow_scene_read` and rebuild the batch, never
+blind-retry. The reply carries the absolute box of every frame node the batch
+touched — a loose canvas node is in no box, so read the canvas level to see it —
+plus the scene's `violations`; treat a non-empty list as a real defect in the
+scene. Uploading an image is not available from this surface: an `image` node
+carries an `assetId` and no bytes, and no tool here stores one.
 
 Use inline `artiflow_write` for small payloads. For large HTML/markdown, write a
 file with normal file tools first, then call `artiflow_write_file` with, for
@@ -104,6 +126,11 @@ Storage security is provided by the host; this plugin does not encrypt storage.
 - **Tool names and schemas are unchanged** (`artiflow_get`, `artiflow_write`, …).
   Only the transport changed: the tools call the instance's `/api/v1` API instead
   of `/mcp`.
+- **The scene tools are new here.** `artiflow_scene_outline`, `artiflow_scene_read`
+  and `artiflow_scene_apply` had no MCP-era counterpart in this plugin; they carry
+  the same semantics as the MCP `scene_*` tools over `/api/v1`. Image upload stays
+  MCP-only, so this plugin does not yet replace every MCP tool: a scene that needs
+  an attached picture still needs a client that can store the asset.
 
 ## Skills
 

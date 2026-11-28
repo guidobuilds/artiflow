@@ -21,7 +21,8 @@
   },
   "dependencies": {
     "@artiflow/contracts": "*",
-    "@artiflow/domain": "*"
+    "@artiflow/domain": "*",
+    "@artiflow/mcp-server": "*"
   },
   "devDependencies": {
     "typescript": "6.0.3"

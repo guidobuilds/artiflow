@@ -23,6 +23,7 @@ import { createMcpBackend } from "./mcp/backend.ts";
 import { createArtifactsV1App } from "./routes/v1/create.ts";
 import { createArtifactBytesV1App } from "./routes/v1/bytes.ts";
 import { createArtifactUpdateV1App } from "./routes/v1/update.ts";
+import { createSceneV1App } from "./routes/v1/scene.ts";
 import { encodePrincipal, PRINCIPAL_HEADER, principalFromClaims } from "./http/principal.ts";
 import { accountIsActive } from "./identity/accounts.ts";
 import { readPasswordPolicyView } from "./password-policy/policy.ts";
@@ -175,6 +176,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth, bu
   v1Target.route("/", createArtifactsV1App({ database: databaseView, storage: storageView }));
   v1Target.route("/", createArtifactBytesV1App({ database: databaseView, storage: storageView }));
   v1Target.route("/", createArtifactUpdateV1App({ database: databaseView, storage: storageView }));
+  v1Target.route("/", createSceneV1App({ database: databaseView, storage: storageView }));
   v1Target.route(
     "/",
     createSharingApp({ database: databaseView, auth, publicOrigin: config.publicOrigin, principal: true }),
