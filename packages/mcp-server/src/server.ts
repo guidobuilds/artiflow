@@ -516,7 +516,8 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             ...base,
             link: reopened(parsed.link.scene),
             target: null,
-            missing: parsed.link.scene.frameId !== null || parsed.link.scene.page !== null ? "artboard" : null,
+            missing:
+              parsed.link.scene.frameId !== null || parsed.link.scene.malformed?.frame === true ? "artboard" : null,
           });
         const read = await getRevisionBytes({
           storageKey: row.storageKey as string,

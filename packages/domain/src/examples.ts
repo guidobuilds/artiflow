@@ -193,7 +193,10 @@ const variantScene = (sources: readonly ExampleSource[]): string => {
   return JSON.stringify(
     {
       formatVersion: 1,
-      frames: [frame(0, "variant-a", "A · stacked", 0), frame(1, "variant-b", "B · inline", ARTBOARD_WIDTH + ARTBOARD_GAP)],
+      frames: [
+        frame(0, "variant-a", "A · stacked", 0),
+        frame(1, "variant-b", "B · inline", ARTBOARD_WIDTH + ARTBOARD_GAP),
+      ],
     },
     null,
     2,
@@ -224,8 +227,7 @@ export const examplePlan = (id: string, newId: () => string): ExamplePlan | null
   return null;
 };
 
-export const isExampleId = (value: string): value is ExampleId =>
-  (EXAMPLE_IDS as readonly string[]).includes(value);
+export const isExampleId = (value: string): value is ExampleId => (EXAMPLE_IDS as readonly string[]).includes(value);
 
 export const exampleCatalog = (): readonly Omit<ExamplePlan, "artifacts" | "design">[] =>
   EXAMPLE_IDS.flatMap((id) => {

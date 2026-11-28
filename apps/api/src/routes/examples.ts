@@ -33,7 +33,12 @@ export type ExampleCreated = {
 export type ExampleOutcome =
   | { ok: true; value: ExampleCreated }
   | { ok: false; reason: "unknown_example" }
-  | { ok: false; reason: "example_not_committed"; detail: string };
+  | {
+      ok: false;
+      reason: "example_not_committed";
+      detail: string;
+      artifacts: ExampleCreated["artifacts"];
+    };
 
 export async function createFromExample(input: {
   example: string;
@@ -59,6 +64,7 @@ export async function createFromExample(input: {
         ok: false,
         reason: "example_not_committed",
         detail: `${artifact.title}: ${result.kind}/${result.reason}`,
+        artifacts: written,
       };
     written.push({ id: artifact.artifactId, title: artifact.title, kind: artifact.kind });
     sources.push({ artifactId: artifact.artifactId, revisionId: result.revisionId });
@@ -73,7 +79,12 @@ export async function createFromExample(input: {
       bytes: new TextEncoder().encode(design.scene(sources)),
     });
     if (!result.ok)
-      return { ok: false, reason: "example_not_committed", detail: `${design.title}: ${result.kind}/${result.reason}` };
+      return {
+        ok: false,
+        reason: "example_not_committed",
+        detail: `${design.title}: ${result.kind}/${result.reason}`,
+        artifacts: written,
+      };
     written.push({ id: design.artifactId, title: design.title, kind: design.kind });
   }
   const opened = written[written.length - 1];
@@ -122,10 +133,10 @@ export function createExamplesApp(options: ExamplesOptions): Hono {
       write: examples.write,
       newId: examples.newId ?? (() => randomUUID()),
     });
-    if (!outcome.ok)
-      return outcome.reason === "unknown_example"
-        ? jsonError(c, "unknown_example", 400)
-        : jsonError(c, "example_not_committed", 500);
+    if (!outcome.ok) {
+      if (outcome.reason === "unknown_example") return jsonError(c, "unknown_example", 400);
+      return c.json({ error: "example_not_committed", detail: outcome.detail, artifacts: outcome.artifacts }, 500);
+    }
     return c.json(outcome.value, 201);
   });
   return app;

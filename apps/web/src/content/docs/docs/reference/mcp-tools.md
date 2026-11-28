@@ -232,7 +232,11 @@ the tools accept.
 `{ artifactId, title, kind, revisionId, revisionNumber, pinnedRevision, url, target, missing }`, where
 `target` is `null` for a Page and otherwise `{ view, width, frame, page }` with each element as
 `{ id, name }` or `null`. `missing` is `null`, `"artboard"` or `"page"`: the link named a target the
-artifact no longer holds, and nothing was opened in its place. Continue with `artifact_get` for the
+artifact no longer holds, or a `frame`/`page` value that cannot address anything (longer than 200
+characters or carrying control characters), and nothing was opened in its place. An empty value names
+no target and is ignored. A Page has no artboards and no design pages, so on those kinds a named
+`frame` is reported as a missing artboard and a named `page` is ignored. The web viewer draws a Page
+itself either way, and never as a Design. Continue with `artifact_get` for the
 bytes, `scene_outline` for what the Design holds and `scene_read` for one frame.
 
 | `error`            | `message` (example)       | Meaning                                      |

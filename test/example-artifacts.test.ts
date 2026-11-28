@@ -119,6 +119,12 @@ test("a refused write stops the example instead of publishing the rest quietly",
   if (outcome.ok) return;
   assert.equal(outcome.reason, "example_not_committed");
   assert.equal(refused.writes.length, 2, "the Design is not written after a refused screen");
+  assert.deepEqual(
+    outcome.artifacts.map((artifact) => artifact.id),
+    [refused.writes[0]!.input.artifactId],
+    "the screen already written is reported, so the person can go back to it",
+  );
+  assert.match(outcome.detail, /^Share bar · Variant B: /, "the refusal names the screen that stopped the example");
   const unknown = recorder();
   const missing = await createFromExample({
     example: "poster",
@@ -212,10 +218,26 @@ test("a successful create answers with the caller's own artifact and where it op
 });
 
 test("a refused example answers 500 and never presents a half-written artifact as created", async () => {
-  const refused = recorder(1);
-  const call = harness({ write: refused.write, newId: randomUUID });
-  const reply = await call("/api/artifacts/examples", post({ example: "variants" }));
-  assert.equal(reply.status, 500);
-  assert.equal(reply.body.error, "example_not_committed");
-  assert.equal(reply.body.open, undefined);
+  const nothing = recorder(1);
+  const first = harness({ write: nothing.write, newId: randomUUID });
+  const empty = await first("/api/artifacts/examples", post({ example: "variants" }));
+  assert.equal(empty.status, 500);
+  assert.equal(empty.body.error, "example_not_committed");
+  assert.equal(empty.body.open, undefined);
+  assert.deepEqual(empty.body.artifacts, [], "a refusal on the first screen created nothing");
+
+  const partial = recorder(2);
+  const second = harness({ write: partial.write, newId: randomUUID });
+  const listed = await second("/api/artifacts/examples", post({ example: "variants" }));
+  assert.equal(listed.status, 500);
+  assert.equal(listed.body.error, "example_not_committed");
+  assert.equal(listed.body.open, undefined, "nothing is presented as the finished example");
+  assert.deepEqual(listed.body.artifacts, [
+    {
+      id: partial.writes[0]!.input.artifactId,
+      title: partial.writes[0]!.input.title,
+      kind: "html",
+    },
+  ]);
+  assert.match(String(listed.body.detail), /^Share bar · Variant B: validation\/nope$/);
 });

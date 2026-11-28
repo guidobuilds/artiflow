@@ -7,12 +7,7 @@ const ARTIFACT_PATH = /^\/artifact\/([^/]+)\/?$/;
 const LINK_SCHEMES = ["http:", "https:"];
 
 export type ArtifactLinkProblem =
-  | "blank"
-  | "too_long"
-  | "not_a_link"
-  | "not_an_artifact_link"
-  | "invalid_artifact_id"
-  | "invalid_revision_id";
+  "blank" | "too_long" | "not_a_link" | "not_an_artifact_link" | "invalid_artifact_id" | "invalid_revision_id";
 
 export type ArtifactLink = {
   readonly artifactId: string;
@@ -21,8 +16,7 @@ export type ArtifactLink = {
 };
 
 export type ArtifactLinkResult =
-  | { readonly ok: true; readonly link: ArtifactLink }
-  | { readonly ok: false; readonly reason: ArtifactLinkProblem };
+  { readonly ok: true; readonly link: ArtifactLink } | { readonly ok: false; readonly reason: ArtifactLinkProblem };
 
 const invalid = (reason: ArtifactLinkProblem): ArtifactLinkResult => ({ ok: false, reason });
 

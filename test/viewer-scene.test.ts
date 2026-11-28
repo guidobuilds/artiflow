@@ -31,6 +31,7 @@ import {
 } from "../apps/api/src/viewer/html.ts";
 import { markdownViewerPage, renderMarkdownFragment } from "../apps/api/src/viewer/markdown.ts";
 import { renderSceneDocument } from "../apps/api/src/viewer/scene.ts";
+import { SCENE_LINK_FRAME_MAX_LENGTH } from "../packages/domain/src/scene-link.ts";
 
 const ARTIFACT_ID = "artifact-one";
 const VIEWER_ID = "user-one";
@@ -445,6 +446,23 @@ test("?frame names the frame to open and the viewer still renders every frame", 
   assert.ok(document.includes('data-target="checkout" aria-current="true"'), "the index follows the deep link");
 });
 
+test("a frame or page present but malformed answers as a missing target, never the whole canvas", async () => {
+  const overlong = "f".repeat(SCENE_LINK_FRAME_MAX_LENGTH + 1);
+  for (const [query, heading] of [
+    [`?frame=${overlong}`, /404 · Artboard not found/],
+    ["?frame=%01", /404 · Artboard not found/],
+    [`?page=${overlong}`, /404 · Page not found/],
+  ] as const) {
+    const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query });
+    assert.equal(reply.status, 404, query.slice(0, 24));
+    assert.match(reply.body, heading);
+    assert.equal(reply.body.includes("data-frame-id"), false, "no frame is drawn in place of the malformed one");
+  }
+  const empty = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=" });
+  assert.equal(empty.status, 200, "an empty value names no target");
+  assert.equal(srcdocOf(empty.body), servedScene());
+});
+
 test("reopening the same link serves the same version and the same content", async () => {
   const first = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
   const second = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
@@ -469,6 +487,23 @@ test("a canvas with an unknown ?page answers that the page is gone and shows not
   assert.equal(reply.status, 404);
   assert.match(reply.body, /404 · Page not found/);
   assert.equal(reply.body.includes("data-frame-id"), false);
+});
+
+test("the public link names a missing or malformed target instead of drawing the canvas", async () => {
+  const overlong = "f".repeat(SCENE_LINK_FRAME_MAX_LENGTH + 1);
+  for (const [query, heading] of [
+    ["?frame=missing", /404 · Artboard not found/],
+    ["?page=approved", /404 · Page not found/],
+    [`?frame=${overlong}`, /404 · Artboard not found/],
+  ] as const) {
+    const reply = await shareView({ bytes: SCENE_BYTES, kind: "canvas", query });
+    assert.equal(reply.status, 404, query.slice(0, 24));
+    assert.match(reply.body, heading);
+    assert.match(reply.body, new RegExp(`<a href="/share/${SHARE_TOKEN}">Back to the Design</a>`));
+    assert.equal(reply.body.includes("data-frame-id"), false);
+  }
+  const known = await shareView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=checkout" });
+  assert.equal(known.status, 200, "a target the Design holds still opens");
 });
 
 test("the public link serves the same canvas document with the same navigation", async () => {

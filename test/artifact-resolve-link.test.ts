@@ -158,6 +158,37 @@ test("a Page link is usable as a reference and never claims an artboard", async 
   assert.equal(withFrame.missing, "artboard");
 });
 
+test("a Page ignores a design page and still reports a frame it cannot have", async () => {
+  const { resolve } = await toolset({ page: rowOf("html") });
+  const withPage = payload(await resolve(`/artifact/${PAGE}?page=review`));
+  assert.equal(withPage.target, null);
+  assert.equal(withPage.missing, null, "a page id belongs to a Design, so a Page ignores it");
+  const malformedFrame = payload(await resolve(`/artifact/${PAGE}?frame=${"f".repeat(201)}`));
+  assert.equal(malformedFrame.missing, "artboard", "a frame a Page cannot hold is reported as missing");
+  const malformedPage = payload(await resolve(`/artifact/${PAGE}?page=${"p".repeat(201)}`));
+  assert.equal(malformedPage.missing, null, "an unusable page id is ignored, never called an artboard");
+});
+
+test("a Design reports a frame or page it cannot address, and never drops it", async () => {
+  const { resolve } = await toolset({ canvas: rowOf("canvas") });
+  const overlong = "f".repeat(201);
+  const malformedFrame = payload(await resolve(`/artifact/${DESIGN}?frame=${overlong}`));
+  assert.equal(malformedFrame.missing, "artboard");
+  assert.equal((malformedFrame.target as Record<string, unknown>).frame, null);
+  const control = payload(await resolve(`/artifact/${DESIGN}?frame=%01`));
+  assert.equal(control.missing, "artboard");
+  const malformedPage = payload(await resolve(`/artifact/${DESIGN}?page=${overlong}`));
+  assert.equal(malformedPage.missing, "page");
+});
+
+test("a soft-deleted artifact answers gone, which is what the tool reference promises", async () => {
+  const { resolve } = await toolset({ canvas: rowOf("canvas", { deletedAt: new Date() }) });
+  const reply = await resolve(`/artifact/${DESIGN}`);
+  assert.equal(reply.isError, true);
+  assert.equal(payload(reply).error, "gone");
+  assert.equal(payload(reply).message, "artifact_deleted");
+});
+
 test("a link this build cannot read is refused with its reason, and the tool needs the read scope", async () => {
   const { resolve } = await toolset({ canvas: rowOf("canvas") });
   for (const [link, reason] of [

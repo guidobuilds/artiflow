@@ -3,7 +3,12 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { parseArtifactLink, artifactLinkHref, isCanonicalArtifactId } from "../packages/domain/src/artifact-link.ts";
-import { parseSceneLink, sceneLinkGap, sceneViewHref } from "../packages/domain/src/scene-link.ts";
+import {
+  parseSceneLink,
+  sceneLinkGap,
+  sceneViewHref,
+  SCENE_LINK_FRAME_MAX_LENGTH,
+} from "../packages/domain/src/scene-link.ts";
 import { readScene } from "../packages/domain/src/scene.ts";
 import { missingTargetPage } from "../apps/api/src/viewer/chrome/theme.ts";
 
@@ -110,6 +115,30 @@ test("a named artboard or page that the artifact no longer holds is reported, no
   assert.equal(pageless.ok, true);
   if (!pageless.ok) return;
   assert.equal(sceneLinkGap(pageless.value, { view: "canvas", frameId: null, width: null, page: "review" }), "page");
+});
+
+test("a frame or page that is present but cannot address anything is not silently dropped", () => {
+  const tooLong = "f".repeat(SCENE_LINK_FRAME_MAX_LENGTH + 1);
+  const malformedFrame = parseSceneLink(new URLSearchParams(`frame=${tooLong}`));
+  assert.equal(malformedFrame.frameId, null, "a value over the bound names no frame");
+  assert.deepEqual(malformedFrame.malformed, { frame: true, page: false });
+  const controlFrame = parseSceneLink(new URLSearchParams("frame=%01"));
+  assert.equal(controlFrame.frameId, null);
+  assert.deepEqual(controlFrame.malformed, { frame: true, page: false });
+  const malformedPage = parseSceneLink(new URLSearchParams(`page=${tooLong}`));
+  assert.deepEqual(malformedPage.malformed, { frame: false, page: true });
+  const value = sceneOf();
+  assert.equal(sceneLinkGap(value, malformedFrame), "artboard", "a malformed artboard target is reported");
+  assert.equal(sceneLinkGap(value, controlFrame), "artboard");
+  assert.equal(sceneLinkGap(value, malformedPage), "page");
+  for (const empty of ["", "   "]) {
+    const link = parseSceneLink(new URLSearchParams(`frame=${empty}&page=${empty}`));
+    assert.equal(link.malformed, undefined, "an empty value names no target");
+    assert.equal(sceneLinkGap(value, link), null);
+  }
+  const clean = parseSceneLink(new URLSearchParams("frame=board-a"));
+  assert.equal(clean.malformed, undefined, "a readable link carries no malformed flags");
+  assert.equal(sceneLinkGap(value, clean), null);
 });
 
 test("the answer for a missing target names what is gone and points at the artifact itself", () => {

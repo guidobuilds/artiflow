@@ -6,11 +6,14 @@ export type SceneView = (typeof SCENE_VIEWS)[number];
 export const DEFAULT_ARTBOARD_VIEWPORT: ArtboardViewportWidth = 1280;
 export const SCENE_LINK_FRAME_MAX_LENGTH = 200;
 
+export type SceneMalformedTargets = { readonly frame: boolean; readonly page: boolean };
+
 export type SceneLink = {
   readonly view: SceneView;
   readonly frameId: string | null;
   readonly width: ArtboardViewportWidth | null;
   readonly page: string | null;
+  readonly malformed?: SceneMalformedTargets;
 };
 
 export type SceneViewPlan =
@@ -31,10 +34,10 @@ const hasControlCharacter = (value: string): boolean => {
 const isView = (value: string | null): value is SceneView =>
   value !== null && (SCENE_VIEWS as readonly string[]).includes(value);
 
-const frameIdOf = (value: string | null): string | null => {
-  if (value === null) return null;
-  if (value.trim() === "" || value.length > SCENE_LINK_FRAME_MAX_LENGTH) return null;
-  return hasControlCharacter(value) ? null : value;
+const targetOf = (value: string | null): { id: string | null; malformed: boolean } => {
+  if (value === null || value.trim() === "") return { id: null, malformed: false };
+  if (value.length > SCENE_LINK_FRAME_MAX_LENGTH || hasControlCharacter(value)) return { id: null, malformed: true };
+  return { id: value, malformed: false };
 };
 
 const widthOf = (value: string | null): ArtboardViewportWidth | null => {
@@ -45,11 +48,15 @@ const widthOf = (value: string | null): ArtboardViewportWidth | null => {
 
 export const parseSceneLink = (params: { get(name: string): string | null }): SceneLink => {
   const view = params.get("view");
+  const frame = targetOf(params.get("frame"));
+  const page = targetOf(params.get("page"));
+  const malformed = { frame: frame.malformed, page: page.malformed };
   return {
     view: isView(view) ? view : "canvas",
-    frameId: frameIdOf(params.get("frame")),
+    frameId: frame.id,
     width: widthOf(params.get("width")),
-    page: frameIdOf(params.get("page")),
+    page: page.id,
+    ...(malformed.frame || malformed.page ? { malformed } : {}),
   };
 };
 
@@ -69,6 +76,8 @@ export const sceneLinkGap = (
   scene: Pick<Scene, "frames"> & { pages?: readonly { id: string }[] },
   link: SceneLink,
 ): SceneLinkGap | null => {
+  if (link.malformed?.frame === true) return "artboard";
+  if (link.malformed?.page === true) return "page";
   if (link.frameId !== null && !scene.frames.some((frame) => frame.id === link.frameId)) return "artboard";
   if (link.page !== null && !(scene.pages ?? []).some((page) => page.id === link.page)) return "page";
   return null;
