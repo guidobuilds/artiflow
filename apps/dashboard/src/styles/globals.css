@@ -1585,3 +1585,72 @@ mark.viewer-comment-mark-resolved {
   background: var(--hover);
   border-bottom: 1px solid var(--line-strong);
 }
+.canvas-artboard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  color: #444444;
+  text-align: center;
+  pointer-events: none;
+}
+.canvas-artboard-badge {
+  margin: 0;
+  color: #1b1b1b;
+  font: 600 11px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.canvas-artboard-meta {
+  margin: 0;
+  color: #5f6368;
+  font-size: 12px;
+}
+.canvas-artboard-meta code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.canvas-artboard-hint {
+  margin: 0;
+  max-width: 220px;
+  color: #8a8f94;
+  font-size: 11px;
+}
+.canvas-artboard-update {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 0 0 26px;
+}
+.canvas-artboard-update-action,
+.canvas-artboard-update-cancel {
+  border: 1px solid #333333;
+  border-radius: 6px;
+  background: #1b1b1b;
+  color: #f4f4f2;
+  font: 500 11px/1 system-ui, sans-serif;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.canvas-artboard-update-action:hover,
+.canvas-artboard-update-cancel:hover {
+  background: #262626;
+}
+.canvas-artboard-update-action:focus-visible,
+.canvas-artboard-update-cancel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.canvas-artboard-update-action:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.canvas-artboard-update-status {
+  margin: 0;
+  color: #9aa0a6;
+  font-size: 11px;
+}

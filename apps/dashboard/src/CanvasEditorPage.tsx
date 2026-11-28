@@ -15,6 +15,7 @@ import { Menu, MenuHead, MenuItem, MenuSeparator } from "@/components/ui/menu.ts
 import { TextLink } from "@/components/ui/text-link.tsx";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip.tsx";
 import DeleteModal from "./DeleteModal.tsx";
+import { ArtboardCard, ArtboardUpdateAction } from "./artboard-frame.tsx";
 import ShareModal from "./ShareModal.tsx";
 import { invalidateLibrary, libraryOwnedQuery } from "./query/library.ts";
 import { canonicalScene, type Scene, type SceneFrame, type SceneNode, type TextNode } from "@artiflow/domain/scene";
@@ -1117,7 +1118,11 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                       onPointerUp={onFramePointerUp}
                       onPointerCancel={onFramePointerCancel}
                     >
-                      {entry.nodes.map((node) => nodeMarkup(node, active))}
+                      {entry.source === undefined ? (
+                        entry.nodes.map((node) => nodeMarkup(node, active))
+                      ) : (
+                        <ArtboardCard frame={entry} />
+                      )}
                     </div>
                   );
                 })}
@@ -1175,6 +1180,14 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                             {entry.w}×{entry.h}
                           </span>
                         </button>
+                        {entry.source === undefined ? null : (
+                          <ArtboardUpdateAction
+                            designId={initial.artifactId}
+                            frame={entry}
+                            disabled={readOnly}
+
+                          />
+                        )}
                         {current ? (
                           <div role="group" aria-label="Layers" className="canvas-layers-list">
                             {layerRowList.length === 0 ? (
