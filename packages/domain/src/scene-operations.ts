@@ -197,7 +197,6 @@ const lockedFrameShape = (frame: SceneFrame): Record<string, unknown> => ({
   w: frame.w,
   h: frame.h,
   source: frame.source ?? null,
-  overrides: frame.overrides ?? null,
   nodes: frame.nodes.map((node) => ({ id: node.id, type: node.type, x: node.x, y: node.y, w: node.w, h: node.h })),
 });
 
@@ -269,13 +268,10 @@ function updateFrame(draft: Scene, raw: Record<string, unknown>): Step {
   const sourceIssue = frameSourceRefusal(props, frame);
   if (sourceIssue !== null) return stepRefusal("invalid_source", sourceIssue);
   if ("overrides" in props && props.overrides !== null) {
-    if (frame.locked === true) return stepRefusal("frame_locked", { id: frame.id, property: "overrides" });
     if (frame.source === undefined) return stepRefusal("invalid_override", { id: frame.id, property: "overrides" });
     const overrides = overridesRefusal(props.overrides, "props.overrides");
     if (overrides !== null) return stepRefusal(overrides.reason, { ...overrides.detail, path: overrides.path });
   }
-  if ("overrides" in props && props.overrides === null && frame.locked === true)
-    return stepRefusal("frame_locked", { id: frame.id, property: "overrides" });
   const rest = clone(props) as Record<string, unknown>;
   delete rest.source;
   delete rest.page;

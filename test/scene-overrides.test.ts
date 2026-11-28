@@ -8,17 +8,22 @@ import {
   SCENE_MAX_OVERRIDES,
   SCENE_MAX_OVERRIDE_TEXT,
   SCENE_VARIANTS,
+  addFrameOverride,
   appliedOverridesOf,
   elementKeyOf,
   isEditableTarget,
+  isResolvableLocator,
   isSceneOverrideColor,
   overridesStatusOf,
+  patchFrameOverride,
   resolvedStyleOf,
   variantStyleOf,
+  type AppliedOverride,
   type SceneFrameOverrides,
   type SceneOverride,
 } from "@artiflow/domain/scene-overrides";
 import { overridesBridgeScript } from "../apps/api/src/viewer/overrides-bridge-script.ts";
+import { artboardPickPage } from "../apps/api/src/viewer/artboard-pick.ts";
 import { renderSceneDocument, type SceneArtboards } from "../apps/api/src/viewer/scene.ts";
 
 const SOURCE_ARTIFACT = "0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11";
@@ -316,15 +321,22 @@ test("clearing the overrides is an explicit operation", () => {
   assert.equal(canonicalScene(applied(operations, before)), canonicalScene(after));
 });
 
-test("a locked proposal refuses an override edit and keeps the stored work", () => {
+test("a locked proposal keeps its words and colour editable and still refuses geometry", () => {
   const start = scene([artboard({ overrides: frameOverrides(), locked: true })]);
-  const result = applySceneOperations(start, [
-    { op: "update_frame", id: "a", props: { overrides: frameOverrides({ entries: [overrideEntry({ text: "Changed" })] }) } },
-  ]);
-  assert.equal(result.ok, false);
-  if (result.ok) throw new Error("unreachable");
-  assert.equal(result.reason, "frame_locked");
-  assert.equal(storedOverridesOf(start).entries[0]?.text, "Share this version");
+  const edited = applied([
+    {
+      op: "update_frame",
+      id: "a",
+      props: { overrides: frameOverrides({ entries: [overrideEntry({ text: "Approved words", style: { color: "#2f6fed" } })] }) },
+    },
+  ], start);
+  assert.equal(storedOverridesOf(edited).entries[0]?.text, "Approved words");
+  assert.equal(storedOverridesOf(edited).entries[0]?.style?.color, "#2f6fed");
+  assert.equal(edited.frames[0]?.locked, true);
+  const moved = applySceneOperations(start, [{ op: "update_frame", id: "a", props: { x: 40 } }]);
+  assert.equal(moved.ok, false, "lock still protects geometry");
+  if (moved.ok) throw new Error("unreachable");
+  assert.equal(moved.reason, "frame_locked");
 });
 
 test("an invalid override is refused by the operation path and stores nothing", () => {
@@ -434,4 +446,130 @@ test("the sealed artboard keeps the source html intact and only appends the over
   assert.match(edited, /data-artiflow-overrides/);
   assert.match(edited, /<h1 id="hero">Choose a version<\/h1>/, "the source markup is never rewritten in place");
   assert.equal(scene([artboard()]).frames[0]?.source?.revisionId, REVISION_ONE);
+});
+
+const staleFrame = (): Scene =>
+  applied([
+    { op: "update_frame", id: "a", props: { overrides: frameOverrides() } },
+    {
+      op: "update_frame",
+      id: "a",
+      props: { source: { artifactId: SOURCE_ARTIFACT, revisionId: REVISION_TWO, mode: "fixed" } },
+    },
+  ]);
+
+test("a patch that changes nothing is not an edit and never rebinds stale overrides", () => {
+  const stale = staleFrame();
+  assert.equal(overridesStatusOf(stale.frames[0] as never), "stale");
+  const same = patchFrameOverride(stale, "a", "node:#hero", { text: "Share this version" });
+  assert.equal(same, stale, "the editor gets the same scene, so no undo step is recorded");
+  assert.equal(overridesStatusOf(same.frames[0] as never), "stale", "the revision is not rebound");
+  assert.deepEqual(appliedOverridesOf(same.frames[0] as never), [], "old edits are not applied to new content");
+
+  const absent = patchFrameOverride(stale, "a", "node:#gone", { text: "New copy" });
+  assert.equal(absent, stale, "an element the proposal does not store is not an edit");
+  assert.equal(overridesStatusOf(absent.frames[0] as never), "stale");
+  assert.deepEqual(appliedOverridesOf(absent.frames[0] as never), []);
+
+  const empty = patchFrameOverride(stale, "a", "node:#hero", {});
+  assert.equal(empty, stale, "an empty patch is not an edit");
+});
+
+test("a deliberate change of a stored element rebinds the stale overrides", () => {
+  const stale = staleFrame();
+  const rebound = patchFrameOverride(stale, "a", "node:#hero", { text: "New copy" });
+  assert.notEqual(rebound, stale);
+  assert.equal(overridesStatusOf(rebound.frames[0] as never), "current");
+  assert.equal(appliedOverridesOf(rebound.frames[0] as never)[0]?.text, "New copy");
+});
+
+test("an invalid patch value is dropped and the stored value survives", () => {
+  const start = addFrameOverride(scene(), "a", { selector: "#hero", textHint: "" });
+  const dropped = patchFrameOverride(start, "a", "node:#hero", {
+    text: "",
+    style: { fontSize: 0, spacing: -1, color: "url(https://example.test/x.png)" },
+  });
+  assert.equal(dropped, start, "nothing is written, so the scene stays untouched");
+  assert.equal(validateScene(dropped).ok, true, "the draft never becomes invalid");
+
+  const partial = patchFrameOverride(start, "a", "node:#hero", { text: "Ok", style: { fontSize: 0 } });
+  const entry = partial.frames[0]?.overrides?.entries[0];
+  assert.equal(entry?.text, "Ok", "the valid field lands");
+  assert.equal(entry?.style?.fontSize, undefined, "the invalid field does not");
+  assert.equal(validateScene(partial).ok, true);
+});
+
+test("a locator the artboard cannot resolve is refused instead of stored", () => {
+  const base = scene();
+  for (const selector of [".cta", "#a .b", "div > p", "a:hover", "#2col"]) {
+    assert.equal(isResolvableLocator({ selector, textHint: "" }), false, selector);
+    const key = elementKeyOf({ selector, textHint: "" });
+    assert.equal(
+      refusalOf([artboard({ overrides: frameOverrides({ entries: [overrideEntry({ key, selector })] }) })], "selector")
+        .reason,
+      "invalid_override",
+      selector,
+    );
+    assert.equal(addFrameOverride(base, "a", { selector, textHint: "" }), base, "no inert entry is added");
+  }
+  for (const selector of ["#hero", "#Hero_2", '[data-block="hero"]', '[data-testid="cta"]'])
+    assert.equal(isResolvableLocator({ selector, textHint: "" }), true, selector);
+  assert.equal(isResolvableLocator({ selector: "", textHint: "Share this version" }), true);
+  assert.equal(isResolvableLocator({ selector: "", textHint: "" }), false);
+});
+
+test("the injected script keeps values it cannot vouch for out of the page", () => {
+  const hostile = {
+    key: "node:#hero",
+    selector: "#hero",
+    textHint: "",
+    text: "Approved copy",
+    style: { color: "url(https://example.test/x.png)", fontSize: 9000, align: "justify", spacing: -3 },
+  } as unknown as AppliedOverride;
+  const script = overridesBridgeScript({ overrides: [hostile] });
+  assert.equal(script.includes("cssEscape"), false, "no dead helpers travel to the page");
+  assert.equal(script.includes("cssString"), false);
+  const hero = fakeElement("H1", "Choose a version", "hero");
+  applyInSealedFrame(script, [hero]);
+  assert.equal(hero.textContent, "Approved copy");
+  assert.deepEqual(hero.writtenStyle, {}, "no style value is written without validation");
+});
+
+test("the pick page carries the artboard, its overrides and the selection bridge", () => {
+  const value = scene([artboard({ overrides: frameOverrides() })]);
+  const html = artboardPickPage(
+    { kind: "ready", html: '<h1 id="hero">Choose a version</h1>', revisionNumber: 3, origin: "https://artiflow.test" },
+    appliedOverridesOf(value.frames[0] as never),
+    "nonce-for-picking",
+  );
+  assert.match(html, /content-security-policy/, "the sealed page keeps the document policy");
+  assert.match(html, /<h1 id="hero">Choose a version<\/h1>/, "the source markup is untouched");
+  assert.match(html, /data-artiflow-overrides/, "the current edits are the ones being previewed");
+  assert.match(html, /data-artiflow-selection/, "the selection bridge is what produces the locator");
+  assert.match(html, /nonce-for-picking/);
+});
+
+test("overrides render in Focus and Play, and Play offers no picking", () => {
+  const value = scene([artboard({ overrides: frameOverrides() })]);
+  const sealed = (view: "canvas" | "focus" | "play"): string => {
+    const document = renderSceneDocument(
+      value,
+      "a",
+      undefined,
+      [],
+      "canvas",
+      ARTBOARD_CONTENT,
+      view === "canvas" ? undefined : { kind: view, width: 390 },
+    );
+    const at = document.indexOf('data-frame-id="a"');
+    assert.ok(at >= 0, `${view} renders the artboard frame`);
+    const section = document.slice(document.lastIndexOf("<section", at), document.indexOf("</section>", at));
+    const match = /src="data:text\/html;base64,([A-Za-z0-9+/=]+)"/.exec(section);
+    assert.ok(match !== null, `${view} renders a sealed page`);
+    return Buffer.from(match[1] as string, "base64").toString("utf8");
+  };
+  for (const view of ["canvas", "focus", "play"] as const) {
+    assert.match(sealed(view), /data-artiflow-overrides/, `${view} shows the design a person edited`);
+    assert.equal(sealed(view).includes("data-artiflow-selection"), false, `${view} never offers picking`);
+  }
 });

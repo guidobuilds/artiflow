@@ -233,7 +233,7 @@ test("a new revision marks the edits stale and the next edit rebinds them", () =
   assert.equal(overridesStatusOf(rebound.frames[0] as never), "current");
 });
 
-test("a locked proposal refuses the edit the editor would send", () => {
+test("a locked proposal keeps text and style editable and still refuses geometry", () => {
   const edited = withOneEdit();
   const locked = {
     ...edited,
@@ -246,13 +246,18 @@ test("a locked proposal refuses the edit the editor would send", () => {
       props: {
         overrides: {
           ...(overridesOf(locked) as SceneFrameOverrides),
-          entries: (overridesOf(locked)?.entries ?? []).map((entry) => ({ ...entry, text: "Sneaky" })),
+          entries: (overridesOf(locked)?.entries ?? []).map((entry) => ({ ...entry, text: "Approved words" })),
         },
       },
     },
   ]);
-  assert.equal(result.ok, false);
-  if (result.ok) throw new Error("unreachable");
-  assert.equal(result.reason, "frame_locked");
-  assert.equal(overridesOf(locked)?.entries[0]?.text, undefined, "nothing was written");
+  assert.equal(result.ok, true, result.ok ? "" : `${result.reason} at op ${result.opIndex}`);
+  if (!result.ok) throw new Error("unreachable");
+  assert.equal(result.value.scene.frames[0]?.overrides?.entries[0]?.text, "Approved words", "the words stay editable");
+  assert.equal(result.value.scene.frames[0]?.locked, true, "the proposal is still locked");
+
+  const moved = applySceneOperations(locked, [{ op: "update_frame", id: "frame-1", props: { x: 90 } }]);
+  assert.equal(moved.ok, false, "geometry is still protected");
+  if (moved.ok) throw new Error("unreachable");
+  assert.equal(moved.reason, "frame_locked");
 });

@@ -1,4 +1,11 @@
-import type { AppliedOverride } from "@artiflow/domain/scene-overrides";
+import {
+  SCENE_MAX_OVERRIDE_TEXT,
+  SCENE_OVERRIDE_COLOR_MAX,
+  SCENE_OVERRIDE_FONT_SIZE_MAX,
+  SCENE_OVERRIDE_FONT_SIZE_MIN,
+  SCENE_OVERRIDE_SPACING_MAX,
+  type AppliedOverride,
+} from "@artiflow/domain/scene-overrides";
 
 export type OverridesBridgeOptions = {
   overrides: readonly AppliedOverride[];
@@ -10,33 +17,25 @@ export function overridesBridgeScript({ overrides }: OverridesBridgeOptions): st
   return `<script data-artiflow-overrides="">
 (() => {
   const OVERRIDES = ${literal(overrides)};
+  const TEXT_MAX = ${literal(SCENE_MAX_OVERRIDE_TEXT)};
+  const COLOR_MAX = ${literal(SCENE_OVERRIDE_COLOR_MAX)};
+  const FONT_MIN = ${literal(SCENE_OVERRIDE_FONT_SIZE_MIN)};
+  const FONT_MAX = ${literal(SCENE_OVERRIDE_FONT_SIZE_MAX)};
+  const SPACING_MAX = ${literal(SCENE_OVERRIDE_SPACING_MAX)};
   const TAGS = ["h1","h2","h3","h4","h5","h6","p","li","td","th","figcaption","blockquote","button","a","span","div","label","small","em","strong"];
   const SKIP = { html: 1, head: 1, body: 1, script: 1, style: 1, meta: 1, link: 1, title: 1 };
-  const cssEscape = (value) => {
-    let out = "";
-    const characters = Array.from(value);
-    for (let index = 0; index < characters.length; index += 1) {
-      const character = characters[index];
-      const code = character.codePointAt(0) || 0;
-      const safe =
-        code >= 128 || code === 45 || code === 95 || (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
-      if (safe && !(index === 0 && code >= 48 && code <= 57)) out += character;
-      else out += "\\\\" + code.toString(16) + " ";
-    }
-    return out;
-  };
-  const cssString = (value) =>
-    '"' +
-    String(value)
-      .split("")
-      .map((character) => {
-        const code = character.codePointAt(0) || 0;
-        if (character === '"' || character === "\\\\") return "\\\\" + character;
-        if (code < 32 || code === 127) return "\\\\" + code.toString(16) + " ";
-        return character;
-      })
-      .join("") +
-    '"';
+  const COLOR_HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+  const COLOR_FUNCTION = /^(?:rgba?|hsla?)\\(\\s*-?[0-9]+(?:\\.[0-9]+)?(?:deg|%)?(?:\\s*[,\\s]\\s*-?[0-9]+(?:\\.[0-9]+)?(?:deg|%)?){2,3}\\s*\\)$/i;
+  const COLOR_KEYWORDS = { transparent: 1, currentcolor: 1, black: 1, white: 1 };
+  const color = (value) =>
+    typeof value === "string" &&
+    value.length <= COLOR_MAX &&
+    (COLOR_HEX.test(value) || COLOR_FUNCTION.test(value) || COLOR_KEYWORDS[value.toLowerCase()] === 1)
+      ? value
+      : null;
+  const size = (value, min, max) =>
+    typeof value === "number" && isFinite(value) && value >= min && value <= max ? value : null;
+  const align = (value) => (value === "left" || value === "center" || value === "right" ? value : null);
   const normalize = (value) => String(value || "").replace(/\\s+/g, " ").trim();
   const resolve = (target) => {
     try {
@@ -60,11 +59,15 @@ export function overridesBridgeScript({ overrides }: OverridesBridgeOptions): st
     }
   };
   const applyStyle = (element, style) => {
-    if (!style) return;
-    if (typeof style.color === "string" && style.color) element.style.setProperty("color", style.color);
-    if (typeof style.fontSize === "number" && isFinite(style.fontSize)) element.style.setProperty("font-size", style.fontSize + "px");
-    if (style.align === "left" || style.align === "center" || style.align === "right") element.style.setProperty("text-align", style.align);
-    if (typeof style.spacing === "number" && isFinite(style.spacing) && style.spacing >= 0) element.style.setProperty("letter-spacing", style.spacing + "px");
+    if (!style || typeof style !== "object") return;
+    const nextColor = color(style.color);
+    if (nextColor !== null) element.style.setProperty("color", nextColor);
+    const nextSize = size(style.fontSize, FONT_MIN, FONT_MAX);
+    if (nextSize !== null) element.style.setProperty("font-size", nextSize + "px");
+    const nextAlign = align(style.align);
+    if (nextAlign !== null) element.style.setProperty("text-align", nextAlign);
+    const nextSpacing = size(style.spacing, 0, SPACING_MAX);
+    if (nextSpacing !== null) element.style.setProperty("letter-spacing", nextSpacing + "px");
   };
   const run = () => {
     if (!document.documentElement) return;
@@ -73,7 +76,8 @@ export function overridesBridgeScript({ overrides }: OverridesBridgeOptions): st
         const element = resolve(override);
         if (!element) continue;
         if (SKIP[String(element.tagName || "").toLowerCase()]) continue;
-        if (typeof override.text === "string") element.textContent = override.text;
+        if (typeof override.text === "string" && override.text.trim() !== "" && override.text.length <= TEXT_MAX)
+          element.textContent = override.text;
         applyStyle(element, override.style);
         element.setAttribute("data-artiflow-overridden", override.key);
       } catch (error) {}
