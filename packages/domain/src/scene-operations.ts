@@ -1,6 +1,8 @@
 import {
   canonicalScene,
+  readArtboardSource,
   validateScene,
+  type ArtboardSource,
   type Scene,
   type SceneFrame,
   type SceneNode,
@@ -45,6 +47,7 @@ export type SceneFramePatch = {
   y?: number;
   w?: number;
   h?: number;
+  source?: ArtboardSource | null;
 } & { readonly [property: string]: unknown };
 
 export type SceneNodePatch = {
@@ -153,9 +156,24 @@ function addFrame(draft: Scene, raw: Record<string, unknown>): Step {
   if (!isId(frame.id)) return stepRefusal("invalid_arguments", { property: "id" });
   const issue = inspectGeometry(frame);
   if (issue !== null) return stepRefusal(issue.reason, { property: issue.property, id: frame.id });
+  if (frame.source !== undefined) {
+    const source = readArtboardSource(frame.source);
+    if (!source.ok) return stepRefusal("invalid_source", { ...source.detail, path: "frame.source" });
+    if (Array.isArray(frame.nodes) && frame.nodes.length > 0)
+      return stepRefusal("invalid_source", { property: "nodes", id: frame.id });
+  }
   const added = clone(frame) as unknown as SceneFrame;
   draft.frames.push(added);
   return { ok: true, touched: nodeIdsOf(added) };
+}
+
+function frameSourceRefusal(props: Record<string, unknown>, frame: SceneFrame): SceneOperationDetail | null {
+  if (!("source" in props)) return null;
+  if (props.source === null) return null;
+  const source = readArtboardSource(props.source);
+  if (!source.ok) return { ...source.detail, path: "props.source" };
+  if (frame.nodes.length > 0) return { property: "nodes", id: frame.id };
+  return null;
 }
 
 function updateFrame(draft: Scene, raw: Record<string, unknown>): Step {
@@ -167,7 +185,14 @@ function updateFrame(draft: Scene, raw: Record<string, unknown>): Step {
     if (key in props) return stepRefusal("invalid_arguments", { property: key, id: frame.id });
   const issue = inspectGeometry(props);
   if (issue !== null) return stepRefusal(issue.reason, { property: issue.property, id: frame.id });
-  Object.assign(frame, clone(props));
+  const sourceIssue = frameSourceRefusal(props, frame);
+  if (sourceIssue !== null) return stepRefusal("invalid_source", sourceIssue);
+  const { source, ...rest } = clone(props) as Record<string, unknown>;
+  Object.assign(frame, rest);
+  if ("source" in props) {
+    if (props.source === null) delete frame.source;
+    else frame.source = readArtboardSource(props.source).ok ? (props.source as ArtboardSource) : undefined;
+  }
   return { ok: true, touched: nodeIdsOf(frame) };
 }
 
@@ -372,6 +397,7 @@ function framePatchOf(before: SceneFrame, after: SceneFrame): SceneFramePatch {
   if (before.y !== after.y) patch.y = after.y;
   if (before.w !== after.w) patch.w = after.w;
   if (before.h !== after.h) patch.h = after.h;
+  if (!sameValue(before.source ?? null, after.source ?? null)) patch.source = after.source ?? null;
   return patch as SceneFramePatch;
 }
 
@@ -384,6 +410,7 @@ function framePatches(before: SceneFrame, after: SceneFrame): { patch: SceneFram
   if (full.name !== undefined) grows.name = full.name;
   if (full.x !== undefined) grows.x = full.x;
   if (full.y !== undefined) grows.y = full.y;
+  if (full.source !== undefined) grows.source = full.source;
   if (full.w !== undefined) (full.w > before.w ? grows : shrunk).w = full.w;
   if (full.h !== undefined) (full.h > before.h ? grows : shrunk).h = full.h;
   return [

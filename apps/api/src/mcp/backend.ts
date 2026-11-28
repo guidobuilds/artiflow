@@ -1,4 +1,6 @@
 import {
+  type McpArtboardRef,
+  type McpArtboardState,
   type McpAssetStored,
   type McpAssetUploadInput,
   type McpBackend,
@@ -53,6 +55,7 @@ import {
 } from "../domain/documents/service.ts";
 import { createUpload, getUpload, listChunks, putChunk } from "../domain/staging.ts";
 import { storeArtifactAsset } from "../routes/assets.ts";
+import { currentSourceRevisionOf, sourceArtifactOf } from "../routes/artboard-sources.ts";
 import type { AppDb, AppTx, Database } from "../adapters/postgres/db/client.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 
@@ -286,7 +289,33 @@ export function createMcpBackend(database: Database, storage: Storage, caps?: Pa
         },
       };
     },
-    uploadAsset: async (input: McpAssetUploadInput): Promise<McpResult<McpAssetStored>> => {
+    artboardStates: async (requesterId: string, refs: readonly McpArtboardRef[]): Promise<McpArtboardState[]> => {
+    const states: McpArtboardState[] = [];
+    for (const ref of refs) {
+      const row = await sourceArtifactOf(db, requesterId, ref.artifactId, ref.revisionId);
+      if (row === null) {
+        states.push({ ...ref, status: "unavailable", revisionNumber: null, currentRevisionId: null, currentRevisionNumber: null });
+        continue;
+      }
+      const latest = await currentSourceRevisionOf(db, requesterId, ref.artifactId);
+      states.push({
+        ...ref,
+        status:
+          row.deletedAt !== null
+            ? "missing"
+            : row.kind !== "html"
+              ? "not_html"
+              : row.revisionId === ref.revisionId
+                ? "ready"
+                : "missing",
+        revisionNumber: row.revisionNumber,
+        currentRevisionId: latest?.revisionId ?? null,
+        currentRevisionNumber: latest?.revisionNumber ?? null,
+      });
+    }
+    return states;
+  },
+  uploadAsset: async (input: McpAssetUploadInput): Promise<McpResult<McpAssetStored>> => {
       const state = await getCurrentState(db, input.artifactId, input.ownerId);
       if (!state.ok) return { ok: false, kind: state.kind, reason: state.reason };
       if (state.value.deletedAt) return { ok: false, kind: "gone", reason: "artifact_deleted" };

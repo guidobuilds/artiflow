@@ -207,6 +207,25 @@ Reading the scene back by frame, and editing it by node, are not available from 
 canvas editor lives in the dashboard, where a person moves, resizes, adds and deletes nodes and posts
 node-anchored comments.
 
+### Live artboards — a frame that shows a published Page
+
+A frame may reference an existing HTML artifact instead of holding nodes, so a Design compares real
+proposals side by side:
+
+```json
+{ "id": "proposal-a", "name": "Proposal A", "x": 0, "y": 0, "w": 390, "h": 640, "nodes": [],
+  "source": { "artifactId": "<page-id>", "revisionId": "<revision-id>", "mode": "fluid" } }
+```
+
+- read the page first and pin the `revisionId` it answers; `mode` is `fixed` or `fluid`. The page is
+  referenced, never copied, and keeps its own viewer and link.
+- `fixed` draws the page at the frame width; `fluid` reflows it at 390 or 1280 inside the frame box.
+- an artboard frame carries no nodes (`nodes: []`); do not mix both.
+- pinning grants nobody access, and publishing a newer revision of the page does not change the
+  artboard. Repin on purpose, one frame at a time, with `update_frame` and the new revision id.
+- `scene_read` answers an artboard frame with its `source` and a `sourceState` (pinned revision
+  number, `status`, latest revision); `scene_apply` answers `url`, the link to open the Design.
+
 ## Markdown documents — create once, edit by lines
 
 A markdown artifact is a **document, not a page**: write plain GFM (headings,

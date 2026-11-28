@@ -3,6 +3,31 @@ export const SCENE_MAX_FRAMES = 200;
 export const SCENE_MAX_NODES = 2000;
 export const SCENE_MAX_DEPTH = 2;
 
+export const ARTBOARD_MODES = ["fixed", "fluid"] as const;
+export type ArtboardMode = (typeof ARTBOARD_MODES)[number];
+
+export const ARTBOARD_VIEWPORT_WIDTHS = [390, 1280] as const;
+export type ArtboardViewportWidth = (typeof ARTBOARD_VIEWPORT_WIDTHS)[number];
+
+export const ARTBOARD_SOURCE_KEYS = ["artifactId", "revisionId", "mode"] as const;
+
+const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export type ArtboardSource = {
+  readonly artifactId: string;
+  readonly revisionId: string;
+  readonly mode: ArtboardMode;
+};
+
+export const isArtboardMode = (value: unknown): value is ArtboardMode =>
+  typeof value === "string" && (ARTBOARD_MODES as readonly string[]).includes(value);
+
+export const artboardViewportWidth = (
+  source: ArtboardSource,
+  viewport: ArtboardViewportWidth,
+  frameWidth: number,
+): number => (source.mode === "fixed" ? frameWidth : viewport);
+
 export const NODE_TYPES = ["rect", "text", "image", "path"] as const;
 export type NodeType = (typeof NODE_TYPES)[number];
 
@@ -42,6 +67,7 @@ export type SceneFrame = {
   w: number;
   h: number;
   nodes: SceneNode[];
+  source?: ArtboardSource;
 } & SceneUnknowns;
 
 export type Scene = { formatVersion: number; frames: SceneFrame[]; nodes?: SceneNode[] } & SceneUnknowns;
@@ -56,7 +82,8 @@ export type SceneRefusalReason =
   | "unsupported_property"
   | "too_deep"
   | "node_limit"
-  | "frame_limit";
+  | "frame_limit"
+  | "invalid_source";
 
 export type SceneRefusalDetail = {
   version?: number;
@@ -132,6 +159,32 @@ function sharedNodeRefusal(node: unknown, where: string, ids: Set<string>): Scen
   return null;
 }
 
+function sourceRefusal(value: unknown, where: string): SceneRefusal | null {
+  if (!isRecord(value)) return refusal("invalid_source", where);
+  for (const key of Object.keys(value))
+    if (!(ARTBOARD_SOURCE_KEYS as readonly string[]).includes(key))
+      return refusal("invalid_source", `${where}.${key}`, { property: key });
+  for (const key of ["artifactId", "revisionId"] as const)
+    if (typeof value[key] !== "string" || !CANONICAL_UUID.test(value[key]))
+      return refusal("invalid_source", `${where}.${key}`, { property: key });
+  if (!isArtboardMode(value.mode)) return refusal("invalid_source", `${where}.mode`, { property: "mode" });
+  return null;
+}
+
+export function readArtboardSource(value: unknown): SceneResult<ArtboardSource> {
+  const element = sourceRefusal(value, "source");
+  if (element !== null) return element;
+  const record = value as Record<string, unknown>;
+  return {
+    ok: true,
+    value: {
+      artifactId: record.artifactId as string,
+      revisionId: record.revisionId as string,
+      mode: record.mode as ArtboardMode,
+    },
+  };
+}
+
 function nodeShapeRefusal(node: Record<string, unknown>, where: string): SceneRefusal | null {
   if (node.type === "rect") {
     if (typeof node.fill !== "string" || node.fill === "") return refusal("malformed_scene", `${where}.fill`);
@@ -190,6 +243,12 @@ export function validateScene(input: unknown): SceneResult<Scene> {
     if ((frame.w as number) <= 0 || (frame.h as number) <= 0)
       return refusal("malformed_scene", (frame.w as number) <= 0 ? `${at}.w` : `${at}.h`);
     if (!Array.isArray(frame.nodes)) return refusal("malformed_scene", `${at}.nodes`);
+    if (frame.source !== undefined) {
+      const sourceElement = sourceRefusal(frame.source, `${at}.source`);
+      if (sourceElement !== null) return sourceElement;
+      if (frame.nodes.length > 0)
+        return refusal("invalid_source", `${at}.nodes`, { property: "nodes", frameId: frame.id as string });
+    }
 
     for (let position = 0; position < frame.nodes.length; position += 1) {
       const where = `${at}.nodes[${position}]`;

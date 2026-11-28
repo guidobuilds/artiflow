@@ -157,6 +157,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth, bu
   const artifactTools = createArtifactTools({
     backend: createMcpBackend(databaseView, storageView),
     database: databaseView,
+    storage: storageView,
     publicOrigin: config.publicOrigin,
     requireScope: "artifacts:write",
     readScope: "artifacts:read",

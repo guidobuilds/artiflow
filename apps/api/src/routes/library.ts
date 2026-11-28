@@ -31,6 +31,8 @@ import { prepareViewer } from "../viewer/prepare.ts";
 import { htmlView } from "../viewer/views/html.ts";
 import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.ts";
 import { sceneView, type SceneImages } from "../viewer/views/scene.ts";
+import { resolveSceneArtboards } from "../viewer/artboards.ts";
+import { artboardDepsOf } from "./artboard-sources.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
 import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
@@ -248,6 +250,11 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         images,
         threads: commentThreads(model.comments),
         kind: row.kind,
+        artboards: await resolveSceneArtboards(
+          scene.value,
+          viewerId,
+          artboardDepsOf({ db, storage, viewerId, origin, maxBytes }),
+        ),
       });
       return c.html(page.html, 200, page.headers);
     }

@@ -676,6 +676,13 @@ With a `frameId`, one frame comes back:
 }
 ```
 
+An artboard frame answers its reference and its resolved state instead of nodes: `source` is
+`{ artifactId, revisionId, mode }`, and `sourceState` adds the pinned `revisionNumber`, `status`
+(`ready`, `unavailable`, `missing` or `not_html`) and the latest `currentRevisionId` /
+`currentRevisionNumber` of the linked page, so an agent can tell whether the proposal it is looking
+at is the newest one without a second guess. A state the reader cannot resolve never fails the read:
+the frame comes back with the source it stores and `status: "unavailable"`.
+
 Without a `frameId`, the canvas level comes back as `canvas`, the same envelope the frame read uses:
 
 ```json
@@ -776,7 +783,15 @@ The failure contract is the one `document_apply` has: `concurrent_edit` with `cu
 `baseSeq`, and `invalid_operation` with `opIndex`, `currentSeq` and the named reason, the scene unchanged.
 The named reasons are `unknown_frame`, `unknown_node`, `invalid_arguments`, `non_finite_number`,
 `non_positive_size` and the scene validation reasons listed above. The same `idempotencyKey` replays the
-same `seq` once. `published` and `revisionId` mean what they mean on `document_apply`.
+same `seq` once. `published` and `revisionId` mean what they mean on `document_apply`. The answer also
+carries `url`, the absolute link that opens the Design, so a textual client can hand the person
+something to open.
+
+A live artboard is created or repinned through this tool: `add_frame` or `update_frame` with
+`source: { artifactId, revisionId, mode }` (`mode` is `fixed` or `fluid`; `source: null` clears it).
+The reference belongs to the frame and no user, so pointing at a page grants nobody access: the
+Design revalidates read access every time it is opened. Publishing a newer revision of the page does
+not change the artboard; repinning is one explicit `update_frame` for that frame alone.
 
 ## Assets
 
