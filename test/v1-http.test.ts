@@ -84,6 +84,19 @@ test("the scope table maps every phase-1 read to artifacts:read and nothing else
   );
   assert.equal(requiredScope("POST", "/api/artifacts"), "artifacts:write", "creation is the /api/v1 route");
   assert.equal(requiredScope("HEAD", "/api/artifacts"), "artifacts:read", "HEAD rides GET");
+  for (const path of [
+    "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/outline",
+    "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/read",
+  ]) {
+    assert.equal(requiredScope("GET", path), "artifacts:read", path);
+    assert.equal(requiredScope("DELETE", path), null, path);
+  }
+  assert.equal(
+    requiredScope("POST", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/apply"),
+    "artifacts:write",
+  );
+  assert.equal(requiredScope("GET", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/apply"), null);
+  assert.equal(requiredScope("DELETE", "/api/artifacts/11111111-1111-4111-8111-111111111111/scene/apply"), null);
 });
 
 test("a stripped principal and no bearer are refused; the challenge targets the api/v1 document", async () => {
@@ -119,6 +132,14 @@ test("unmapped methods and paths are 405 before credentials; orchestrated writes
     new Request("http://127.0.0.1:5173/api/v1/artifacts/11111111-1111-4111-8111-111111111111", { method: "DELETE" }),
   );
   assert.equal(unauthenticated.status, 401, "a real write rule reaches the verifier for its challenge");
+  for (const path of [
+    "/api/v1/artifacts/11111111-1111-4111-8111-111111111111/scene/outline",
+    "/api/v1/artifacts/11111111-1111-4111-8111-111111111111/scene/read",
+    "/api/v1/artifacts/11111111-1111-4111-8111-111111111111/scene/apply",
+  ]) {
+    const response = await app.fetch(new Request(`http://127.0.0.1:5173${path}`, { method: "DELETE" }));
+    assert.equal(response.status, 405, path);
+  }
 });
 
 test("links management scope-gates to shares:manage and requires a bearer credential", async () => {
