@@ -16,27 +16,30 @@ import {
   resolvedStyleOf,
   variantStyleOf,
   type SceneFrameOverrides,
+  type SceneOverride,
 } from "@artiflow/domain/scene-overrides";
 import { overridesBridgeScript } from "../apps/api/src/viewer/overrides-bridge-script.ts";
+import { renderSceneDocument, type SceneArtboards } from "../apps/api/src/viewer/scene.ts";
 
 const SOURCE_ARTIFACT = "0d5b0f6a-3f2b-4b4a-9a44-6a2f4a1f7c11";
 const REVISION_ONE = "8f0d9c2e-51a4-4cbb-9a0e-2f3c4d5e6f70";
 const REVISION_TWO = "c1b2a3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
 
-const overrideEntry = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+const overrideEntry = (overrides: Record<string, unknown> = {}): SceneOverride => ({
   key: "node:#hero",
   selector: "#hero",
   textHint: "",
   text: "Share this version",
   style: { color: "#ff6a2b", fontSize: 20, align: "center", spacing: 4 },
   ...overrides,
-});
+}) as unknown as SceneOverride;
 
-const frameOverrides = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
-  sourceRevisionId: REVISION_ONE,
-  entries: [overrideEntry()],
-  ...overrides,
-});
+const frameOverrides = (overrides: Record<string, unknown> = {}): SceneFrameOverrides =>
+  ({
+    sourceRevisionId: REVISION_ONE,
+    entries: [overrideEntry()],
+    ...overrides,
+  }) as unknown as SceneFrameOverrides;
 
 const artboard = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
   id: "a",
@@ -402,4 +405,33 @@ test("a stale revision injects no override script at all", () => {
   );
   const { overrides } = pageScriptOf(stale, "a");
   assert.deepEqual(overrides, []);
+});
+
+const ARTBOARD_CONTENT: SceneArtboards = {
+  a: {
+    kind: "ready",
+    html: '<h1 id="hero">Choose a version</h1><p>Pick one to share.</p>',
+    revisionNumber: 3,
+    origin: "https://artiflow.test",
+  },
+};
+
+const sealedPageOf = (value: Scene): string => {
+  const document = renderSceneDocument(value, undefined, undefined, [], "canvas", ARTBOARD_CONTENT);
+  const at = document.indexOf('data-frame-id="a"');
+  assert.ok(at >= 0, "the frame is rendered");
+  const section = document.slice(document.lastIndexOf("<section", at), document.indexOf("</section>", at));
+  const match = /src="data:text\/html;base64,([A-Za-z0-9+/=]+)"/.exec(section);
+  assert.ok(match !== null, "the artboard carries an inline document");
+  return Buffer.from(match[1] as string, "base64").toString("utf8");
+};
+
+test("the sealed artboard keeps the source html intact and only appends the override script", () => {
+  const plain = sealedPageOf(scene([artboard()]));
+  const edited = sealedPageOf(scene([artboard({ overrides: frameOverrides() })]));
+  assert.equal(plain.includes("data-artiflow-overrides"), false, "an unedited proposal carries no override script");
+  assert.equal(edited.startsWith(plain), true, "the original document stays byte-identical as the prefix");
+  assert.match(edited, /data-artiflow-overrides/);
+  assert.match(edited, /<h1 id="hero">Choose a version<\/h1>/, "the source markup is never rewritten in place");
+  assert.equal(scene([artboard()]).frames[0]?.source?.revisionId, REVISION_ONE);
 });
