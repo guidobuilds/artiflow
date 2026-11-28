@@ -63,11 +63,21 @@ export const sceneViewHref = (path: string, link: SceneLink): string => {
   return search === "" ? path : `${path}?${search}`;
 };
 
+export type SceneLinkGap = "artboard" | "page";
+
+export const sceneLinkGap = (
+  scene: Pick<Scene, "frames"> & { pages?: readonly { id: string }[] },
+  link: SceneLink,
+): SceneLinkGap | null => {
+  if (link.frameId !== null && !scene.frames.some((frame) => frame.id === link.frameId)) return "artboard";
+  if (link.page !== null && !(scene.pages ?? []).some((page) => page.id === link.page)) return "page";
+  return null;
+};
+
 export const planSceneView = (scene: Pick<Scene, "frames">, link: SceneLink): SceneViewPlan => {
   const frame = link.frameId === null ? undefined : scene.frames.find((entry) => entry.id === link.frameId);
   if (frame === undefined) return { kind: "canvas", frameId: null, page: link.page };
   if (link.view === "canvas") return { kind: "canvas", frameId: frame.id, page: link.page };
-  if (link.view === "play" && frame.source === undefined)
-    return { kind: "canvas", frameId: frame.id, page: link.page };
+  if (link.view === "play" && frame.source === undefined) return { kind: "canvas", frameId: frame.id, page: link.page };
   return { kind: link.view, frameId: frame.id, width: link.width ?? DEFAULT_ARTBOARD_VIEWPORT };
 };

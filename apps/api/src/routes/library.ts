@@ -26,7 +26,7 @@ import type {
   SharedArtifactListResponse,
 } from "@artiflow/contracts/artifacts";
 import { originOf } from "../viewer/artifact.ts";
-import { escapeAttribute, NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
+import { escapeAttribute, missingTargetPage, NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
 import { commentConfig, commentThreads } from "../viewer/model.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
 import { htmlView } from "../viewer/views/html.ts";
@@ -41,12 +41,12 @@ import {
 import { compareView, comparisonUnavailablePage } from "../viewer/views/compare.ts";
 import { pinnedRevisionBanner, versionsOf, VERSIONS_SHOWN } from "../viewer/revisions.ts";
 import { canEdit, documentFor } from "./editing.ts";
+
 import { resolveSceneArtboards } from "../viewer/artboards.ts";
 import { artboardDepsOf } from "./artboard-sources.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
-import { scenePageContent } from "@artiflow/domain/scene-pages";
-import { DEFAULT_ARTBOARD_VIEWPORT, parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
+import { DEFAULT_ARTBOARD_VIEWPORT, parseSceneLink, planSceneView, sceneLinkGap } from "@artiflow/domain/scene-link";
 import { acceptsSceneAnchors } from "@artiflow/domain/comment-anchors";
 import {
   acceptsTextOperations,
@@ -63,6 +63,7 @@ const SHARED_LIMIT = 200;
 const METADATA_BODY_LIMIT = 64 * 1024;
 
 type LibraryAuth = ReturnType<typeof createAuth>;
+
 export type LibraryOptions = {
   database: Database;
   auth: LibraryAuth;
@@ -230,10 +231,11 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (!row.storageKey || !row.sha256 || row.revisionNumber === null || row.revisionId === null)
       return c.json({ error: "no_current_revision" }, 409);
     const currentId = row.revisionId;
+    const artifactHref = `/artifact/${encodeURIComponent(artifactId)}`;
     const pinnedRow =
       requestedRevisionId === undefined ? undefined : await revisionRow(db, artifactId, requestedRevisionId);
     if (requestedRevisionId !== undefined && pinnedRow === undefined)
-      return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+      return c.html(missingTargetPage("revision", artifactHref), 404, NOT_FOUND_HEADERS);
     const pinned = pinnedRow !== undefined;
     const wantsHistory = pinned || row.revisionCount > 1;
     const history = wantsHistory ? await revisionHistory(db, artifactId, VERSIONS_SHOWN + 1) : [];
@@ -271,19 +273,20 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (!read.ok) return c.json({ error: "artifact_unavailable" }, 500);
     const search = new URL(c.req.url).searchParams;
     const frameId = search.get("frame");
-    const editor = wantsHistory && !embed && transport === "session"
-      ? await documentFor(db, viewerId, artifactId)
-      : undefined;
+    const editor =
+      wantsHistory && !embed && transport === "session" ? await documentFor(db, viewerId, artifactId) : undefined;
     const canEditRow = editor !== undefined && canEdit(editor);
     const shownBanner =
-      embed || transport === "bearer" || !pinned ? undefined : pinnedRevisionBanner({
-        artifactId,
-        kind: row.kind,
-        viewing: { id: shown.id, number: shown.revisionNumber, publishedAt: shown.publishedAt },
-        latest: { id: current.id, number: current.revisionNumber },
-        canEdit: canEditRow,
-        frameId,
-      });
+      embed || transport === "bearer" || !pinned
+        ? undefined
+        : pinnedRevisionBanner({
+            artifactId,
+            kind: row.kind,
+            viewing: { id: shown.id, number: shown.revisionNumber, publishedAt: shown.publishedAt },
+            latest: { id: current.id, number: current.revisionNumber },
+            canEdit: canEditRow,
+            frameId,
+          });
     const versions =
       embed || transport === "bearer"
         ? undefined
@@ -306,9 +309,10 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     if (viewerFor(row.kind) === "scene") {
       const scene = readScene(new TextDecoder().decode(read.value.bytes));
       if (!scene.ok) return c.json({ error: "artifact_unavailable" }, 500);
-      const plan = planSceneView(scene.value, parseSceneLink(search));
-      if (plan.kind === "canvas" && scenePageContent(scene.value, plan.page).missing)
-        return c.json({ error: "not_found" }, 404);
+      const link = parseSceneLink(search);
+      const gap = sceneLinkGap(scene.value, link);
+      if (gap !== null) return c.html(missingTargetPage(gap, artifactHref), 404, NOT_FOUND_HEADERS);
+      const plan = planSceneView(scene.value, link);
       const origin = originOf(c.req.url);
       const images: SceneImages | undefined =
         origin === null
@@ -348,7 +352,12 @@ export function createLibraryApp(options: LibraryOptions): Hono {
 
   app.get("/artifact/:id", async (c) => {
     const revision = requestedRevision(c);
-    if (revision.invalid) return c.html(NOT_FOUND_PAGE, 404, NOT_FOUND_HEADERS);
+    if (revision.invalid)
+      return c.html(
+        missingTargetPage("revision", `/artifact/${encodeURIComponent(c.req.param("id"))}`),
+        404,
+        NOT_FOUND_HEADERS,
+      );
     if (c.req.raw.headers.has("authorization")) {
       if (!options.bearerVerifier) return c.json({ error: "unauthorized" }, 401);
       return options.bearerVerifier(c.req.raw, (_request, claims) => {
@@ -408,9 +417,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
     const sideOf = async (scene: Scene, revision: RevisionRow, label: "A" | "B") => {
       const frameId = frameOf(scene);
       const images: SceneImages | undefined =
-        origin === null
-          ? undefined
-          : { origin, artifactId, digests: await sceneAssetDigests(db, artifactId, scene) };
+        origin === null ? undefined : { origin, artifactId, digests: await sceneAssetDigests(db, artifactId, scene) };
       const artboards = await resolveSceneArtboards(
         scene,
         viewerId,

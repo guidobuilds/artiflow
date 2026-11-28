@@ -445,14 +445,30 @@ test("?frame names the frame to open and the viewer still renders every frame", 
   assert.ok(document.includes('data-target="checkout" aria-current="true"'), "the index follows the deep link");
 });
 
-test("a canvas with an unknown ?frame still renders the whole surface", async () => {
+test("reopening the same link serves the same version and the same content", async () => {
+  const first = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
+  const second = await ownerView({ bytes: SCENE_BYTES, kind: "canvas" });
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+  assert.equal(second.body, first.body, "a second open publishes nothing and changes nothing");
+  assert.equal(second.csp, first.csp);
+});
+
+test("a canvas with an unknown ?frame answers that the artboard is gone and shows nothing else", async () => {
   const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?frame=missing" });
-  assert.equal(reply.status, 200);
-  const document = srcdocOf(reply.body);
-  assert.equal(document, servedScene(), "the unknown id falls back to the whole surface");
-  assert.equal(surfaceTag(document).includes("data-active-frame"), false, "an unknown id opens nothing in particular");
-  assert.equal(sectionTags(document).length, 2, "both frames stay on the surface");
-  assert.equal((document.match(/data-target="/g) ?? []).length, 2, "both frames stay reachable");
+  assert.equal(reply.status, 404);
+  assert.match(reply.body, /404 · Artboard not found/);
+  assert.match(reply.body, /This artboard isn&#39;t here\./);
+  assert.match(reply.body, new RegExp(`<a href="/artifact/${ARTIFACT_ID}">Back to the Design</a>`));
+  assert.equal(reply.body.includes("data-frame-id"), false, "no frame is rendered in place of the missing one");
+  assert.equal(reply.body.includes("formatVersion"), false, "the scene is not shown as a fallback");
+});
+
+test("a canvas with an unknown ?page answers that the page is gone and shows nothing else", async () => {
+  const reply = await ownerView({ bytes: SCENE_BYTES, kind: "canvas", query: "?page=approved" });
+  assert.equal(reply.status, 404);
+  assert.match(reply.body, /404 · Page not found/);
+  assert.equal(reply.body.includes("data-frame-id"), false);
 });
 
 test("the public link serves the same canvas document with the same navigation", async () => {

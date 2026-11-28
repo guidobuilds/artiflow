@@ -108,6 +108,58 @@ a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </main>
 </body></html>`;
 
+export type MissingTarget = "artboard" | "page" | "revision";
+
+const MISSING_TARGET_COPY: Record<MissingTarget, { label: string; heading: string; body: string; back: string }> = {
+  artboard: {
+    label: "404 · Artboard not found",
+    heading: "This artboard isn&#39;t here.",
+    body: "The link names an artboard this Design no longer has. Open the Design to see what it holds now.",
+    back: "Back to the Design",
+  },
+  page: {
+    label: "404 · Page not found",
+    heading: "This page isn&#39;t here.",
+    body: "The link names a page this Design no longer has. Open the Design to see what it holds now.",
+    back: "Back to the Design",
+  },
+  revision: {
+    label: "404 · Version not found",
+    heading: "This version isn&#39;t here.",
+    body: "The link pins a version this artifact no longer has. Open the artifact to see its current version.",
+    back: "Open the artifact",
+  },
+};
+
+export const missingTargetPage = (target: MissingTarget, backHref: string): string => {
+  const copy = MISSING_TARGET_COPY[target];
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${copy.label} — Artiflow</title>
+<style>
+${VIEWER_TOKENS}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%}
+body{display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:9px;flex:0 0 54px;padding:0 22px;border-bottom:1px solid var(--line);font-size:15px;font-weight:500;letter-spacing:-0.02em}
+header svg{width:20px;height:20px}
+main{flex:1;display:grid;place-content:center;justify-items:start;gap:14px;width:min(620px,100%);margin:0 auto;padding:40px 16px}
+small{color:var(--fg-subtle);font:13px ${MONO}}
+h1{margin:0;font-size:clamp(32px,5vw,52px);font-weight:600;line-height:1.08;letter-spacing:-0.045em;text-wrap:balance}
+p{margin:0;max-width:52ch;color:var(--fg-muted);font-size:16px}
+a{display:inline-flex;align-items:center;height:38px;margin-top:10px;padding:0 16px;border-radius:8px;background:var(--fg);color:var(--bg);font-size:13.5px;font-weight:500;text-decoration:none}
+a:hover{opacity:.9}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style></head>
+<body>
+<header>${LOGO_MARK}<span>artiflow</span></header>
+<main>
+<small>${copy.label}</small>
+<h1>${copy.heading}</h1>
+<p>${copy.body}</p>
+<a href="${escapeAttribute(backHref)}">${copy.back}</a>
+</main>
+</body></html>`;
+};
+
 export const NOT_FOUND_HEADERS = {
   "content-security-policy": WRAPPER_CSP,
   "x-content-type-options": "nosniff",
