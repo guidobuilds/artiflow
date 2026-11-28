@@ -114,3 +114,49 @@ jobs:
         run: |
           cosign sign --yes "ghcr.io/${{ github.repository_owner }}/artiflow-api@${{ steps.api-push.outputs.digest }}"
           cosign sign --yes "ghcr.io/${{ github.repository_owner }}/artiflow-web@${{ steps.web-push.outputs.digest }}"
+
+  release:
+    name: github release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          notes=$(cat <<'EOF'
+          Container images for this release:
+
+          - ghcr.io/guidobuilds/artiflow-api:__VERSION__
+          - ghcr.io/guidobuilds/artiflow-web:__VERSION__
+
+          Both are public and multi-arch (linux/amd64, linux/arm64), with an SBOM, provenance and a
+          keyless cosign signature. Pin ARTIFLOW_VERSION=__VERSION__ in .env.prod and follow the upgrade
+          steps in the self-hosting documentation.
+
+              docker pull ghcr.io/guidobuilds/artiflow-api:__VERSION__
+              docker pull ghcr.io/guidobuilds/artiflow-web:__VERSION__
+          EOF
+          )
+          notes=${notes//__VERSION__/$version}
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists; refreshing its assets"
+          else
+            args=()
+            if [[ "$TAG" == *-* ]]; then args+=(--prerelease); fi
+            gh release create "$TAG" \
+              --verify-tag \
+              --title "Artiflow ${version}" \
+              --notes "$notes" \
+              --generate-notes \
+              "${args[@]}"
+          fi
+          gh release upload "$TAG" docker-compose.prod.yml env.prod.example --clobber
