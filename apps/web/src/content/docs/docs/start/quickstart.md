@@ -62,8 +62,11 @@ handle the browser needs.
 ## 4. Open the artifact
 
 Open `https://artifacts.example.com/artifact/<artifactId>` while signed in. The same artifact is in
-the library at `https://artifacts.example.com/`, where the row menu's **Open** action sends HTML to
-the viewer and Markdown to the editor. The viewer bar shows the title and version; **Focus** (or the
+the library at `https://artifacts.example.com/`, where the row menu's **Open** action sends a Page to
+the viewer, a Design to its canvas, and Markdown to the editor. The type filter above the list is part
+of the address (`?kind=html`, `?kind=canvas`), so a filtered view is a link you can keep. **Start from
+an example** creates a report Page, or a Design that already holds two live variants, as your own
+artifact. The viewer bar shows the title and version; **Focus** (or the
 `F` key) hides the bar, and `Esc` brings it back.
 
 ## 5. Share it

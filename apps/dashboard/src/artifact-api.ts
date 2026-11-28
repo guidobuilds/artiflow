@@ -47,3 +47,37 @@ export async function renameArtifact(artifactId: string, title: string): Promise
   const message = renameMessage(result.code);
   return message === undefined ? result : { ...result, error: message };
 }
+
+export type ExampleOutcome = {
+  readonly id: string;
+  readonly kind: string;
+  readonly href: string;
+};
+
+const EXAMPLE_MESSAGES: Record<string, string> = {
+  unknown_example: "That example is not available in this build.",
+  example_not_committed:
+    "The example was not finished, so nothing is presented as created. What was written stays in your library.",
+  not_found: "This account cannot create artifacts right now.",
+  origin_not_allowed: "This page was not opened from the app's own address, so the example was refused.",
+  json_content_type_required: "The request was refused because it was not a JSON one.",
+};
+
+const exampleOutcomeOf = (body: unknown): ExampleOutcome | null => {
+  if (!record(body) || !record(body.open)) return null;
+  const open = body.open;
+  return typeof open.id === "string" && typeof open.kind === "string" && typeof open.href === "string"
+    ? { id: open.id, kind: open.kind, href: open.href }
+    : null;
+};
+
+export function exampleMessage(code: string): string | undefined {
+  return EXAMPLE_MESSAGES[code];
+}
+
+export async function createExampleArtifact(example: string): Promise<ManageResult<ExampleOutcome>> {
+  const result = await manageRequest("/api/artifacts/examples", "POST", exampleOutcomeOf, { example });
+  if (result.ok) return result;
+  const message = exampleMessage(result.code);
+  return message === undefined ? result : { ...result, error: message };
+}

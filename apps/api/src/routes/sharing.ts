@@ -19,7 +19,7 @@ import { listComments } from "../adapters/postgres/comments-repo.ts";
 import { revisionRow } from "../domain/revisions.ts";
 import type { Storage } from "../adapters/storage/client.ts";
 import { originOf } from "../viewer/artifact.ts";
-import { NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
+import { missingTargetPage, NOT_FOUND_HEADERS, NOT_FOUND_PAGE } from "../viewer/chrome/theme.ts";
 import { commentThreads } from "../viewer/model.ts";
 import { pinnedLinkBanner } from "../viewer/revisions.ts";
 import { prepareViewer } from "../viewer/prepare.ts";
@@ -28,8 +28,7 @@ import { markdownView, renderMarkdownFragment } from "../viewer/views/markdown.t
 import { renderViewOf, sceneView } from "../viewer/views/scene.ts";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
 import { readScene, type Scene } from "@artiflow/domain/scene";
-import { scenePageContent } from "@artiflow/domain/scene-pages";
-import { parseSceneLink, planSceneView } from "@artiflow/domain/scene-link";
+import { parseSceneLink, planSceneView, sceneLinkGap } from "@artiflow/domain/scene-link";
 import { rendersInlineMarkdown, rendersScene, viewerFor } from "@artiflow/domain/kinds";
 import { cookieMutationGuard, Rollback, sessionUserId } from "../http/index.ts";
 import { ACTIVE_ACCOUNT_STATUS } from "../identity/account-status.ts";
@@ -587,9 +586,11 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
         pinned: isPinned,
         banner,
       });
-      const plan = planSceneView(scene.value, parseSceneLink(new URL(c.req.url).searchParams));
-      if (plan.kind === "canvas" && scenePageContent(scene.value, plan.page).missing)
-        return c.json({ error: "not_found" }, 404);
+      const link = parseSceneLink(new URL(c.req.url).searchParams);
+      const gap = sceneLinkGap(scene.value, link);
+      if (gap !== null)
+        return c.html(missingTargetPage(gap, `/share/${encodeURIComponent(token)}`), 404, NOT_FOUND_HEADERS);
+      const plan = planSceneView(scene.value, link);
       const page = sceneView(model, {
         scene: scene.value,
         frameId: plan.frameId ?? undefined,

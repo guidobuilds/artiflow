@@ -120,6 +120,7 @@ export const ARTIFACT_TOOL_NAMES = [
   "artifact_commit",
   "artifact_write",
   "artifact_get",
+  "artifact_resolve_link",
   "artifact_update_metadata",
   "artifact_get_markdown",
   "artifact_get_scene",

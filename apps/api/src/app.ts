@@ -16,6 +16,7 @@ import { createCommentsApp } from "./routes/comments.ts";
 import { createHealthApp } from "./routes/health.ts";
 import { buildInfoFromEnv, createVersionApp, type BuildInfo } from "./routes/version.ts";
 import { createLibraryApp } from "./routes/library.ts";
+import { createExamplesApp, exampleWriteOf } from "./routes/examples.ts";
 import { createMcpApp, createMcpBearerVerifier, createMultiAudienceBearerVerifier } from "./mcp/mount.ts";
 import { API_RESOURCE_SCOPES, publicApiResource, publicIssuer, publicResource } from "./oauth.ts";
 import { requiredScope, type ApiV1Method } from "./routes/v1/scopes.ts";
@@ -141,6 +142,15 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth, bu
     "/",
     createShareViewerApp({ database: databaseView, storage: storageView, maxArtifactBytes: MAX_ARTIFACT_BYTES }),
   );
+  app.route(
+    "/",
+    createExamplesApp({
+      auth,
+      publicOrigin: config.publicOrigin,
+      examples: { write: exampleWriteOf(databaseView, storageView) },
+    }),
+  );
+
   app.route(
     "/",
     createLibraryApp({

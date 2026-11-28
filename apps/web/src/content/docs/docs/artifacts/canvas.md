@@ -82,6 +82,14 @@ applies (`default-src 'none'`, no framing, no eval), so it cannot reach the netw
 `data:` document inherits no policy from its parent. A page that pulls images or scripts from a URL
 therefore draws them as missing inside a Design; only self-contained pages compare faithfully.
 
+## Resume a Design from a link
+
+A link is also how another conversation picks the work back up. Pasted into a chat,
+`artifact_resolve_link` reads it and returns the artifact id, the pinned revision, and the artboard
+and page it names, plus `missing` when that target is gone, so a textual client resumes the same
+object without the canvas. `artifact_get` then reads the bytes, `scene_outline` lists what the Design
+holds, and `scene_read` returns one frame.
+
 ## Focus, Play and connected screens
 
 A Design is looked at in three modes over the same document:
@@ -102,11 +110,16 @@ the Design:
 ```
 
 `view` accepts `focus` or `play`; `width` accepts `390` or `1280`; `frame` is a frame id of that
-Design. An unknown value, or a frame the Design does not hold, falls back to the canvas with no
-other effect. Play needs a frame that is a live artboard. The editor's artboard card links to both
-modes for that artboard, and `scene_read` gives the frame ids to build the same link from a chat.
-The link points at the screen it names: walking the prototype inside Play does not rewrite it, so a
-link always opens the same starting point.
+Design, `page` is one of its page ids, and `revision` pins a version. Play needs a frame that is a
+live artboard. The editor's artboard card links to both modes for that artboard, and `scene_read`
+gives the frame ids to build the same link from a chat. The link points at the screen it names:
+walking the prototype inside Play does not rewrite it, so a link always opens the same starting
+point.
+
+A link names where it points, so a `frame`, `page` or `revision` the artifact no longer holds is
+named as missing on its own page and nothing else is drawn in its place. The missing page offers the
+artifact itself, which is the only way to see what it holds now; it never opens the canvas in place
+of the artboard, or the current version in place of the pinned one.
 
 ### How a page connects to another screen
 
