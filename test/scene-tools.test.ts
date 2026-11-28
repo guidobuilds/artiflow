@@ -1201,13 +1201,19 @@ test("the scene document names no absolute url outside the instance origin", asy
     database: databaseServing([IMAGE_DIGEST]),
   });
   const document = ok(await served.callTool("artifact_get_scene", { artifactId: ARTIFACT })).documentHtml as string;
-  const urls = [...document.matchAll(/https?:\/\/[^\s"'<>)]+/g)].map((match) => match[0].replace(/;$/, ""));
-  assert.ok(
-    urls.some((url) => url.startsWith("https://artifacts.example.com/artifact/")),
-    "an owned asset is drawn",
+  const instance = new URL("https://artifacts.example.com");
+  const urls = [...document.matchAll(/https?:\/\/[^\s"'<>);]+/g)].map((match) => new URL(match[0]));
+  assert.ok(urls.length > 0, "the document references the instance origin");
+  assert.deepEqual(
+    urls.map((url) => url.origin),
+    urls.map(() => instance.origin),
+    "every absolute url in the document belongs to the instance origin",
   );
-  for (const url of urls)
-    assert.equal(url.startsWith("https://artifacts.example.com"), true, `unexpected source ${url}`);
+  assert.deepEqual(
+    urls.filter((url) => url.pathname !== "/").map((url) => url.pathname),
+    [`/artifact/${ARTIFACT}/asset/${IMAGE_DIGEST}`],
+    "the owner's asset is the one thing it fetches",
+  );
 });
 
 test("artifact_get_scene requires the read scope, not only the write scope", async () => {
