@@ -125,8 +125,8 @@ async function redactUnreadableArtboardAnchors(
   config: ViewerCommentsConfig,
 ): Promise<ViewerCommentsConfig> {
   const anchored = config.threads.filter((thread) => isArtboardAnchor(thread.anchor));
-  if (anchored.length === 0 || input.publishedScene === undefined) return config;
-  const scene = await input.publishedScene();
+  if (anchored.length === 0) return config;
+  const scene = input.publishedScene === undefined ? null : await input.publishedScene();
   const readable = new Map<string, boolean>();
   if (scene !== null) {
     const sources = new Set(
