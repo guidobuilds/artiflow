@@ -356,6 +356,7 @@ function canvasWorkspace(seed: { ownerId?: string; kind?: string; text: string }
 const connect = async (
   backend: McpBackend,
   scopes: string[] = SCOPES,
+  serving: { publicOrigin?: string; database?: Database } = {},
 ): Promise<{
   callTool: (name: string, args: ToolPayload) => Promise<ToolResult>;
   names: string[];
@@ -365,6 +366,7 @@ const connect = async (
     backend,
     requireScope: "artifacts:write",
     readScope: "artifacts:read",
+    ...serving,
   })({ userId: OWNER, scopes });
   const client = new Client({ name: "scene-tools-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -532,6 +534,7 @@ test("the scene tools refuse every kind that is not a scene with wrong_kind", as
     const { callTool } = await connect(canvasWorkspace({ kind, text: markdown }).backend);
     for (const [name, args] of [
       ["scene_outline", { artifactId: ARTIFACT }],
+      ["artifact_get_scene", { artifactId: ARTIFACT }],
       ["scene_read", { artifactId: ARTIFACT, frameId: "home" }],
       ["scene_apply", { artifactId: ARTIFACT, baseSeq: 0, idempotencyKey: "k", ops: [{ op: "remove_node", id: "a" }] }],
     ] as [string, ToolPayload][]) {
@@ -1101,4 +1104,118 @@ test("a scene with no loose nodes keeps every reply scene tools answered before"
     "violations",
   ]);
   assert.deepEqual(applied.boxes, [{ id: "n1", frameId: "f1", x: 107, y: 9, w: 10, h: 10 }]);
+});
+
+const IMAGE_DIGEST = "a".repeat(64);
+const imageNode = (id: string): Record<string, unknown> => ({
+  id,
+  type: "image",
+  x: 0,
+  y: 0,
+  w: 40,
+  h: 30,
+  assetId: IMAGE_DIGEST,
+});
+const databaseServing = (digests: string[]): Database =>
+  ({
+    db: {
+      select: () => ({
+        from: () => ({
+          where: async () => digests.map((sha256) => ({ sha256 })),
+        }),
+      }),
+    },
+  }) as unknown as Database;
+
+test("artifact_get_scene draws a canvas with its frame index and a deck as a presentation", async () => {
+  const canvas = await connect(
+    canvasWorkspace({ text: canvasText([HOME(), frameOf("f2", "Checkout", [rectNode("n2")], 400)]) }).backend,
+  );
+  const drawn = ok(await canvas.callTool("artifact_get_scene", { artifactId: ARTIFACT }));
+  assert.equal(drawn.kind, "canvas");
+  assert.equal(typeof drawn.revisionId, "string", "the reply names the revision it rendered");
+  const canvasDocument = drawn.documentHtml as string;
+  assert.match(canvasDocument, /^<!doctype html>/);
+  assert.ok(canvasDocument.includes('class="scene-surface"'), "a canvas is one surface");
+  assert.ok(canvasDocument.includes('id="fit"'), "a canvas keeps its fit control");
+  assert.ok(canvasDocument.includes('data-frame-id="f1"') && canvasDocument.includes('data-frame-id="f2"'));
+  assert.ok(canvasDocument.includes('id="frame-index"'), "a canvas keeps its frame index");
+  assert.equal(canvasDocument.includes('class="scene-slides"'), false, "a canvas is never drawn as slides");
+
+  const deck = await connect(canvasWorkspace({ kind: "deck", text: canvasText([HOME()]) }).backend);
+  const presented = ok(await deck.callTool("artifact_get_scene", { artifactId: ARTIFACT }));
+  assert.equal(presented.kind, "deck");
+  const deckDocument = presented.documentHtml as string;
+  assert.ok(deckDocument.includes('class="scene-stage scene-slides"'), "a deck is drawn as a presentation");
+  assert.ok(deckDocument.includes('id="prev"') && deckDocument.includes('id="next"'), "a deck keeps its navigation");
+  assert.ok(deckDocument.includes('id="frame-counter"'), "a deck keeps its slide counter");
+  assert.equal(deckDocument.includes('class="scene-surface"'), false, "a deck is never drawn as a canvas surface");
+});
+
+test("a scene document names the instance origin for images and never a third party", async () => {
+  const text = canvasText([frameOf("f1", "Home", [imageNode("img-1")])]);
+  const served = await connect(canvasWorkspace({ text }).backend, SCOPES, {
+    publicOrigin: "https://artifacts.example.com",
+    database: databaseServing([IMAGE_DIGEST]),
+  });
+  const drawn = ok(await served.callTool("artifact_get_scene", { artifactId: ARTIFACT }));
+  const document = drawn.documentHtml as string;
+  assert.ok(
+    document.includes("img-src https://artifacts.example.com;"),
+    "the document allows images from exactly one origin",
+  );
+  assert.ok(
+    document.includes(`src="https://artifacts.example.com/artifact/${ARTIFACT}/asset/${IMAGE_DIGEST}"`),
+    "an owned asset is drawn from the instance itself",
+  );
+  assert.equal(document.includes("img-src *"), false, "no wildcard image source");
+
+  const unowned = await connect(canvasWorkspace({ text }).backend, SCOPES, {
+    publicOrigin: "https://artifacts.example.com",
+    database: databaseServing([]),
+  });
+  const placeholderDocument = ok(await unowned.callTool("artifact_get_scene", { artifactId: ARTIFACT }))
+    .documentHtml as string;
+  assert.ok(
+    placeholderDocument.includes("node-image-label"),
+    "an image the artifact does not own draws as a placeholder",
+  );
+  assert.equal(placeholderDocument.includes(`src="https://artifacts.example.com/`), false);
+
+  const originless = await connect(canvasWorkspace({ text }).backend);
+  const originlessDocument = ok(await originless.callTool("artifact_get_scene", { artifactId: ARTIFACT }))
+    .documentHtml as string;
+  assert.equal(
+    originlessDocument.includes("img-src"),
+    false,
+    "an instance without a usable origin names no image source at all, so default-src 'none' holds",
+  );
+  assert.ok(originlessDocument.includes("content-security-policy\" content=\"default-src 'none';"));
+  assert.ok(originlessDocument.includes("node-image-label"), "and every image draws as a placeholder");
+});
+
+test("the scene document names no absolute url outside the instance origin", async () => {
+  const text = canvasText([frameOf("f1", "Home", [imageNode("img-1")])]);
+  const served = await connect(canvasWorkspace({ text }).backend, SCOPES, {
+    publicOrigin: "https://artifacts.example.com",
+    database: databaseServing([IMAGE_DIGEST]),
+  });
+  const document = ok(await served.callTool("artifact_get_scene", { artifactId: ARTIFACT })).documentHtml as string;
+  const urls = [...document.matchAll(/https?:\/\/[^\s"'<>)]+/g)].map((match) => match[0].replace(/;$/, ""));
+  assert.ok(
+    urls.some((url) => url.startsWith("https://artifacts.example.com/artifact/")),
+    "an owned asset is drawn",
+  );
+  for (const url of urls)
+    assert.equal(url.startsWith("https://artifacts.example.com"), true, `unexpected source ${url}`);
+});
+
+test("artifact_get_scene requires the read scope, not only the write scope", async () => {
+  const { callTool } = await connect(canvasWorkspace({ text: canvasText([HOME()]) }).backend, ["artifacts:write"]);
+  refused(await callTool("artifact_get_scene", { artifactId: ARTIFACT }), "insufficient_scope");
+});
+
+test("artifact_get_scene refuses bytes that are not a scene instead of drawing them", async () => {
+  const { callTool } = await connect(canvasWorkspace({ text: "<p>not a scene</p>" }).backend);
+  refused(await callTool("artifact_get_scene", { artifactId: ARTIFACT }), "invalid_scene");
 });

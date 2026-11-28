@@ -114,6 +114,12 @@ ningún lugar donde alojar un binario. No es un fallo de render: es el aislamien
 llegada de la vía de assets (F4) el canvas sí muestra imágenes, y lo hace con una política que
 nombra **un solo origen**, el de la instancia, nunca un tercero.
 
+El visor del host respeta esa misma política. Cuando el agente abre un canvas o un deck en la
+conversación, el visor pide el documento ya renderizado —el mismo que sirve esta página— por una
+llamada proxy, y el marco que lo dibuja nombra **ese único origen** para las imágenes: el de la
+instancia. Una imagen que el artefacto no posee se dibuja como marcador con su digest, nunca desde
+un tercero. Si la instancia no tiene un origen utilizable, el marco no nombra ningún origen.
+
 ### 2.4 Quién puede ver y quién puede tocar
 
 | Quién                            | Cómo se identifica                                            | Qué puede                               |
