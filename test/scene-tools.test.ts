@@ -81,6 +81,17 @@ const frameOf = (id: string, name: string, nodes: Record<string, unknown>[], x =
 const sceneOf = (frames: Record<string, unknown>[]): Scene =>
   ({ formatVersion: SCENE_FORMAT_VERSION, frames }) as unknown as Scene;
 const canvasText = (frames: Record<string, unknown>[]): string => canonicalScene(sceneOf(frames));
+const looseNodeOf = (id: string, x = 0, y = 0): Record<string, unknown> => ({
+  id,
+  type: "rect",
+  x,
+  y,
+  w: 10,
+  h: 10,
+  fill: "#dddddd",
+});
+const looseCanvasText = (frames: Record<string, unknown>[], nodes: Record<string, unknown>[]): string =>
+  canonicalScene({ ...sceneOf(frames), nodes } as unknown as Scene);
 
 const HOME = (): Record<string, unknown> => frameOf("f1", "Home", [rectNode("n1")], 100);
 
@@ -891,4 +902,203 @@ test("crossing the freeze threshold publishes and the outline still reads the dr
   const read = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
   const nodes = (read.frame as ToolPayload).nodes as ToolPayload[];
   assert.equal(nodes[0]?.x, FREEZE_OPERATION_THRESHOLD % 80, "the read sees the last edit made after the freeze");
+});
+
+test("an agent creates a loose canvas node and reads it back without a frameId", async () => {
+  const workspace = canvasWorkspace({ text: canvasText([HOME()]) });
+  const { callTool } = await connect(workspace.backend);
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "loose-add",
+      ops: [{ op: "add_canvas_node", node: looseNodeOf("loose-1", 40, 50) }],
+    }),
+  );
+  assert.equal(applied.applied, 1, "the canvas operation applies");
+  assert.equal(applied.seq, 1);
+  assert.deepEqual(applied.boxes, [], "a loose node has no frame, so the batch reports no box for it");
+  assert.deepEqual(applied.violations, []);
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT }));
+  assert.deepEqual(Object.keys(read).sort(), ["artifactId", "canvas", "revisionId", "seq"]);
+  assert.equal(read.artifactId, ARTIFACT);
+  assert.equal(read.revisionId, "revision-1");
+  assert.equal(read.seq, 1, "the loose read follows the draft");
+  const canvasLevel = read.canvas as ToolPayload;
+  assert.deepEqual(Object.keys(canvasLevel).sort(), ["nodeCount", "nodes"]);
+  assert.equal(canvasLevel.nodeCount, 1);
+  assert.deepEqual(canvasLevel.nodes, [{ id: "loose-1", type: "rect", x: 40, y: 50, w: 10, h: 10, fill: "#dddddd" }]);
+  const frame = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  assert.deepEqual(
+    ((frame.frame as ToolPayload).nodes as ToolPayload[]).map((node) => node.id),
+    ["n1"],
+    "a frame read still answers that frame, never the loose level",
+  );
+  assert.deepEqual(
+    workspace.sceneOfDraft().nodes?.map((node) => node.id),
+    ["loose-1"],
+    "the loose node is stored on the scene itself",
+  );
+  const unknown = refused(await callTool("scene_read", { artifactId: ARTIFACT, nodeIds: ["missing"] }), "unknown_node");
+  assert.equal(unknown.message, "node_not_in_scene");
+  assert.equal(unknown.nodeId, "missing");
+});
+
+test("move, update and reorder canvas nodes change the loose level the read answers", async () => {
+  const workspace = canvasWorkspace({
+    text: looseCanvasText([HOME()], [looseNodeOf("loose-1"), looseNodeOf("loose-2")]),
+  });
+  const { callTool } = await connect(workspace.backend);
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "loose-edit",
+      ops: [
+        { op: "move_canvas_node", id: "loose-1", x: 70, y: 80, w: 12, h: 14 },
+        { op: "update_canvas_node", id: "loose-2", props: { fill: "#123456" } },
+        { op: "reorder_canvas_node", id: "loose-2", index: 0 },
+      ],
+    }),
+  );
+  assert.equal(applied.applied, 3, "the three canvas operations apply in one batch");
+  assert.deepEqual(applied.boxes, [], "no loose node reports a box");
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT }));
+  const nodes = (read.canvas as ToolPayload).nodes as ToolPayload[];
+  assert.deepEqual(
+    nodes.map((node) => node.id),
+    ["loose-2", "loose-1"],
+    "the reordering decides the loose painting order",
+  );
+  assert.deepEqual(
+    [nodes[1]?.x, nodes[1]?.y, nodes[1]?.w, nodes[1]?.h],
+    [70, 80, 12, 14],
+    "the moved node reads at its new geometry",
+  );
+  assert.equal(nodes[0]?.fill, "#123456", "the updated property reads back");
+  const narrowed = ok(await callTool("scene_read", { artifactId: ARTIFACT, nodeIds: ["loose-1"] }));
+  assert.deepEqual(
+    ((narrowed.canvas as ToolPayload).nodes as ToolPayload[]).map((node) => node.id),
+    ["loose-1"],
+    "nodeIds narrows the loose level too",
+  );
+  assert.equal((narrowed.canvas as ToolPayload).nodeCount, 1);
+  const rejected = refused(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 1,
+      idempotencyKey: "loose-missing",
+      ops: [{ op: "move_canvas_node", id: "loose-9", x: 1, y: 2 }],
+    }),
+    "invalid_operation",
+  );
+  assert.equal(rejected.message, "unknown_node", "an id the loose level does not hold refuses by name");
+  assert.equal(rejected.opIndex, 0);
+});
+
+test("remove_canvas_node deletes a loose node and leaves the frames alone", async () => {
+  const workspace = canvasWorkspace({ text: looseCanvasText([HOME()], [looseNodeOf("loose-1")]) });
+  const { callTool } = await connect(workspace.backend);
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "loose-remove",
+      ops: [{ op: "remove_canvas_node", id: "loose-1" }],
+    }),
+  );
+  assert.equal(applied.applied, 1);
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT }));
+  assert.equal((read.canvas as ToolPayload).nodeCount, 0, "the loose level is empty again");
+  assert.deepEqual((read.canvas as ToolPayload).nodes, []);
+  const frame = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  assert.deepEqual(
+    ((frame.frame as ToolPayload).nodes as ToolPayload[]).map((node) => node.id),
+    ["n1"],
+    "the frame keeps its own node",
+  );
+  const outline = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.equal(outline.looseNodeCount, 0, "the outline agrees the loose level is empty");
+});
+
+test("scene_outline reports the loose-node count next to the unchanged frame entries", async () => {
+  const workspace = canvasWorkspace({
+    text: looseCanvasText(
+      [frameOf("f1", "Home", [rectNode("n1")], 100), frameOf("f2", "Checkout", [textNode("t1", "Pay now")])],
+      [looseNodeOf("loose-1"), looseNodeOf("loose-2")],
+    ),
+  });
+  const { callTool } = await connect(workspace.backend);
+  const outline = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.equal(outline.looseNodeCount, 2, "two loose nodes are two canvas-level nodes");
+  assert.equal(outline.frameCount, 2);
+  const listed = outline.frames as ToolPayload[];
+  for (const entry of listed)
+    assert.deepEqual(
+      Object.keys(entry).sort(),
+      ["bbox", "id", "name", "nodeCount"],
+      "a frame entry keeps its four keys",
+    );
+  assert.deepEqual(
+    listed.map((entry) => entry.id),
+    ["f1", "f2"],
+  );
+  assert.equal(JSON.stringify(outline).includes("loose-1"), false, "the loose node ids do not reach the wire");
+});
+
+test("a scene with no loose nodes keeps every reply scene tools answered before", async () => {
+  const workspace = canvasWorkspace({ text: canvasText([HOME()]) });
+  const { callTool } = await connect(workspace.backend);
+  const outline = ok(await callTool("scene_outline", { artifactId: ARTIFACT }));
+  assert.deepEqual(Object.keys(outline).sort(), [
+    "artifactId",
+    "formatVersion",
+    "frameCount",
+    "frames",
+    "looseNodeCount",
+    "revisionId",
+    "seq",
+  ]);
+  assert.equal(outline.looseNodeCount, 0, "a frame-only scene reports no loose node");
+  assert.deepEqual(Object.keys((outline.frames as ToolPayload[])[0] as ToolPayload).sort(), [
+    "bbox",
+    "id",
+    "name",
+    "nodeCount",
+  ]);
+  const empty = ok(await callTool("scene_read", { artifactId: ARTIFACT }));
+  assert.deepEqual(empty.canvas, { nodeCount: 0, nodes: [] }, "a frame-only scene answers an empty loose level");
+  const read = ok(await callTool("scene_read", { artifactId: ARTIFACT, frameId: "f1" }));
+  assert.deepEqual(Object.keys(read).sort(), ["artifactId", "frame", "revisionId", "seq"]);
+  assert.deepEqual(Object.keys(read.frame as ToolPayload).sort(), [
+    "bbox",
+    "h",
+    "id",
+    "name",
+    "nodeCount",
+    "nodes",
+    "w",
+    "x",
+    "y",
+  ]);
+  const applied = ok(
+    await callTool("scene_apply", {
+      artifactId: ARTIFACT,
+      baseSeq: 0,
+      idempotencyKey: "frame-only-1",
+      ops: [{ op: "move_node", id: "n1", x: 7, y: 9 }],
+    }),
+  );
+  assert.deepEqual(Object.keys(applied).sort(), [
+    "applied",
+    "artifactId",
+    "baseSeq",
+    "boxes",
+    "published",
+    "replayed",
+    "revisionId",
+    "seq",
+    "violations",
+  ]);
+  assert.deepEqual(applied.boxes, [{ id: "n1", frameId: "f1", x: 107, y: 9, w: 10, h: 10 }]);
 });

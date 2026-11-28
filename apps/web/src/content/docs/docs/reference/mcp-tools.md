@@ -65,32 +65,32 @@ always about an argument the schema accepts but the operation rejects.
 
 ## The twenty-four tools
 
-| Tool                         | Scope             | What it does                                            |
-| ---------------------------- | ----------------- | ------------------------------------------------------- |
-| `artifact_start_upload`      | `artifacts:write` | Declare a staged upload of up to 16 MiB                 |
-| `artifact_put_chunk`         | `artifacts:write` | Stage one base64 chunk of up to 1 MiB                   |
-| `artifact_commit`            | `artifacts:write` | Verify the staged stream and commit it as an artifact   |
-| `artifact_write`             | `artifacts:write` | Write a whole text artifact (≤ 1 MiB) in one call       |
-| `artifact_get`               | `artifacts:read`  | Read one revision as base64                             |
-| `artifact_update_metadata`   | `artifacts:write` | Rename an artifact: title only, no new revision         |
-| `artifact_get_markdown`      | `artifacts:read`  | Read a Markdown document as numbered lines              |
-| `artifact_edit_lines`        | `artifacts:write` | Patch a Markdown document by line and commit a revision |
-| `artifact_list_comments`     | `artifacts:read`  | List Markdown comment threads with replies              |
-| `artifact_add_comment`       | `artifacts:write` | Comment on a source selection                           |
-| `artifact_reply_comment`     | `artifacts:write` | Reply to a root comment                                 |
-| `artifact_resolve_comment`   | `artifacts:write` | Mark a thread resolved                                  |
-| `artifact_unresolve_comment` | `artifacts:write` | Reopen a thread                                         |
-| `document_create`            | `artifacts:write` | Create a Markdown document and open its draft sequence  |
-| `document_outline`           | `artifacts:read`  | Outline a document as one entry per block               |
-| `document_read`              | `artifacts:read`  | Read blocks by id or a numbered line window             |
-| `document_query`             | `artifacts:read`  | Find blocks by text, kind, or both                      |
-| `document_diff`              | `artifacts:read`  | Compare two sequences of a document block by block      |
-| `document_apply`             | `artifacts:write` | Apply an atomic batch of typed document operations      |
-| `document_publish`           | `artifacts:write` | Freeze the draft as the published revision              |
-| `scene_outline`              | `artifacts:read`  | Outline a canvas scene as one entry per frame           |
-| `scene_read`                 | `artifacts:read`  | Read one frame, optionally narrowed by node ids         |
-| `scene_apply`                | `artifacts:write` | Apply an atomic batch of scene operations               |
-| `asset_upload`               | `artifacts:write` | Attach one raster image, stored once by its digest      |
+| Tool                         | Scope             | What it does                                                           |
+| ---------------------------- | ----------------- | ---------------------------------------------------------------------- |
+| `artifact_start_upload`      | `artifacts:write` | Declare a staged upload of up to 16 MiB                                |
+| `artifact_put_chunk`         | `artifacts:write` | Stage one base64 chunk of up to 1 MiB                                  |
+| `artifact_commit`            | `artifacts:write` | Verify the staged stream and commit it as an artifact                  |
+| `artifact_write`             | `artifacts:write` | Write a whole text artifact (≤ 1 MiB) in one call                      |
+| `artifact_get`               | `artifacts:read`  | Read one revision as base64                                            |
+| `artifact_update_metadata`   | `artifacts:write` | Rename an artifact: title only, no new revision                        |
+| `artifact_get_markdown`      | `artifacts:read`  | Read a Markdown document as numbered lines                             |
+| `artifact_edit_lines`        | `artifacts:write` | Patch a Markdown document by line and commit a revision                |
+| `artifact_list_comments`     | `artifacts:read`  | List Markdown comment threads with replies                             |
+| `artifact_add_comment`       | `artifacts:write` | Comment on a source selection                                          |
+| `artifact_reply_comment`     | `artifacts:write` | Reply to a root comment                                                |
+| `artifact_resolve_comment`   | `artifacts:write` | Mark a thread resolved                                                 |
+| `artifact_unresolve_comment` | `artifacts:write` | Reopen a thread                                                        |
+| `document_create`            | `artifacts:write` | Create a Markdown document and open its draft sequence                 |
+| `document_outline`           | `artifacts:read`  | Outline a document as one entry per block                              |
+| `document_read`              | `artifacts:read`  | Read blocks by id or a numbered line window                            |
+| `document_query`             | `artifacts:read`  | Find blocks by text, kind, or both                                     |
+| `document_diff`              | `artifacts:read`  | Compare two sequences of a document block by block                     |
+| `document_apply`             | `artifacts:write` | Apply an atomic batch of typed document operations                     |
+| `document_publish`           | `artifacts:write` | Freeze the draft as the published revision                             |
+| `scene_outline`              | `artifacts:read`  | Outline a canvas scene as one entry per frame and the loose-node count |
+| `scene_read`                 | `artifacts:read`  | Read one frame, or the loose canvas nodes when `frameId` is omitted    |
+| `scene_apply`                | `artifacts:write` | Apply an atomic batch of scene operations                              |
+| `asset_upload`               | `artifacts:write` | Attach one raster image, stored once by its digest                     |
 
 ## Staged transfer tools
 
@@ -584,8 +584,10 @@ snapshot, so the viewer and a public link serve the edits immediately. A draft w
 
 ## Scene tools
 
-A `canvas` or `deck` artifact renders a **scene**: versioned JSON of frames and nodes. The scene shape,
-node types and validation rules are on [Canvas](/docs/artifacts/canvas/).
+A `canvas` or `deck` artifact renders a **scene**: versioned JSON of frames and nodes. A scene has two
+levels: **frames**, each with its own nodes, and the **canvas level**, the loose nodes that belong to no
+frame and paint on the board itself. The scene shape, node types and validation rules are on
+[Canvas](/docs/artifacts/canvas/).
 
 The scene arrives as artifact bytes — `artifact_write` or `artifact_commit` with `kind: "canvas"` or
 `kind: "deck"` and the scene JSON as its content — and the three tools below work on the current draft of
@@ -597,7 +599,7 @@ read with `invalid_scene`, the failing `path` and the engine's reason (`malforme
 
 ### `scene_outline` — the frame index
 
-Input `{ artifactId }`. Returns frames only, never the node bodies:
+Input `{ artifactId }`. Returns frames only, never the node bodies, plus the loose-node count:
 
 ```json
 {
@@ -606,21 +608,25 @@ Input `{ artifactId }`. Returns frames only, never the node bodies:
   "seq": 4,
   "formatVersion": 1,
   "frameCount": 1,
+  "looseNodeCount": 2,
   "frames": [{ "id": "checkout", "name": "Checkout", "nodeCount": 2, "bbox": { "x": 0, "y": 0, "w": 375, "h": 812 } }]
 }
 ```
 
 `bbox` is the union of the frame's node boxes in scene coordinates, so an empty frame reports its own
-rectangle. The frame ids it returns are what `scene_read` accepts; `seq` is the sequence `scene_apply`
-takes as `baseSeq`.
+rectangle. `looseNodeCount` is how many nodes sit on the canvas level, the ones that belong to no frame;
+the frame entries are unchanged by their presence. The frame ids it returns are what `scene_read`
+accepts; `seq` is the sequence `scene_apply` takes as `baseSeq`.
 
-### `scene_read` — one frame, optionally narrowed
+### `scene_read` — one frame, or the canvas level
 
-| Field        | Type   | Required | Rules                                    |
-| ------------ | ------ | -------- | ---------------------------------------- |
-| `artifactId` | string | yes      | 1–100 characters                         |
-| `frameId`    | string | yes      | 1–200 characters                         |
-| `nodeIds`    | array  | no       | 1–200 node ids; omitted reads every node |
+| Field        | Type   | Required | Rules                                             |
+| ------------ | ------ | -------- | ------------------------------------------------- |
+| `artifactId` | string | yes      | 1–100 characters                                  |
+| `frameId`    | string | no       | 1–200 characters; omit it to read the loose nodes |
+| `nodeIds`    | array  | no       | 1–200 node ids; omitted reads every node          |
+
+With a `frameId`, one frame comes back:
 
 ```json
 {
@@ -641,11 +647,29 @@ takes as `baseSeq`.
 }
 ```
 
-Node geometry is relative to its frame and `bbox` is absolute. One read returns at most **200 nodes** and
-**65,536 bytes** of frame JSON; a wider request refuses with `too_large` /
-`read_window_exceeds_the_node_cap` (`{ maxNodes, requestedNodes }`) or `read_window_exceeds_the_byte_cap`
-(`{ maxBytes, observedBytes }`) instead of truncating. An id the scene does not hold is `unknown_frame` /
-`frame_not_in_scene` or `unknown_node` / `node_not_in_frame` with its `nodeId`.
+Without a `frameId`, the canvas level comes back as `canvas`, the same envelope the frame read uses:
+
+```json
+{
+  "artifactId": "6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11",
+  "revisionId": "0b7d9c31-2a4e-4d6f-8a19-3c5e7f2b1d84",
+  "seq": 4,
+  "canvas": {
+    "nodeCount": 1,
+    "nodes": [{ "id": "badge", "type": "rect", "x": 320, "y": 24, "w": 40, "h": 40, "fill": "#f59f00" }]
+  }
+}
+```
+
+The canvas level has no id, name, geometry or `bbox`, because a loose node sits at scene coordinates with
+nothing around it. `nodeIds` narrows both replies; an id the chosen level does not hold is `unknown_node`
+/ `node_not_in_frame` or `node_not_in_scene` with its `nodeId`.
+
+Node geometry is relative to its frame and `bbox` is absolute; a loose node's geometry is already
+absolute scene geometry. One read returns at most **200 nodes** and **65,536 bytes** of frame or canvas
+JSON; a wider request refuses with `too_large` / `read_window_exceeds_the_node_cap`
+(`{ maxNodes, requestedNodes }`) or `read_window_exceeds_the_byte_cap` (`{ maxBytes, observedBytes }`)
+instead of truncating. An absent frame id is `unknown_frame` / `frame_not_in_scene`.
 
 ### `scene_apply` — one atomic batch of operations
 
@@ -658,22 +682,30 @@ Node geometry is relative to its frame and `bbox` is absolute. One read returns 
 
 Each operation is one of:
 
-| Op              | Fields                                                                         |
-| --------------- | ------------------------------------------------------------------------------ |
-| `add_frame`     | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`                      |
-| `update_frame`  | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`                       |
-| `remove_frame`  | `id`                                                                           |
-| `add_node`      | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields     |
-| `update_node`   | `id`, and `props` with any node property except `id`                           |
-| `move_node`     | `id`, `x`, `y`, optional `w` and `h`                                           |
-| `reorder_node`  | `id`, and `index` inside its frame (`0` is the back, the last index the front) |
-| `remove_node`   | `id`                                                                           |
-| `replace_scene` | `scene`: the escape hatch that replaces the whole scene                        |
+| Op                    | Fields                                                                                 |
+| --------------------- | -------------------------------------------------------------------------------------- |
+| `add_frame`           | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`                              |
+| `update_frame`        | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`                               |
+| `remove_frame`        | `id`                                                                                   |
+| `add_node`            | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields             |
+| `update_node`         | `id`, and `props` with any node property except `id`                                   |
+| `move_node`           | `id`, `x`, `y`, optional `w` and `h`                                                   |
+| `reorder_node`        | `id`, and `index` inside its frame (`0` is the back, the last index the front)         |
+| `remove_node`         | `id`                                                                                   |
+| `add_canvas_node`     | `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields, added to the canvas level |
+| `update_canvas_node`  | `id`, and `props` with any node property except `id`                                   |
+| `move_canvas_node`    | `id`, `x`, `y`, optional `w` and `h`                                                   |
+| `reorder_canvas_node` | `id`, and `index` on the canvas level (`0` is the back, the last index the front)      |
+| `remove_canvas_node`  | `id`                                                                                   |
+| `replace_scene`       | `scene`: the escape hatch that replaces the whole scene                                |
 
 Node types and their extra fields are `rect` (`fill`, optional `radius`), `text` (`text`, optional
 `style`), `image` (`assetId`) and `path` (`d`, optional `fill`, `stroke`, `strokeWidth`). Geometry is
 relative to the frame origin, a node may sit outside its frame at any coordinate, and a batch applies
-in order.
+in order. The `_node` operations address a node inside one frame; the `_canvas_node` operations address a
+loose node on the canvas level, whose geometry is scene coordinates and whose order is the canvas
+painting order. The five canvas operations are the only way to create, move, restack or delete that
+level.
 
 ```json
 {
@@ -705,8 +737,11 @@ in order.
 ```
 
 `boxes` carries the absolute box of every node the batch touched, in scene order, so the result can be
-judged without pixels. `violations` is the scene engine's report on the final scene and is empty today,
-because a batch that would leave an invalid scene refuses instead of being applied.
+judged without pixels. Every box names the `frameId` it sits in, so a loose canvas node is reported in no
+box at all: it has no frame, and its geometry is already absolute scene geometry. Read the canvas level
+with `scene_read` and no `frameId` to see the loose nodes a batch added or changed. `violations` is the
+scene engine's report on the final scene and is empty today, because a batch that would leave an invalid
+scene refuses instead of being applied.
 
 The failure contract is the one `document_apply` has: `concurrent_edit` with `currentSeq` for a stale
 `baseSeq`, and `invalid_operation` with `opIndex`, `currentSeq` and the named reason, the scene unchanged.
@@ -805,7 +840,7 @@ not a canonical UUID is `invalid_artifact_id`, and a missing, foreign or deleted
 | Changes per `document_diff` reply         | 200                                                                        |
 | Operations per `document_apply` call      | 50                                                                         |
 | Document snapshot                         | every 100 pending operations or ten minutes; `document_publish` forces one |
-| One `scene_read` window                   | 200 nodes or 65,536 bytes of frame JSON                                    |
+| One `scene_read` window                   | 200 nodes or 65,536 bytes of frame or canvas JSON                          |
 | Operations per `scene_apply` call         | 50                                                                         |
 | One `asset_upload` payload                | 1,569,792 raw bytes (2,093,056 base64 characters)                          |
 | Comment body / quote                      | 4000 / 2000 Unicode characters                                             |
@@ -825,7 +860,9 @@ any existing link already serve. No tool lists revisions either; `artifact_get` 
 the metadata of one revision, and nothing enumerates them.
 
 Canvas and deck editing is by operation only. `scene_apply` is the one writer, and it addresses frames
-and nodes by id, so every edit needs the id a `scene_outline` or `scene_read` returned. Scene bytes
+and nodes by id, so every edit needs the id a `scene_outline` or `scene_read` returned. The canvas level
+is addressed the same way: a loose node id comes from `scene_read` with no `frameId`, and the five
+`_canvas_node` operations create, change, restack and delete it. Scene bytes
 carry no image data: `asset_upload` stores the picture once, by digest, and an `image` node names that
 digest as its `assetId`.
 

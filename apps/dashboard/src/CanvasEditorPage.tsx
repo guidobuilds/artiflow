@@ -23,6 +23,7 @@ import {
   getScene,
   insideBounds,
   layerRows,
+  locateNode,
   moveFrame,
   moveNode,
   moveNodes,
@@ -38,6 +39,7 @@ import {
   updateTextNode,
   zoomBy,
   type SceneDraft,
+  type SceneRect,
 } from "./scene-api.ts";
 import { SceneAutosave, type SceneSaveState, type SceneSaveStatus } from "./scene-autosave.ts";
 
@@ -127,8 +129,10 @@ const withoutNodes = (scene: Scene, ids: string[]): Scene => ids.reduce((next, i
 const wheelPan = (deltaX: number, deltaY: number, shiftKey: boolean): Point =>
   shiftKey ? { x: -deltaY, y: 0 } : { x: -deltaX, y: -deltaY };
 
-const nodeStyle = (node: SceneNode): CSSProperties => {
-  const box: CSSProperties = { left: node.x, top: node.y, width: node.w, height: node.h };
+const NO_OFFSET: Point = { x: 0, y: 0 };
+
+const nodeStyle = (node: SceneNode, offset: Point = NO_OFFSET): CSSProperties => {
+  const box: CSSProperties = { left: node.x - offset.x, top: node.y - offset.y, width: node.w, height: node.h };
   if (node.type === "rect") return { ...box, background: node.fill, borderRadius: node.radius ?? 0 };
   if (node.type === "text") {
     const style = node.style ?? {};
@@ -254,10 +258,12 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
 
   const scene = state.scene;
   const frames = scene.frames;
+  const looseNodes = scene.nodes ?? [];
   const frame: SceneFrame | null = frames.find((entry) => entry.id === activeFrame) ?? frames[0] ?? null;
-  const layout = surfaceLayout(frames);
+  const layout = surfaceLayout(frames, looseNodes);
+  const hasSurface = frames.length > 0 || looseNodes.length > 0;
   const fitZoom = fitScale({ w: layout.width, h: layout.height }, viewport);
-  const scale = frame === null ? 1 : fitted ? fitZoom : zoom;
+  const scale = hasSurface ? (fitted ? fitZoom : zoom) : 1;
   const fitPan = {
     x: Math.round((viewport.w - layout.width * fitZoom) / 2),
     y: Math.round((viewport.h - layout.height * fitZoom) / 2),
@@ -271,7 +277,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     state.status === "restoring" ||
     state.code === "reload_required";
   const selectedNode: SceneNode | null =
-    selected.length === 1 ? (frame?.nodes.find((node) => node.id === selected[0]) ?? null) : null;
+    selected.length === 1 ? (locateNode(scene, selected[0] ?? "")?.node ?? null) : null;
   const busy = state.status === "saving" || state.status === "restoring";
   const isSelected = (id: string) => selected.includes(id);
   const framePoint = (clientX: number, clientY: number, frameId: string): Point => {
@@ -282,6 +288,19 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       x: (clientX - (bounds?.left ?? 0) - view.x) / unit - at.x,
       y: (clientY - (bounds?.top ?? 0) - view.y) / unit - at.y,
     };
+  };
+  const marqueeSelection = (rect: SceneRect): string[] => {
+    const offset = layout.origin;
+    const loose = selectNodesInRect(looseNodes, {
+      x: rect.x + offset.x,
+      y: rect.y + offset.y,
+      w: rect.w,
+      h: rect.h,
+    });
+    if (frame === null) return loose;
+    const at = placementOf(frame.id);
+    const inside = selectNodesInRect(frame, { x: rect.x - at.x, y: rect.y - at.y, w: rect.w, h: rect.h });
+    return [...inside, ...loose];
   };
 
   const zoomAt = useCallback(
@@ -302,7 +321,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     const element = stage.current;
     if (element === null) return;
     const onWheel = (event: WheelEvent) => {
-      if (frames.length === 0) return;
+      if (!hasSurface) return;
       if (event.ctrlKey || event.metaKey) {
         event.preventDefault();
         const bounds = element.getBoundingClientRect();
@@ -316,7 +335,7 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
     };
     element.addEventListener("wheel", onWheel, { passive: false });
     return () => element.removeEventListener("wheel", onWheel);
-  }, [frames.length, zoomAt, view.x, view.y]);
+  }, [hasSurface, zoomAt, view.x, view.y]);
 
   useEffect(() => {
     const typing = (target: EventTarget | null) =>
@@ -697,19 +716,16 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     setMarquee(null);
     if (start === null) return;
-    if (!dragged || frame === null) {
+    if (!dragged) {
       setSelected([]);
       return;
     }
     const unit = scale === 0 ? 1 : scale;
     const bounds = stage.current?.getBoundingClientRect();
-    const at = placementOf(frame.id);
-    const left = (Math.min(start.clientX, event.clientX) - (bounds?.left ?? 0) - view.x) / unit - at.x;
-    const top = (Math.min(start.clientY, event.clientY) - (bounds?.top ?? 0) - view.y) / unit - at.y;
     setSelected(
-      selectNodesInRect(frame, {
-        x: left,
-        y: top,
+      marqueeSelection({
+        x: (Math.min(start.clientX, event.clientX) - (bounds?.left ?? 0) - view.x) / unit,
+        y: (Math.min(start.clientY, event.clientY) - (bounds?.top ?? 0) - view.y) / unit,
         w: Math.abs(event.clientX - start.clientX) / unit,
         h: Math.abs(event.clientY - start.clientY) / unit,
       }),
@@ -861,6 +877,54 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
       </>
     ) : null;
 
+  const nodeMarkup = (node: SceneNode, active: boolean, offset: Point = NO_OFFSET) => (
+    <div
+      key={node.id}
+      role="button"
+      tabIndex={active ? 0 : -1}
+      aria-label={nodeLabel(node)}
+      aria-pressed={isSelected(node.id)}
+      className={`canvas-node canvas-node-${node.type} ${isSelected(node.id) ? "canvas-node-selected" : ""}`}
+      style={nodeStyle(node, offset)}
+      onPointerDown={(event) => startDrag(event, node, "move")}
+      onPointerMove={onPointerMove}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (nodeDragged.current) return;
+        if (event.shiftKey) {
+          toggle(node.id);
+          return;
+        }
+        setSelected([node.id]);
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        if (event.shiftKey) {
+          toggle(node.id);
+          return;
+        }
+        setSelected([node.id]);
+      }}
+    >
+      {node.type === "text" ? node.text : null}
+      {node.type === "image" ? <span className="canvas-image-label">Image · {node.assetId.slice(0, 12)}</span> : null}
+      {node.type === "path" ? (
+        <svg aria-hidden="true" width="100%" height="100%" viewBox={`0 0 ${node.w} ${node.h}`} fill="none">
+          <path
+            d={node.d}
+            fill={node.fill ?? "none"}
+            stroke={node.stroke ?? "none"}
+            strokeWidth={node.strokeWidth ?? 0}
+          />
+        </svg>
+      ) : null}
+      {handles(node)}
+    </div>
+  );
+
   return (
     <section aria-labelledby="editor-title" className="document-editor canvas-editor">
       <header className="editor-topbar">
@@ -956,18 +1020,14 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
             onPointerUp={onStagePointerUp}
             onPointerCancel={onStagePointerCancel}
           >
-            {frame === null ? (
-              <p className="canvas-empty" role="status">
-                This canvas has no frames yet.
-              </p>
-            ) : (
+            {hasSurface ? (
               <div
                 className="canvas-surface"
                 style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${scale})` }}
               >
                 {frames.map((entry) => {
                   const at = placementOf(entry.id);
-                  const active = entry.id === frame.id;
+                  const active = entry.id === frame?.id;
                   return (
                     <div
                       key={entry.id}
@@ -979,65 +1039,16 @@ function CanvasEditor({ initial }: { initial: SceneDraft }) {
                       onPointerUp={onFramePointerUp}
                       onPointerCancel={onFramePointerCancel}
                     >
-                      {entry.nodes.map((node) => (
-                        <div
-                          key={node.id}
-                          role="button"
-                          tabIndex={active ? 0 : -1}
-                          aria-label={nodeLabel(node)}
-                          aria-pressed={isSelected(node.id)}
-                          className={`canvas-node canvas-node-${node.type} ${isSelected(node.id) ? "canvas-node-selected" : ""}`}
-                          style={nodeStyle(node)}
-                          onPointerDown={(event) => startDrag(event, node, "move")}
-                          onPointerMove={onPointerMove}
-                          onPointerUp={endDrag}
-                          onPointerCancel={endDrag}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (nodeDragged.current) return;
-                            if (event.shiftKey) {
-                              toggle(node.id);
-                              return;
-                            }
-                            setSelected([node.id]);
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter" && event.key !== " ") return;
-                            event.preventDefault();
-                            if (event.shiftKey) {
-                              toggle(node.id);
-                              return;
-                            }
-                            setSelected([node.id]);
-                          }}
-                        >
-                          {node.type === "text" ? node.text : null}
-                          {node.type === "image" ? (
-                            <span className="canvas-image-label">Image · {node.assetId.slice(0, 12)}</span>
-                          ) : null}
-                          {node.type === "path" ? (
-                            <svg
-                              aria-hidden="true"
-                              width="100%"
-                              height="100%"
-                              viewBox={`0 0 ${node.w} ${node.h}`}
-                              fill="none"
-                            >
-                              <path
-                                d={node.d}
-                                fill={node.fill ?? "none"}
-                                stroke={node.stroke ?? "none"}
-                                strokeWidth={node.strokeWidth ?? 0}
-                              />
-                            </svg>
-                          ) : null}
-                          {handles(node)}
-                        </div>
-                      ))}
+                      {entry.nodes.map((node) => nodeMarkup(node, active))}
                     </div>
                   );
                 })}
+                {looseNodes.map((node) => nodeMarkup(node, true, layout.origin))}
               </div>
+            ) : (
+              <p className="canvas-empty" role="status">
+                This canvas has no frames yet.
+              </p>
             )}
           </div>
           {marquee === null ? null : (

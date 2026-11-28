@@ -1013,7 +1013,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       {
         title: "Outline a canvas scene",
         annotations: { readOnlyHint: true },
-        description: `Return the frame index of one owned canvas's current draft: one entry per frame with its id, name, node count and bbox, plus the scene format version and the draft sequence — never the node bodies, so a canvas with hundreds of nodes costs one line per frame. Requires ${readScope}. The frame ids are what scene_read accepts; any artifact kind that is not a canvas refuses with wrong_kind.`,
+        description: `Return the frame index of one owned canvas's current draft: one entry per frame with its id, name, node count and bbox, plus the scene format version, the number of loose canvas-level nodes and the draft sequence — never the node bodies, so a canvas with hundreds of nodes costs one line per frame. Requires ${readScope}. The frame ids are what scene_read accepts; looseNodeCount is the size of the canvas level scene_read answers without a frameId; any artifact kind that is not a canvas refuses with wrong_kind.`,
         inputSchema: { artifactId: documentIdSchema },
       },
       async ({ artifactId }) => {
@@ -1028,6 +1028,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           seq: loaded.seq,
           formatVersion: loaded.scene.formatVersion,
           frameCount: frames.length,
+          looseNodeCount: Array.isArray(loaded.scene.nodes) ? loaded.scene.nodes.length : 0,
           frames,
         });
       },
@@ -1035,12 +1036,12 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     server.registerTool(
       "scene_read",
       {
-        title: "Read one canvas frame",
+        title: "Read one canvas frame or the canvas level",
         annotations: { readOnlyHint: true },
-        description: `Read one frame of one owned canvas's current draft: its id, name, geometry, bbox and nodes, narrowed to nodeIds when given. Requires ${readScope}. One read returns at most ${MAX_SCENE_READ_NODES} nodes and at most ${MAX_SCENE_READ_BYTES} bytes of frame JSON; a wider request refuses with too_large and its named reason instead of truncating, so narrow it with nodeIds or read another frame. An id the scene does not hold refuses with unknown_frame or unknown_node, and any artifact kind that is not a canvas refuses with wrong_kind.`,
+        description: `Read one frame of one owned canvas's current draft — its id, name, geometry, bbox and nodes — or, with no frameId, the canvas level: the loose nodes that belong to no frame, answered as canvas { nodeCount, nodes }. Both narrow to nodeIds when given. Requires ${readScope}. One read returns at most ${MAX_SCENE_READ_NODES} nodes and at most ${MAX_SCENE_READ_BYTES} bytes of frame or canvas JSON; a wider request refuses with too_large and its named reason instead of truncating, so narrow it with nodeIds or read another frame. An id the scene does not hold refuses with unknown_frame or unknown_node, and any artifact kind that is not a canvas refuses with wrong_kind.`,
         inputSchema: {
           artifactId: documentIdSchema,
-          frameId: z.string().min(1).max(200),
+          frameId: z.string().min(1).max(200).optional(),
           nodeIds: z.array(z.string().min(1).max(200)).min(1).max(MAX_SCENE_READ_NODES).optional(),
         },
       },
@@ -1049,6 +1050,29 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         if (!access.ok) return access.reply;
         const loaded = await canvasScene(access.userId, artifactId);
         if ("content" in loaded) return loaded;
+        if (frameId === undefined) {
+          const loose = Array.isArray(loaded.scene.nodes) ? loaded.scene.nodes : [];
+          const wanted = nodeIds === undefined ? undefined : new Set(nodeIds);
+          for (const id of wanted ?? [])
+            if (!loose.some((node) => node.id === id))
+              return refusal("unknown_node", "node_not_in_scene", { artifactId, nodeId: id });
+          const canvasNodes = loose.filter((node) => wanted === undefined || wanted.has(node.id));
+          if (canvasNodes.length > MAX_SCENE_READ_NODES)
+            return refusal("too_large", "read_window_exceeds_the_node_cap", {
+              artifactId,
+              maxNodes: MAX_SCENE_READ_NODES,
+              requestedNodes: canvasNodes.length,
+            });
+          const canvas = { nodeCount: canvasNodes.length, nodes: canvasNodes };
+          const canvasBytes = new TextEncoder().encode(JSON.stringify(canvas)).length;
+          if (canvasBytes > MAX_SCENE_READ_BYTES)
+            return refusal("too_large", "read_window_exceeds_the_byte_cap", {
+              artifactId,
+              maxBytes: MAX_SCENE_READ_BYTES,
+              observedBytes: canvasBytes,
+            });
+          return reply({ artifactId, revisionId: loaded.revisionId, seq: loaded.seq, canvas });
+        }
         const frame = sceneSubtree(loaded.scene, frameId);
         const entry = sceneOutline(loaded.scene).find((candidate) => candidate.id === frameId);
         if (!frame || !entry) return refusal("unknown_frame", "frame_not_in_scene", { artifactId, frameId });
@@ -1146,13 +1170,25 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       }),
       z.object({ op: z.literal("reorder_node"), id: sceneId, index: z.number().int().min(0) }),
       z.object({ op: z.literal("remove_node"), id: sceneId }),
+      z.object({ op: z.literal("add_canvas_node"), node: sceneNode }),
+      z.object({ op: z.literal("update_canvas_node"), id: sceneId, props: sceneNodePatch }),
+      z.object({
+        op: z.literal("move_canvas_node"),
+        id: sceneId,
+        x: z.number(),
+        y: z.number(),
+        w: z.number().optional(),
+        h: z.number().optional(),
+      }),
+      z.object({ op: z.literal("reorder_canvas_node"), id: sceneId, index: z.number().int().min(0) }),
+      z.object({ op: z.literal("remove_canvas_node"), id: sceneId }),
       z.object({ op: z.literal("replace_scene"), scene: sceneDocument }),
     ]);
     server.registerTool(
       "scene_apply",
       {
         title: "Apply operations to a canvas scene",
-        description: `Apply a batch of id-addressed operations to one owned canvas in one atomic call, instead of resending the scene. Requires ${scope}. baseSeq is the draft sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: add_frame, update_frame, remove_frame, add_node, update_node, move_node, reorder_node, remove_node and replace_scene (the escape hatch that replaces the whole scene). A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged scene. The reply carries the new sequence, how many operations applied, the computed box of every touched node so the result can be judged without pixels, the violations the scene engine reports, and whether this call froze a snapshot: published reports whether it froze one and revisionId names it.`,
+        description: `Apply a batch of id-addressed operations to one owned canvas in one atomic call, instead of resending the scene. Requires ${scope}. baseSeq is the draft sequence you read; a stale one refuses with concurrent_edit and the current sequence, and nothing is written. idempotencyKey makes a retry safely replayable: the same key applies once. Operations: add_frame, update_frame, remove_frame, add_node, update_node, move_node, reorder_node, remove_node, add_canvas_node, update_canvas_node, move_canvas_node, reorder_canvas_node, remove_canvas_node and replace_scene (the escape hatch that replaces the whole scene). The eight frame operations address a node inside one frame; the five canvas operations address a loose node that belongs to no frame, and they are the only way to create, move, restack or delete that canvas level. A batch is all-or-nothing: a failing operation refuses with invalid_operation, its opIndex, the named reason and the unchanged scene. The reply carries the new sequence, how many operations applied, the computed box of every touched frame node so the result can be judged without pixels, the violations the scene engine reports, and whether this call froze a snapshot: published reports whether it froze one and revisionId names it. A loose canvas node is reported in no box, because a box is absolute scene geometry inside a named frame; read the canvas level with scene_read and no frameId to see one.`,
         inputSchema: {
           artifactId: documentIdSchema,
           baseSeq: z.number().int().min(0),
