@@ -594,6 +594,7 @@ export function createShareViewerApp(options: ShareViewerOptions): Hono {
         images,
         threads: commentThreads(model.comments),
         kind: row.kind,
+        pageId: plan.kind === "canvas" ? plan.page : null,
       });
       return c.html(page.html, 200, {
         ...page.headers,

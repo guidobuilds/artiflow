@@ -318,6 +318,7 @@ test("the canvas controller owns the viewport and the deck controller never sees
     "data-frame-x",
     "data-surface-w",
     "history.replaceState",
+    "aria-pressed",
   ])
     assert.ok(canvas.includes(own), `the canvas controller owns ${own}`);
   for (const deckWord of [
@@ -325,7 +326,6 @@ test("the canvas controller owns the viewport and the deck controller never sees
     'getElementById("prev")',
     'getElementById("next")',
     'getElementById("strip")',
-    "aria-pressed",
   ])
     assert.equal(canvas.includes(deckWord), false, `the canvas controller knows no ${deckWord}`);
   const deck = deckControllerScript();
@@ -355,7 +355,7 @@ const digest = (text: string): string => createHash("sha256").update(text).diges
 test("PRESERVE: each controller script is pinned to the bytes it ships", () => {
   assert.equal(
     digest(canvasControllerScript()),
-    "dbb32a733bf0be0d44d6df257a205dcf060b57742802c05118694cc5ed8efc6c",
+    "110178d572c1bb5f4cae235f9f5cde5111c5c3443a7122bb1f035d192a92355c",
     "the canvas controller is byte for byte the script the renderer used to inline",
   );
   assert.equal(

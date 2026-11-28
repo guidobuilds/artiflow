@@ -323,6 +323,7 @@ export function createLibraryApp(options: LibraryOptions): Hono {
         images,
         threads: commentThreads(model.comments),
         kind: row.kind,
+        pageId: plan.kind === "canvas" ? plan.page : null,
         artboards: await resolveSceneArtboards(
           scene.value,
           viewerId,

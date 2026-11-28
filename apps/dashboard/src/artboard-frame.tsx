@@ -19,10 +19,10 @@ export function ArtboardCard({ designId, frame }: { designId: string; frame: Sce
       </p>
       <p className="canvas-artboard-hint">Focus inspects it at 390 and 1280; Play walks its connections.</p>
       <p className="canvas-artboard-links" onPointerDown={(event) => event.stopPropagation()}>
-        <a className="canvas-artboard-link" href={sceneViewHref(viewerPath, { view: "focus", frameId: frame.id, width: 390 })}>
+        <a className="canvas-artboard-link" href={sceneViewHref(viewerPath, { view: "focus", frameId: frame.id, width: 390, page: null })}>
           Focus
         </a>
-        <a className="canvas-artboard-link" href={sceneViewHref(viewerPath, { view: "play", frameId: frame.id, width: 390 })}>
+        <a className="canvas-artboard-link" href={sceneViewHref(viewerPath, { view: "play", frameId: frame.id, width: 390, page: null })}>
           Play
         </a>
       </p>

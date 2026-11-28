@@ -9,6 +9,7 @@ import {
   type PathNode,
   type RectNode,
   type Scene,
+  type SceneCanvasNode,
   type SceneFrame,
   type SceneNode,
   type TextNode,
@@ -17,6 +18,7 @@ import {
 import { isArtboardAnchor } from "@artiflow/domain/comment-anchors";
 import { designRequestReference, designRequestStatus, designRequestStatusLabel } from "@artiflow/domain/design-request";
 import { presentsSlides } from "@artiflow/domain/kinds";
+import { guideLines, scenePageContent, scenePages } from "@artiflow/domain/scene-pages";
 import { sceneViewHref, type SceneViewPlan } from "@artiflow/domain/scene-link";
 import { artifactView, originOf, sceneDocumentCsp, withDocumentPolicy, type ArtifactPage } from "../artifact.ts";
 import { escapeAttribute, escapeJsonText } from "../chrome/theme.ts";
@@ -57,17 +59,24 @@ const NO_OFFSET: NodeOffset = { x: 0, y: 0 };
 const geometry = (node: SceneNode, offset: NodeOffset = NO_OFFSET): string =>
   `left:${px(node.x - offset.x)};top:${px(node.y - offset.y)};width:${px(node.w)};height:${px(node.h)}`;
 
-const renderRect = (node: RectNode, offset: NodeOffset = NO_OFFSET): string => {
+type NodeDecoration = { readonly className: string; readonly attributes: string };
+
+const NO_DECORATION: NodeDecoration = { className: "", attributes: "" };
+
+const decorated = (decoration: NodeDecoration): string =>
+  decoration.className === "" ? "" : ` ${escapeAttribute(decoration.className)}"${decoration.attributes}`;
+
+const renderRect = (node: RectNode, offset: NodeOffset = NO_OFFSET, decoration = NO_DECORATION): string => {
   const fill = safeColor(node.fill);
   const background = fill === null ? "" : `;background:${escapeAttribute(fill)}`;
   const radius =
     typeof node.radius === "number" && Number.isFinite(node.radius) && node.radius >= 0
       ? `;border-radius:${px(node.radius)}`
       : "";
-  return `<div class="node node-rect" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}${background}${radius}"></div>`;
+  return `<div class="node node-rect${decorated(decoration)}" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}${background}${radius}"></div>`;
 };
 
-const renderText = (node: TextNode, offset: NodeOffset = NO_OFFSET): string => {
+const renderText = (node: TextNode, offset: NodeOffset = NO_OFFSET, decoration = NO_DECORATION): string => {
   const style = node.style ?? {};
   const size =
     typeof style.fontSize === "number" && Number.isFinite(style.fontSize) && style.fontSize > 0 ? style.fontSize : 16;
@@ -81,7 +90,7 @@ const renderText = (node: TextNode, offset: NodeOffset = NO_OFFSET): string => {
   const color = safeColor(style.color) ?? "#111111";
   const align =
     typeof style.align === "string" && (TEXT_ALIGNS as readonly string[]).includes(style.align) ? style.align : "left";
-  return `<div class="node node-text" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)};font-size:${px(size)};font-weight:${weight};color:${escapeAttribute(color)};text-align:${align}">${escapeAttribute(node.text)}</div>`;
+  return `<div class="node node-text${decorated(decoration)}" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)};font-size:${px(size)};font-weight:${weight};color:${escapeAttribute(color)};text-align:${align}">${escapeAttribute(node.text)}</div>`;
 };
 
 const imageUrl = (node: ImageNode, images: SceneImages): string | null => {
@@ -90,14 +99,19 @@ const imageUrl = (node: ImageNode, images: SceneImages): string | null => {
   return `${images.origin}/artifact/${encodeURIComponent(images.artifactId)}/asset/${node.assetId}${token}`;
 };
 
-const renderImage = (node: ImageNode, images?: SceneImages, offset: NodeOffset = NO_OFFSET): string => {
+const renderImage = (
+  node: ImageNode,
+  images?: SceneImages,
+  offset: NodeOffset = NO_OFFSET,
+  decoration = NO_DECORATION,
+): string => {
   const url = images === undefined ? null : imageUrl(node, images);
   if (url === null)
-    return `<div class="node node-image" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}"><span class="node-image-label">Image</span><code class="node-image-id">${escapeAttribute(node.assetId)}</code></div>`;
-  return `<img class="node node-image node-image-asset" data-node-id="${escapeAttribute(node.id)}" alt="${escapeAttribute(node.id)}" src="${escapeAttribute(url)}" style="${geometry(node, offset)};object-fit:contain">`;
+    return `<div class="node node-image${decorated(decoration)}" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}"><span class="node-image-label">Image</span><code class="node-image-id">${escapeAttribute(node.assetId)}</code></div>`;
+  return `<img class="node node-image node-image-asset${decorated(decoration)}" data-node-id="${escapeAttribute(node.id)}" alt="${escapeAttribute(node.id)}" src="${escapeAttribute(url)}" style="${geometry(node, offset)};object-fit:contain">`;
 };
 
-const renderPath = (node: PathNode, offset: NodeOffset = NO_OFFSET): string => {
+const renderPath = (node: PathNode, offset: NodeOffset = NO_OFFSET, decoration = NO_DECORATION): string => {
   if (!(node.w > 0) || !(node.h > 0)) return "";
   const fill = safeColor(node.fill) ?? "none";
   const stroke = safeColor(node.stroke);
@@ -107,14 +121,19 @@ const renderPath = (node: PathNode, offset: NodeOffset = NO_OFFSET): string => {
       : 1;
   const strokeAttributes =
     stroke === null ? "" : ` stroke="${escapeAttribute(stroke)}" stroke-width="${num(strokeWidth)}"`;
-  return `<svg class="node node-path" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}" viewBox="0 0 ${num(node.w)} ${num(node.h)}" fill="none" aria-hidden="true"><path d="${escapeAttribute(node.d)}" fill="${escapeAttribute(fill)}"${strokeAttributes}/></svg>`;
+  return `<svg class="node node-path${decorated(decoration)}" data-node-id="${escapeAttribute(node.id)}" style="${geometry(node, offset)}" viewBox="0 0 ${num(node.w)} ${num(node.h)}" fill="none" aria-hidden="true"><path d="${escapeAttribute(node.d)}" fill="${escapeAttribute(fill)}"${strokeAttributes}/></svg>`;
 };
 
-const renderNode = (node: SceneNode, images?: SceneImages, offset: NodeOffset = NO_OFFSET): string => {
-  if (node.type === "rect") return renderRect(node, offset);
-  if (node.type === "text") return renderText(node, offset);
-  if (node.type === "image") return renderImage(node, images, offset);
-  if (node.type === "path") return renderPath(node, offset);
+const renderNode = (
+  node: SceneNode,
+  images?: SceneImages,
+  offset: NodeOffset = NO_OFFSET,
+  decoration = NO_DECORATION,
+): string => {
+  if (node.type === "rect") return renderRect(node, offset, decoration);
+  if (node.type === "text") return renderText(node, offset, decoration);
+  if (node.type === "image") return renderImage(node, images, offset, decoration);
+  if (node.type === "path") return renderPath(node, offset, decoration);
   return "";
 };
 
@@ -301,10 +320,12 @@ const renderFrame = (
   const placed = placement === null ? "" : ` data-frame-x="${num(placement.x)}" data-frame-y="${num(placement.y)}"`;
   const artboardAttribute = source === undefined ? "" : ' data-artboard="true"';
   const activeAttribute = active ? ' data-scene-active="true"' : "";
+  const lock =
+    frame.locked === true && view.kind !== "play" ? '<span class="scene-frame-lock">Locked</span>' : "";
   const name =
     view.kind === "play"
       ? ""
-      : `<p class="scene-frame-name">${escapeAttribute(frame.name)}<span class="scene-frame-size">${num(frame.w)} × ${num(frame.h)}${revisionName}</span></p>`;
+      : `<p class="scene-frame-name">${escapeAttribute(frame.name)}${lock}<span class="scene-frame-size">${num(frame.w)} × ${num(frame.h)}${revisionName}</span></p>`;
   const pinMarks = framed ? "" : renderPins(pins);
   return `<section class="scene-frame" id="frame-${escapeAttribute(frame.id)}" data-frame-id="${escapeAttribute(frame.id)}" data-frame-w="${num(frame.w)}" data-frame-h="${num(frame.h)}"${artboardAttribute}${activeAttribute}${placed}${styleOf(framed ? `width:${px(boxWidth)}` : "")}${visible ? "" : " hidden"} aria-label="${escapeAttribute(label)}">
 ${name}
@@ -319,8 +340,8 @@ ${name}
 const renderCounter = (selectedIndex: number, total: number): string =>
   `<p class="scene-counter" id="frame-counter" aria-live="polite">${selectedIndex + 1} / ${total}</p>`;
 
-const renderIndex = (scene: Scene, selectedId: string | null): string =>
-  scene.frames
+const renderIndex = (frames: readonly SceneFrame[], selectedId: string | null): string =>
+  frames
     .map(
       (frame) =>
         `<button type="button" data-target="${escapeAttribute(frame.id)}"${frame.id === selectedId ? ' aria-current="true"' : ""}>${escapeAttribute(frame.name)}</button>`,
@@ -419,6 +440,17 @@ body[data-scene-view="play"] .scene-request-start,body[data-scene-view="play"] .
 .scene-play-exit:hover{background:#2c2c2c}
 .scene-play-exit:focus-visible{outline:2px solid #ff6a2b;outline-offset:2px}`;
 
+const PAGES_CSS = `.scene-frame-lock{margin-left:6px;padding:1px 5px;border:1px solid #3a3a3a;border-radius:999px;color:#c3c8cd;font:500 10px/1 ui-monospace,SFMono-Regular,Consolas,monospace;text-transform:uppercase;letter-spacing:.04em}
+.scene-pages{flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;padding:8px 10px;border-top:1px solid #2a2a2a;background:#141414}
+.scene-page{flex:none;height:26px;padding:0 10px;border:1px solid #333333;border-radius:6px;color:#c3c8cd;font:500 12px/26px system-ui,-apple-system,"Segoe UI",sans-serif;text-decoration:none}
+.scene-page:hover{background:#262626;color:#ffffff}
+.scene-page[aria-current="page"]{border-color:#ff6a2b;background:#2a1a12;color:#ffffff}
+.scene-page:focus-visible{outline:2px solid #ff6a2b;outline-offset:1px}
+.scene-guides{position:absolute;inset:0;display:none;pointer-events:none}
+.scene-guides span{position:absolute;background:rgba(255,106,43,.08);box-shadow:inset 0 0 0 1px rgba(255,106,43,.35)}
+.scene-stage[data-guides="on"] .scene-guides{display:block}
+body[data-scene-view="focus"] .scene-guides,body[data-scene-view="play"] .scene-guides{display:none!important}`;
+
 const SLIDES_CSS = `.scene-slides{background-image:none}
 .scene-counter{margin:0;display:grid;place-content:center;height:28px;padding:0 12px;border:1px solid #333333;border-radius:8px;background:#202020;color:#c3c8cd;font:500 12px/1 ui-monospace,SFMono-Regular,Consolas,monospace}`;
 
@@ -444,29 +476,36 @@ export function renderSceneDocument(
   artboards: SceneArtboards = {},
   view: SceneRenderView = CANVAS_RENDER_VIEW,
   request?: DesignRequestShellConfig | undefined,
+  pageId?: string | null,
 ): string {
   const slides = presentsSlides(kind);
   const framed = view.kind !== "canvas" && !slides;
+  const pages = slides ? [] : scenePages(scene);
+  const pageContent = scenePageContent(scene, pageId ?? null);
+  const paged = !framed && pages.length > 0;
+  const pageFrames = paged ? pageContent.frames : scene.frames;
+  const pageNotes = paged ? pageContent.notes : (scene.nodes ?? []);
+  const activePage = paged ? pageContent.page : null;
   const renderView: SceneRenderView = framed ? view : CANVAS_RENDER_VIEW;
   const origin = images === undefined ? null : originOf(images.origin);
   const source = images !== undefined && origin !== null ? { ...images, origin } : undefined;
   let policy = source === undefined ? BASE_DOCUMENT_CSP : sceneDocumentCsp(source.origin);
-  const looseNodes = scene.nodes ?? [];
-  const empty = scene.frames.length === 0 && (slides || looseNodes.length === 0);
-  const title = scene.frames[0]?.name ?? (slides ? "Deck" : "Design");
-  const selected = scene.frames.find((frame) => frame.id === frameId) ?? scene.frames[0];
+  const looseNodes = pageNotes;
+  const empty = pageFrames.length === 0 && (slides || looseNodes.length === 0);
+  const title = (paged ? activePage?.name : undefined) ?? pageFrames[0]?.name ?? (slides ? "Deck" : "Design");
+  const selected = pageFrames.find((frame) => frame.id === frameId) ?? pageFrames[0];
   const selectedId = selected === undefined ? null : selected.id;
-  const selectedIndex = selected === undefined ? 0 : scene.frames.indexOf(selected);
+  const selectedIndex = selected === undefined ? 0 : pageFrames.indexOf(selected);
   const placement = sceneThreadPlacement(scene, threads);
   const orphans = renderOrphans(placement.orphans);
   const pinsOf = (id: string): SceneThreadPin[] => placement.pins.filter((pin) => pin.frameId === id);
-  const surface = slides ? null : surfaceLayout(scene.frames, looseNodes);
+  const surface = slides ? null : surfaceLayout(pageFrames, looseNodes);
   const surfaceOrigin = surface === null ? NO_OFFSET : surface.origin;
   const artboardOf = (frame: SceneFrame): SceneArtboardContent | undefined => {
     if (frame.source === undefined) return undefined;
     return Object.hasOwn(artboards, frame.id) ? artboards[frame.id] : undefined;
   };
-  const hasArtboards = scene.frames.some((frame) => frame.source !== undefined);
+  const hasArtboards = pageFrames.some((frame) => frame.source !== undefined);
   if (hasArtboards) policy = `${policy}; frame-src data:`;
   const requestPanelVisible = !slides && view.kind !== "play" && request !== undefined;
   const selectionEnabled = requestPanelVisible && request.canComment;
@@ -495,11 +534,19 @@ export function renderSceneDocument(
     return found === undefined ? { x: 0, y: 0 } : { x: found.x, y: found.y };
   };
   const requested = frameId !== undefined && scene.frames.some((frame) => frame.id === frameId) ? frameId : null;
+  const decorationOf = (node: SceneCanvasNode): NodeDecoration =>
+    node.annotation === undefined
+      ? NO_DECORATION
+      : {
+          className: "scene-annotation",
+          attributes: ` data-annotation="${escapeAttribute(node.annotation.kind)}"`,
+        };
   const looseOf = (): string => {
     if (slides || looseNodes.length === 0) return "";
-    return `\n${looseNodes.map((node) => renderNode(node, source, surfaceOrigin)).join("")}`;
+    const visible = framed ? looseNodes.filter((node) => node.annotation === undefined) : looseNodes;
+    return `\n${visible.map((node) => renderNode(node, source, surfaceOrigin, decorationOf(node))).join("")}`;
   };
-  const slidesOf = scene.frames.map((frame) =>
+  const slidesOf = pageFrames.map((frame) =>
     slides
       ? renderFrame(frame, frame.id === selectedId, source, pinsOf(frame.id), null, artboardOf(frame))
       : renderFrame(
@@ -515,13 +562,37 @@ export function renderSceneDocument(
         ),
   );
   const surfaceSize = `data-surface-w="${num(surface === null ? 0 : surface.width)}" data-surface-h="${num(surface === null ? 0 : surface.height)}"`;
-  const indexHidden = scene.frames.length === 0 ? " hidden" : "";
+  const indexHidden = pageFrames.length === 0 ? " hidden" : "";
+  const guides =
+    surface === null || scene.guides === undefined || framed
+      ? []
+      : guideLines(scene.guides, { w: surface.width, h: surface.height });
+  const pagesOf = (): string => {
+    if (!paged || pages.length === 0) return "";
+    return `<nav class="scene-pages" id="scene-pages" aria-label="Design pages">${pages
+      .map(
+        (page) =>
+          `<a class="scene-page" href="?page=${encodeURIComponent(page.id)}"${
+            page.id === activePage?.id ? ' aria-current="page"' : ""
+          }>${escapeAttribute(page.name)}</a>`,
+      )
+      .join("")}</nav>`;
+  };
+  const guidesOf = (): string =>
+    guides.length === 0
+      ? ""
+      : `<div class="scene-guides" data-guides-kind="${escapeAttribute(scene.guides?.kind ?? "grid")}" aria-hidden="true">${guides
+          .map(
+            (line) =>
+              `<span style="left:${px(line.x)};top:${px(line.y)};width:${px(line.w)};height:${px(line.h)}"></span>`,
+          )
+          .join("")}</div>`;
   const activeAttribute = requested === null ? "" : ` data-active-frame="${escapeAttribute(requested)}"`;
   const surfaceOf = (): string => `<div class="scene-surface" id="surface"${activeAttribute} ${surfaceSize}>
-${slidesOf.join("\n")}${looseOf()}
+${guidesOf()}${slidesOf.join("\n")}${looseOf()}
 </div>`;
   const singleChrome = (): string =>
-    `<div class="scene-stage" id="stage">${
+    `<div class="scene-stage" id="stage"${guides.length === 0 ? "" : ' data-guides="off"'}>${
       view.kind === "play"
         ? '\n<button type="button" class="scene-play-exit" data-scene-exit="true">Exit Play</button>'
         : ""
@@ -539,18 +610,20 @@ ${surfaceOf()}
         : `<div class="scene-stage" id="stage">
 <p class="scene-empty">This design has no frames yet.</p>
 </div>
+${pagesOf()}
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
       : slides
         ? `<div class="scene-stage scene-slides" id="stage">
 <div class="scene-tools"><button type="button" id="prev" title="Previous slide">Back</button><button type="button" id="next" title="Next slide">Forward</button><button type="button" id="strip" aria-pressed="false" title="Show the slide list">Slides</button>${renderCounter(selectedIndex, scene.frames.length)}</div>
 ${slidesOf.join("\n")}
 </div>
-<nav class="scene-index" id="frame-index" aria-label="Slides" hidden>${renderIndex(scene, selectedId)}</nav>`
-        : `<div class="scene-stage" id="stage">
-<div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button></div>
+<nav class="scene-index" id="frame-index" aria-label="Slides" hidden>${renderIndex(pageFrames, selectedId)}</nav>`
+        : `<div class="scene-stage" id="stage"${guides.length === 0 ? "" : ' data-guides="off"'}>
+<div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button>${guides.length === 0 ? "" : '<button type="button" id="guides" aria-pressed="false" title="Show alignment guides">Guides</button>'}</div>
 ${surfaceOf()}
 </div>
-<nav class="scene-index" id="frame-index" aria-label="Frames"${indexHidden}>${renderIndex(scene, selectedId)}</nav>`;
+${pagesOf()}
+<nav class="scene-index" id="frame-index" aria-label="Frames"${indexHidden}>${renderIndex(pageFrames, selectedId)}</nav>`;
   const requestOf = (thread: SceneRequestThread, index: number): string => {
     const anchor = thread.anchor;
     if (!isArtboardAnchor(anchor) || request === undefined) return "";
@@ -569,6 +642,7 @@ ${surfaceOf()}
       view: view.kind,
       frameId: anchor.boardId,
       width: view.kind === "canvas" ? null : view.width,
+      page: null,
     });
     const reference = available
       ? designRequestReference({
@@ -630,7 +704,7 @@ ${body}${unavailable}${copy}<button type="button" class="scene-request-show" dat
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="content-security-policy" content="${policy}"><title>${escapeAttribute(title)}</title>
 <style>
-${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : `${DOCUMENT_CSS}\n${SURFACE_CSS}`}${hasArtboards ? `\n${ARTBOARD_CSS}` : ""}
+${slides ? `${DOCUMENT_CSS}\n${SLIDES_CSS}` : `${DOCUMENT_CSS}\n${SURFACE_CSS}\n${PAGES_CSS}`}${hasArtboards ? `\n${ARTBOARD_CSS}` : ""}
 </style></head>
 ${"<body"}${viewAttributes}>
 ${chrome}${requestUi}${orphans === "" ? "" : `\n${orphans}`}${requestConfig}
@@ -649,6 +723,7 @@ export type SceneViewInput = {
   readonly artboards?: SceneArtboards | undefined;
   readonly view?: SceneRenderView | undefined;
   readonly request?: DesignRequestShellConfig | undefined;
+  readonly pageId?: string | null | undefined;
 };
 
 export const sceneView = (model: ViewerModel, input: SceneViewInput): ArtifactPage =>
@@ -663,6 +738,7 @@ export const sceneView = (model: ViewerModel, input: SceneViewInput): ArtifactPa
         input.artboards ?? {},
         input.view ?? CANVAS_RENDER_VIEW,
         input.request ?? model.designRequest,
+        input.pageId ?? null,
       ),
     ),
     images: input.images?.origin,

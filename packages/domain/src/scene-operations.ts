@@ -4,8 +4,10 @@ import {
   validateScene,
   type ArtboardSource,
   type Scene,
+  type SceneAnnotation,
   type SceneFrame,
   type SceneNode,
+  type ScenePage,
   type SceneRefusalDetail,
   type SceneRefusalReason,
 } from "./scene.ts";
@@ -16,6 +18,9 @@ export type SceneOperationRefusalReason =
   | "invalid_arguments"
   | "unknown_frame"
   | "unknown_node"
+  | "unknown_page"
+  | "page_not_empty"
+  | "frame_locked"
   | "non_positive_size"
   | SceneRefusalReason;
 
@@ -48,7 +53,11 @@ export type SceneFramePatch = {
   w?: number;
   h?: number;
   source?: ArtboardSource | null;
+  page?: string | null;
+  locked?: boolean;
 } & { readonly [property: string]: unknown };
+
+export type ScenePagePatch = { name?: string } & { readonly [property: string]: unknown };
 
 export type SceneNodePatch = {
   x?: number;
@@ -64,6 +73,8 @@ export type SceneNodePatch = {
   stroke?: string;
   strokeWidth?: number;
   style?: { readonly [property: string]: unknown };
+  page?: string | null;
+  annotation?: SceneAnnotation | null;
 } & { readonly [property: string]: unknown };
 
 export type SceneOperation =
@@ -80,6 +91,10 @@ export type SceneOperation =
   | { op: "move_canvas_node"; id: string; x: number; y: number; w?: number; h?: number }
   | { op: "reorder_canvas_node"; id: string; index: number }
   | { op: "remove_canvas_node"; id: string }
+  | { op: "add_page"; page: ScenePage }
+  | { op: "update_page"; id: string; props: ScenePagePatch }
+  | { op: "remove_page"; id: string }
+  | { op: "reorder_page"; id: string; index: number }
   | { op: "replace_scene"; scene: Scene };
 
 const GEOMETRY_KEYS = ["x", "y", "w", "h"] as const;
@@ -150,6 +165,15 @@ const canvasNodeIds = (scene: Scene): string[] =>
 const canvasNodesById = (scene: Scene): Map<string, SceneNode> =>
   new Map(canvasNodesOf(scene).map((node) => [node.id, node]));
 
+const pagesOf = (scene: Scene): ScenePage[] => (Array.isArray(scene.pages) ? scene.pages : []);
+
+const pageOf = (scene: Scene, id: unknown): ScenePage | undefined => pagesOf(scene).find((page) => page.id === id);
+
+const pageHasContent = (scene: Scene, id: string): boolean =>
+  scene.frames.some((frame) => frame.page === id) || canvasNodesOf(scene).some((node) => node.page === id);
+
+const touchesGeometry = (record: Record<string, unknown>): boolean => GEOMETRY_KEYS.some((key) => key in record);
+
 function addFrame(draft: Scene, raw: Record<string, unknown>): Step {
   const frame = raw.frame;
   if (!isRecord(frame)) return stepRefusal("invalid_arguments", { property: "frame" });
@@ -185,10 +209,15 @@ function updateFrame(draft: Scene, raw: Record<string, unknown>): Step {
     if (key in props) return stepRefusal("invalid_arguments", { property: key, id: frame.id });
   const issue = inspectGeometry(props);
   if (issue !== null) return stepRefusal(issue.reason, { property: issue.property, id: frame.id });
+  if (frame.locked === true && touchesGeometry(props)) return stepRefusal("frame_locked", { id: frame.id });
   const sourceIssue = frameSourceRefusal(props, frame);
   if (sourceIssue !== null) return stepRefusal("invalid_source", sourceIssue);
-  const { source, ...rest } = clone(props) as Record<string, unknown>;
+  const { source, page, ...rest } = clone(props) as Record<string, unknown>;
   Object.assign(frame, rest);
+  if ("page" in props) {
+    if (props.page === null) delete frame.page;
+    else frame.page = props.page as string;
+  }
   if ("source" in props) {
     if (props.source === null) delete frame.source;
     else frame.source = readArtboardSource(props.source).ok ? (props.source as ArtboardSource) : undefined;
@@ -199,6 +228,8 @@ function updateFrame(draft: Scene, raw: Record<string, unknown>): Step {
 function removeFrame(draft: Scene, raw: Record<string, unknown>): Step {
   const position = draft.frames.findIndex((frame) => frame.id === raw.id);
   if (position < 0) return stepRefusal("unknown_frame", { id: identifier(raw.id) });
+  const frame = draft.frames[position] as SceneFrame;
+  if (frame.locked === true) return stepRefusal("frame_locked", { id: frame.id });
   draft.frames.splice(position, 1);
   return { ok: true, touched: [] };
 }
@@ -224,6 +255,8 @@ function updateNode(draft: Scene, raw: Record<string, unknown>): Step {
   const issue = inspectGeometry(props);
   if (issue !== null)
     return stepRefusal(issue.reason, { property: issue.property, id: found.node.id, frameId: found.frame.id });
+  if (found.frame.locked === true && touchesGeometry(props))
+    return stepRefusal("frame_locked", { id: found.node.id, frameId: found.frame.id });
   Object.assign(found.node, clone(props));
   return { ok: true, touched: [found.node.id] };
 }
@@ -232,6 +265,7 @@ function moveNode(draft: Scene, raw: Record<string, unknown>): Step {
   const found = nodeOf(draft, raw.id);
   if (!found) return stepRefusal("unknown_node", { id: identifier(raw.id) });
   const detail = { id: found.node.id, frameId: found.frame.id };
+  if (found.frame.locked === true) return stepRefusal("frame_locked", { id: found.node.id, frameId: found.frame.id });
   if (raw.x === undefined || raw.y === undefined)
     return stepRefusal("invalid_arguments", { property: raw.x === undefined ? "x" : "y", ...detail });
   const issue = inspectGeometry(raw);
@@ -258,6 +292,8 @@ function reorderNode(draft: Scene, raw: Record<string, unknown>): Step {
 function removeNode(draft: Scene, raw: Record<string, unknown>): Step {
   const found = nodeOf(draft, raw.id);
   if (!found) return stepRefusal("unknown_node", { id: identifier(raw.id) });
+  if (found.frame.locked === true)
+    return stepRefusal("frame_locked", { id: found.node.id, frameId: found.frame.id });
   found.frame.nodes.splice(found.position, 1);
   return { ok: true, touched: [] };
 }
@@ -281,7 +317,17 @@ function updateCanvasNode(draft: Scene, raw: Record<string, unknown>): Step {
   if ("id" in props) return stepRefusal("invalid_arguments", { property: "id", id: found.node.id });
   const issue = inspectGeometry(props);
   if (issue !== null) return stepRefusal(issue.reason, { property: issue.property, id: found.node.id });
-  Object.assign(found.node, clone(props));
+  const { page, annotation, ...rest } = clone(props) as Record<string, unknown>;
+  Object.assign(found.node, rest);
+  if ("page" in props) {
+    if (props.page === null) delete (found.node as { page?: string }).page;
+    else (found.node as { page?: string }).page = props.page as string;
+  }
+  if ("annotation" in props) {
+    const canvasNode = found.node as { annotation?: SceneAnnotation };
+    if (props.annotation === null) delete canvasNode.annotation;
+    else canvasNode.annotation = props.annotation as SceneAnnotation;
+  }
   return { ok: true, touched: [found.node.id] };
 }
 
@@ -317,6 +363,51 @@ function removeCanvasNode(draft: Scene, raw: Record<string, unknown>): Step {
   const found = canvasNodeOf(draft, raw.id);
   if (!found) return stepRefusal("unknown_node", { id: identifier(raw.id) });
   canvasNodesOf(draft).splice(found.position, 1);
+  return { ok: true, touched: [] };
+}
+
+function addPage(draft: Scene, raw: Record<string, unknown>): Step {
+  const page = raw.page;
+  if (!isRecord(page)) return stepRefusal("invalid_arguments", { property: "page" });
+  if (!isId(page.id)) return stepRefusal("invalid_arguments", { property: "id" });
+  if (!isId(page.name)) return stepRefusal("invalid_arguments", { property: "name" });
+  if (!Array.isArray(draft.pages)) draft.pages = [];
+  draft.pages.push(clone(page) as unknown as ScenePage);
+  return { ok: true, touched: [] };
+}
+
+function updatePage(draft: Scene, raw: Record<string, unknown>): Step {
+  const page = pageOf(draft, raw.id);
+  if (!page) return stepRefusal("unknown_page", { id: identifier(raw.id) });
+  const props = raw.props;
+  if (!isRecord(props)) return stepRefusal("invalid_arguments", { property: "props", id: page.id });
+  if ("id" in props) return stepRefusal("invalid_arguments", { property: "id", id: page.id });
+  if ("name" in props && !isId(props.name))
+    return stepRefusal("invalid_arguments", { property: "name", id: page.id });
+  Object.assign(page, clone(props));
+  return { ok: true, touched: [] };
+}
+
+function removePage(draft: Scene, raw: Record<string, unknown>): Step {
+  const position = pagesOf(draft).findIndex((page) => page.id === raw.id);
+  if (position < 0) return stepRefusal("unknown_page", { id: identifier(raw.id) });
+  const id = pagesOf(draft)[position]?.id as string;
+  if (pageHasContent(draft, id)) return stepRefusal("page_not_empty", { id });
+  draft.pages?.splice(position, 1);
+  if (draft.pages !== undefined && draft.pages.length === 0) delete draft.pages;
+  return { ok: true, touched: [] };
+}
+
+function reorderPage(draft: Scene, raw: Record<string, unknown>): Step {
+  const pages = pagesOf(draft);
+  const position = pages.findIndex((page) => page.id === raw.id);
+  if (position < 0) return stepRefusal("unknown_page", { id: identifier(raw.id) });
+  const index = raw.index;
+  if (typeof index !== "number" || !Number.isInteger(index) || index < 0 || index > pages.length - 1)
+    return stepRefusal("invalid_arguments", { property: "index", id: pages[position]?.id });
+  const [moved] = pages.splice(position, 1);
+  if (moved === undefined) return stepRefusal("unknown_page", { id: identifier(raw.id) });
+  pages.splice(index, 0, moved);
   return { ok: true, touched: [] };
 }
 
@@ -361,6 +452,14 @@ function applyStep(draft: Scene, operation: unknown): Step {
       return reorderCanvasNode(draft, operation);
     case "remove_canvas_node":
       return removeCanvasNode(draft, operation);
+    case "add_page":
+      return addPage(draft, operation);
+    case "update_page":
+      return updatePage(draft, operation);
+    case "remove_page":
+      return removePage(draft, operation);
+    case "reorder_page":
+      return reorderPage(draft, operation);
     case "replace_scene":
       return replaceScene(draft, operation);
     default:
@@ -398,6 +497,8 @@ function framePatchOf(before: SceneFrame, after: SceneFrame): SceneFramePatch {
   if (before.w !== after.w) patch.w = after.w;
   if (before.h !== after.h) patch.h = after.h;
   if (!sameValue(before.source ?? null, after.source ?? null)) patch.source = after.source ?? null;
+  if (before.page !== after.page) patch.page = after.page ?? null;
+  if (before.locked !== after.locked) patch.locked = after.locked;
   return patch as SceneFramePatch;
 }
 
@@ -419,8 +520,14 @@ function framePatches(before: SceneFrame, after: SceneFrame): { patch: SceneFram
   ];
 }
 
-function nodePatchOf(before: SceneNode, after: SceneNode): SceneNodePatch {
+function nodePatchOf(before: SceneNode, after: SceneNode, canvas = false): SceneNodePatch {
   const patch: Record<string, unknown> = {};
+  if (canvas) {
+    const previous = before as { page?: string; annotation?: SceneAnnotation };
+    const seen = after as { page?: string; annotation?: SceneAnnotation };
+    if (previous.page !== seen.page) patch.page = seen.page ?? null;
+    if (!sameValue(previous.annotation ?? null, seen.annotation ?? null)) patch.annotation = seen.annotation ?? null;
+  }
   if (before.x !== after.x) patch.x = after.x;
   if (before.y !== after.y) patch.y = after.y;
   if (before.w !== after.w) patch.w = after.w;
@@ -438,7 +545,7 @@ function nodeChangeOf(
   after: SceneNode,
   container: "frame" | "canvas" = "frame",
 ): SceneOperation | null {
-  const patch = nodePatchOf(before, after);
+  const patch = nodePatchOf(before, after, container === "canvas");
   const keys = Object.keys(patch);
   if (keys.length === 0) return null;
   if (!keys.every((key) => GEOMETRY_KEYS.includes(key as GeometryKey)))
@@ -480,6 +587,37 @@ function orderingOperations(before: Scene, after: Scene): SceneOperation[] {
     }
   }
   return operations;
+}
+
+type PageOperations = { added: SceneOperation[]; changed: SceneOperation[]; ordered: SceneOperation[]; removed: SceneOperation[] };
+
+function pageOperations(before: Scene, after: Scene): PageOperations {
+  const beforePages = pagesOf(before);
+  const afterPages = pagesOf(after);
+  const beforeById = new Map(beforePages.map((page) => [page.id, page]));
+  const afterById = new Map(afterPages.map((page) => [page.id, page]));
+  const added: SceneOperation[] = afterPages
+    .filter((page) => !beforeById.has(page.id))
+    .map((page) => ({ op: "add_page", page }));
+  const removed: SceneOperation[] = beforePages
+    .filter((page) => !afterById.has(page.id))
+    .map((page) => ({ op: "remove_page", id: page.id }));
+  const changed: SceneOperation[] = afterPages.flatMap((page) => {
+    const previous = beforeById.get(page.id);
+    if (previous === undefined || previous.name === page.name) return [];
+    return [{ op: "update_page", id: page.id, props: { name: page.name } }];
+  });
+  const ids = [...beforePages.map((page) => page.id), ...afterPages.filter((page) => !beforeById.has(page.id)).map((page) => page.id)];
+  const ordered: SceneOperation[] = [];
+  for (const [index, id] of afterPages.map((page) => page.id).entries()) {
+    if (ids[index] === id) continue;
+    const from = ids.indexOf(id);
+    if (from < 0) continue;
+    ids.splice(from, 1);
+    ids.splice(index, 0, id);
+    ordered.push({ op: "reorder_page", id, index });
+  }
+  return { added, changed, ordered, removed };
 }
 
 function canvasOrderingOperations(before: Scene, after: Scene): SceneOperation[] {
@@ -554,7 +692,10 @@ export function diffSceneOperations(previous: Scene, next: Scene): SceneOperatio
   }
   for (const [id, node] of afterCanvas)
     if (!beforeCanvas.has(id)) addedCanvasNodes.push({ op: "add_canvas_node", node });
+  const pages = pageOperations(previous, next);
   const base: SceneOperation[] = [
+    ...pages.added,
+    ...pages.changed,
     ...addedFrames,
     ...grownFrames,
     ...removedNodes,
@@ -570,6 +711,8 @@ export function diffSceneOperations(previous: Scene, next: Scene): SceneOperatio
   const ordering = (scene: Scene): SceneOperation[] => [
     ...orderingOperations(scene, next),
     ...canvasOrderingOperations(scene, next),
+    ...pageOperations(scene, next).ordered,
+    ...pages.removed,
   ];
   const ordered = interim === null ? ordering(previous) : interim.ok ? ordering(interim.value.scene) : [];
   const operations: SceneOperation[] = [...base, ...ordered];
