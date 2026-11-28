@@ -22,10 +22,15 @@ export function createArtifactTools(options: {
         : { origin: publicOrigin, artifactId, digests: await sceneAssetDigests(database.db, artifactId, scene) };
     return images;
   };
+  const viewerUrl =
+    publicOrigin === undefined
+      ? undefined
+      : (artifactId: string) => `${publicOrigin}/artifact/${encodeURIComponent(artifactId)}`;
   return createPackageTools({
     backend,
     requireScope,
     readScope,
+    viewerUrl,
     viewerHtml: () => mcpAppsViewerHtml(undefined, { imageOrigin: publicOrigin }),
     sceneDocument: async ({ artifactId, kind, scene }) =>
       renderSceneDocument(scene, undefined, await imagesOf(artifactId, scene), [], kind),

@@ -103,6 +103,7 @@ export type ArtifactToolOptions = {
   backend: McpBackend;
   viewerHtml: () => string;
   sceneDocument?: SceneDocumentRender;
+  viewerUrl?: (artifactId: string) => string;
   requireScope?: string;
   readScope?: string;
 };
@@ -144,6 +145,10 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     uploadAsset,
   } = backend;
   const stagingStorageKey = (sha256: string) => `staging/${sha256}`;
+  const viewerLink = (artifactId: string): { url?: string } => {
+    const url = options.viewerUrl?.(artifactId);
+    return url === undefined ? {} : { url };
+  };
   return (claims) => {
     const server = new McpServer(MCP_SERVER_INFO);
     server.registerResource(
@@ -253,7 +258,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       "artifact_commit",
       {
         title: "Commit a staged upload",
-        description: `Verify every staged chunk, recompute the whole-artifact sha256 and commit the upload as a new artifact or, with expectedRevisionId, as a compare-and-set revision. artifactId is optional and must be a canonical lowercase uuid when supplied. A digest mismatch stores no artifact row; staging keys may remain until a later cleanup unit. kind selects the artifact type: "html" (default) for a self-contained HTML artifact, "markdown" for a markdown document — markdown bytes must be valid UTF-8 text and the document can then be read and line-edited with artifact_get_markdown and artifact_edit_lines. artifact_commit ONLY finalizes a staged chunk stream; when the content already exists in your context as text, prefer the one-call artifact_write.`,
+        description: `Verify every staged chunk, recompute the whole-artifact sha256 and commit the upload as a new artifact or, with expectedRevisionId, as a compare-and-set revision. artifactId is optional and must be a canonical lowercase uuid when supplied. A digest mismatch stores no artifact row; staging keys may remain until a later cleanup unit. kind selects the artifact type and commits the choice: "html" (default) is a Page, a self-contained HTML page such as a report, dashboard, demo or tool the person uses directly in its viewer; "canvas" is a Design, a JSON scene of frames and nodes the person compares and refines in its own canvas space, so give it a title and a scene scene_apply can address; "markdown" is a document readable and line-edited over MCP, and its bytes must be valid UTF-8 text. The reply carries url, the link that opens the committed artifact's viewer, so a client without an inline preview can still open what it just created. artifact_commit ONLY finalizes a staged chunk stream; when the content already exists in your context as text, prefer the one-call artifact_write.`,
         inputSchema: {
           uploadId: z.string().min(1).max(100),
           artifactId: z.string().min(1).max(100).optional(),
@@ -269,6 +274,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           sizeBytes: z.number().int(),
           observedSizeBytes: z.number().int(),
           sha256: z.string().regex(HEX_SHA256),
+          url: z.string().optional(),
         },
       },
       async (input) => {
@@ -337,6 +343,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           sizeBytes: committed.value.sizeBytes,
           observedSizeBytes: committed.value.observedSizeBytes,
           sha256: observed,
+          ...viewerLink(committed.value.artifactId),
         };
         return {
           content: [{ type: "text", text: JSON.stringify(value) }],
@@ -350,7 +357,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       "artifact_write",
       {
         title: "Write a whole text artifact in one call",
-        description: `Create a new artifact (or, with artifactId plus expectedRevisionId, a compare-and-set revision) from content you already hold as text: pass the full UTF-8 document — "html" (default) for a self-contained HTML page, "markdown" for a markdown document readable with artifact_get_markdown and editable with artifact_edit_lines. One call, no staging: the server computes the sha256 itself. Content over ${Math.floor(MAX_CHUNK_BYTES / 1024)} KiB decoded, or any binary artifact, goes through artifact_start_upload / artifact_put_chunk / artifact_commit instead (requires disk access).`,
+        description: `Create a new artifact (or, with artifactId plus expectedRevisionId, a compare-and-set revision) from content you already hold as text: pass the full UTF-8 document. kind commits the output the person asked for: "html" (default) is a Page, a self-contained HTML page such as a report, dashboard, demo or tool the person uses directly in its viewer; "canvas" is a Design, a JSON scene of frames and nodes the person compares and refines in its own canvas space, so give it a title and a scene scene_apply can address; "markdown" is a document readable with artifact_get_markdown and editable with artifact_edit_lines. Say plainly which one you are opening, and if the request does not decide it, choose the one that fits and name the other. The reply carries url, the link that opens the created artifact's viewer, so a client without an inline preview can still open what it just created. One call, no staging: the server computes the sha256 itself. Content over ${Math.floor(MAX_CHUNK_BYTES / 1024)} KiB decoded, or any binary artifact, goes through artifact_start_upload / artifact_put_chunk / artifact_commit instead (requires disk access).`,
         inputSchema: {
           text: z.string().min(1),
           kind: z.enum(ARTIFACT_KINDS).optional(),
@@ -366,6 +373,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           sizeBytes: z.number().int(),
           observedSizeBytes: z.number().int(),
           sha256: z.string().regex(HEX_SHA256),
+          url: z.string().optional(),
         },
       },
       async (input) => {
@@ -407,6 +415,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           sizeBytes: written.value.sizeBytes,
           observedSizeBytes: written.value.observedSizeBytes,
           sha256: digestOf(bytes),
+          ...viewerLink(written.value.artifactId),
         };
         return {
           content: [{ type: "text", text: JSON.stringify(value) }],

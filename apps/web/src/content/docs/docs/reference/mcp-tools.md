@@ -54,6 +54,11 @@ and carry `_meta.ui.resourceUri` pointing at the viewer resource
 the artifact inline from that resource; hosts that do not ignore `_meta` and keep the JSON above,
 so nothing breaks when the preview is unavailable.
 
+Those two replies also carry `url`: the absolute link that opens the artifact's viewer, so a client
+without an inline preview can open what it just created. A Page and a Design share that route —
+the viewer decides what to draw from the stored kind — so the link never changes when an artifact is
+revised.
+
 `document_create`, `document_apply`, `document_publish`, `scene_apply` and `asset_upload` also return
 their payload as `structuredContent`, but carry no viewer `_meta`: there is no artifact page to render
 for a draft, a frame list or an image digest.
@@ -107,9 +112,10 @@ The three-tool upload path, with a worked example, is on
   with the digest the server computed itself. Byte-identical retries are idempotent; different bytes
   for an already staged index are `conflict` / `chunk_payload_mismatch`.
 - `artifact_commit` — `uploadId`, plus optional `artifactId` (canonical lowercase UUID), `title`
-  (1–200), `expectedRevisionId` and `kind` (`"html"` default, `"markdown"`, `"canvas"` or `"deck"`).
-  Returns the six revision keys shown below. The staged stream is verified before any artifact row is
-  written.
+  (1–200), `expectedRevisionId` and `kind` (`"html"` default, `"markdown"`, `"canvas"` or `"deck"`;
+  `"html"` commits a Page and `"canvas"` a Design).
+  Returns the six revision keys shown below plus `url`, the link that opens the artifact's viewer.
+  The staged stream is verified before any artifact row is written.
 
 ## `artifact_write` — one call, text only
 
@@ -128,7 +134,9 @@ with `too_large`, carrying `{ maxBytes, observedBytes }`. Larger or binary conte
 [the staged transfer](/docs/reference/mcp-transfers/).
 
 `canvas` and `deck` artifacts take a scene as their `text`; the [scene tools](#scene-tools) then read
-and edit it by operation.
+and edit it by operation. The kind commits the output the person asked for, so name it plainly in
+the reply: `"html"` is a **Page**, a report, dashboard, demo or tool used directly in its viewer, and
+`"canvas"` is a **Design**, the space where mockups, screens and variants are compared and refined.
 
 ```json
 {
@@ -145,7 +153,8 @@ and edit it by operation.
   "revisionNumber": 1,
   "sizeBytes": 107,
   "observedSizeBytes": 107,
-  "sha256": "af9fb8489b7dd4143a6fa6c831fa868a9244ddfac54274137b455db6a7d4f873"
+  "sha256": "af9fb8489b7dd4143a6fa6c831fa868a9244ddfac54274137b455db6a7d4f873",
+  "url": "https://artifacts.example.com/artifact/6f1c3f2e-8f4a-4a1d-9d0e-6b0f3a2c9d11"
 }
 ```
 

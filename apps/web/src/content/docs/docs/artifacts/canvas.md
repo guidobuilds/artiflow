@@ -3,9 +3,10 @@ title: Canvas
 description: What a canvas artifact is, how its scene is shaped, how a person navigates and edits it, and what it does not do yet.
 ---
 
-A canvas is a design surface: frames that stand for screens, and nodes inside them. An agent publishes
-the scene, and a person opens it in the dashboard to move between frames and edit nodes. Pages and
-Markdown documents are the other text kinds; a [deck](/docs/artifacts/deck/) is this same scene presented as slides.
+A canvas is a **Design**: the artifact that gathers the proposals of a piece of work, opened as a design
+surface of frames that stand for screens, with nodes inside them. An agent publishes the scene, and a
+person opens it in the dashboard to move between frames and edit nodes. A [Page](/docs/concepts/artifacts/)
+and a Markdown document are the other outputs; a [deck](/docs/artifacts/deck/) is this same scene presented as slides.
 
 ## What a scene looks like
 

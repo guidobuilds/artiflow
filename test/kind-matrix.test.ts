@@ -82,8 +82,8 @@ const EXPECTED: Record<ArtifactKind, KindCapabilities> = {
     extensions: [".md", ".markdown"],
   },
   canvas: {
-    label: "Canvas",
-    plural: "Canvases",
+    label: "Design",
+    plural: "Designs",
     icon: "canvas",
     viewer: "scene",
     anchors: ["board-point"],
@@ -252,14 +252,12 @@ test("every kind carries its own icon and its own plural, not the html ones", ()
     ["page", "document", "canvas", "slides"],
     "a new kind gets its own icon",
   );
-  assert.deepEqual(ARTIFACT_KINDS.map(pluralFor), ["Pages", "Docs", "Canvases", "Decks"]);
+  assert.deepEqual(ARTIFACT_KINDS.map(pluralFor), ["Pages", "Docs", "Designs", "Decks"]);
   for (const kind of ARTIFACT_KINDS)
     assert.ok((KIND_ICONS as readonly string[]).includes(iconFor(kind)), `${kind} names a registry icon`);
-  assert.notEqual(
-    pluralFor("canvas"),
-    `${labelFor("canvas")}s`,
-    "a kind declares its plural instead of appending an s",
-  );
+  assert.equal(pluralFor("canvas"), KIND_CAPABILITIES.canvas.plural, "a kind answers with the plural it declares");
+  assert.notEqual(pluralFor("canvas"), pluralFor("html"), "the two creation outputs name themselves differently");
+  assert.notEqual(labelFor("canvas"), labelFor("html"), "a person reads Design, never Page, on a canvas kind");
   assert.equal(pluralFor(UNKNOWN_KIND), "Unknown");
   assert.equal(pluralFor("pptx"), "Unknown");
 });

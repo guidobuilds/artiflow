@@ -8,15 +8,25 @@ description: How to create, update and develop Artiflow artifacts. Load before w
 An Artiflow artifact's kind is chosen when the artifact is created
 (via `artifact_write` or `artifact_commit`):
 
-- **`html` (default)** — one complete, self-contained HTML document: the whole
-  page — markup, styles, scripts, assets — lives in a single file.
+- **`html` (default)** — a **Page**: one complete, self-contained HTML document:
+  the whole page — markup, styles, scripts, assets — lives in a single file. Use it
+  for a report, a dashboard, a demo or a tool the person opens and uses directly.
 - **`markdown`** — one UTF-8 markdown document (GFM), rendered formatted in its
   own viewer and editable by people in the dashboard. Agents create it once and
   then edit it by line patches instead of re-uploading bytes.
-- **`canvas`** — a versioned JSON scene of frames and nodes. The canvas section
-  below is the procedure.
+- **`canvas`** — a **Design**: a versioned JSON scene of frames and nodes, opened
+  in its own canvas space so the person can compare mockups, screens and
+  variants. The canvas section below is the procedure.
 - **`deck`** — the same scene, presented as slides. The deck section below is
   the procedure.
+
+A Page and a Design are the two outputs the product promises. Choose the one the
+request names and say which one you opened; when the request does not decide it,
+pick the one that fits — a piece to use as-is is a Page, variants to compare and
+refine are a Design — and name the other so the person can ask for it instead.
+Both creation tools return `url`, the link that opens the artifact's viewer, so
+always report it next to the ids; a Design opens through the same route and needs
+a `title` so its canvas space has a name even before the first frame exists.
 
 Every kind enters the platform only through the MCP tools. This skill is the
 creation procedure: how to author for the viewer's sandbox (HTML) or as a
@@ -123,9 +133,10 @@ Use this staged stream when shipping bytes from disk; the one-call
 5. **`artifact_commit`** with `uploadId`. The server verifies every staged chunk,
    re-assembles, and re-checks the whole-artifact digest against your declaration.
    Options:
-   - `kind` — `"html"` (default), `"markdown"`, `"canvas"` or `"deck"`. Choose deliberately: an HTML
-     artifact is a self-contained page; a markdown document is prose the user will
-     edit and comment on; canvas and deck are scene documents. Only honored when creating; on an update path a supplied
+   - `kind` — `"html"` (default), `"markdown"`, `"canvas"` or `"deck"`. Choose deliberately: `"html"`
+     is a Page, a self-contained page the person uses directly; `"markdown"` is a document they
+     edit and comment on; `"canvas"` is a Design, the space where mockups and variants are
+     compared; `"deck"` is a Design presented as slides. Only honored when creating; on an update path a supplied
      `kind` must match the artifact or the commit refuses with `kind_mismatch`.
    - omit `artifactId` → a new artifact (the server assigns a UUID);
    - supply `artifactId` → it must be a canonical **lowercase UUID**
@@ -133,8 +144,9 @@ Use this staged stream when shipping bytes from disk; the one-call
      refused with `invalid_artifact_id` before anything is read;
    - supply `expectedRevisionId` together with an existing `artifactId` → a
      compare-and-set revision on that artifact.
-     Returns `artifactId`, `revisionId`, `revisionNumber`, `sizeBytes`, `sha256`.
-     Keep and report these ids — there is no list tool to recover them later.
+     Returns `artifactId`, `revisionId`, `revisionNumber`, `sizeBytes`, `sha256` and `url`, the
+     absolute link that opens the artifact's viewer. Report the ids and the link: there is no list
+     tool to recover them later.
      A `markdown` commit refuses bytes that are not valid UTF-8 text
      (`not_valid_utf8_markdown`) instead of ever storing a binary as a document.
 6. **`artifact_get`** (recommended once) with the `artifactId` — read the current

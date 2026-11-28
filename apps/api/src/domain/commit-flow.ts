@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 
 import type { Database } from "../adapters/postgres/db/client.ts";
 import { MAX_ARTIFACT_BYTES, ARTIFACT_KINDS } from "../adapters/postgres/db/artifact-schema.ts";
-import { acceptsTextOperations } from "@artiflow/domain/kinds";
+import { acceptsTextOperations, rendersScene } from "@artiflow/domain/kinds";
 import { decodeMarkdownText } from "@artiflow/domain/markdown";
+import { readScene } from "@artiflow/domain/scene";
 import type { Storage } from "../adapters/storage/client.ts";
 import { createArtifactWithRevision, getCurrentState, setRevisionCas, type RevisionInput } from "./commits.ts";
 import {
@@ -130,6 +131,34 @@ export async function copyRevisionBytes(input: CopyRevisionInput): Promise<Stora
 
 const storesText = (kind: string | undefined): boolean => kind !== undefined && acceptsTextOperations(kind);
 
+const sceneProblem = (bytes: Uint8Array): string | undefined => {
+  const decoded = decodeMarkdownText(bytes);
+  if (!decoded.ok) return "malformed_scene";
+  const parsed = readScene(decoded.text);
+  return parsed.ok ? undefined : parsed.reason;
+};
+
+async function publishRefusal(input: {
+  database: Database;
+  ownerId: string;
+  artifactId: string | undefined;
+  expectedRevisionId: string | undefined;
+  kind: string | undefined;
+  bytes: Uint8Array;
+}): Promise<CommitFlowFailure | undefined> {
+  const { database, ownerId, artifactId, expectedRevisionId, kind, bytes } = input;
+  let existing: string | undefined;
+  if (expectedRevisionId !== undefined && artifactId !== undefined) {
+    const state = await getCurrentState(database.db, artifactId, ownerId);
+    existing = state.ok ? state.value.kind : undefined;
+  }
+  if (kind !== undefined && existing !== undefined && existing !== kind) return fail("conflict", "kind_mismatch");
+  const publishKind = kind ?? existing;
+  if (publishKind === undefined || !rendersScene(publishKind)) return undefined;
+  const problem = sceneProblem(bytes);
+  return problem === undefined ? undefined : fail("validation", problem);
+}
+
 export async function commitUpload(input: CommitUploadInput): Promise<CommitFlowResult> {
   const { database, storage, ownerId, uploadId, bytes, artifactId, title, expectedRevisionId, kind } = input;
   const now = input.now ?? new Date();
@@ -151,6 +180,8 @@ export async function commitUpload(input: CommitUploadInput): Promise<CommitFlow
   if (!(bytes instanceof Uint8Array) || bytes.length === 0) return fail("validation", "bytes_required");
   if (bytes.length > MAX_ARTIFACT_BYTES) return fail("too_large", "payload_exceeds_artifact_cap");
   if (bytes.length !== stagedSizeBytes) return fail("validation", "body_length_disagrees_with_staged_bytes");
+  const stagedRefusal = await publishRefusal({ database, ownerId, artifactId, expectedRevisionId, kind, bytes });
+  if (stagedRefusal !== undefined) return stagedRefusal;
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const storageKey = newRevisionStorageKey();
   const stored = await putRevisionBytes({ storage, storageKey, sha256, bytes });
@@ -177,6 +208,8 @@ export async function writeArtifact(input: WriteArtifactInput): Promise<CommitFl
   if (storesText(kind) && !decodeMarkdownText(bytes).ok) return fail("validation", "not_valid_utf8_markdown");
   if (!(bytes instanceof Uint8Array) || bytes.length === 0) return fail("validation", "bytes_required");
   if (bytes.length > MAX_ARTIFACT_BYTES) return fail("too_large", "payload_exceeds_artifact_cap");
+  const refusal = await publishRefusal({ database, ownerId, artifactId, expectedRevisionId, kind, bytes });
+  if (refusal !== undefined) return refusal;
   const sha256 = createHash("sha256").update(bytes).digest("hex");
   const storageKey = newRevisionStorageKey();
   const stored = await putRevisionBytes({ storage, storageKey, sha256, bytes });

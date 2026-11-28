@@ -213,7 +213,7 @@ export function renderSceneDocument(
   const policy = source === undefined ? BASE_DOCUMENT_CSP : sceneDocumentCsp(source.origin);
   const looseNodes = scene.nodes ?? [];
   const empty = scene.frames.length === 0 && (slides || looseNodes.length === 0);
-  const title = scene.frames[0]?.name ?? (slides ? "Deck" : "Canvas");
+  const title = scene.frames[0]?.name ?? (slides ? "Deck" : "Design");
   const selected = scene.frames.find((frame) => frame.id === frameId) ?? scene.frames[0];
   const selectedId = selected === undefined ? null : selected.id;
   const selectedIndex = selected === undefined ? 0 : scene.frames.indexOf(selected);
@@ -246,7 +246,7 @@ export function renderSceneDocument(
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Slides" hidden></nav>`
       : `<div class="scene-stage" id="stage">
-<p class="scene-empty">This canvas has no frames yet.</p>
+<p class="scene-empty">This design has no frames yet.</p>
 </div>
 <nav class="scene-index" id="frame-index" aria-label="Frames" hidden></nav>`
     : slides
