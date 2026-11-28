@@ -14,6 +14,7 @@ import { createSceneApp } from "./routes/scene.ts";
 import { createAssetsApp } from "./routes/assets.ts";
 import { createCommentsApp } from "./routes/comments.ts";
 import { createHealthApp } from "./routes/health.ts";
+import { buildInfoFromEnv, createVersionApp, type BuildInfo } from "./routes/version.ts";
 import { createLibraryApp } from "./routes/library.ts";
 import { createMcpApp, createMcpBearerVerifier, createMultiAudienceBearerVerifier } from "./mcp/mount.ts";
 import { API_RESOURCE_SCOPES, publicApiResource, publicIssuer, publicResource } from "./oauth.ts";
@@ -47,9 +48,10 @@ export type ApiAppDeps = {
     destroy: () => void;
   };
   auth?: AuthHolder;
+  build?: BuildInfo;
 };
 
-export function createApiApp({ config, database, storage, auth: suppliedAuth }: ApiAppDeps) {
+export function createApiApp({ config, database, storage, auth: suppliedAuth, build: suppliedBuild }: ApiAppDeps) {
   const mcpNetwork = resolveMcpNetwork(config);
   const databaseView = database as unknown as Database;
   const storageView = storage as unknown as Storage;
@@ -77,6 +79,7 @@ export function createApiApp({ config, database, storage, auth: suppliedAuth }: 
       checkStorage: storage.checkBucket,
     }),
   );
+  app.route("/", createVersionApp(suppliedBuild ?? buildInfoFromEnv()));
 
   const holder = suppliedAuth ?? createAuthHolder({ config, database: databaseView });
   const auth = holder.auth;

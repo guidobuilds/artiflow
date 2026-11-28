@@ -33,11 +33,11 @@ an unrelated IPv6 listener.
 
 ## 2. First run
 
-Requirements: Bun `>=1.2` (verified on 1.3.10) runs the API in development and in
-production and is the package manager; Node.js `>=24.0.0` runs the Vite dev
+Requirements: Bun `>=1.2` (verified on 1.3.10) runs the API locally and inside the
+production image and is the package manager; Node.js `>=24.0.0` runs the Vite dev
 server, the repository scripts and the test runner. You also need a PostgreSQL 16
 database and role, a private S3-compatible bucket, and Docker only for the
-integration stack or production images.
+integration stack or the published production images.
 
 ```sh
 bun install           # pinned workspace dependencies from bun.lock

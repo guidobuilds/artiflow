@@ -22,7 +22,18 @@ COPY apps/dashboard ./apps/dashboard
 RUN bun run --filter '@artiflow/dashboard' build
 
 FROM oven/bun:1.3.10 AS runtime
-ENV NODE_ENV=production
+ARG ARTIFLOW_VERSION=dev
+ARG ARTIFLOW_GIT_SHA=unknown
+LABEL org.opencontainers.image.title="Artiflow API" \
+  org.opencontainers.image.description="Artiflow API and MCP endpoint" \
+  org.opencontainers.image.version="${ARTIFLOW_VERSION}" \
+  org.opencontainers.image.revision="${ARTIFLOW_GIT_SHA}" \
+  org.opencontainers.image.source="https://github.com/guidobuilds/artiflow" \
+  org.opencontainers.image.url="https://github.com/guidobuilds/artiflow" \
+  org.opencontainers.image.licenses="MIT"
+ENV NODE_ENV=production \
+  ARTIFLOW_BUILD_VERSION="${ARTIFLOW_VERSION}" \
+  ARTIFLOW_BUILD_REVISION="${ARTIFLOW_GIT_SHA}"
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./

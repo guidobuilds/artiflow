@@ -20,9 +20,9 @@ services with credentials you supply.
 | DNS record + ports 80/443                 | Caddy obtains and renews the TLS certificate over ACME and serves all traffic on 443.                   |
 | PostgreSQL 16                             | Metadata: users, sessions, artifacts, revisions, grants, links and comments.                            |
 | Private S3-compatible bucket              | Artifact bytes, one object per revision under `artifacts/<revision id>`. The bucket must already exist. |
-| Docker + Compose v2                       | Only for the production containers and the disposable integration-test stack.                           |
-| Bun `>=1.2` (verified on 1.3.10)          | Package manager, repository scripts and the API runtime.                                                |
-| Node.js `>=24.0.0` (verified on v24.17.0) | The Vite dev server, repository scripts and the `node --test` runner.                                   |
+| Docker + Compose v2                       | The production stack; it runs published images, so nothing is built on the server.                      |
+| Bun `>=1.2` (verified on 1.3.10)          | Local package manager and repository scripts; the API runtime inside the published image.               |
+| Node.js `>=24.0.0` (verified on v24.17.0) | The local Vite dev server, repository scripts and the `node --test` runner.                             |
 
 Use a hostname such as `artifacts.example.com`, not a path prefix. `ARTIFLOW_PUBLIC_ORIGIN` must be a
 bare origin; mounting the application under `example.com/artiflow/` is not supported, because the
@@ -67,20 +67,31 @@ invitations.
 
 PostgreSQL and the bucket stay outside the stack, so the containers hold no application state.
 
+The containers run published images, `ghcr.io/guidobuilds/artiflow-api` and
+`ghcr.io/guidobuilds/artiflow-web`, each built by CI from a release tag and pinned by
+`ARTIFLOW_VERSION`. A server deploys those images; it does not clone the repository and it does not
+build anything.
+
 1. Point an `A`/`AAAA` record for the hostname at the server and open ports 80 and 443.
-2. Install Docker with Compose v2, then clone this repository on the server.
-3. Create the environment file and keep it private:
+2. Install Docker with Compose v2.
+3. Download the compose file and the environment template from the tag you are deploying, and keep the
+   file private:
 
    ```sh
-   cp env.prod.example .env.prod
+   TAG=v0.4.1
+   curl -fsSLO "https://raw.githubusercontent.com/guidobuilds/artiflow/$TAG/docker-compose.prod.yml"
+   curl -fsSL "https://raw.githubusercontent.com/guidobuilds/artiflow/$TAG/env.prod.example" -o .env.prod
    chmod 600 .env.prod
    openssl rand -hex 32   # use the output as ARTIFLOW_AUTH_SECRET
    ```
 
-4. Fill every value in `.env.prod`:
+4. Fill every value in `.env.prod`. The downloaded template leaves `ARTIFLOW_VERSION` empty on
+   purpose: set it to the same tag without the leading `v`, so the file cannot silently deploy a
+   different release than the one you fetched.
 
    | Variable                        | Value                                                                                            |
    | ------------------------------- | ------------------------------------------------------------------------------------------------ |
+   | `ARTIFLOW_VERSION`              | Release tag without the leading `v`, e.g. `0.4.1`; selects both images on GHCR.                  |
    | `ARTIFLOW_SITE_ADDRESS`         | Public hostname for Caddy, e.g. `artifacts.example.com`; use `:80` for a DNS-less smoke test.    |
    | `ARTIFLOW_PUBLIC_ORIGIN`        | `https://` plus that hostname, with no trailing path.                                            |
    | `ARTIFLOW_AUTH_SECRET`          | At least 32 characters; the value printed by `openssl rand -hex 32`.                             |
@@ -103,14 +114,19 @@ PostgreSQL and the bucket stay outside the stack, so the containers hold no appl
 5. Deploy:
 
    ```sh
-   bun run deploy:up      # build images, migrate, start the stack
-   bun run deploy:logs    # follow container logs
-   bun run deploy:down    # stop the containers and the stack network
+   docker compose --env-file .env.prod -f docker-compose.prod.yml pull
+   docker compose --env-file .env.prod -f docker-compose.prod.yml up -d
+   docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f
    ```
 
-`deploy:up` runs the migration container with `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1`, the explicit opt-in
-that lets migrations target the externally managed database. The API starts only after that container
-exits successfully. Invalid configuration fails startup and names the variable, never its value.
+`pull` fetches the `api` and `web` images at the pinned `ARTIFLOW_VERSION`; `up -d` starts them, and the
+one-shot `migrate` container runs first. From a repository checkout the same sequence is
+`bun run deploy:up`, `bun run deploy:logs` and `bun run deploy:down`, and `bun run deploy:build` builds
+the stack from source instead of pulling it (for example to test a change before it is released).
+
+The `migrate` container runs with `ARTIFLOW_ALLOW_REMOTE_MIGRATE=1`, the explicit opt-in that lets
+migrations target the externally managed database. The API starts only after that container exits
+successfully. Invalid configuration fails startup and names the variable, never its value.
 
 ### Proxy and Host headers
 
@@ -125,11 +141,14 @@ authority it sends or `/mcp` answers `403`.
 ```sh
 curl -sS https://artifacts.example.com/api/health
 # {"status":"ok","checks":{"database":"ok","storage":"ok"}}
+curl -sS https://artifacts.example.com/api/version
+# {"version":"0.4.1","revision":"<git sha>"}
 ```
 
 `/api/health` is `200` only when both probes pass (`SELECT 1` and `HeadBucket`) and `503` with
 `"status":"degraded"` when one is unavailable. The body reports statuses only, never connection
-details.
+details. `/api/version` is also uncached and reports the release tag and the git revision the image was
+built from, so it confirms the running containers match the `ARTIFLOW_VERSION` you pinned.
 
 Discovery is public and needs no session:
 
@@ -166,11 +185,12 @@ while signing in to an existing account — email/password or a linked social ac
 working. The dashboard also stops offering its "Create an account" entry, but the refusal does not
 depend on it.
 
-A new account comes only from an invitation the operator issues with
-`bun run user:invite person@example.com`. That command prints a single-use URL, valid for 24 hours,
-that opens a form with the email address fixed; the person chooses a name and password, and then signs
-in with the normal password form. Only a SHA-256 digest of the invitation token is stored, no email is
-sent, and possession of the link is not treated as mailbox proof. See
+A new account comes only from an invitation the operator issues from the API container:
+`docker compose --env-file .env.prod -f docker-compose.prod.yml exec api bun run user:invite person@example.com`
+(from a repository checkout, `bun run user:invite person@example.com`). That command prints a single-use
+URL, valid for 24 hours, that opens a form with the email address fixed; the person chooses a name and
+password, and then signs in with the normal password form. Only a SHA-256 digest of the invitation token
+is stored, no email is sent, and possession of the link is not treated as mailbox proof. See
 [operate and upgrade](/docs/self-hosting/operations/#invitation-only-registration) for the exact
 invocations and refusal rules. No social provider creates an account on its own: a configured provider
 only signs in to an existing linked account. Rotating `ARTIFLOW_AUTH_SECRET` invalidates existing
@@ -187,9 +207,9 @@ fresh-machine production bootstrap was **not** run end to end while this page wa
 first deployment as a rehearsal against a disposable database and bucket, verify the checks above,
 and only then point the real hostname and data at it.
 
-The docs site is not part of that stack: `deploy:up` builds the API and the dashboard. Building the
-documentation is a separate static output (`bun run web:build`), with no server runtime and no
-requirement on the instance database.
+The docs site is not part of that stack: the published `api` and `web` images carry the API and the
+dashboard. Building the documentation is a separate static output (`bun run web:build`), with no server
+runtime and no requirement on the instance database.
 
 ## Next
 
