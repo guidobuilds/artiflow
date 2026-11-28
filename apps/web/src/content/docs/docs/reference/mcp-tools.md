@@ -1,16 +1,17 @@
 ---
 title: MCP tool reference
-description: All twenty-five Artiflow MCP tools with their exact arguments, success payloads, typed errors and limits, checked against the server implementation.
+description: All twenty-six Artiflow MCP tools with their exact arguments, success payloads, typed errors and limits, checked against the server implementation.
 sidebar:
   order: 8
 ---
 
-Artiflow registers **twenty-five** MCP tools on one endpoint, `POST /mcp`. This page is the
+Artiflow registers **twenty-six** MCP tools on one endpoint, `POST /mcp`. This page is the
 complete contract: field names, required and optional arguments, defaults, validation, success
 payloads, error kinds and limits. It describes the code, not an earlier draft of it.
 
-Thirteen tools move artifact bytes, seven work on a Markdown document in place, three on a canvas
-scene, one draws a canvas or deck for a host viewer, and one stores an image by its digest.
+Fourteen tools move artifact bytes, resolve or label an artifact, seven work on a Markdown document in
+place, three on a canvas scene, one draws a canvas or deck for a host viewer, and one stores an image by
+its digest.
 
 Configuration, consent and per-client setup are in [Connect an agent](/docs/connect/mcp/).
 
@@ -68,7 +69,7 @@ A refusal is still a tool result, with `isError: true` and a JSON body of the fo
 never reach the handler: the protocol layer answers a JSON-RPC error instead, so a typed error is
 always about an argument the schema accepts but the operation rejects.
 
-## The twenty-five tools
+## The twenty-six tools
 
 | Tool                         | Scope             | What it does                                                           |
 | ---------------------------- | ----------------- | ---------------------------------------------------------------------- |
@@ -77,6 +78,7 @@ always about an argument the schema accepts but the operation rejects.
 | `artifact_commit`            | `artifacts:write` | Verify the staged stream and commit it as an artifact                  |
 | `artifact_write`             | `artifacts:write` | Write a whole text artifact (≤ 1 MiB) in one call                      |
 | `artifact_get`               | `artifacts:read`  | Read one revision as base64                                            |
+| `artifact_resolve_link`      | `artifacts:read`  | Resume an artifact, artboard, page and pinned version from its link    |
 | `artifact_update_metadata`   | `artifacts:write` | Rename an artifact: title only, no new revision                        |
 | `artifact_get_markdown`      | `artifacts:read`  | Read a Markdown document as numbered lines                             |
 | `artifact_get_scene`         | `artifacts:read`  | Render a canvas or deck as one HTML document for a host viewer         |
@@ -215,6 +217,34 @@ object is a typed error, never content:
 resolves to `not_found`. `artifact_write` and `artifact_commit` do validate it, as do the comment
 tools, because an id that cannot be addressed later cannot be managed later either;
 `artifact_edit_lines` resolves its id through the same read path and reports `not_found`.
+
+## `artifact_resolve_link` — resume what a link names
+
+The floor for every textual client: paste the link a person sent and get back a reference the rest of
+the tools accept.
+
+| Field  | Type   | Required | Rules                               |
+| ------ | ------ | -------- | ----------------------------------- |
+| `link` | string | yes      | 1–2000 characters; absolute or path |
+
+`link` is `https://<host>/artifact/<artifactId>` or that path alone, with any of `revision`, `frame`,
+`page`, `view` and `width`. Returns
+`{ artifactId, title, kind, revisionId, revisionNumber, pinnedRevision, url, target, missing }`, where
+`target` is `null` for a Page and otherwise `{ view, width, frame, page }` with each element as
+`{ id, name }` or `null`. `missing` is `null`, `"artboard"` or `"page"`: the link named a target the
+artifact no longer holds, and nothing was opened in its place. Continue with `artifact_get` for the
+bytes, `scene_outline` for what the Design holds and `scene_read` for one frame.
+
+| `error`            | `message` (example)       | Meaning                                      |
+| ------------------ | ------------------------- | -------------------------------------------- |
+| `invalid_link`     | `not_an_artifact_link`    | not an `/artifact/<id>` link                 |
+| `invalid_link`     | `invalid_artifact_id`     | the id is not a canonical lowercase UUID     |
+| `invalid_link`     | `invalid_revision_id`     | `revision` is not a canonical lowercase UUID |
+| `not_found`        | `link_target_not_visible` | missing, foreign or soft-deleted artifact    |
+| `not_found`        | `revision_not_found`      | the link pins a version the artifact lacks   |
+| `unreadable_scene` | `malformed_scene`         | a Design whose stored scene cannot be read   |
+
+It only reads: no revision is created and the pinned version is the one reported.
 
 ## `artifact_get_markdown` — numbered lines
 
@@ -720,26 +750,26 @@ instead of truncating. An absent frame id is `unknown_frame` / `frame_not_in_sce
 
 Each operation is one of:
 
-| Op                    | Fields                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------- |
+| Op                    | Fields                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------- |
 | `add_frame`           | `frame` with `id`, `name`, `x`, `y`, `w`, `h` and `nodes`, optional `page` and `locked` |
 | `update_frame`        | `id`, and `props` with any of `name`, `x`, `y`, `w`, `h`, `page`, `locked`              |
-| `remove_frame`        | `id`                                                                                   |
-| `add_node`            | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields             |
-| `update_node`         | `id`, and `props` with any node property except `id`                                   |
-| `move_node`           | `id`, `x`, `y`, optional `w` and `h`                                                   |
-| `reorder_node`        | `id`, and `index` inside its frame (`0` is the back, the last index the front)         |
-| `remove_node`         | `id`                                                                                   |
-| `add_canvas_node`     | `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields, added to the canvas level |
-| `update_canvas_node`  | `id`, and `props` with any node property except `id`, plus `page` and `annotation`       |
-| `move_canvas_node`    | `id`, `x`, `y`, optional `w` and `h`                                                   |
-| `reorder_canvas_node` | `id`, and `index` on the canvas level (`0` is the back, the last index the front)      |
-| `remove_canvas_node`  | `id`                                                                                   |
-| `add_page`            | `page` with `id` and `name`, appended to the design pages                              |
-| `update_page`         | `id`, and `props` with `name`                                                          |
-| `remove_page`         | `id`; refuses with `page_not_empty` while a frame or note still belongs to it          |
-| `reorder_page`        | `id`, and `index` in the page order (`0` is first)                                     |
-| `replace_scene`       | `scene`: the escape hatch that replaces the whole scene                                |
+| `remove_frame`        | `id`                                                                                    |
+| `add_node`            | `frameId`, and `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields              |
+| `update_node`         | `id`, and `props` with any node property except `id`                                    |
+| `move_node`           | `id`, `x`, `y`, optional `w` and `h`                                                    |
+| `reorder_node`        | `id`, and `index` inside its frame (`0` is the back, the last index the front)          |
+| `remove_node`         | `id`                                                                                    |
+| `add_canvas_node`     | `node` with `id`, `type`, `x`, `y`, `w`, `h` and its fields, added to the canvas level  |
+| `update_canvas_node`  | `id`, and `props` with any node property except `id`, plus `page` and `annotation`      |
+| `move_canvas_node`    | `id`, `x`, `y`, optional `w` and `h`                                                    |
+| `reorder_canvas_node` | `id`, and `index` on the canvas level (`0` is the back, the last index the front)       |
+| `remove_canvas_node`  | `id`                                                                                    |
+| `add_page`            | `page` with `id` and `name`, appended to the design pages                               |
+| `update_page`         | `id`, and `props` with `name`                                                           |
+| `remove_page`         | `id`; refuses with `page_not_empty` while a frame or note still belongs to it           |
+| `reorder_page`        | `id`, and `index` in the page order (`0` is first)                                      |
+| `replace_scene`       | `scene`: the escape hatch that replaces the whole scene                                 |
 
 Node types and their extra fields are `rect` (`fill`, optional `radius`), `text` (`text`, optional
 `style`), `image` (`assetId`) and `path` (`d`, optional `fill`, `stroke`, `strokeWidth`). Geometry is

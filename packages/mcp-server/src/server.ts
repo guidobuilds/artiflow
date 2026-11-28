@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
-import { ARTIFACT_KINDS, acceptsTextOperations } from "@artiflow/domain/kinds";
+import { ARTIFACT_KINDS, acceptsTextOperations, rendersScene } from "@artiflow/domain/kinds";
 import { applyLineOps, decodeMarkdownText, joinLines, toLines, type LineOp } from "@artiflow/domain/markdown";
 import {
   BLOCK_KINDS,
@@ -12,7 +12,9 @@ import {
   type DocumentBlock,
   type DocumentOperation,
 } from "@artiflow/domain/document-operations";
-import type { Scene } from "@artiflow/domain/scene";
+import { readScene, type Scene } from "@artiflow/domain/scene";
+import { ARTIFACT_LINK_MAX_LENGTH, artifactLinkHref, parseArtifactLink } from "@artiflow/domain/artifact-link";
+import { sceneLinkGap } from "@artiflow/domain/scene-link";
 import type { SceneOperation } from "@artiflow/domain/scene-operations";
 import { artifactMetadataSchema, type ArtifactMetadata } from "@artiflow/contracts/artifacts";
 import {
@@ -473,6 +475,71 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           sha256: row.sha256,
           sizeBytes: read.value.sizeBytes,
           contentBase64: Buffer.from(read.value.bytes).toString("base64"),
+        });
+      },
+    );
+
+    server.registerTool(
+      "artifact_resolve_link",
+      {
+        title: "Resume an artifact from its link",
+        annotations: { readOnlyHint: true },
+        description: `Turn a link a person pasted into this conversation back into a usable reference: the artifact, the revision it pins, and the artboard and page it names, with their names. Link may be the absolute viewer URL or the /artifact/<id> path with its frame, page, view, width and revision query. A link whose artboard, page or revision no longer exists answers with missing set and opens nothing instead. Requires ${readScope}. Continue with artifact_get for the bytes, scene_outline or scene_read for the Design body, using the artifactId and revisionId returned here.`,
+        inputSchema: {
+          link: z.string().min(1).max(ARTIFACT_LINK_MAX_LENGTH),
+        },
+      },
+      async (input) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const parsed = parseArtifactLink(input.link);
+        if (!parsed.ok) return refusal("invalid_link", parsed.reason);
+        const { artifactId, revisionId } = parsed.link;
+        const row = await selectReadRevision(undefined, access.userId, artifactId, revisionId ?? undefined);
+        if (!row) return refusal("not_found", "link_target_not_visible", { artifactId, revisionId });
+        if (row.deletedAt) return refusal("gone", "artifact_deleted", { artifactId });
+        if (!row.id || !row.sha256 || !row.storageKey || row.revisionNumber === null || row.sizeBytes === null)
+          return refusal("not_found", "revision_not_found", { artifactId, revisionId });
+        const base = {
+          artifactId,
+          title: row.title,
+          kind: row.kind,
+          revisionId: row.id,
+          revisionNumber: row.revisionNumber,
+          pinnedRevision: revisionId !== null,
+          ...viewerLink(artifactId),
+        };
+        const reopened = (sceneLink: typeof parsed.link.scene) =>
+          artifactLinkHref({ artifactId, revisionId: row.id, scene: sceneLink });
+        if (!rendersScene(row.kind))
+          return reply({
+            ...base,
+            link: reopened(parsed.link.scene),
+            target: null,
+            missing: parsed.link.scene.frameId !== null || parsed.link.scene.page !== null ? "artboard" : null,
+          });
+        const read = await getRevisionBytes({
+          storageKey: row.storageKey as string,
+          maxBytes: MAX_ARTIFACT_BYTES,
+        });
+        if (!read.ok) return refusalOf(read);
+        const scene = readScene(new TextDecoder().decode(read.value.bytes));
+        if (!scene.ok) return refusal("unreadable_scene", scene.reason);
+        const link = parsed.link.scene;
+        const frame =
+          link.frameId === null ? null : (scene.value.frames.find((entry) => entry.id === link.frameId) ?? null);
+        const pages = Array.isArray(scene.value.pages) ? scene.value.pages : [];
+        const page = link.page === null ? null : (pages.find((entry) => entry.id === link.page) ?? null);
+        return reply({
+          ...base,
+          link: reopened(link),
+          target: {
+            view: link.view,
+            width: link.width,
+            frame: frame === null ? null : { id: frame.id, name: frame.name },
+            page: page === null ? null : { id: page.id, name: page.name },
+          },
+          missing: sceneLinkGap(scene.value, link),
         });
       },
     );
