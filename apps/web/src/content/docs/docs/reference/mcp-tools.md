@@ -1,16 +1,16 @@
 ---
 title: MCP tool reference
-description: All twenty-four Artiflow MCP tools with their exact arguments, success payloads, typed errors and limits, checked against the server implementation.
+description: All twenty-five Artiflow MCP tools with their exact arguments, success payloads, typed errors and limits, checked against the server implementation.
 sidebar:
   order: 8
 ---
 
-Artiflow registers **twenty-four** MCP tools on one endpoint, `POST /mcp`. This page is the
+Artiflow registers **twenty-five** MCP tools on one endpoint, `POST /mcp`. This page is the
 complete contract: field names, required and optional arguments, defaults, validation, success
 payloads, error kinds and limits. It describes the code, not an earlier draft of it.
 
 Thirteen tools move artifact bytes, seven work on a Markdown document in place, three on a canvas
-scene, and one stores an image by its digest.
+scene, one draws a canvas or deck for a host viewer, and one stores an image by its digest.
 
 Configuration, consent and per-client setup are in [Connect an agent](/docs/connect/mcp/).
 
@@ -31,10 +31,10 @@ Every call is re-authorized inside the tool, so a transport that accepted the to
 word: a token without a subject is refused with `invalid_token`, and a token missing the scope the
 tool needs is refused with `insufficient_scope` naming that scope.
 
-| Scope             | Tools                                                                                                                                                                       |
-| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `artifacts:write` | the fifteen mutating tools: upload, commit, write, rename, edit, every comment mutation, and every document, scene and asset write                                          |
-| `artifacts:read`  | `artifact_get`, `artifact_get_markdown`, `artifact_list_comments`, `document_outline`, `document_read`, `document_query`, `document_diff`, `scene_outline` and `scene_read` |
+| Scope             | Tools                                                                                                                                                                                             |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `artifacts:write` | the fifteen mutating tools: upload, commit, write, rename, edit, every comment mutation, and every document, scene and asset write                                                                |
+| `artifacts:read`  | `artifact_get`, `artifact_get_markdown`, `artifact_get_scene`, `artifact_list_comments`, `document_outline`, `document_read`, `document_query`, `document_diff`, `scene_outline` and `scene_read` |
 
 The token's subject **is** the owner. No tool accepts an owner or user id, and every artifact,
 upload and comment is resolved inside that owner's scope; a foreign row reads as `not_found`
@@ -63,7 +63,7 @@ A refusal is still a tool result, with `isError: true` and a JSON body of the fo
 never reach the handler: the protocol layer answers a JSON-RPC error instead, so a typed error is
 always about an argument the schema accepts but the operation rejects.
 
-## The twenty-four tools
+## The twenty-five tools
 
 | Tool                         | Scope             | What it does                                                           |
 | ---------------------------- | ----------------- | ---------------------------------------------------------------------- |
@@ -74,6 +74,7 @@ always about an argument the schema accepts but the operation rejects.
 | `artifact_get`               | `artifacts:read`  | Read one revision as base64                                            |
 | `artifact_update_metadata`   | `artifacts:write` | Rename an artifact: title only, no new revision                        |
 | `artifact_get_markdown`      | `artifacts:read`  | Read a Markdown document as numbered lines                             |
+| `artifact_get_scene`         | `artifacts:read`  | Render a canvas or deck as one HTML document for a host viewer         |
 | `artifact_edit_lines`        | `artifacts:write` | Patch a Markdown document by line and commit a revision                |
 | `artifact_list_comments`     | `artifacts:read`  | List Markdown comment threads with replies                             |
 | `artifact_add_comment`       | `artifacts:write` | Comment on a source selection                                          |
@@ -223,6 +224,25 @@ Only `markdown` artifacts are readable here: an HTML artifact is opaque bytes an
 `wrong_kind` / `artifact_is_not_a_markdown_document` with `{ artifactId, kind }`. Bytes that are not
 valid UTF-8 answer `not_valid_utf8_markdown`; they are never decoded with replacement characters.
 `from` greater than `to` after clamping is `validation` / `empty_line_window`.
+
+## `artifact_get_scene` — a canvas or deck drawn by the host
+
+| Field        | Type   | Required | Rules            |
+| ------------ | ------ | -------- | ---------------- |
+| `artifactId` | string | yes      | 1–100 characters |
+
+Returns `{ artifactId, revisionId, kind, documentHtml }`: the canvas or deck's current draft
+rendered as one self-contained HTML document, the same document the instance's own viewer serves. A
+canvas arrives as one surface holding its frames, with the frame index along the bottom and a fit
+control; a deck arrives as one slide at a time with back, forward and the slide list, so a host
+presents a deck instead of a scene dump. The document carries no editing control: a canvas or deck is
+still edited in the dashboard or by the agent.
+
+Images come from exactly one origin, the instance's own (`ARTIFLOW_PUBLIC_ORIGIN`), and only for a
+digest the artifact owns: any other image draws as a placeholder with its digest, so the host never
+loads a third party. Only `canvas` and `deck` are readable here — any other kind answers
+`wrong_kind` / `artifact_is_not_a_canvas` with `{ artifactId, kind }` — and stored bytes that are not
+a scene answer `invalid_scene` with the failing path.
 
 ## `artifact_edit_lines` — patch a Markdown document
 

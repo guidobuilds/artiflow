@@ -31,10 +31,15 @@ dashboard, auth), load `using-artiflow`.
 `io.modelcontextprotocol/ui` extension (Claude.ai, ChatGPT/Codex, Cursor 2.6+)
 render the committed artifact inline right after the commit call: the viewer
 reads the `artifactId` from the result's `structuredContent` and fetches the
-bytes itself with a proxied `artifact_get`. Hosts without MCP Apps support see
-the plain JSON text content exactly as before — nothing changes for them, and
-no extra call is needed. The artifact's own sandbox and CSP rules (the section
-below) apply unchanged inside that inline preview.
+bytes itself with a proxied `artifact_get`. A `canvas` or a `deck` is drawn
+instead of dumped: the viewer asks for the scene already rendered with a
+proxied `artifact_get_scene` and presents it the way the instance's own viewer
+does — a canvas as one surface with its frame index, a deck as one slide at a
+time — with nothing editable from the host. Its images come from one origin,
+the instance's own, and the artifact's own sandbox and CSP rules (the section
+below) apply unchanged inside that inline preview. Hosts without MCP Apps
+support see the plain JSON text content exactly as before — nothing changes for
+them, and no extra call is needed.
 
 ## The viewer decides what you may write
 

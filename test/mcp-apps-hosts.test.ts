@@ -14,8 +14,10 @@ test("hosts without the nested apps meta fall back to text delivery", () => {
   assert.equal(deliveryMode({}), "text", "absence of the meta is the claude.ai gap, not apps support");
 });
 
-test("the apps frame renders only explicitly-html artifacts; AUD-05 keeps markdown out", () => {
+test("the apps frame renders html pages, canvas and deck scenes; AUD-05 keeps markdown out", () => {
   assert.equal(canRenderAppsFrame({ kind: "html" }), true);
+  assert.equal(canRenderAppsFrame({ kind: "canvas" }), true, "a canvas draws the scene document in the frame");
+  assert.equal(canRenderAppsFrame({ kind: "deck" }), true, "a deck draws the same scene document as a presentation");
   assert.equal(
     canRenderAppsFrame({ kind: "markdown" }),
     false,

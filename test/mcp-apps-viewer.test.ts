@@ -12,11 +12,12 @@ import { createMcpBackend } from "../apps/api/src/mcp/backend.ts";
 import type { Database } from "../apps/api/src/adapters/postgres/db/client.ts";
 import { MCP_SERVER_INFO } from "../apps/api/src/mcp/mount.ts";
 import { WRAPPER_CSP } from "../apps/api/src/viewer/html.ts";
-import { mcpAppsViewerHtml } from "@artiflow/mcp-apps/viewer";
+import { mcpAppsViewerHtml, SCENE_DOCUMENT_CSP, viewerImageOrigin } from "@artiflow/mcp-apps/viewer";
 
 const noopDb = {} as never;
 const noopDatabase = { db: noopDb } as unknown as Database;
 const noopStorage = {} as never;
+const INSTANCE_ORIGIN = "https://artifacts.example.com";
 
 type ToolCall = (name: string, args: Record<string, unknown>) => ReturnType<Client["callTool"]>;
 
@@ -26,13 +27,14 @@ const connect = async (
     noopDatabase as never,
     noopStorage as never,
   ),
+  publicOrigin = INSTANCE_ORIGIN,
 ): Promise<{
   tools: Awaited<ReturnType<Client["listTools"]>>["tools"];
   callTool: ToolCall;
   readResource: (uri: string) => ReturnType<Client["readResource"]>;
   server: McpServer;
 }> => {
-  const server = createArtifactTools({ backend })(claims);
+  const server = createArtifactTools({ backend, publicOrigin })(claims);
   const client = new Client({ name: "mcp-apps-viewer-test", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(clientTransport), client.connect(serverTransport)]);
@@ -90,7 +92,7 @@ test("resources/read serves the viewer as an mcp-app HTML document", async () =>
   assert.ok((meta?.csp?.frameDomains ?? []).length > 0, "nested artifact iframes need an explicit frame domain");
 });
 
-test("only the nine read tools declare readOnlyHint", async () => {
+test("only the ten read tools declare readOnlyHint", async () => {
   const { tools } = await connect();
   const readOnly = tools
     .filter((tool) => (tool as { annotations?: { readOnlyHint?: boolean } }).annotations?.readOnlyHint === true)
@@ -99,6 +101,7 @@ test("only the nine read tools declare readOnlyHint", async () => {
   assert.deepEqual(readOnly, [
     "artifact_get",
     "artifact_get_markdown",
+    "artifact_get_scene",
     "artifact_list_comments",
     "document_diff",
     "document_outline",
@@ -108,7 +111,7 @@ test("only the nine read tools declare readOnlyHint", async () => {
     "scene_read",
   ]);
   const others = tools.filter((tool) => !readOnly.includes(tool.name)).map((tool) => tool.name);
-  assert.equal(others.length, 15, "the registry holds twenty-four tools: nine reads and fifteen writers");
+  assert.equal(others.length, 15, "the registry holds twenty-five tools: ten reads and fifteen writers");
   assert.ok(others.includes("asset_upload"), "the asset upload writes, so it is one of the fifteen");
   assert.ok(others.includes("scene_apply"), "scene_apply writes, so it is one of the fifteen");
   for (const name of others)
@@ -601,4 +604,160 @@ test("a hostile capability map cannot break out of the inline script", () => {
   assert.ok(map.length > 0, "the emitted map is present");
   for (const char of ["<", ">", "&", "\u2028", "\u2029"])
     assert.equal(map.includes(char), false, `the emitted map carries no raw ${JSON.stringify(char)}`);
+});
+
+type PostedCall = {
+  id?: number;
+  method?: string;
+  params?: { name?: string; arguments?: Record<string, unknown> };
+};
+
+const CANVAS_SCENE_DOCUMENT = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Home</title></head><body><div class="scene-stage" id="stage"><div class="scene-tools"><button type="button" id="fit" title="Fit the surface to the screen">Fit</button></div><div class="scene-surface" id="surface" data-surface-w="200" data-surface-h="100"><section class="scene-frame" data-frame-id="f1" style="left:0px;top:0px"><p class="scene-frame-name">Home</p></section></div></div><nav class="scene-index" id="frame-index" aria-label="Frames"></nav></body></html>`;
+
+const DECK_SCENE_DOCUMENT = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Pitch</title></head><body><div class="scene-stage scene-slides" id="stage"><div class="scene-tools"><button type="button" id="prev">Back</button><button type="button" id="next">Forward</button><p class="scene-counter" id="frame-counter">1 / 3</p></div><section class="scene-frame" data-frame-id="s1"><p class="scene-frame-name">Intro</p></section></div><nav class="scene-index" id="frame-index" aria-label="Slides" hidden></nav></body></html>`;
+
+const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+const toolCalls = (viewer: Viewer): PostedCall[] =>
+  (viewer.posted as PostedCall[]).filter((message) => message.method === "tools/call");
+
+const answerScene = async (
+  viewer: Viewer,
+  payload: { kind: string; documentHtml?: string; refusal?: boolean },
+): Promise<PostedCall | undefined> => {
+  await viewer.deliver({
+    artifactId: "artifact-1",
+    revisionId: "rev-1",
+    kind: payload.kind,
+    sha256: digest(new TextEncoder().encode(payload.kind)),
+  });
+  await flush();
+  const calls = toolCalls(viewer);
+  const call = calls[calls.length - 1];
+  viewer.send({
+    jsonrpc: "2.0",
+    id: call?.id,
+    result:
+      payload.refusal === true
+        ? {
+            isError: true,
+            content: [
+              { type: "text", text: JSON.stringify({ error: "wrong_kind", message: "artifact_is_not_a_canvas" }) },
+            ],
+          }
+        : {
+            structuredContent: {
+              artifactId: "artifact-1",
+              revisionId: "rev-1",
+              kind: payload.kind,
+              documentHtml: payload.documentHtml ?? "",
+            },
+          },
+  });
+  await flush();
+  return call;
+};
+
+test("a canvas artifact draws the scene document instead of its JSON", async () => {
+  const viewer = openViewer(await viewerHtml());
+  const call = await answerScene(viewer, { kind: "canvas", documentHtml: CANVAS_SCENE_DOCUMENT });
+  assert.deepEqual(
+    toolCalls(viewer).map((message) => message.params?.name),
+    ["artifact_get", "artifact_get_scene"],
+    "one read finds the kind, the second asks for the rendered scene",
+  );
+  assert.deepEqual(
+    call?.params?.arguments === undefined ? null : JSON.parse(JSON.stringify(call.params.arguments)),
+    { artifactId: "artifact-1" },
+    "the scene read names the artifact only",
+  );
+  assert.equal(viewer.frame.hidden, false, "a canvas reaches the nested frame");
+  assert.equal(viewer.text.hidden, true, "the raw scene JSON never shows as text");
+  assert.match(String(viewer.frame.src), /^blob:viewer\//);
+  assert.equal(viewer.blobs.length, 1, "exactly one blob document is created");
+  assert.equal(viewer.blobs[0]?.type, "text/html");
+  const doctype = "<!doctype html>";
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${SCENE_DOCUMENT_CSP(INSTANCE_ORIGIN)}">`;
+  assert.equal(
+    viewer.blobs[0]?.body,
+    doctype + meta + CANVAS_SCENE_DOCUMENT.slice(doctype.length),
+    "the scene document keeps its doctype first and its navigation intact",
+  );
+  assert.ok(viewer.blobs[0]?.body.includes('class="scene-surface"'), "the canvas surface is what the frame draws");
+  assert.equal(viewer.status.hidden, true);
+});
+
+test("a deck artifact arrives as a presentation, not as one canvas surface", async () => {
+  const viewer = openViewer(await viewerHtml());
+  await answerScene(viewer, { kind: "deck", documentHtml: DECK_SCENE_DOCUMENT });
+  const body = viewer.blobs[0]?.body ?? "";
+  assert.equal(viewer.frame.hidden, false, "a deck reaches the nested frame");
+  assert.ok(body.includes('class="scene-stage scene-slides"'), "the deck document is the slide presentation");
+  assert.ok(body.includes('id="prev"') && body.includes('id="next"'), "the deck keeps its own navigation");
+  assert.ok(body.includes('id="frame-counter"'), "the deck keeps its slide counter");
+  assert.equal(body.includes('class="scene-surface"'), false, "a deck is never drawn as a canvas surface");
+});
+
+test("the scene frame allows images from exactly one origin and no other source", () => {
+  assert.equal(SCENE_DOCUMENT_CSP(INSTANCE_ORIGIN).includes(`img-src ${INSTANCE_ORIGIN};`), true);
+  assert.equal(/img-src [^;]*\*/.test(SCENE_DOCUMENT_CSP(INSTANCE_ORIGIN)), false, "no wildcard image source");
+  assert.equal(/img-src [^;]*;/.exec(SCENE_DOCUMENT_CSP(INSTANCE_ORIGIN))?.[0].split(" ").length, 2);
+  assert.equal(SCENE_DOCUMENT_CSP(undefined).includes("img-src 'none';"), true, "no origin names no source");
+  assert.equal(SCENE_DOCUMENT_CSP("not a url").includes("img-src 'none';"), true);
+  assert.equal(SCENE_DOCUMENT_CSP("javascript:alert(1)").includes("img-src 'none';"), true);
+  assert.equal(viewerImageOrigin("https://artifacts.example.com/path?q=1"), INSTANCE_ORIGIN);
+  assert.equal(viewerImageOrigin("http://localhost:5173"), "http://localhost:5173");
+  assert.equal(viewerImageOrigin("file:///etc/passwd"), null);
+});
+
+test("a hostile scene document cannot widen the image source the frame applies", async () => {
+  const hostile = `<html><head><meta http-equiv="content-security-policy" content="img-src *"></head><body><img src="https://elsewhere.example/pixel.png"></body></html>`;
+  const viewer = openViewer(await viewerHtml());
+  await answerScene(viewer, { kind: "canvas", documentHtml: hostile });
+  const body = viewer.blobs[0]?.body ?? "";
+  const injected = `<meta http-equiv="Content-Security-Policy" content="${SCENE_DOCUMENT_CSP(INSTANCE_ORIGIN)}">`;
+  assert.ok(body.startsWith(injected), "the viewer policy comes first, before anything the scene carries");
+  assert.equal(/img-src [^;]*\*/.test(injected), false, "the policy the viewer applies names one origin");
+});
+
+test("a scene the server refuses keeps the refusal in the status and draws nothing", async () => {
+  const viewer = openViewer(await viewerHtml());
+  await answerScene(viewer, { kind: "canvas", refusal: true });
+  assert.equal(viewer.frame.hidden, true, "a refused scene never reaches the frame");
+  assert.deepEqual(viewer.blobs, [], "no blob document is created");
+  assert.equal(viewer.status.className, "error");
+  assert.match(viewer.status.textContent, /The scene could not be read: .*artifact_is_not_a_canvas/);
+});
+
+test("a scene reply without a document is reported instead of drawing an empty frame", async () => {
+  const viewer = openViewer(await viewerHtml());
+  await answerScene(viewer, { kind: "canvas" });
+  assert.equal(viewer.frame.hidden, true);
+  assert.deepEqual(viewer.blobs, []);
+  assert.match(viewer.status.textContent, /The scene response carried no document/);
+});
+
+test("only a real http origin becomes the one image source the scene frame allows", () => {
+  for (const value of [
+    undefined,
+    "",
+    "garbage",
+    "javascript:alert(1)",
+    "data:text/html,x",
+    "file:///etc/passwd",
+    "blob:https://x.example/y",
+    "//evil.example",
+    "ws://x.example",
+    "https://a.example b",
+    'https://evil.example"',
+    "https://evil.example';img-src *",
+  ])
+    assert.equal(viewerImageOrigin(value), null, `no origin for ${JSON.stringify(value)}`);
+  assert.equal(viewerImageOrigin("HTTPS://Artifacts.Example.COM:8443/x"), "https://artifacts.example.com:8443");
+  assert.equal(viewerImageOrigin("https://user:pw@host.example/"), "https://host.example");
+  assert.equal(viewerImageOrigin("https://artifacts.example.com/p?q=1#f"), INSTANCE_ORIGIN);
+  for (const value of ["garbage", "javascript:alert(1)", "file:///etc/passwd", 'https://evil.example"'])
+    assert.equal(SCENE_DOCUMENT_CSP(value).includes("img-src 'none';"), true, `${String(value)} names no source`);
 });

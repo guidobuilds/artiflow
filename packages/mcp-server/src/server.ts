@@ -93,9 +93,14 @@ function decodeBase64(value: string): Uint8Array | undefined {
   return bytes.length > 0 ? bytes : undefined;
 }
 
+export type SceneDocumentInput = { artifactId: string; kind: string; scene: Scene };
+
+export type SceneDocumentRender = (input: SceneDocumentInput) => Promise<string>;
+
 export type ArtifactToolOptions = {
   backend: McpBackend;
   viewerHtml: () => string;
+  sceneDocument?: SceneDocumentRender;
   requireScope?: string;
   readScope?: string;
 };
@@ -991,7 +996,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
     const canvasScene = async (
       userId: string,
       artifactId: string,
-    ): Promise<{ revisionId: string; seq: number; scene: Scene } | ToolReply> => {
+    ): Promise<{ revisionId: string; kind: string; seq: number; scene: Scene } | ToolReply> => {
       const row = await selectReadRevision(undefined, userId, artifactId);
       if (!row) return refusal("not_found", "artifact_not_visible_to_owner", { artifactId });
       if (row.deletedAt) return refusal("gone", "artifact_deleted", { artifactId });
@@ -1002,7 +1007,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
       if (!draft.ok) return sceneFailure(draft, artifactId);
       const parsed = readScene(draft.value.text);
       if (!parsed.ok) return refusal("invalid_scene", parsed.reason, { artifactId, path: parsed.path });
-      return { revisionId: row.id, seq: draft.value.seq, scene: parsed.value };
+      return { revisionId: row.id, kind: row.kind, seq: draft.value.seq, scene: parsed.value };
     };
     const currentSceneOf = async (userId: string, artifactId: string): Promise<Scene | null> => {
       const loaded = await canvasScene(userId, artifactId);
@@ -1030,6 +1035,29 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
           frameCount: frames.length,
           looseNodeCount: Array.isArray(loaded.scene.nodes) ? loaded.scene.nodes.length : 0,
           frames,
+        });
+      },
+    );
+    server.registerTool(
+      "artifact_get_scene",
+      {
+        title: "Render a canvas or deck for the host viewer",
+        annotations: { readOnlyHint: true },
+        description: `Render one owned canvas or deck's current draft as a complete HTML document, the same document the instance's own viewer serves: a canvas arrives as one surface with its frames, a frame index and a fit control, a deck as one slide at a time with back, forward and the slide list, so a host draws the design instead of the scene JSON. Requires ${readScope}. The document names a single image origin, the instance's own, and an image the artifact does not own draws as a placeholder, so nothing else is ever fetched. Read it with artifact_get when the bytes matter; any artifact kind that is not a canvas or a deck refuses with wrong_kind.`,
+        inputSchema: { artifactId: documentIdSchema },
+      },
+      async ({ artifactId }) => {
+        const access = allow(readScope);
+        if (!access.ok) return access.reply;
+        const render = options.sceneDocument;
+        if (render === undefined) return refusal("unavailable", "scene_document_renderer_unavailable", { artifactId });
+        const loaded = await canvasScene(access.userId, artifactId);
+        if ("content" in loaded) return loaded;
+        return reply({
+          artifactId,
+          revisionId: loaded.revisionId,
+          kind: loaded.kind,
+          documentHtml: await render({ artifactId, kind: loaded.kind, scene: loaded.scene }),
         });
       },
     );
