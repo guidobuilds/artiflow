@@ -61,6 +61,9 @@ export function artboardAnchorRefusal(scene: Scene, anchor: ArtboardPointAnchor)
 }
 export const HIDDEN_ARTBOARD_LOCATOR = "(hidden)";
 
+export const artboardSourceIsReadable = (source: { readonly kind: string } | null | undefined): boolean =>
+  source !== null && source !== undefined && source.kind === "html";
+
 export function artboardAnchorSource(scene: Scene, anchor: ArtboardPointAnchor): string | null {
   const frame = scene.frames.find((candidate) => candidate.id === anchor.boardId);
   if (frame === undefined || frame.source === undefined) return null;

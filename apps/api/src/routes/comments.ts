@@ -30,6 +30,7 @@ import {
   anchorText,
   artboardAnchorRefusal,
   artboardAnchorSource,
+  artboardSourceIsReadable,
   isArtboardAnchor,
   isSceneAnchor,
   redactArtboardAnchor,
@@ -99,7 +100,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
       await Promise.all(
         [...sources].map(async (sourceId) => {
           const sourceDocument = await commentDocument(db, userId, sourceId, "shared");
-          readable.set(sourceId, sourceDocument !== undefined && sourceDocument.kind === "html");
+          readable.set(sourceId, artboardSourceIsReadable(sourceDocument));
         }),
       );
     }
@@ -210,8 +211,7 @@ export function createCommentsApp({ database, auth, storage, publicOrigin, princ
         const source = frame?.source;
         if (source === undefined) return c.json({ error: "unknown_source" }, 400);
         const sourceDocument = await commentDocument(client, userId, source.artifactId, "shared");
-        if (sourceDocument === undefined || sourceDocument.kind !== "html")
-          return c.json({ error: "source_unavailable" }, 403);
+        if (!artboardSourceIsReadable(sourceDocument)) return c.json({ error: "source_unavailable" }, 403);
       }
       if (parentId === null) {
         const expectedRevisionId = typeof body.expectedRevisionId === "string" ? body.expectedRevisionId.trim() : "";

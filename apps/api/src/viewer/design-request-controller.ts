@@ -73,8 +73,12 @@ export function designRequestControllerScript(): string {
   };
   const clearDraft = () => {
     draft = null;
-    saving = false;
     if (panel !== null) panel.textContent = "";
+  };
+  const cancelDraft = () => {
+    saving = false;
+    clearDraft();
+    setSelecting(false);
   };
   const stateLine = (text, tone) => {
     if (panel === null) return;
@@ -116,7 +120,7 @@ export function designRequestControllerScript(): string {
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.textContent = "Cancel";
-    cancel.addEventListener("click", () => { clearDraft(); setSelecting(false); });
+    cancel.addEventListener("click", () => cancelDraft());
     actions.append(save, cancel);
     panel.append(title, where, label, actions);
     input.focus();
@@ -208,8 +212,7 @@ export function designRequestControllerScript(): string {
       return;
     }
     if (data !== null && typeof data === "object" && data.type === "cancel") {
-      clearDraft();
-      setSelecting(false);
+      cancelDraft();
       return;
     }
     const selection = selectionOf(data, entry);
@@ -232,6 +235,7 @@ export function designRequestControllerScript(): string {
         setSelecting(false);
         return;
       }
+      saving = false;
       clearDraft();
       setSelecting(true);
     });
@@ -248,8 +252,7 @@ export function designRequestControllerScript(): string {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (draft === null && !selecting) return;
-    clearDraft();
-    setSelecting(false);
+    cancelDraft();
   });
 })();`;
 }

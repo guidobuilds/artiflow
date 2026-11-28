@@ -1,5 +1,6 @@
 import {
   artboardAnchorSource,
+  artboardSourceIsReadable,
   isArtboardAnchor,
   isSceneAnchor,
   redactArtboardAnchor,
@@ -130,7 +131,7 @@ async function redactUnreadableArtboardAnchors(
   const canRead = async (sourceId: string): Promise<boolean> => {
     const known = readable.get(sourceId);
     if (known !== undefined) return known;
-    const found = (await commentDocument(input.db, request.viewerId, sourceId, "shared")) !== undefined;
+    const found = artboardSourceIsReadable(await commentDocument(input.db, request.viewerId, sourceId, "shared"));
     readable.set(sourceId, found);
     return found;
   };

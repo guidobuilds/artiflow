@@ -42,7 +42,9 @@ import {
   anchorText,
   artboardAnchorRefusal,
   artboardAnchorSource,
+  artboardSourceIsReadable,
   isArtboardAnchor,
+  redactArtboardAnchor,
   isSceneAnchor,
   sceneAnchorIsOrphaned,
   sceneAnchorRefusal,
@@ -1241,15 +1243,36 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
         if ("content" in gate) return gate;
         const rows = await listComments(undefined, artifactId, false);
         const scene = acceptsSceneAnchors(gate.kind) ? await currentSceneOf(access.userId, artifactId) : null;
+        const readable = new Map<string, boolean>();
+        if (scene !== null) {
+          const sources = new Set(
+            rows.flatMap((row) => {
+              const entry = row.anchor;
+              const sourceId = isArtboardAnchor(entry) ? artboardAnchorSource(scene, entry) : null;
+              return sourceId === null ? [] : [sourceId];
+            }),
+          );
+          await Promise.all(
+            [...sources].map(async (sourceId) => {
+              const source = await backend.commentDocument(undefined, access.userId, sourceId, "shared");
+              readable.set(sourceId, artboardSourceIsReadable(source));
+            }),
+          );
+        }
+        const redact = (anchor: unknown): unknown => {
+          if (scene === null || !isArtboardAnchor(anchor)) return anchor;
+          const sourceId = artboardAnchorSource(scene, anchor);
+          return sourceId !== null && readable.get(sourceId) !== true ? redactArtboardAnchor(anchor) : anchor;
+        };
         return reply({
           comments: rows
             .filter((row) => row.parentId === null)
             .map((row) => ({
-              ...serializeComment(row),
+              ...serializeComment(row, undefined, redact),
               ...(scene === null ? {} : { orphaned: sceneAnchorIsOrphaned(scene, row.anchor) }),
               replies: rows
                 .filter((child) => child.parentId === row.id)
-                .map((child) => ({ ...serializeComment(child, row.anchor), replies: [] })),
+                .map((child) => ({ ...serializeComment(child, row.anchor, redact), replies: [] })),
             })),
         });
       },
@@ -1320,7 +1343,7 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
             const sourceId = artboardAnchorSource(loaded.value.scene, anchor);
             if (sourceId === null) return refusal("unknown_source", "anchor_frame_has_no_artboard", { artifactId });
             const sourceDocument = await backend.commentDocument(client, access.userId, sourceId, "shared");
-            if (sourceDocument === null || sourceDocument.kind !== "html")
+            if (!artboardSourceIsReadable(sourceDocument))
               return refusal("source_unavailable", "source_is_not_readable", {
                 artifactId,
                 sourceArtifactId: sourceId,
@@ -1376,8 +1399,12 @@ export function createArtifactTools(options: ArtifactToolOptions): (claims: McpC
   };
 }
 
-const serializeComment = (row: McpCommentRow, inheritedAnchor?: unknown) => {
-  const anchor = (row.anchor ?? inheritedAnchor ?? null) as AnyCommentAnchor | null;
+const serializeComment = (
+  row: McpCommentRow,
+  inheritedAnchor?: unknown,
+  redact: (anchor: unknown) => unknown = (anchor) => anchor,
+) => {
+  const anchor = redact(row.anchor ?? inheritedAnchor ?? null) as AnyCommentAnchor | null;
   return {
     id: row.id,
     parentId: row.parentId,

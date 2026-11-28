@@ -1,6 +1,5 @@
-export const MAX_SELECTION_SELECTOR = 512;
-export const MAX_SELECTION_HINT = 120;
-export const MAX_VIEWPORT_WIDTH = 1_000_000;
+import { MAX_SELECTION_HINT, MAX_SELECTION_SELECTOR, MAX_SELECTION_VIEWPORT } from "./html-bridge.ts";
+
 export const MAX_DESIGN_ID = 200;
 export const MAX_DESIGN_NAME = 200;
 export const MAX_ARTBOARD_ID = 200;
@@ -68,7 +67,7 @@ export function parseArtboardSelection(raw: unknown): SelectionResult {
     typeof viewportWidth !== "number" ||
     !Number.isSafeInteger(viewportWidth) ||
     viewportWidth < 1 ||
-    viewportWidth > MAX_VIEWPORT_WIDTH
+    viewportWidth > MAX_SELECTION_VIEWPORT
   )
     return { ok: false, reason: "viewportWidth" };
   const trimmedSelector = selector.trim();

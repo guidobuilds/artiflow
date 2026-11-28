@@ -3,6 +3,7 @@ import { test } from "node:test";
 import vm from "node:vm";
 
 import { BRIDGE_CHANNEL, BRIDGE_VERSION, MAX_SELECTION_SELECTOR } from "@artiflow/domain/html-bridge";
+import { DESIGN_BRIDGE_CHANNEL, DESIGN_BRIDGE_VERSION } from "@artiflow/domain/design-bridge";
 
 import { designRequestControllerScript } from "../apps/api/src/viewer/design-request-controller.ts";
 
@@ -56,6 +57,14 @@ function node(overrides: Partial<Node> = {}): Node {
     querySelector: () => null,
     scrollIntoView: () => {},
   };
+  let text = "";
+  Object.defineProperty(base, "textContent", {
+    get: () => text,
+    set: (value: string) => {
+      text = value;
+      if (value === "") base.children.length = 0;
+    },
+  });
   return Object.assign(base, overrides);
 }
 
@@ -64,6 +73,8 @@ type Harness = {
   panel: Node;
   clickStart: () => void;
   selectFromArtboard: (data?: Record<string, unknown>) => void;
+  sendDraft: () => void;
+  resultFromShell: (data: Record<string, unknown>) => void;
   setSceneView: (view: string) => void;
   submitToParent: () => Record<string, unknown>[];
 };
@@ -148,6 +159,33 @@ function harness(sceneView: string): Harness {
         });
       }
     },
+    sendDraft: () => {
+      const label = panel.children.find((child) => child.className === "scene-request-draft-label");
+      const input = label?.children[0];
+      if (input !== undefined) {
+        input.value = "Change it";
+        for (const run of input.listeners.input ?? []) run();
+      }
+      const actions = panel.children.find((child) => child.className === "scene-request-draft-actions");
+      const save = actions?.children[0];
+      for (const run of save?.listeners.click ?? []) run();
+    },
+    resultFromShell: (data) => {
+      for (const listener of windowListeners) {
+        listener({
+          source: context.window.parent,
+          data: {
+            channel: DESIGN_BRIDGE_CHANNEL,
+            version: DESIGN_BRIDGE_VERSION,
+            nonce: designNonce,
+            type: "result",
+            requestId: null,
+            error: null,
+            ...data,
+          },
+        });
+      }
+    },
     setSceneView: (view: string) => {
       bodyAttributes["data-scene-view"] = view;
       if (observer !== null) (observer as () => void)();
@@ -204,4 +242,17 @@ test("Canvas starts a selection and turns it off when Play begins", () => {
   );
   run.selectFromArtboard();
   assert.deepEqual(run.submitToParent(), [], "a late selection in Play is dropped");
+});
+
+test("a submit result that arrives after Play still lands, without leaving a draft behind", () => {
+  const run = harness("canvas");
+  run.clickStart();
+  run.selectFromArtboard();
+  run.sendDraft();
+  assert.equal(run.submitToParent().length, 1, "the request was sent");
+  run.setSceneView("play");
+  assert.equal(run.panel.children.length, 0, "Play clears the draft card");
+  run.resultFromShell({ requestId: "request-1" });
+  assert.equal(run.panel.children.length, 1, "the late result is still processed");
+  assert.equal(run.panel.children[0]?.getAttribute("data-request-state"), "", "it writes only a state line");
 });
