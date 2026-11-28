@@ -399,6 +399,49 @@ campos desconocidos y la validación rechaza con un motivo nombrado (`page_limit
 `invalid_annotation`, `invalid_guides`, `frame_locked`, `page_not_empty`) en vez de fallar en
 silencio.
 
+### 2.13 Editar un artboard vivo sin tocar su HTML
+
+El HTML de un artboard es un artefacto inmutable: una edición visual nunca reescribe sus bytes ni
+mueve su revisión. Lo que se edita se guarda como **overrides del Diseño**, al lado del frame, y se
+aplica al renderizar dentro del iframe sellado. La página autónoma del `source` queda idéntica byte
+por byte.
+
+- **Dónde viven.** Un frame con `source` puede declarar `overrides`: `sourceRevisionId` (la revisión
+  del `source` sobre la que se editó) y `entries`, una lista de hasta 40 overrides. Un frame sin
+  `source` no los acepta: sin artboard vivo no hay nada que sobreescribir, y la validación responde
+  `invalid_override`.
+- **Cómo se identifica un elemento.** Cada entrada lleva el localizador que ya usa la selección —
+  `selector` o `textHint` — más `key`, la clave estable derivada de ese localizador
+  (`node:<selector>` o `text:<hint>`). La clave se guarda y se valida: si no coincide con el
+  localizador, el documento se rechaza. Dos entradas con la misma clave en un frame también. Un
+  localizador vacío no es editable y se rechaza en vez de fingir que apunta a algo.
+- **Qué se puede cambiar.** `text` (hasta 400 caracteres) y cuatro propiedades de estilo: `color`,
+  `fontSize` (6–200), `align` (`left`, `center`, `right`) y `spacing` (0–96, espaciado entre
+  letras). Cualquier otra propiedad se rechaza con `unsupported_property` en vez de guardarse sin
+  efecto. `color` se valida contra hexadecimal, `rgb()`/`hsl()` y un puñado de palabras: una cadena
+  que pudiera escapar del atributo `style` no entra.
+- **Variantes.** `variant` es un ajuste comprensible que agrupa varios valores: `compact`,
+  `comfortable` y `spacious` mueven tamaño y espaciado juntos; `warm` y `cool` mueven el color de
+  acento. La variante aporta valores por defecto y el estilo explícito de cada entrada gana. Como el
+  ajuste vive en el frame, probar `spacious` en la propuesta B no cambia la A, y no hace falta un
+  sistema de tokens para eso.
+- **Cómo se aplica.** El visor inyecta un script en el mismo iframe sellado del artboard: resuelve
+  el elemento con el localizador, reemplaza el texto y escribe solo las cuatro propiedades
+  permitidas. No concede red ni acceso al padre, y no cambia el sandbox (`allow-scripts`). Un
+  elemento que ya no está no se inventa: el override queda guardado y ese elemento se muestra como
+  no editable.
+- **Qué pasa si el `source` cambia de revisión.** Política elegida: los overrides **se conservan y se
+  marcan obsoletos**; no se aplican ni se borran. Si `source.revisionId` deja de coincidir con
+  `sourceRevisionId`, el frame queda en estado `stale`, el visor no inyecta el script y el editor
+  avisa que el HTML cambió. El trabajo se conserva porque un elemento puede seguir existiendo; se
+  deja de aplicar porque una clave que ya no resuelve no debe tocar el contenido nuevo a ciegas.
+- **Bloqueo.** `locked` protege también los overrides: un frame bloqueado rechaza con `frame_locked`
+  cualquier cambio de `overrides` en el lote, igual que moverlo o renombrarlo.
+- **Persistencia y deshacer.** El cliente no inventa operaciones nuevas: el guardado envía la escena
+  completa y el servidor la diferencia en `update_frame` con `props.overrides`, con el mismo
+  `baseSeq`. Un conflicto de `baseSeq` conserva el trabajo local y lo informa como conflicto. Los
+  overrides entran en las instantáneas de deshacer junto con el resto de la escena.
+
 ## 3. Modelo actual y arquitectura actual
 
 ### 3.1 DER actual

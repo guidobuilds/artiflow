@@ -21,6 +21,7 @@
     "./scene-pages": "./src/scene-pages.ts",
     "./scene-link": "./src/scene-link.ts",
     "./scene-operations": "./src/scene-operations.ts",
+    "./scene-overrides": "./src/scene-overrides.ts",
     "./design-bridge": "./src/design-bridge.ts",
     "./design-request": "./src/design-request.ts"
   },

@@ -1,3 +1,5 @@
+import { overridesRefusal, type SceneFrameOverrides } from "./scene-overrides.ts";
+
 export const SCENE_FORMAT_VERSION = 1;
 export const SCENE_MAX_FRAMES = 200;
 export const SCENE_MAX_NODES = 2000;
@@ -91,6 +93,7 @@ export type SceneFrame = {
   source?: ArtboardSource;
   page?: string;
   locked?: boolean;
+  overrides?: SceneFrameOverrides;
 } & SceneUnknowns;
 
 export type SceneCanvasNode = SceneNode & { page?: string; annotation?: SceneAnnotation };
@@ -118,7 +121,8 @@ export type SceneRefusalReason =
   | "page_limit"
   | "unknown_page"
   | "invalid_annotation"
-  | "invalid_guides";
+  | "invalid_guides"
+  | "invalid_override";
 
 export type SceneRefusalDetail = {
   version?: number;
@@ -362,6 +366,15 @@ export function validateScene(input: unknown): SceneResult<Scene> {
       if (sourceElement !== null) return sourceElement;
       if (frame.nodes.length > 0)
         return refusal("invalid_source", `${at}.nodes`, { property: "nodes", frameId: frame.id as string });
+    }
+    if (frame.overrides !== undefined) {
+      if (frame.source === undefined)
+        return refusal("invalid_override", `${at}.overrides`, {
+          property: "overrides",
+          frameId: frame.id as string,
+        });
+      const overrides = overridesRefusal(frame.overrides, `${at}.overrides`);
+      if (overrides !== null) return overrides;
     }
 
     for (let position = 0; position < frame.nodes.length; position += 1) {

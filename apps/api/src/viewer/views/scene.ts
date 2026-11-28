@@ -16,6 +16,7 @@ import {
 } from "@artiflow/domain/scene";
 
 import { isArtboardAnchor } from "@artiflow/domain/comment-anchors";
+import { appliedOverridesOf } from "@artiflow/domain/scene-overrides";
 import { designRequestReference, designRequestStatus, designRequestStatusLabel } from "@artiflow/domain/design-request";
 import { presentsSlides } from "@artiflow/domain/kinds";
 import { guideLines, scenePageContent, scenePages } from "@artiflow/domain/scene-pages";
@@ -28,6 +29,7 @@ import { artboardControllerScript } from "./artboard-controller.ts";
 import { canvasControllerScript } from "./canvas-controller.ts";
 import { designRequestControllerScript, SCENE_REQUEST_STORAGE_KEY } from "../design-request-controller.ts";
 import { selectionBridgeScript } from "../selection-bridge-script.ts";
+import { overridesBridgeScript } from "../overrides-bridge-script.ts";
 import { deckControllerScript } from "./deck-controller.ts";
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
@@ -180,8 +182,13 @@ const ARTBOARD_UNAVAILABLE_TEXT: Record<SceneArtboardUnavailableReason, string> 
 const revisionLabel = (number: number | null, revisionId: string): string =>
   number === null ? revisionId.slice(0, 8) : `v${number}`;
 
-const sourcePageOf = (content: Extract<SceneArtboardContent, { kind: "ready" }>, bridge = ""): string =>
-  Buffer.from(`${withDocumentPolicy(content.html)}${bridge}`, "utf8").toString("base64");
+const sourcePageOf = (content: Extract<SceneArtboardContent, { kind: "ready" }>, bridge = "", overrides = ""): string =>
+  Buffer.from(`${withDocumentPolicy(content.html)}${overrides}${bridge}`, "utf8").toString("base64");
+
+const overridesScriptOf = (frame: SceneFrame): string => {
+  const overrides = appliedOverridesOf(frame);
+  return overrides.length === 0 ? "" : overridesBridgeScript({ overrides });
+};
 
 type ArtboardBridge = { readonly nonce: string; readonly script: string };
 
@@ -288,7 +295,7 @@ const renderArtboard = (
       : source.mode === "fluid"
         ? renderViewportControls(frame, initialViewportOf(frame, source.mode, view), view)
         : `<span class="scene-artboard-bar" role="group" aria-label="Artboard ${escapeAttribute(frame.name)}"><span class="scene-artboard-mode">Fixed ${num(frame.w)}</span>${renderBarActions(frame, view)}</span>`;
-  return `<div class="scene-artboard" style="width:${px(boxWidth)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(content, bridge?.script ?? "")}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
+  return `<div class="scene-artboard" style="width:${px(boxWidth)};height:${px(frame.h)}"><iframe class="scene-artboard-frame" sandbox="allow-scripts" referrerpolicy="no-referrer" title="${escapeAttribute(frame.name)}" src="data:text/html;base64,${sourcePageOf(content, bridge?.script ?? "", overridesScriptOf(frame))}" style="width:${num(width)}px;height:100%"></iframe>${bar}</div>`;
 };
 
 const renderFrame = (
