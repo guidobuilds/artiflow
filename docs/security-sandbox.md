@@ -388,6 +388,40 @@ nothing inside it. Avatars load in the parent viewer page, which is same-origin 
 markdown or artifact markup into a credentialed same-origin request channel, so that attribute must
 stay out.
 
+## The Design play navigation contract
+
+A live artboard in a Design runs in its own sealed frame: `sandbox="allow-scripts"` over a `data:`
+document, so it has an opaque origin, no network and no access to the container. A prototype still
+has to move from one screen to another, so the scene document listens for one message:
+
+| Direction     | Message    | Fields                                               |
+| ------------- | ---------- | ---------------------------------------------------- |
+| frame → scene | `navigate` | `{ frame, state? }` with `state` a small JSON object |
+| scene → frame | `enter`    | `{ frame, state }` sent to the destination           |
+
+Every message carries `{ channel: "artiflow-play", version: 1, kind }`. The scene accepts a message
+only when `event.source` is the content window of the artboard currently being played, the shape is
+exact, the destination is another frame of the same scene that is itself a live artboard, and
+`state` is an object of at most 2048 characters. Anything else is dropped with no effect: the played
+screen, the view and the other frames are untouched.
+
+Why this does not widen the sandbox:
+
+1. **It is accepted only in Play.** The canvas and Focus ignore the channel, so review and
+   comparison never turn into navigation.
+2. **The destination set is the Design itself.** A message cannot name a URL, another Design, an
+   artifact or a frame that is not an artboard, so the sealed page cannot turn the container into an
+   open redirect.
+3. **No capability is added.** The scene already renders every artboard of the Design; a page that
+   navigates only moves the person to another one of them, under the same access checks the viewer
+   already applied to each source.
+4. **The sealing is unchanged.** The frame keeps `sandbox="allow-scripts"` with no
+   `allow-same-origin`, no `allow-top-navigation`, no `allow-popups` and the same document policy, so
+   it still cannot read `parent.document`, navigate the top window or reach the network.
+
+The proof of trust is `event.source` identity, exactly as in the comment bridge: the frame's origin
+is opaque, so origin is never used to decide who is talking.
+
 The Markdown viewer page itself is same-origin and now allows `img-src 'self'`, so author-written
 markdown image syntax can make an authenticated reader's browser fetch a same-origin URL. Those GET
 routes are read-only and send no credentials beyond the session cookie the page already carries;

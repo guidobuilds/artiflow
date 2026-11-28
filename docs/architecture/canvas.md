@@ -220,6 +220,64 @@ Decisiones que sostienen la entrega:
   (revisión fijada, estado y última revisión). El editor dibuja el artboard como tarjeta: acomodar,
   nombrar y ordenar; la comparación en vivo ocurre en el visor del Diseño.
 
+### 2.9 Focus, Play y navegación conectada
+
+**Tres modos del mismo documento.** `Canvas` es la vista general; `Focus` llena la vista con un
+artboard a 390 o 1280; `Play` recorre el prototipo. No son documentos distintos: el servidor solo
+elige el modo inicial y el resto lo cambia el controlador del documento en la misma página, así que
+volver al canvas restaura el paneo, el zoom y la selección sin guardar nada.
+
+**El enlace profundo vive en la URL del visor.**
+
+```
+/artifact/<design>?frame=<frameId>&view=focus&width=390
+/artifact/<design>?frame=<frameId>&view=play&width=1280
+```
+
+`parseSceneLink` valida `view` (`focus` o `play`), `width` (390 o 1280) y `frame` (no vacío, sin
+caracteres de control, hasta 200 caracteres) en `packages/domain/src/scene-link.ts`. `planSceneView`
+lo resuelve contra la escena: un `frame` que el Diseño no tiene, un `view` desconocido o un `width`
+no soportado caen al canvas sin otro efecto, y `play` exige que el frame sea un artboard vivo. Las
+dos rutas del visor (`/artifact/:id` y el enlace compartido `/s/:token`) usan el mismo plan, así que
+el enlace de Focus y Play respeta los permisos que ya aplicaba cada ruta y un lector sin acceso al
+origen sigue viendo el estado no disponible.
+
+**Qué dibuja cada modo.** `views/scene.ts` recibe el plan y compone el documento: en `focus` el
+artboard pedido lleva `data-scene-active`, la caja y el `iframe` se ajustan al ancho elegido y la
+barra ofrece 390/1280 y «Back to canvas» —un artboard `fixed` conserva el ancho con el que se
+escribió, porque ese es su contrato—; en `play` no se emite barra, ni nombre de frame, ni índice,
+ni herramientas, ni pines, y el control de salida es el único control del contenedor. Los demás
+frames siguen en el documento —ocultos— para que una conexión pueda alcanzarlos. La política y el
+sandbox no cambian: `frame-src data:` solo cuando hay artboards, `sandbox="allow-scripts"` y el
+documento sellado con su propio `<meta>` de CSP.
+
+**Contrato de navegación.** El HTML sellado no puede navegar ni leer el padre, así que la conexión
+es un mensaje al contenedor con vocabulario cerrado:
+
+```js
+parent.postMessage(
+  { channel: "artiflow-play", version: 1, kind: "navigate", frame: "<frameId>", state: { plan: "pro" } },
+  "*",
+);
+```
+
+El contenedor (`views/canvas-controller.ts`) acepta el mensaje solo si llega en Play, desde el
+`contentWindow` del artboard que se está usando (el origen es opaco: `event.source` es la identidad),
+con la forma exacta, y si `frame` es otro frame del **mismo** Diseño que además es un artboard. Si
+algo falla, no hay efecto: ni cambio de pantalla, ni movimiento de la vista, ni mensaje entregado. El
+destino recibe `{ channel, version, kind: "enter", frame, state }`. No se aceptan URLs, ni destinos
+de otro Diseño, ni navegación del top.
+
+**Estado entre pantallas.** El camino mínimo es el que el flujo declara: `state` viaja en el mensaje
+de navegación (objeto JSON de hasta 2048 caracteres) y llega solo a la pantalla destino. Un flujo que
+necesita recordar algo durante todo el recorrido se escribe como un solo artboard. No hay
+almacenamiento de estado por pantalla ni backend nuevo.
+
+**Permisos y límites.** El enlace de Play no reemplaza la revalidación de acceso al origen: un lector
+sin permiso ve «This proposal is not available to you.» también en Play, y el contenedor no entrega
+estado a un artboard no disponible. Quedan fuera: comentarios y pedidos de cambio, comparación de
+revisiones, compartir una versión fija, edición directa, páginas internas y componentes.
+
 ## 3. Modelo actual y arquitectura actual
 
 ### 3.1 DER actual
